@@ -75,6 +75,21 @@ namespace MP4{
     stco64 = false;
     trafMode = false;
     trackId = 0;
+    timeScale = 0;
+    timeShift = 0;
+    offsetShift = 0;
+  }
+
+  int64_t TrackHeader::getMinCTSOffsetMs() {
+    if (!hasOffsets || !timeScale) { return 0; }
+    uint32_t eCnt = cttsBox.getEntryCount();
+    int32_t minOff = 0;
+    for (uint32_t i = 0; i < eCnt; ++i) {
+      int32_t off = cttsBox.getCTTSEntry(i).sampleOffset;
+      if (off < minOff) { minOff = off; }
+    }
+    if (minOff >= 0) { return 0; }
+    return ((int64_t)minOff * 1000) / (int64_t)timeScale;
   }
 
   void TrackHeader::nextMoof(){
@@ -346,7 +361,7 @@ namespace MP4{
 
         // Inside the samples with the same delta, we may still need to increase the timestamp.
         while (timeSample < index){increaseTime(entry.sampleDelta);}
-        *time = (timeTotal * 1000) / timeScale;
+        *time = (timeTotal * 1000) / timeScale + timeShift;
       }
 
       // Look up time offset, if requested and available
@@ -368,10 +383,10 @@ namespace MP4{
             offsetSample = nextSampleIndex;
             ++offsetIndex;
           }
-          *timeOffset = (entry.sampleOffset * 1000) / timeScale;
+          *timeOffset = ((int64_t)entry.sampleOffset * 1000) / (int64_t)timeScale + offsetShift;
         }else{
           // Default to zero if there are no offsets for this track
-          *timeOffset = 0;
+          *timeOffset = offsetShift;
         }
       }
 
@@ -519,14 +534,12 @@ namespace MP4{
               trunSampleInformation i = runIt->getSampleInformation(timeSample - locSkipped, &tfhd, trexPtr);
               increaseTime(i.sampleDuration);
             }
-            *time = (timeTotal * 1000) / timeScale;
+            *time = (timeTotal * 1000) / timeScale + timeShift;
           }
           if (byteLen){
             *byteLen = si.sampleSize;
           }
-          if (timeOffset){
-            *timeOffset = (si.sampleOffset * 1000) / timeScale;
-          }
+          if (timeOffset) { *timeOffset = ((int64_t)si.sampleOffset * 1000) / (int64_t)timeScale + offsetShift; }
           if (keyFrame){
             *keyFrame = !(si.sampleFlags & MP4::noKeySample);
           }

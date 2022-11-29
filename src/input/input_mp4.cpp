@@ -194,6 +194,32 @@ namespace Mist{
     tNumber = 0;
     bps = 0;
 
+    // Compute a uniform PTS rebase across all compatible tracks so that any negative
+    // CTTS composition offsets are turned into non-negative offsets, while keeping
+    // multi-track sync. Each track's DTS gets shifted forward by globalTimeOffset (max
+    // negative offset across tracks) and its per-sample offset is increased by this
+    // track's own negative-offset magnitude. Net effect: PTS = origPTS + globalTimeOffset
+    // for every track, and offsets are always >= 0 — so downstream code that reads
+    // them as unsigned (e.g. TS PES encoder) stays correct.
+    int64_t globalTimeOffset = 0;
+    for (std::deque<MP4::TrackHeader>::iterator it = trackHeaders.begin(); it != trackHeaders.end(); it++) {
+      if (!it->compatible()) { continue; }
+      int64_t minCTS = it->getMinCTSOffsetMs();
+      if (minCTS < 0 && -minCTS > globalTimeOffset) { globalTimeOffset = -minCTS; }
+    }
+    for (std::deque<MP4::TrackHeader>::iterator it = trackHeaders.begin(); it != trackHeaders.end(); it++) {
+      if (!it->compatible()) { continue; }
+      int64_t minCTS = it->getMinCTSOffsetMs();
+      int64_t dtsCtsOffset = (minCTS < 0 ? -minCTS : 0);
+      it->offsetShift = dtsCtsOffset;
+      it->timeShift = globalTimeOffset - dtsCtsOffset;
+      if (dtsCtsOffset || globalTimeOffset) {
+        INFO_MSG("Track %" PRIu32 ": rebasing offsets by +%" PRId64 " ms, DTS by +%" PRId64
+                 " ms (min CTS offset was %" PRId64 " ms, global shift %" PRId64 " ms)",
+                 (uint32_t)it->trackId, dtsCtsOffset, it->timeShift, minCTS, globalTimeOffset);
+      }
+    }
+
     bool sawParts = false;
     bool parsedInitial = false;
     for (std::deque<MP4::TrackHeader>::iterator it = trackHeaders.begin(); it != trackHeaders.end(); it++){
