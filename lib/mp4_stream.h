@@ -51,11 +51,20 @@ namespace MP4{
     /// Returns the number of parts this track header contains
     uint64_t size() const;
 
+    /// Returns the smallest sample composition offset (CTTS sampleOffset) in this track,
+    /// converted to milliseconds. Returns 0 if no CTTS box or no negative offsets exist.
+    /// Useful for the input layer to compute a uniform PTS rebase across tracks.
+    int64_t getMinCTSOffsetMs();
+
     // Information about the track. Public for convenience, but setting them has no effect.
     // The exception is sType, which affects processing of the data in some cases and should not be written to.
     // All of these are filled by the read() function when reading an MP4::TRAK box.
     size_t trackId; ///< MP4-internal ID for this track
     uint64_t timeScale; ///< Timescale in units per second
+    // Optional shifts applied by getPart() so the input layer can rebase negative
+    // composition offsets uniformly while keeping multi-track sync. Both default to 0.
+    int64_t timeShift; ///< Added to every returned *time (ms)
+    int64_t offsetShift; ///< Added to every returned *timeOffset (ms)
     std::string sType; ///< MP4-internal codec name for this track - do not write to externally!
     std::string codec; ///< Mist codec name for this track
     std::string trackType; ///< Which Mist-compatible track type this is
