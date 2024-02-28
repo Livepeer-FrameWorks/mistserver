@@ -69,16 +69,19 @@ namespace TS{
     void partialClear();
     void clear();
     void finish();
+    void delay(bool doDelay) { delayTracks = doDelay; }
     void eraseTrack(size_t tid);
     bool isDataTrack(size_t tid) const;
     void parseBitstream(size_t tid, const char *pesPayload, uint64_t realPayloadSize,
                         uint64_t timeStamp, int64_t timeOffset, uint64_t bPos, bool alignment);
-    std::set<size_t> getActiveTracks();
+    std::set<size_t> getActiveTracks(bool mediaOnly = false);
+    uint64_t getLastMs(size_t tid) const;
 
-    void setLastms(size_t tid, uint64_t timestamp);
     void setRawDataParser(rawDataType parser);
 
   private:
+    bool delayTracks;
+
     uint64_t lastPAT;
     rawDataType rParser;
     ProgramAssociationTable associationTable;
@@ -108,7 +111,7 @@ namespace TS{
     std::map<size_t, std::string> mp2Hdr;
 
     std::map<size_t, size_t> rolloverCount;
-    std::map<size_t, unsigned long long> lastms;
+    std::map<size_t, uint64_t> lastms;
 
     void parsePES(size_t tid, uint32_t codec, bool finished = false);
   };

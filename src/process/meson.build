@@ -73,3 +73,16 @@ if get_option('WITH_AV')
         'defines': [],
     }
 endif
+
+executables += {
+    'name' : 'MistProcTSDemux',
+    'sources' : [
+        files('process_tsdemux.cpp'),
+        input_cpp,
+        output_cpp,
+        io_cpp,
+        header_tgts
+    ],
+    'deps' :[libmist_dep],
+    'defines': [],
+}

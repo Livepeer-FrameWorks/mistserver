@@ -152,6 +152,7 @@ namespace TS{
   char *ADTSRemainder::getData(){return data;}
 
   Stream::Stream(){
+    delayTracks = false;
     psCache = 0;
     psCacheTid = 0;
     rParser = NONE;
@@ -602,9 +603,9 @@ namespace TS{
     free(payload);
   }
 
-  void Stream::setLastms(size_t tid, uint64_t timestamp){
-    lastms[tid] = timestamp;
-    rolloverCount[tid] = timestamp / TS_PTS_ROLLOVER;
+  uint64_t Stream::getLastMs(size_t tid) const {
+    if (lastms.count(tid)) { return lastms.at(tid); }
+    return 0;
   }
 
   void Stream::parseBitstream(size_t tid, const char *pesPayload, uint64_t realPayloadSize,
@@ -1266,7 +1267,7 @@ namespace TS{
       // Add track to meta here, if newTrack is set. Otherwise only re-initialize values
       if (idx == INVALID_TRACK_ID){
         if (!addNewTrack){return;}
-        idx = meta.addTrack();
+        idx = meta.addDelayedTrack();
       }
       meta.setType(idx, type);
       meta.setCodec(idx, codec);
@@ -1290,7 +1291,8 @@ namespace TS{
           entry.advance();
         }
       }
-      MEDIUM_MSG("Initialized track %zu as %s %s", idx, codec.c_str(), type.c_str());
+      MEDIUM_MSG("Initialized PID %zu (%s %s) as track %zu", it->first, codec.c_str(), type.c_str(), idx);
+      if (!delayTracks) { meta.validateTrack(idx, DTSC::trackValidDefault); }
       if (tid != INVALID_TRACK_ID){return;}
     }
     if (tid != INVALID_TRACK_ID){
@@ -1301,11 +1303,11 @@ namespace TS{
     }
   }
 
-  std::set<size_t> Stream::getActiveTracks(){
+  std::set<size_t> Stream::getActiveTracks(bool mediaOnly) {
     std::lock_guard<std::recursive_mutex> guard(tMutex);
     std::set<size_t> result;
     // Track 0 is always active
-    result.insert(0);
+    if (!mediaOnly) { result.insert(0); }
     // IF PAT updated in the last 5 seconds, check for contents
     if (Util::bootSecs() - lastPAT < 5){
       size_t pmtCount = associationTable.getProgramCount();
@@ -1313,7 +1315,7 @@ namespace TS{
       for (size_t i = 0; i < pmtCount; i++){
         size_t pid = associationTable.getProgramPID(i);
         // Add PMT track
-        result.insert(pid);
+        if (!mediaOnly) { result.insert(pid); }
         // IF PMT updated in last 5 seconds, check for contents
         if (Util::bootSecs() - lastPMT[pid] < 5){
           ProgramMappingEntry entry = mappingTable[pid].getEntry(0);
