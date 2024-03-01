@@ -1385,6 +1385,7 @@ namespace TS{
         hasSCTE = true;
         sectionLen += 6 + 3 + 6;
       } // 2x6 bytes registration desc, 3 bytes 000100 desc
+      if (codec == "PCM") { sectionLen += 10; } // 5 bytes registration desc
       std::string lang = M.getLang(*it);
       if (lang.size() == 3 && lang != "und"){
         sectionLen += 6; // language descriptor
@@ -1449,6 +1450,14 @@ namespace TS{
         entry.setStreamType(0x86);
         es_info.append("\000\001\000", 3); // unknown descriptor
         es_info.append("\005\004CUEI", 6); // registration descriptor
+      } else if (codec == "PCM") {
+        entry.setStreamType(0x06);
+        es_info.append("\005\010PCM", 5); // registration descriptor
+        es_info.append(1, (char)M.getChannels(*it));
+        es_info.append(1, (char)M.getSize(*it));
+        char freq[4];
+        Bit::htob24(freq, M.getRate(*it));
+        es_info.append(freq, 3);
       } else if (codec == "AC3") {
         entry.setStreamType(0x81);
       } else if (codec == "ID3") {
