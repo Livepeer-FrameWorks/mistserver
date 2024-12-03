@@ -1388,15 +1388,26 @@ namespace h264{
     out << std::string(indent + 2, ' ')
         << "video_signal_type_present_flag: " << videoSignalTypePresentFlag << std::endl;
     if (videoSignalTypePresentFlag){
-      out << std::string(indent + 2, ' ') << "video_format" << videoFormat << std::endl;
-      out << std::string(indent + 2, ' ') << "video_full_range_flag" << videoFullRangeFlag << std::endl;
-      out << std::string(indent + 2, ' ') << "colour_description_present_flag"
-          << colourDescriptionPresentFlag << std::endl;
+      out << std::string(indent + 2, ' ') << "video_format: ";
+      switch (videoFormat) {
+        case 0: out << "Component"; break;
+        case 1: out << "PAL"; break;
+        case 2: out << "NTSC"; break;
+        case 3: out << "SECAM"; break;
+        case 4: out << "MAC"; break;
+        case 5: out << "Unspecified"; break;
+        default:
+          out << "Unknown";
+          break;
+          out << videoFormat;
+      }
+      out << std::endl;
+      out << std::string(indent + 2, ' ') << "video_full_range_flag: " << videoFullRangeFlag << std::endl;
+      out << std::string(indent + 2, ' ') << "colour_description_present_flag: " << colourDescriptionPresentFlag << std::endl;
       if (colourDescriptionPresentFlag){
-        out << std::string(indent + 2, ' ') << "colour_primaries" << colourPrimaries << std::endl;
-        out << std::string(indent + 2, ' ') << "transfer_characteristics" << transferCharacteristics
-            << std::endl;
-        out << std::string(indent + 2, ' ') << "matrix_coefficients" << matrixCoefficients << std::endl;
+        out << std::string(indent + 2, ' ') << "colour_primaries: " << (int)colourPrimaries << std::endl;
+        out << std::string(indent + 2, ' ') << "transfer_characteristics: " << (int)transferCharacteristics << std::endl;
+        out << std::string(indent + 2, ' ') << "matrix_coefficients: " << (int)matrixCoefficients << std::endl;
       }
     }
     out << std::string(indent + 2, ' ')
