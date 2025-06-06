@@ -33,6 +33,13 @@ extern "C" {
 //  #include <libavfilter/buffersrc.h>
 }
 
+#define printError(preamble, code)                   \
+  {                                                  \
+    char err[128];                                   \
+    av_strerror(code, err, sizeof(err));             \
+    ERROR_MSG("%s: `%s` (%i)", preamble, err, code); \
+  }
+
 bool allowHW = true;
 bool allowSW = true;
 bool autoUpdateFps = false;
@@ -480,12 +487,6 @@ namespace Mist{
 //    AVFilterContext *buffersrc_ctx;
 //    AVFilterGraph *filter_graph;
 
-    /// \brief Prints error codes from LibAV
-    void printError(std::string preamble, int code){
-      char err[128];
-      av_strerror(code, err, sizeof(err));
-      ERROR_MSG("%s: `%s` (%i)", preamble.c_str(), err, code);
-    }
   public:
     bool isRecording(){return false;}
 
@@ -765,7 +766,7 @@ namespace Mist{
         if (hw_device_ctx){av_buffer_unref(&hw_device_ctx);}
         if (frameInHW){av_frame_free(&frameInHW);}
         avcodec_free_context(&tmpCtx);
-        printError("Could not open " + codecIn + " codec context", ret);
+        printError("Could not open codec context", ret);
         av_logLevel = AV_LOG_WARNING;
         softFormat = AV_PIX_FMT_NONE;
         return false;
@@ -940,7 +941,7 @@ namespace Mist{
         int ret = avcodec_open2(tmpCtx, codec_out, &avDict);
         if (ret < 0) {
           avcodec_free_context(&tmpCtx);
-          printError("Could not open " + codecOut + " codec context", ret);
+          printError("Could not open codec context", ret);
           return;
         }
         context_out = tmpCtx;
@@ -1027,7 +1028,7 @@ namespace Mist{
         }
         if (frameDecodeHW){av_frame_free(&frameDecodeHW);}
         avcodec_free_context(&tmpCtx);
-        printError("Could not open " + codecOut + " codec context", ret);
+        printError("Could not open codec context", ret);
         av_logLevel = AV_LOG_WARNING;
         softDecodeFormat = AV_PIX_FMT_NONE;
         return false;
@@ -1647,7 +1648,7 @@ namespace Mist{
       // Encode to target codec. Force P frame to prevent keyframe-only outputs from appearing
       int ret;
       frameConverted->pict_type = AV_PICTURE_TYPE_P;
-      frameConverted->pts++;
+      frameConverted->pts = pts++;
       {
         // Encode frame
         if (frameDecodeHW && frameInHW && frameDecodeHW != frame_RAW && softDecodeFormat == softFormat){
@@ -1657,6 +1658,12 @@ namespace Mist{
             return;
           }
           ret = avcodec_send_frame(context_out, frameInHW);
+          if (ret < 0) {
+            printError("Unable to send native HW frame to the encoder", ret);
+            config->is_active = false;
+            Util::logExitReason(ER_PROCESS_SPECIFIC, "error encoding frame");
+            return;
+          }
         }else{
           if (frameInHW){
             ret = av_hwframe_transfer_data(frameInHW, frameConverted, 0);
@@ -1665,14 +1672,23 @@ namespace Mist{
               return;
             }
             ret = avcodec_send_frame(context_out, frameInHW);
+            if (ret < 0) {
+              printError("Unable to send HW uploaded frame to the encoder", ret);
+              config->is_active = false;
+              Util::logExitReason(ER_PROCESS_SPECIFIC, "error encoding frame");
+              return;
+            }
           }else{
             ret = avcodec_send_frame(context_out, frameConverted);
+            if (ret < 0) {
+              printError("Unable to send frame to the encoder", ret);
+              config->is_active = false;
+              Util::logExitReason(ER_PROCESS_SPECIFIC, "error encoding frame");
+              return;
+            }
           }
         }
-        if (!ret){
-        }
       }
-      if (ret < 0){printError("Unable to send frame to the encoder", ret);}
 
       {
         uint64_t sleepTime = Util::getMicros();
