@@ -1227,6 +1227,8 @@ namespace Mist{
 
     // WebSockets send each packet directly. The packet is constructed in `appendSinglePacketMoof()`. 
     if (webSock) {
+      if (prevVidTrack != INVALID_TRACK_ID && thisIdx != prevVidTrack && M.getType(thisIdx) == "video") { return; }
+
       webBuf.truncate(0);
       appendSinglePacketMoof(webBuf);
         
