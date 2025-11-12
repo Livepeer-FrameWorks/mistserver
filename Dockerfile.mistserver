@@ -1,6 +1,6 @@
 FROM alpine AS mist_build
 # Pull in build requirements
-RUN apk add --no-cache git patch meson ninja gcc g++ linux-headers pigz curl cjson pkgconfig
+RUN apk add --no-cache git patch meson ninja gcc g++ linux-headers pigz curl cjson pkgconfig ffmpeg-dev
 
 # Build dependencies librist, libsrt, libsrtp2, usrsctplib, mbedtls
 RUN mkdir -p /deps/build/mbedtls /deps/build/libsrtp /deps/build/libsrt /deps/build/librist /deps/build/usrsctp /deps/mbedtls /deps/libsrtp /deps/libsrt /deps/librist /deps/usrsctp
@@ -36,7 +36,7 @@ ARG DEBUG=3
 ARG VERSION=Unknown
 ARG TARGETPLATFORM
 ARG RELEASE=Docker_${TARGETPLATFORM}
-RUN mkdir /build/ && cd /build && meson setup /src -DDOCKERRUN=true -DNOUPDATE=true -DDEBUG=${DEBUG} -DVERSION=${VERSION} -DRELEASE=${RELEASE} -Dstrip=true ${MIST_OPTS} && ninja install
+RUN mkdir /build/ && cd /build && meson setup /src -DDOCKERRUN=true -DNOUPDATE=true -DDEBUG=${DEBUG} -DVERSION=${VERSION} -DRELEASE=${RELEASE} -DWITH_AV=true -Dstrip=true ${MIST_OPTS} && ninja install
 
 # Upload debug symbols if requested
 ARG OUTPUT_DBG
@@ -44,7 +44,7 @@ RUN if [ -n "${OUTPUT_DBG+x}" ]; then tar cf - /build /src /deps | pigz -6 | cur
 
 # Prepare final image from stripped (installed) copy of build
 FROM alpine
-RUN apk add --no-cache libstdc++ cjson
+RUN apk add --no-cache libstdc++ cjson ffmpeg-libs
 COPY --from=mist_build /usr/local/ /usr/local/
 LABEL org.opencontainers.image.authors="Jaron Viëtor <jaron.vietor@ddvtech.com>"
 EXPOSE 4242 8080 1935 5554 8889/udp 18203/udp
