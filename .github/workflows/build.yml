@@ -1,0 +1,202 @@
+name: Build MistServer
+
+on:
+  push:
+    tags:
+      - 'v*'
+      - 'frameworks-*'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  REGISTRY_GHCR: ghcr.io/livepeer-frameworks
+  REGISTRY_DOCKERHUB: livepeerframeworks
+
+jobs:
+  build:
+    name: Build and Push MistServer Image
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Get version info
+        id: version
+        run: |
+          # Get short commit hash
+          SHORT_SHA=$(git rev-parse --short HEAD)
+          echo "short_sha=${SHORT_SHA}" >> "$GITHUB_OUTPUT"
+
+          # Use "development" as base tag (tracking upstream development branch)
+          echo "tag=development-${SHORT_SHA}" >> "$GITHUB_OUTPUT"
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Log in to DockerHub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build and push
+        id: build
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          provenance: true
+          sbom: true
+          tags: |
+            ${{ env.REGISTRY_GHCR }}/mistserver:${{ steps.version.outputs.tag }}
+            ${{ env.REGISTRY_GHCR }}/mistserver:latest
+            ${{ env.REGISTRY_DOCKERHUB }}/mistserver:${{ steps.version.outputs.tag }}
+            ${{ env.REGISTRY_DOCKERHUB }}/mistserver:latest
+          cache-from: |
+            type=gha,scope=mistserver
+            type=registry,ref=${{ env.REGISTRY_GHCR }}/mistserver:latest
+          cache-to: type=gha,mode=max,scope=mistserver
+
+      - name: Output build info
+        run: |
+          echo "Built and pushed MistServer image"
+          echo "Tag: ${{ steps.version.outputs.tag }}"
+          echo "Digest: ${{ steps.build.outputs.digest }}"
+          echo ""
+          echo "Images:"
+          echo "  - ${{ env.REGISTRY_GHCR }}/mistserver:${{ steps.version.outputs.tag }}"
+          echo "  - ${{ env.REGISTRY_DOCKERHUB }}/mistserver:${{ steps.version.outputs.tag }}"
+
+      - name: Save Docker metadata
+        run: |
+          mkdir -p release-metadata
+          echo "${{ steps.build.outputs.digest }}" > release-metadata/docker-digest.txt
+          echo "${{ steps.version.outputs.tag }}" > release-metadata/docker-tag.txt
+
+      - name: Upload Docker metadata artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: docker-metadata
+          path: release-metadata/*.txt
+
+  build-binaries:
+    name: Build Native Binaries (${{ matrix.arch }})
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    strategy:
+      matrix:
+        arch: [amd64, arm64]
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Get version info
+        id: version
+        run: |
+          SHORT_SHA=$(git rev-parse --short HEAD)
+          echo "short_sha=${SHORT_SHA}" >> "$GITHUB_OUTPUT"
+          echo "tag=development-${SHORT_SHA}" >> "$GITHUB_OUTPUT"
+
+      - name: Set up QEMU (for cross-arch builds)
+        if: matrix.arch == 'arm64'
+        uses: docker/setup-qemu-action@v3
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential git python3 python3-pip ninja-build \
+            libavcodec-dev libavfilter-dev libavformat-dev libavutil-dev libswscale-dev \
+            libmbedtls-dev libcjson-dev
+          pip3 install meson>=1.3.0
+
+      - name: Build MistServer
+        run: |
+          meson setup build \
+            --default-library=static \
+            -DWITH_AV=true \
+            -DDEBUG=3 \
+            --prefix=/tmp/mistserver-install
+          ninja -C build install
+
+      - name: Strip binaries
+        run: |
+          strip /tmp/mistserver-install/bin/Mist*
+
+      - name: Package binaries
+        run: |
+          cd /tmp/mistserver-install
+          tar czf ${{ github.workspace }}/mistserver-linux-${{ matrix.arch }}-${{ steps.version.outputs.tag }}.tar.gz bin/ lib/
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: mistserver-linux-${{ matrix.arch }}
+          path: mistserver-linux-${{ matrix.arch }}-${{ steps.version.outputs.tag }}.tar.gz
+
+  create-release:
+    name: Create GitHub Release
+    needs: [build, build-binaries]
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Get version info
+        id: version
+        run: |
+          SHORT_SHA=$(git rev-parse --short HEAD)
+          echo "short_sha=${SHORT_SHA}" >> "$GITHUB_OUTPUT"
+          echo "tag=development-${SHORT_SHA}" >> "$GITHUB_OUTPUT"
+
+      - name: Download amd64 binary
+        uses: actions/download-artifact@v4
+        with:
+          name: mistserver-linux-amd64
+          path: dist/
+
+      - name: Download arm64 binary
+        uses: actions/download-artifact@v4
+        with:
+          name: mistserver-linux-arm64
+          path: dist/
+
+      - name: Download Docker metadata
+        uses: actions/download-artifact@v4
+        with:
+          name: docker-metadata
+          path: dist/
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: MistServer ${{ github.ref_name }}
+          generate_release_notes: true
+          files: |
+            dist/*.tar.gz
+            dist/*.txt
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
