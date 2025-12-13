@@ -393,6 +393,13 @@ namespace Controller{
     trgs["RECORDING_END"]["response"] = "ignored";
     trgs["RECORDING_END"]["response_action"] = "None.";
 
+    trgs["RECORDING_SEGMENT"]["when"] = "When a segment is recorded to disk as part of a DVR workflow";
+    trgs["RECORDING_SEGMENT"]["stream_specific"] = true;
+    trgs["RECORDING_SEGMENT"]["payload"] =
+        "stream name (string)\npath to segment (string)\nstart time (integer)\nend time (integer)";
+    trgs["RECORDING_SEGMENT"]["response"] = "ignored";
+    trgs["RECORDING_SEGMENT"]["response_action"] = "None.";
+
     trgs["OUTPUT_END"]["when"] = "When an output finishes";
     trgs["OUTPUT_END"]["stream_specific"] = true;
     trgs["OUTPUT_END"]["payload"] =
