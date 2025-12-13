@@ -2083,6 +2083,11 @@ namespace Mist{
               }
             }
 
+            if (isRecordingToFile && Triggers::shouldTrigger("RECORDING_SEGMENT", streamName)){
+              std::string payload = streamName + "\n" + currentTarget + "\n" + JSON::Value(lastPacketTime - currentStartTime).asString() + "\n" + JSON::Value(currentStartTime).asString() + "\n" + JSON::Value(lastPacketTime).asString();
+              Triggers::doTrigger("RECORDING_SEGMENT", payload, streamName);
+            }
+
             // Keep track of filenames written, so that they can be added to the playlist file
             std::string newTarget;
             if (targetParams.count("segment")){
@@ -2174,6 +2179,10 @@ namespace Mist{
     if (myConn && myConn.isChunkedMode()) { myConn.SendNow(0, 0); }
 
     /*LTS-START*/
+    if (isRecordingToFile && Triggers::shouldTrigger("RECORDING_SEGMENT", streamName)){
+      std::string payload = streamName + "\n" + currentTarget + "\n" + JSON::Value(lastPacketTime - currentStartTime).asString() + "\n" + JSON::Value(currentStartTime).asString() + "\n" + JSON::Value(lastPacketTime).asString();
+      Triggers::doTrigger("RECORDING_SEGMENT", payload, streamName);
+    }
     if (Triggers::shouldTrigger("CONN_CLOSE", streamName)){
       std::string payload =
           streamName + "\n" + getConnectedHost() + "\n" + capa["name"].asStringRef() + "\n" + reqUrl;
