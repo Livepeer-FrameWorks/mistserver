@@ -7677,7 +7677,7 @@ context_menu: function(){
         function buildTheThings(edit,editid) {
           var o = other.split("_");
           other = o[0];
-          if (o.length == 2) { editid = o[1]; }
+          if (o.length >= 2) { editid = o.slice(1).join("_"); }
           
           if ((typeof editid != "undefined") && (typeof edit == "undefined")) {
             mist.send(function(d){
@@ -8876,24 +8876,57 @@ context_menu: function(){
         function buildstattables() {
           var mem = mist.data.capabilities.mem;
           var load = mist.data.capabilities.load;
-          
+          if (!("swapfree" in mem) && !("swaptotal" in mem)) {
+            mem.swapfree = 0;
+            mem.swaptotal = 0;
+          }
+          if (!("shmfree" in mem) && !("shmtotal" in mem)) {
+            mem.shmfree = 0;
+            mem.shmtotal = 0;
+          }
+          function createBar(total,used,cached) {
+            if (total == 0) return "";
+            return $("<div>").addClass("bargraph").append(
+              $("<span>").attr("title","Used").addClass("used").text(Math.round(used/total*100)+"%").width((used/total*100)+"%")
+            ).append( cached ? 
+              $("<span>").attr("title","Cached").addClass("cached").width((cached/total*100)+"%")
+              : "" )
+          }
           var memory = {
             vheader: 'Memory',
-            labels: ['Used','Cached','Available','Total'],
+            labels: ['','Used','Available','Total'],
             content: [
               {
                 header: 'Physical memory',
                 body: [
-                  $("<span>").append(UI.format.bytes(mem.used*1024*1024)).append(' ('+UI.format.addUnit(load.memory,'%')+')'),
-                  UI.format.bytes(mem.cached*1024*1024),
-                  UI.format.bytes(mem.free*1024*1024),
+                  createBar(mem.total,mem.used,mem.cached),
+                  $("<span>").append(UI.format.bytes(mem.used*1024*1024)).append(' ('+UI.format.addUnit(load.mem,'%')+')'),
+                  $("<span>").append(
+                    UI.format.bytes(mem.free*1024*1024)
+                  ).append(
+                    $("<div>").append(
+                      "("
+                    ).append(
+                      UI.format.bytes(mem.cached*1024*1024)
+                    ).append(
+                      " cached)"
+                    )
+                  ),
                   UI.format.bytes(mem.total*1024*1024)
+                ]
+              },{
+                header: 'Shared memory',
+                body: [
+                  createBar(mem.shmtotal,mem.shmtotal-mem.shmfree),
+                  $("<span>").append(UI.format.bytes((mem.shmtotal-mem.shmfree)*1024*1024)).append(' ('+UI.format.addUnit(load.shm,'%')+')'),
+                  UI.format.bytes(mem.shmfree*1024*1024),
+                  UI.format.bytes(mem.shmtotal*1024*1024)
                 ]
               },{
                 header: 'Swap memory',
                 body: [
+                  createBar(mem.swaptotal,mem.swaptotal-mem.swapfree),
                   UI.format.bytes((mem.swaptotal-mem.swapfree)*1024*1024),
-                  UI.format.addUnit('','N/A'),
                   UI.format.bytes(mem.swapfree*1024*1024),
                   UI.format.bytes(mem.swaptotal*1024*1024)
                 ]
@@ -9045,8 +9078,11 @@ context_menu: function(){
         mist.data = {};
         UI.sockets.http_host = null;
         sessionStorage.removeItem('mistLogin');
+
+        mist.send(function(){
+          UI.navto('Login');
+        },{logout:true});
         
-        UI.navto('Login');
         break;
       default:
         $main.append($('<p>').text('This tab does not exist.'));

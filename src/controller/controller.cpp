@@ -513,7 +513,7 @@ int main_loop(int argc, char **argv){
     Util::Procs::socketList.insert(uSock.getSock());
     Controller::E.addSocket(uSock.getSock(), [&](void *) {
       while (uSock.Receive()) {
-        MEDIUM_MSG("UDP API: %s", (const char *)uSock.data);
+        MEDIUM_MSG("UDP API: %.*s", (int)uSock.data.size(), (const char *)uSock.data);
         JSON::Value Request = JSON::fromString(uSock.data, uSock.data.size());
         Request["minimal"] = true;
         JSON::Value Response;
@@ -522,7 +522,8 @@ int main_loop(int argc, char **argv){
           Response["authorize"]["local"] = true;
           Controller::handleAPICommands(Request, Response);
           Response.removeMember("authorize");
-          uSock.SendNow(Response.toString());
+          // Only reply if the request does not come from our own port (prevent loops)
+          if (uSock.getRemoteAddr().port() != boundPort) { uSock.SendNow(Response.toString()); }
         } else {
           WARN_MSG("Invalid API command received over UDP: %s", (const char *)uSock.data);
         }
@@ -603,6 +604,27 @@ int main(int argc, char **argv){
   // Not sure if this is the right way, but it seems to help!
   umask(0);
 #endif
+
+#ifdef DOCKERRUN 
+  // Docker-specific code to run any command passed to the controller
+  if(argc > 1) {
+    char *path = getenv("PATH");
+    std::deque<std::string> paths;
+    if (path) {
+      Util::splitString(path, ':', paths);
+    } else {
+      paths.emplace_back("/usr/local/bin/");
+      paths.emplace_back("/usr/bin/");
+    }
+
+    for (const std::string &p : paths) {
+      struct stat buf;
+      if(stat((p + '/' + argv[1]).c_str(), &buf)) continue;
+      if (buf.st_mode & S_IXOTH) execvp(argv[1], argv + 1);
+    }
+  }
+#endif
+
   Controller::conf = Util::Config(argv[0]);
   Util::Config::binaryType = Util::CONTROLLER;
   Controller::conf.activate();

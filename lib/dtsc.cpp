@@ -2508,10 +2508,13 @@ namespace DTSC{
       INFO_MSG("Shared metadata not ready yet - no tracks valid");
       return res;
     }
+    uint64_t myPid = getpid();
     uint64_t firstValid = trackList.getDeleted();
     uint64_t beyondLast = trackList.getEndPos();
     for (size_t i = firstValid; i < beyondLast; i++){
-      if (!(trackList.getInt(trackValidField, i) & trackValidMask)){continue;}
+      if (!(trackList.getInt(trackValidField, i) & trackValidMask)) {
+        if (trackList.getInt(trackPidField, i) != myPid || !trackList.getInt(trackValidField, i)) { continue; }
+      }
       if (!tracks.count(i)){continue;}
       const Track & t = tracks.at(i);
       if (!t.track.isReady()){continue;}
@@ -2787,6 +2790,8 @@ namespace DTSC{
     }
     t.parts.addRecords(1);
 
+    if (getType(tNumber) == "video" && t.fpsCalc.addTime(packTime)) { setEfpks(tNumber, t.fpsCalc.fpks); }
+
     uint64_t newKeyNum = t.keys.getEndPos();
     if (isKeyframe || newKeyNum == 0 ||
         (getType(tNumber) != "video" && packTime >= AUDIO_KEY_INTERVAL &&
@@ -2809,7 +2814,9 @@ namespace DTSC{
         // Update duration of previous key too
         uint64_t prevKeyDuration = packTime - t.keys.getInt(t.keyTimeField, newKeyNum - 1);
         t.keys.setInt(t.keyDurationField, prevKeyDuration, newKeyNum - 1);
-        setEfpks(tNumber, prevKeyDuration * 1000 / t.keys.getInt(t.keyPartsField, newKeyNum - 1));
+        if (prevKeyDuration) {
+          setEfpks(tNumber, (t.keys.getInt(t.keyPartsField, newKeyNum - 1) * 1000000) / prevKeyDuration);
+        }
       }else{
         t.keys.setInt(t.keyFirstPartField, 0, newKeyNum);
       }
@@ -2961,6 +2968,78 @@ namespace DTSC{
     return k;
   }
 
+  frameRateCalculator::frameRateCalculator() {
+    dataPoints = 0;
+    fpks = 0;
+  }
+
+  /// Calculates fpks based on frame timings. Returns true whenever the (estimated) frame rate changes.
+  bool frameRateCalculator::addTime(uint64_t t) {
+    // We want 0.01 FPS precision around 30 and 60 FPS
+    // We want 0.1 FPS precision everywhere else under 500 FPS
+    // We want 1 FPS precision over 1000 FPS.
+    // To calculate the needed frames for our wanted precision: (rate^2) / 5
+    // (or use 50 instead of 5 for 0.1 FPS, or 500 instead of 5 for 1 FPS)
+
+    // Ensure 5k data points fit: this is needed for 0.1 FPS precision at 500 FPS, our theoretical maximum wanted precision.
+    if (data.size() < sizeof(uint64_t) * 5000) {
+      data.allocate(sizeof(uint64_t) * 5000);
+      data.append(0, data.rsize() - data.size());
+    }
+
+    uint64_t *times = (uint64_t *)(char *)data;
+
+    // Ensure time never stalls or flows backwards. This is technically wrong, but we can't do any calculations otherwise.
+    if (dataPoints && times[(dataPoints - 1) % 5000] >= t) { return false; }
+
+    times[dataPoints % 5000] = t;
+    ++dataPoints;
+
+    if (dataPoints <= 1) { return false; }
+
+    // Seed the fpks for the initial calculation (single-frame estimate)
+    if (!fpks) { fpks = 1000000 * (dataPoints - 1) / (t - times[0]); }
+
+    // Calculate how many frames we need to be precise
+    size_t fps = fpks / 1000; // round to whole FPS
+    size_t neededFrames = (fps * fps) / ((fps < 65) ? 5 : ((fps < 500) ? 50 : 500));
+    if (neededFrames < 2) { neededFrames = 2; }
+
+    // Less than needed frames? Update current estimate based on received frames so far.
+    if (dataPoints < neededFrames) {
+      uint64_t fpksOld = fpks;
+      fpks = 1000000 * (dataPoints - 1) / (t - times[0]);
+      if (fpks != fpksOld) {
+        DONTEVEN_MSG("FPS calculation %zu%%: %" PRIu64 " fpks", (size_t)(dataPoints * 100 / neededFrames), fpks);
+      }
+      return false;
+    }
+
+    // Okay, we know we have a frame rate with the precision we want.
+    // Reduce the shown decimals to our precision level, since we don't want to make it look like there is more
+    // precision than there actually is.
+    uint64_t fpksOld = fpks;
+    fpks = 1000000 * (neededFrames - 1) / (t - times[(dataPoints - neededFrames) % 5000]);
+    if (fps < 65) {
+      fpks = (uint64_t)((fpks + 5) / 10) * 10;
+    } else if (fps < 500) {
+      fpks = (uint64_t)((fpks + 50) / 100) * 100;
+    } else {
+      fpks = (uint64_t)((fpks + 500) / 1000) * 1000;
+    }
+    if (!precise) {
+      precise = true;
+      HIGH_MSG("Frame rate calculated: %" PRIu64 " fpks", fpks);
+      return true;
+    }
+    if (fpksOld != fpks) {
+      MEDIUM_MSG("Frame rate change: %" PRIu64 " -> %" PRIu64 " fpks", fpksOld, fpks);
+      return true;
+    } else {
+      return false;
+    }
+  }
+
   void Meta::storeFrame(size_t trackIdx, uint64_t time, const char * data, size_t dataSize){
     Track & t = tracks.at(trackIdx);
 
@@ -2987,6 +3066,7 @@ namespace DTSC{
       t.frames.deleteRecords(1);
       setFirstms(trackIdx, t.frames.getInt(t.framesTimeField, t.frames.getDeleted()));
     }
+    uint64_t begPos = t.frames.getDeleted();
     t.frames.setInt(t.framesTimeField, time, endPos);
     if (t.framesDataField.size < dataSize){dataSize = t.framesDataField.size;}
     memcpy(t.frames.getPointer(t.framesDataField, endPos), data, dataSize);
@@ -2995,6 +3075,9 @@ namespace DTSC{
     setMinKeepAway(trackIdx, theJitters[trackIdx].addPack(time));
     t.track.setInt(t.trackLastmsField, time);
     t.track.setInt(t.trackNowmsField, time);
+    if (begPos != endPos) {
+      t.track.setInt(t.trackEfpksField, 1000000 * (endPos - begPos) / (time - t.frames.getInt(t.framesTimeField, begPos)));
+    }
     markUpdated(trackIdx);
   }
 
@@ -3175,6 +3258,7 @@ namespace DTSC{
       trackJSON["idx"] = (uint64_t)*it;
       trackJSON["trackid"] = (uint64_t)getID(*it);
       trackJSON["init"] = getInit(*it);
+      trackJSON["init"].raw();
       trackJSON["firstms"] = getFirstms(*it);
       trackJSON["lastms"] = getLastms(*it);
       trackJSON["nowms"] = getNowms(*it);
@@ -3199,6 +3283,8 @@ namespace DTSC{
         trackJSON["height"] = getHeight(*it);
         trackJSON["fpks"] = getFpks(*it);
         trackJSON["efpks"] = getEfpks(*it);
+        trackJSON["fps"] = getFpks(*it) / 1000.0;
+        trackJSON["efps"] = getEfpks(*it) / 1000.0;
         if (hasBFrames(*it)){
           bframes = true;
           trackJSON["bframes"] = 1;
@@ -3671,62 +3757,90 @@ namespace DTSC{
     std::set<size_t> validTracks = getValidTracks();
     uint64_t jitter = 0;
     uint64_t buffer = 0;
+    JSON::Value & trkLst = retRef["tracks"];
     for (std::set<size_t>::iterator it = validTracks.begin(); it != validTracks.end(); it++){
       size_t i = *it;
-      JSON::Value &track = retRef[getTrackIdentifier(i)];
+      const std::string trkIdent = getTrackIdentifier(i, true);
+      const size_t srcTrk = getSourceTrack(i);
+      JSON::Value & track = retRef[trkIdent];
+      trkLst.append(trkIdent);
+      track["idx"] = *it;
+      track["id"] = getID(i);
       uint64_t minKeep = getMinKeepAway(*it);
       track["jitter"] = minKeep;
       std::string codec = getCodec(i);
       std::string type = getType(i);
       track["kbits"] = getBps(i) * 8 / 1024;
       track["codec"] = codec;
-      uint32_t shrtest_key = 0xFFFFFFFFul;
-      uint32_t longest_key = 0;
-      uint32_t shrtest_prt = 0xFFFFFFFFul;
-      uint32_t longest_prt = 0;
-      uint32_t shrtest_cnt = 0xFFFFFFFFul;
-      uint32_t longest_cnt = 0;
-      DTSC::Keys Mkeys(getKeys(i));
-      uint32_t firstKey = Mkeys.getFirstValid();
-      uint32_t endKey = Mkeys.getEndValid();
-      for (uint32_t k = firstKey; k+1 < endKey; k++){
-        uint64_t kDur = Mkeys.getDuration(k);
-        uint64_t kParts = Mkeys.getParts(k);
-        if (!kDur){continue;}
-        if (kDur > longest_key){longest_key = kDur;}
-        if (kDur < shrtest_key){shrtest_key = kDur;}
-        if (kParts > longest_cnt){longest_cnt = kParts;}
-        if (kParts < shrtest_cnt){shrtest_cnt = kParts;}
-        if ((kDur / kParts) > longest_prt){longest_prt = (kDur / kParts);}
-        if ((kDur / kParts) < shrtest_prt){shrtest_prt = (kDur / kParts);}
+      if (hasEmbeddedFrames(*it)) {
+        uint32_t shrtest_prt = 0xFFFFFFFFul;
+        uint32_t longest_prt = 0;
+        DTSC::Keys Mkeys(getKeys(i));
+        uint32_t firstKey = Mkeys.getFirstValid();
+        uint32_t endKey = Mkeys.getEndValid();
+        uint64_t prevTime = 0;
+        for (uint32_t k = firstKey; k + 1 < endKey; k++) {
+          uint64_t kTime = Mkeys.getTime(k);
+          if (k != firstKey) {
+            uint32_t dur = kTime - prevTime;
+            if (dur > longest_prt) { longest_prt = dur; }
+            if (dur < shrtest_prt) { shrtest_prt = dur; }
+          }
+          prevTime = kTime;
+        }
+        track["keys"]["ms_min"] = shrtest_prt;
+        track["keys"]["ms_max"] = longest_prt;
+        track["keys"]["frame_ms_min"] = shrtest_prt;
+        track["keys"]["frame_ms_max"] = longest_prt;
+        track["keys"]["frames_min"] = 1;
+        track["keys"]["frames_max"] = 1;
+      } else {
+        uint32_t shrtest_key = 0xFFFFFFFFul;
+        uint32_t longest_key = 0;
+        uint32_t shrtest_prt = 0xFFFFFFFFul;
+        uint32_t longest_prt = 0;
+        uint32_t shrtest_cnt = 0xFFFFFFFFul;
+        uint32_t longest_cnt = 0;
+        DTSC::Keys Mkeys(getKeys(i));
+        uint32_t firstKey = Mkeys.getFirstValid();
+        uint32_t endKey = Mkeys.getEndValid();
+        for (uint32_t k = firstKey; k + 1 < endKey; k++) {
+          uint64_t kDur = Mkeys.getDuration(k);
+          uint64_t kParts = Mkeys.getParts(k);
+          if (!kDur) { continue; }
+          if (kDur > longest_key) { longest_key = kDur; }
+          if (kDur < shrtest_key) { shrtest_key = kDur; }
+          if (kParts > longest_cnt) { longest_cnt = kParts; }
+          if (kParts < shrtest_cnt) { shrtest_cnt = kParts; }
+          if ((kDur / kParts) > longest_prt) { longest_prt = (kDur / kParts); }
+          if ((kDur / kParts) < shrtest_prt) { shrtest_prt = (kDur / kParts); }
+        }
+        track["keys"]["ms_min"] = shrtest_key;
+        track["keys"]["ms_max"] = longest_key;
+        track["keys"]["frame_ms_min"] = shrtest_prt;
+        track["keys"]["frame_ms_max"] = longest_prt;
+        track["keys"]["frames_min"] = shrtest_cnt;
+        track["keys"]["frames_max"] = longest_cnt;
+        if (srcTrk == INVALID_TRACK_ID) {
+          if (jitter < minKeep) { jitter = minKeep; }
+          if (longest_prt > 500) { issues << "unstable connection (" << longest_prt << "ms " << codec << " frame)! "; }
+          if (shrtest_cnt < 6) {
+            issues << "unstable connection (" << shrtest_cnt << " " << codec << " frame(s) in key)! ";
+          }
+          if (longest_key > shrtest_key * 1.30) {
+            issues << "unstable key interval (" << (uint32_t)(((longest_key / shrtest_key) - 1) * 100) << "% " << codec << " variance)! ";
+          }
+        }
       }
-      track["keys"]["ms_min"] = shrtest_key;
-      track["keys"]["ms_max"] = longest_key;
-      track["keys"]["frame_ms_min"] = shrtest_prt;
-      track["keys"]["frame_ms_max"] = longest_prt;
-      track["keys"]["frames_min"] = shrtest_cnt;
-      track["keys"]["frames_max"] = longest_cnt;
-      uint64_t trBuffer = getLastms(i) - getFirstms(i);
-      track["buffer"] = trBuffer;
-      size_t srcTrk = getSourceTrack(i);
       if (srcTrk != INVALID_TRACK_ID){
         if (trackValid(srcTrk)){
           track["source"] = getTrackIdentifier(srcTrk);
         }else{
           track["source"] = "Invalid track " + JSON::Value((uint64_t)srcTrk).asString();
         }
-      }else{
-        if (jitter < minKeep){jitter = minKeep;}
-        if (longest_prt > 500){
-          issues << "unstable connection (" << longest_prt << "ms " << codec << " frame)! ";
-        }
-        if (shrtest_cnt < 6){
-          issues << "unstable connection (" << shrtest_cnt << " " << codec << " frame(s) in key)! ";
-        }
-        if (longest_key > shrtest_key*1.30){
-          issues << "unstable key interval (" << (uint32_t)(((longest_key/shrtest_key)-1)*100) << "% " << codec << " variance)! ";
-        }
       }
+      uint64_t trBuffer = getLastms(i) - getFirstms(i);
+      track["buffer"] = trBuffer;
       if (buffer < trBuffer){buffer = trBuffer;}
       if (codec == "AAC"){hasAAC = true;}
       if (codec == "H264"){hasH264 = true;}
@@ -3735,6 +3849,8 @@ namespace DTSC{
         track["height"] = getHeight(i);
         track["fpks"] = getFpks(i);
         track["efpks"] = getEfpks(i);
+        track["fps"] = getFpks(i) / 1000.0;
+        track["efps"] = getEfpks(i) / 1000.0;
         track["bframes"] = hasBFrames(i);
       }
       if (type == "audio"){

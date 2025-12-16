@@ -33,6 +33,9 @@ mistplayers.wheprtc = {
         playabletracks[MistVideo.info.meta.tracks[i].type] = {};
       }
       playabletracks[MistVideo.info.meta.tracks[i].type][MistVideo.info.meta.tracks[i].codec] = 1;
+      if (MistVideo.info.meta.tracks[i].codec == "HEVC") {
+        playabletracks[MistVideo.info.meta.tracks[i].type]["H265"] = 1
+      }
     }
 
     var tracktypes = [];
@@ -222,7 +225,7 @@ p.prototype.build = function (MistVideo,callback) {
         var func = function() {
           if (!whep.connection || (whep.connection.connectionState == "closed")) { resolve(); }
           else {
-            console.warn("not yet",whep.connection.connectionState);
+            //console.warn("not yet",whep.connection.connectionState);
             MistVideo.timers.start(function(){
               func();
             },100);

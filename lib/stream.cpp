@@ -34,7 +34,7 @@ static std::string strftime_now(const std::string &format){
   return buffer;
 }
 
-std::string Util::codecString(const std::string &codec, const std::string &initData){
+std::string Util::codecString(const std::string &codec, const std::string &initData, bool webCodec){
   if (codec == "H264"){
     std::stringstream r;
     r << "avc1";
@@ -106,7 +106,7 @@ std::string Util::codecString(const std::string &codec, const std::string &initD
     return r.str();
   }
   if (codec == "AAC"){return "mp4a.40.2";}
-  if (codec == "MP3"){return "mp4a.40.34";}
+  if (codec == "MP3") { return webCodec ? "mp3" : "mp4a.40.34"; }
   if (codec == "AC3"){return "mp4a.a5";}
   if (codec == "AV1"){
     if (initData.size() < 4){return "av01";}// Can't determine properties. :-(
@@ -130,6 +130,8 @@ std::string Util::codecString(const std::string &codec, const std::string &initD
   }
   if (codec == "opus") { return "opus"; }
   if (codec == "VP8") { return "vp8"; }
+  if (codec == "ULAW") { return "ulaw"; }
+  if (codec == "ALAW") { return "alaw"; }
   if (codec == "VP9") { return "vp9.00.00.08"; }
   return "";
 }
@@ -688,6 +690,19 @@ bool Util::startInput(std::string streamname, std::string filename, bool forkFir
       if (!prm->isMember("type") && str_args.count(opt)){str_args[opt] = "";}
     }
   }
+  // check internal parameters
+  if (input.isMember("internal")) {
+    jsonForEachConst (input["internal"], prm) {
+      if (!prm->isMember("option")) { continue; }
+      const std::string opt = (*prm)["option"].asStringRef();
+      // check for overrides
+      if (overrides.count(prm.key())) {
+        HIGH_MSG("Overriding option '%s' to '%s'", prm.key().c_str(), overrides.at(prm.key()).c_str());
+        str_args[opt] = overrides.at(prm.key());
+      }
+      if (!prm->isMember("type") && str_args.count(opt)) { str_args[opt] = ""; }
+    }
+  }
 
   if (isProvider){
     // Set environment variable so we can know if we have a provider when re-exec'ing.
@@ -1136,6 +1151,15 @@ std::set<size_t> Util::pickTracks(const DTSC::Meta &M, const std::set<size_t> tr
   //Convert selector to lower case
   std::string trackLow = trackVal;
   Util::stringToLower(trackLow);
+
+  // the letter i followed by a number -> track ID based selection
+  if (trackLow.size() >= 2 && trackLow[0] == 'i' && trackLow[1] >= '0' && trackLow[1] <= '9') {
+    size_t id = JSON::Value(trackLow.substr(1)).asInt();
+    for (std::set<size_t>::iterator it = trackList.begin(); it != trackList.end(); it++) {
+      if (M.getID(*it) == id) { result.insert(*it); }
+    }
+    return result;
+  }
 
   //Select all tracks in trackList of the given type
   if (trackLow == "all" || trackLow == "*"){

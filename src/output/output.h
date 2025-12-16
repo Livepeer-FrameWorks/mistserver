@@ -72,6 +72,8 @@ namespace Mist{
     virtual void sendHeader();
     virtual void onFail(const std::string &msg, bool critical = false);
     virtual void requestHandler(bool readable);
+    virtual void atLivePoint() {}
+    virtual void atDeadPoint() { stop(); }
     static Util::Config *config;
     void playbackSleep(uint64_t millis);
 

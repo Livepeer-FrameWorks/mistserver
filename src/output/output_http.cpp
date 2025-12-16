@@ -347,9 +347,8 @@ namespace Mist{
           }
           fwdHostStr.clear();
         }else{
-          Socket::Connection tmp;
-          tmp.setHost(fwdHostStr);
-          fwdHostBin = tmp.getBinHost();
+          std::deque<Socket::Address> addrs = Socket::getAddrs(fwdHostStr, 0);
+          if (addrs.size()) { fwdHostBin = addrs.begin()->binForm(); }
         }
       }
 
@@ -507,6 +506,47 @@ namespace Mist{
     return handleCommand(command);
   }
 
+  void HTTPOutput::atLivePoint(){
+    if (wsCmdForce || (webSock && wsCmds)){
+      if (!forwardTo && target_rate != 0.0){
+        JSON::Value r;
+        r["type"] = "set_speed";
+        r["reason"] = "at_live_point";
+        if (target_rate == 0.0) {
+          r["data"]["play_rate_prev"] = "auto";
+        } else {
+          r["data"]["play_rate_prev"] = target_rate;
+        }
+        r["data"]["play_rate_curr"] = "auto";
+
+        uint64_t prevTargetTime = targetTime();
+        target_rate = 0.0; // Auto playback rate
+        realTime = 1000;//set playback speed to default
+        firstTime = Util::bootMS() - prevTargetTime;
+        maxSkipAhead = 0;//enabled automatic rate control
+        stayLive = true;
+
+        if (M.getLive()) { r["data"]["live_point"] = stayLive; }
+        onCommandSend(r.toString());
+        handleWebsocketIdle();
+        onIdle();
+      }
+    }
+  }
+
+  void HTTPOutput::atDeadPoint() {
+    if (wsCmdForce || (webSock && wsCmds)) {
+      stop();
+      JSON::Value r;
+      r["type"] = "pause";
+      r["paused"] = true;
+      r["reason"] = "at_dead_point";
+      r["data"]["begin"] = startTime();
+      r["data"]["end"] = endTime();
+      onCommandSend(r.toString());
+    }
+  }
+
   /// Handles standardized (WebSocket) commands.
   /// Returns true if a command was executed, false otherwise.
   bool HTTPOutput::handleCommand(const JSON::Value & command){
@@ -577,8 +617,14 @@ namespace Mist{
 
     //Fast_forward command, fast-forwards to given timestamp and resume previous speed
     if (command["type"] == "fast_forward"){
+      forwardTo = 0;
+      if (command.isMember("ff_add")){
+        forwardTo = currentTime() + command["ff_add"].asInt();
+      }
       if (command.isMember("ff_to")){
         forwardTo = command["ff_to"].asInt();
+      }
+      if (forwardTo){
         if (forwardTo > currentTime()){
           realTime = 0;
         }else{
@@ -893,6 +939,12 @@ namespace Mist{
       if (command.isMember("ff_to") && command["ff_to"].asInt() > forwardTo){
         forwardTo = command["ff_to"].asInt();
       }
+    }
+    if (command.isMember("ff_add")){
+      if (!forwardTo){forwardTo = seek_time;}
+      forwardTo += command["ff_add"].asInt();
+    }
+    if (forwardTo){
       if (forwardTo < currentTime()){
         if (target_rate == 0.0){
           firstTime = Util::bootMS() - forwardTo;
@@ -904,7 +956,9 @@ namespace Mist{
         realTime = 0;
         r["data"]["play_rate_curr"] = "fast-forward";
       }
+      r["data"]["ff_to"] = forwardTo;
     }
+    r["data"]["pos"] = currentTime();
     onCommandSend(r.toString());
     handleWebsocketIdle();
     onIdle();

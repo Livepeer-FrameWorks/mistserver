@@ -492,7 +492,7 @@ bool Controller::handleAPIConnection(APIConn *aConn) {
   }
   while (aConn->C.spool() && aConn->C.Received().size() && aConn->H.Read(aConn->C)) {
     // Are we local and not forwarded? Instant-authorized.
-    if (!aConn->authorized && !aConn->H.hasHeader("X-Real-IP") && aConn->C.isLocal()) {
+    if (!aConn->authorized && !aConn->H.hasHeader("X-Forwarded-For") && !aConn->H.hasHeader("X-Real-IP") && aConn->C.isLocal()) {
       MEDIUM_MSG("Local API access automatically authorized");
       aConn->isLocal = true;
       aConn->authorized = true;
@@ -574,7 +574,10 @@ bool Controller::handleAPIConnection(APIConn *aConn) {
       } else {
         aConn->authorized |= authorize(Request, Response, aConn->C);
       }
-      if (aConn->authorized) { handleAPICommands(Request, Response); }
+      if (aConn->authorized) {
+        handleAPICommands(Request, Response);
+        if (Request.isMember("logout")) { aConn->authorized = false; }
+      }
     } // config mutex lock
     if (!aConn->authorized) { aConn->attempts++; }
     // send the response, either normally or through JSONP callback.

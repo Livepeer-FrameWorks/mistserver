@@ -16,9 +16,9 @@
 
 #include <algorithm>
 #include <cstdint>
-#include <deque>
 #include <fstream>
 #include <iostream>
+#include <set>
 #include <signal.h>
 #include <sys/stat.h>
 
@@ -46,7 +46,7 @@ namespace Controller{
   uint64_t firstLog = 0;
 
   HTTP::Downloader jwkDL;
-  std::map<std::string, std::deque<JWT::Key>> jwkResolved;
+  std::map<std::string, std::set<JWT::Key>> jwkResolved;
   std::map<std::string, uint64_t> uriExpiresAt;
   std::map<std::string, std::string> uriEndpoint;
   std::map<std::string, JSON::Value> uriPerms;
@@ -206,7 +206,7 @@ namespace Controller{
           const std::string & kty = (*key)["kty"].asStringRef();
           if (kty != "oct" && kty != "RSA" && kty != "EC") continue;
           JWT::Key jwk = JWT::Key(*key, mostExpiredPerms);
-          jwkResolved[mostExpiredUri].emplace_back(jwk);
+          jwkResolved[mostExpiredUri].insert(jwk);
         }
       } else {
         jwkResolved.erase(mostExpiredUri);
@@ -1021,7 +1021,7 @@ namespace Controller{
           continue;
         }
         JWT::Key jwk = JWT::Key((it->isArray()) ? (*it)[0u] : *it, (it->isArray()) ? (*it)[1u] : JSON::EMPTY);
-        jwkResolved["default"].emplace_back(jwk);
+        jwkResolved["default"].insert(jwk);
       }
 
       // Remove any nulled elements from the keystore and start setting up the shared page
@@ -1056,14 +1056,14 @@ namespace Controller{
       std::map<std::string, uint32_t> uniques;
 
       // For each key in the storage write it to shared memory if it was present in the config
-      for (auto jwkUriPair : jwkResolved) {
+      for (const auto & jwkUriPair : jwkResolved) {
         // Erase the keys if the config does not have the URI anymore
         if (!uris.count(jwkUriPair.first) && jwkUriPair.first != "default") {
           uriExpiresAt.erase(jwkUriPair.first);
           uriPerms.erase(jwkUriPair.first);
           continue;
         }
-        for (auto jwk : jwkUriPair.second) {
+        for (const auto & jwk : jwkUriPair.second) {
           std::string raw = jwk.toString(false);
           // Duplicate prevention based on full key matching
           uint32_t j = i;

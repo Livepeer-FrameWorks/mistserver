@@ -830,8 +830,8 @@ namespace Mist{
 
   /// Return the intended target current time of the media buffer (as opposed to actual)
   /// This takes into account the current playback speed as well as the maxSkipAhead setting.
-  uint64_t Output::targetTime(){
-    if (!realTime){return currentTime();}
+  uint64_t Output::targetTime() {
+    if (!realTime) { return currentTime(); }
     return (((thisBootMs - firstTime) * 1000) / realTime + maxSkipAhead);
   }
 
@@ -863,19 +863,15 @@ namespace Mist{
   /// Return the end time of the selected tracks, or 0 if unknown or live.
   /// Returns the end time of latest track if nothing is selected.
   /// Returns zero if no tracks exist.
-  uint64_t Output::endTime(){
-    std::set<size_t> validTracks = M.getValidTracks();
-    if (!validTracks.size()){return 0;}
+  uint64_t Output::endTime() {
     uint64_t end = 0;
-    if (userSelect.size()){
-      for (std::map<size_t, Comms::Users>::iterator it = userSelect.begin(); it != userSelect.end(); it++){
-        if (M.trackValid(it->first) && end < M.getLastms(it->first)){
-          end = meta.getLastms(it->first);
-        }
+    if (userSelect.size()) {
+      for (const auto & it : userSelect) {
+        if (M.trackValid(it.first) && end < M.getLastms(it.first)) { end = meta.getLastms(it.first); }
       }
-    }else{
-      for (std::set<size_t>::iterator it = validTracks.begin(); it != validTracks.end(); it++){
-        if (end < meta.getLastms(*it)){end = meta.getLastms(*it);}
+    } else {
+      for (const auto & T : M.getValidTracks()) {
+        if (end < meta.getLastms(T)) { end = meta.getLastms(T); }
       }
     }
     return end;
@@ -1969,6 +1965,7 @@ namespace Mist{
           // No packet prepared
           ++prepFalse;
           if (realTime){++firstTime;}
+          atLivePoint();
         }else{
           // Packet prepared
           // End point reached?
@@ -2378,6 +2375,12 @@ namespace Mist{
         return 1;
       }
 
+      // Check if we've reached the "dead point" - we're before the earliest buffer point!
+      if (nxt.time < M.getFirstms(nxt.tid)){
+        atDeadPoint();
+        return 2000;
+      }
+
       // Ensure we have the lookahead available
       if (needsLookAhead && M.getLive() && M.getNowms(nxt.tid) < nxt.time + needsLookAhead){
         int64_t waitTime = (nxt.time + needsLookAhead) - M.getNowms(nxt.tid);
@@ -2703,7 +2706,7 @@ namespace Mist{
     uint64_t now = thisBootMs / 1000;
     if (now <= lastStats && !force){return;}
 
-    if (isRecording() && DTSC::trackValidMask != TRACK_VALID_INT_PROCESS) {
+    if (isRecording()) {
       if (lastPushUpdate + 5 <= now){
         JSON::Value pStat;
         pStat["push_status_update"]["id"] = getpid();
