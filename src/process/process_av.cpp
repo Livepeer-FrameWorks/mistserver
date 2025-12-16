@@ -8,6 +8,7 @@
 #include <mist/mp4_generic.h>
 #include <mist/nal.h>
 #include <mist/procs.h>
+#include <mist/triggers.h>
 #include <mist/util.h>
 
 #include <condition_variable>
@@ -72,9 +73,16 @@ uint64_t totalTransform = 0;
 uint64_t totalEncode = 0;
 uint64_t totalSourceSleep = 0;
 
+// Virtual segment trigger timing
+uint64_t lastTriggerTime = 0;
+uint64_t processStartTime = 0;
+
 char *inputFrameCount = 0;                        ///< Stats: frames/samples ingested
 char *outputFrameCount = 0;                       ///< Stats: frames/samples outputted
 Util::ResizeablePointer ptr;                      ///< Buffer for raw pixels / audio samples
+
+// Forward declaration for virtual segment trigger
+void fireVirtualSegmentTrigger(bool isFinal);
 
 namespace Mist{
 
@@ -1865,6 +1873,7 @@ namespace Mist{
       pStat["proc_status_update"]["proc"] = "AV";
     }
     uint64_t startTime = Util::bootSecs();
+    processStartTime = startTime;
     uint64_t encPrevTime = 0;
     uint64_t encPrevCount = 0;
     while (conf.is_active && co.is_active){
@@ -1900,10 +1909,38 @@ namespace Mist{
         pData["ainfo"]["scaler"] = scaler;
         Util::sendUDPApi(pStat);
         lastProcUpdate = Util::bootSecs();
+        fireVirtualSegmentTrigger(false);
       }
     }
   }
 }// namespace Mist
+
+/// Fires PROCESS_AV_VIRTUAL_SEGMENT_COMPLETE trigger
+void fireVirtualSegmentTrigger(bool isFinal){
+  std::string sinkName = pStat["proc_status_update"]["sink"].asString();
+  if (!Triggers::shouldTrigger("PROCESS_AV_VIRTUAL_SEGMENT_COMPLETE", sinkName)){return;}
+
+  uint64_t deltaSecs = lastTriggerTime ? (Util::bootSecs() - lastTriggerTime) : (Util::bootSecs() - processStartTime);
+  uint64_t decodeAvg = (uint64_t)inputFrameCount ? (totalDecode / (uint64_t)inputFrameCount) : 0;
+  uint64_t transformAvg = (uint64_t)inputFrameCount ? (totalTransform / (uint64_t)inputFrameCount) : 0;
+  uint64_t encodeAvg = (uint64_t)outputFrameCount ? (totalEncode / (uint64_t)outputFrameCount) : 0;
+
+  std::string payload = sinkName + "\n" +
+    JSON::Value(deltaSecs).asString() + "\n" +
+    JSON::Value((uint64_t)inputFrameCount).asString() + "\n" +
+    JSON::Value((uint64_t)outputFrameCount).asString() + "\n" +
+    JSON::Value(decodeAvg).asString() + "\n" +
+    JSON::Value(transformAvg).asString() + "\n" +
+    JSON::Value(encodeAvg).asString() + "\n" +
+    std::string(codec_in ? codec_in->long_name : "None") + "\n" +
+    std::string(codec_out ? codec_out->long_name : "None") + "\n" +
+    JSON::Value(statSourceMs).asString() + "\n" +
+    JSON::Value(statSinkMs).asString() + "\n" +
+    (isFinal ? "1" : "0");
+
+  Triggers::doTrigger("PROCESS_AV_VIRTUAL_SEGMENT_COMPLETE", payload, sinkName);
+  lastTriggerTime = Util::bootSecs();
+}
 
 void sinkThread(){
   Util::nameThread("sinkThread");
@@ -2380,6 +2417,7 @@ int main(int argc, char *argv[]){
   co.is_active = false;
   conf.is_active = false;
   avCV.notify_all();
+  fireVirtualSegmentTrigger(true);
 
   source.join();
   HIGH_MSG("source thread joined");
