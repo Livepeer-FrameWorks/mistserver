@@ -29,6 +29,9 @@ mistplayers.webrtc = {
         playabletracks[MistVideo.info.meta.tracks[i].type] = {};
       }
       playabletracks[MistVideo.info.meta.tracks[i].type][MistVideo.info.meta.tracks[i].codec] = 1;
+      if (MistVideo.info.meta.tracks[i].codec == "HEVC") {
+        playabletracks[MistVideo.info.meta.tracks[i].type]["H265"] = 1
+      }
     }
 
     var tracktypes = [];
