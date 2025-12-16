@@ -7,7 +7,6 @@
 #include <set>
 #include <stdint.h>
 #include <string>
-#include <vector>
 
 static const std::set<std::string> emptyset;
 
@@ -15,10 +14,10 @@ static const std::set<std::string> emptyset;
 namespace JSON{
 
   /// Lists all types of JSON::Value.
-  enum ValueType { EMPTY, BOOL, INTEGER, DOUBLE, STRING, ARRAY, OBJECT, UNSET };
+  enum ValueType { EMPTY, BOOL, INTEGER, DOUBLE, STRING, RAWSTRING, ARRAY, OBJECT, UNSET };
 
   /// JSON-string-escapes a value
-  std::string string_escape(const std::string &val);
+  std::string string_escape(const std::string & val, bool isRaw = false);
 
   /// A JSON::Value is either a string or an integer, but may also be an object, array or null.
   class Value{
@@ -118,6 +117,7 @@ namespace JSON{
     uint32_t size() const;
     void null();
     void unset();
+    void raw();
   };
 
   Value fromDTMI2(const std::string &data);

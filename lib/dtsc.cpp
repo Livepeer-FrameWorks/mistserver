@@ -2814,9 +2814,9 @@ namespace DTSC{
         // Update duration of previous key too
         uint64_t prevKeyDuration = packTime - t.keys.getInt(t.keyTimeField, newKeyNum - 1);
         t.keys.setInt(t.keyDurationField, prevKeyDuration, newKeyNum - 1);
-        // if (prevKeyDuration) {
-        //   setEfpks(tNumber, (t.keys.getInt(t.keyPartsField, newKeyNum - 1) * 1000000) / prevKeyDuration);
-        // }
+        if (prevKeyDuration) {
+          setEfpks(tNumber, (t.keys.getInt(t.keyPartsField, newKeyNum - 1) * 1000000) / prevKeyDuration);
+        }
       }else{
         t.keys.setInt(t.keyFirstPartField, 0, newKeyNum);
       }
@@ -3066,6 +3066,7 @@ namespace DTSC{
       t.frames.deleteRecords(1);
       setFirstms(trackIdx, t.frames.getInt(t.framesTimeField, t.frames.getDeleted()));
     }
+    uint64_t begPos = t.frames.getDeleted();
     t.frames.setInt(t.framesTimeField, time, endPos);
     if (t.framesDataField.size < dataSize){dataSize = t.framesDataField.size;}
     memcpy(t.frames.getPointer(t.framesDataField, endPos), data, dataSize);
@@ -3074,7 +3075,9 @@ namespace DTSC{
     setMinKeepAway(trackIdx, theJitters[trackIdx].addPack(time));
     t.track.setInt(t.trackLastmsField, time);
     t.track.setInt(t.trackNowmsField, time);
-    if (t.fpsCalc.addTime(time)) { t.track.setInt(t.trackEfpksField, t.fpsCalc.fpks); }
+    if (begPos != endPos) {
+      t.track.setInt(t.trackEfpksField, 1000000 * (endPos - begPos) / (time - t.frames.getInt(t.framesTimeField, begPos)));
+    }
     markUpdated(trackIdx);
   }
 
@@ -3255,6 +3258,7 @@ namespace DTSC{
       trackJSON["idx"] = (uint64_t)*it;
       trackJSON["trackid"] = (uint64_t)getID(*it);
       trackJSON["init"] = getInit(*it);
+      trackJSON["init"].raw();
       trackJSON["firstms"] = getFirstms(*it);
       trackJSON["lastms"] = getLastms(*it);
       trackJSON["nowms"] = getNowms(*it);

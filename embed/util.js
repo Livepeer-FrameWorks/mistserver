@@ -111,8 +111,8 @@ var MistUtil = {
       
       //rounding
       //use a significance of three, but don't round "visible" digits
-      var sig = Math.max(3,Math.ceil(Math.log(num)/Math.LN10));
-      var mult = Math.pow(10,sig - Math.floor(Math.log(num)/Math.LN10) - 1);
+      var sig = Math.max(3,Math.ceil(Math.log(Math.abs(num))/Math.LN10));
+      var mult = Math.pow(10,sig - Math.floor(Math.log(Math.abs(num))/Math.LN10) - 1);
       num = Math.round(num * mult) / mult;
       
       //thousand seperation
@@ -1177,7 +1177,7 @@ var MistUtil = {
     }
   },
   shared: {
-    ControlChannel: function(channel,MistVideo,externalListenersObj){
+    ControlChannel: function(create_channel_func,MistVideo,externalListenersObj){
       /*
         Takes a WebSocket or RTCDataChannel and adds:
         - send: function(msg)
@@ -1190,8 +1190,8 @@ var MistUtil = {
       */
 
       var control = this;
-      this.channel = channel;
-      this.debugging = false;
+      this.channel = typeof create_channel_func == "function" ? create_channel_func() : create_channel_func;
+      this.debugging = true;
       this.was_connected = false;
       var queue = [];
       var listeners = externalListenersObj || {};
@@ -1216,69 +1216,107 @@ var MistUtil = {
           });
         }
       };
-      function callListeners(type,data) {
+      this.addSendListener = function(type,callback){
+        type = "send_"+type;
+        return this.addListener(type,callback);
+      };
+      function callListeners(type,data,full_message) {
         if (type in listeners) {
           for (var eid in listeners[type]) {
             try {
-              listeners[type][eid].apply(control,[data]);
+              listeners[type][eid].apply(control,[data,full_message]);
             }
             catch(err) {
               MistVideo.log("Error in "+type+" listener "+eid+": "+err,"error");
+              console.warn("🎮",err);
             }
           }
         }
       }
-
-      this.channel.addEventListener("open",function(ev){
-        control.was_connected = true;
-        callListeners("channel_open",ev);
-        if (queue.length) {
-          for (var i = 0; i <= queue.length; i++) {
-            control.send(queue[i]);
+      this.removeListener = function(type,callback){
+        if (type in listeners) {
+          if (typeof callback == "function") {
+            for (var eid in listeners[type]) {
+              if (listeners[type][eid] == callback) {
+                delete listeners[type][eid];
+                return true;
+              }
+            }
           }
-          queue = [];
-        }
-        if (control.timeout) {
-          MistVideo.timers.stop(control.timeout);
-        }
-      });
-      this.timeout = MistVideo.timers.start(function(){
-        if (control.readyState == "connecting") {
-          MistVideo.log("Control socket timeout","error");
-          if (control.debugging) console.log("The control channel timed out");
-          callListeners("channel_timeout",control.channel);
-        }
-      },5e3);
-
-      this.channel.addEventListener("message",function(e){
-        var message;
-        try {
-          message = JSON.parse(e.data);
-        } catch(err) {
-          MistVideo.log("Received invalid control message: "+err+" in "+e.data,"error");
-        }
-
-        if (message) {
-          var data = "data" in message ? message.data : message; //some control messages do not have the data key, e.g. websocket webrtc's on_answer_sdp
-          if (!message.type) {
-            MistVideo.log("Received invalid control message: missing type in "+e.data,"error");
+          else {
+            var eid = callback;
+            if (eid in listeners[type]) delete listeners[type][eid];
           }
-          if (control.debugging) console.log("Received:",message.type,data);
-          callListeners(message.type,data);
         }
-      });
+        return false;
+      };
+      this.removeSendListener = function(type,callback) {
+        type = "send_"+type;
+        return this.removeListener(type,callback);
+      }
 
-      this.channel.addEventListener("close",function(ev){
-        callListeners("channel_close",ev);
-        if (control.debugging) console.log("The control channel was closed",ev);
-        MistVideo.log("The control channel was closed");
-        //callListeners("on_stop",ev);
-      });
-      this.channel.addEventListener("error",function(ev){
-        callListeners("channel_error",ev);
-        if (control.debugging) console.log("The control channel threw an error",ev);
-        MistVideo.log("The control channel threw an error: "+ev);
-      });
+      this.init = function(){
+        this.channel.addEventListener("open",function(ev){
+          control.was_connected = true;
+          callListeners("channel_open",ev);
+          if (queue.length) {
+            for (var i = 0; i <= queue.length; i++) {
+              control.send(queue[i]);
+            }
+            queue = [];
+          }
+          if (control.timeout) {
+            MistVideo.timers.stop(control.timeout);
+          }
+        });
+        this.timeout = MistVideo.timers.start(function(){
+          if (control.readyState == "connecting") {
+            MistVideo.log("Control socket timeout","error");
+            if (control.debugging) console.log("🎮","The control channel timed out");
+            callListeners("channel_timeout",control.channel);
+          }
+        },5e3);
+        this.channel.addEventListener("close",function(ev){
+          callListeners("channel_close",ev);
+          if (control.debugging) console.log("🎮","The control channel was closed",ev);
+          MistVideo.log("The control channel was closed");
+          //callListeners("on_stop",ev);
+        });
+        this.channel.addEventListener("error",function(ev){
+          callListeners("channel_error",ev);
+          if (control.debugging) console.log("🎮","The control channel threw an error",ev);
+          MistVideo.log("The control channel threw an error: "+ev);
+        });
+        this.channel.addEventListener("message",function(e){
+          var message;
+
+          if (typeof e.data == "string") {
+            try {
+              message = JSON.parse(e.data);
+            } catch(err) {
+              MistVideo.log("Received invalid control message: "+err+" in "+e.data,"error");
+            }
+
+            if (message) {
+              var data = "data" in message ? message.data : message; //some control messages do not have the data key, e.g. websocket webrtc's on_answer_sdp
+              if (!message.type) {
+                MistVideo.log("Received invalid control message: missing type in "+e.data,"error");
+              }
+              if (control.debugging) console.info("🎮","Received:",message.type,data);
+              callListeners(message.type,data,message);
+            }
+          }
+          else {
+            var data = new Uint8Array(e.data);
+            if (data) {
+              callListeners("binary",data);
+            }
+          }
+        });
+      }
+      this.init();
+
+
 
       Object.defineProperty(this,"readyState",{
         get: function(){
@@ -1293,12 +1331,73 @@ var MistUtil = {
           return state; //unknown readyState
         }
       });
+      Object.defineProperty(this,"connectionState",{
+        get: function(){
+          return this.readyState;
+        }
+      });
+
+      function LogServerDelay() {
+        var serverDelay = this;
+        var delays = [];
+
+        this.log = function(type){
+          var responseType = false;
+          switch (type) {
+            case "seek":
+            case "set_speed": {
+              //wait for cmd.type
+              responseType = type;
+              break;
+            }
+            case "request_codec_data": {
+              responseType = "codec_data";
+              break;
+            }
+            default: {
+              //do nothing
+              return;
+            }
+          }
+          if (responseType) {
+            var starttime = performance.now();
+            control.addListener(responseType).then(function(){
+              serverDelay.add(performance.now() - starttime);
+            });
+          }
+        };
+
+        this.add = function(delay){
+          delays.unshift(delay);
+          if (delays.length > 3) {
+            delays.splice(3);
+          }
+        };
+
+        this.get = function(){
+          if (delays.length) {
+            //return average of the last recorded delays
+            var sum = 0;
+            var i = 0;
+            for (null; i < delays.length; i++){
+              sum += delays[i];
+            }
+            return sum/i;
+          }
+          return 500;
+        };
+
+        Object.defineProperty(this,"length",{
+          get: function(){ return delays.length }
+        });
+      }
+      this.serverDelay = new LogServerDelay();
 
       this.send = function(cmdObj){
         if (!this.channel || this.readyState != "open") {
           //wait for it to open
           queue.push(cmdObj);
-          if (this.debugging) console.warn("Want to send but control channel is "+this.readyState+". Queue: "+queue.length);
+          if (this.debugging) console.warn("🎮","Want to send but control channel is "+this.readyState+". Queue: "+queue.length);
           return;
         }
         var str;
@@ -1309,7 +1408,9 @@ var MistUtil = {
         }
         if (str) {
           this.channel.send(str);
-          if (this.debugging) console.warn("Sent:",cmdObj.type,cmdObj);
+          this.serverDelay.log(cmdObj.type);
+          callListeners("send_"+cmdObj.type,cmdObj);
+          if (this.debugging) console.warn("🎮","Sent:",cmdObj.type,cmdObj);
         }
       };
 
@@ -1317,6 +1418,16 @@ var MistUtil = {
         callListeners("on_stop",msg);
         MistVideo.showError(msg.message);
       });
+
+      this.close = function(){
+        this.channel.close();
+      };
+      if (typeof create_channel_func == "function") {
+        this.reconnect = function(){
+          this.channel = create_channel_func();
+          this.init();
+        };
+      }
       
     },
     DataChannel2WebSocket: function(){
@@ -1366,7 +1477,7 @@ var MistUtil = {
           //this.origin.onopen = onopen; 
 
           this.origin.onmessage = function(e){
-            if (converter.debugging) console.log("Received metadata:",JSON.parse(e.data));
+            if (converter.debugging) console.log("🔀","Received metadata:",JSON.parse(e.data));
           };
           this.origin.addEventListener("close",function(){
             converter.readyState = converter.CLOSED;
@@ -1435,7 +1546,7 @@ var MistUtil = {
       return this;
 
     },
-    ControlChannelAPI: function(controller,MistVideo,video){
+    ControlChannelAPI: function(controller,MistVideo,video,custom_funcs){
 
       /*
 
@@ -1461,6 +1572,20 @@ var MistUtil = {
 
       var api = this;
       var control = controller.control;
+
+
+      function defineProperty(index,descriptor) {
+        if (typeof descriptor == "function") {
+          api[index] = descriptor;
+          return;
+        }
+        var opts = MistUtil.object.extend({
+          configurable: true,
+          enumerable: true
+        },descriptor);
+        Object.defineProperty(api,index,opts);
+      }
+
 
       video.setAttribute("playsinline",""); //iphones. effin' iphones.
 
@@ -1493,7 +1618,7 @@ var MistUtil = {
         ,"webkitDroppedFrameCount"
         ,"webkitDecodedFrameCount"
       ].forEach(function(item){
-        Object.defineProperty(api,item,{
+        defineProperty(item,{
           get: function(){ return video[item]; },
           set: function(value){
             return video[item] = value;
@@ -1514,6 +1639,7 @@ var MistUtil = {
       this.play = function(){
         if (controller.connection){
           switch (controller.connection.connectionState) {
+            case "open":
             case "connected": {
               controller.control.send({type:"play"});
               return video.play();
@@ -1567,6 +1693,21 @@ var MistUtil = {
           }
         });
       }
+      controller.control.addListener("pause",function(msg,m){
+        if (msg.reason && (msg.reason == "at_dead_point")) {
+          //we're running out of the buffer for some reason - attempt to fix it by seeking to the halfway point
+          MistVideo.log("At dead point: seeking to half of available buffer.");
+          var seekto = (msg.begin + msg.end) / 2;
+          if (!isNaN(seekto) && seekto) {
+            controller.control.send({type:"seek",seek_time:seekto});
+            return;
+          }
+          else {
+            MistVideo.log("At dead point: seek target invalid - pausing.");
+          }
+        }
+        if (m.paused) video.pause();
+      });
       this.stop = function(){
         return new Promise(function(resolve,reject){
           try {
@@ -1638,16 +1779,20 @@ var MistUtil = {
         }
       });
 
-      controller.control.addListener("on_stop",function(msg){
-        //if (MistVideo.info.type != "live") 
+      //looping
+      api.stream_end = function(){
         MistUtil.event.send("ended",null,video);
-        if (api.loop) {
-          if (!looping) {
-            looping = true;
-            seekoffset = 0;
-            MistVideo.log("Looping..");
-            //console.warn(controller.connection.connectionState);
-            controller.close().then(function(){
+      };
+      api.restart = function(){
+        if (!looping) {
+          looping = true;
+          seekoffset = 0;
+          //console.warn("set seekoffset to zero")
+          MistVideo.log("Looping..");
+          //console.warn(controller.connection.connectionState);
+          var result = controller.close();
+          if (result instanceof Promise) {
+            result.then(function(){
               //console.warn("closed, connecting");
               controller.connect().then(function(){
                 looping = false;
@@ -1655,6 +1800,18 @@ var MistUtil = {
               });
             });
           }
+          else {
+            controller.connect().then(function(){
+              looping = false;
+              //console.warn("Looping complete");
+            });
+          }
+        }
+      };
+      controller.control.addListener("on_stop",function(msg){
+        api.stream_end();
+        if (api.loop) {
+          api.restart();
         }
         else {
           video.pause();
@@ -1662,14 +1819,20 @@ var MistUtil = {
       });
 
       //override seeking
-      Object.defineProperty(api,"currentTime",{
+      var override_timestamp = false;
+      defineProperty("currentTime",{
         get: function(){
+          if (override_timestamp !== false) {
+            return override_timestamp;
+          }
           return seekoffset + video.currentTime;
         },
         set: function(value){
           MistUtil.event.send("seeking",value,video);
+          var to = (value == "live" ? Infinity : value);
 
-          seekoffset = (value == "live" ? Infinity : value) - video.currentTime; //immediately place playback cursor at seek point
+          //immediately place playback cursor at seek point
+          override_timestamp = to;
 
           controller.control.send({
             type: "seek",
@@ -1681,8 +1844,18 @@ var MistUtil = {
           }).then(function(msg){
             //the next "on_time" message was received
 
-            //seekoffset is set in the generic on_time handler
-            //seekoffset = msg.current*1e-3 - video.currentTime;
+            //seekoffset is set in the generic on_time handler, but the data hasn't been added to the video yet = therefore seekoffset will be wrong
+            //console.warn("current seekoffset (seeked)",seekoffset,api.currentTime);
+
+            try {
+              //TODO add once option to MistUtil.event.addListener
+              video.addEventListener("timeupdate",function(){
+                seekoffset = 0;
+                override_timestamp = false;
+                //console.warn("free timestamp");
+              },{once:true});
+            }
+            catch(e){}
 
             MistUtil.event.send("seeked",seekoffset,video);
 
@@ -1694,7 +1867,7 @@ var MistUtil = {
       });
 
       //duration
-      Object.defineProperty(api,"duration",{
+      defineProperty(api,"duration",{
         get: function(){
           if (MistVideo.info.type == "live") {
             return duration + (last_on_time ? new Date().getTime() - last_on_time._received.getTime() : 0)*1e-3;
@@ -1708,7 +1881,7 @@ var MistUtil = {
       controller.control.addListener("set_speed",function(msg){
         play_rate = msg.play_rate_curr;
       });
-      Object.defineProperty(api,"playbackRate",{
+      defineProperty("playbackRate",{
         get: function(){
           if (play_rate) {
             switch (play_rate) {
@@ -1838,6 +2011,7 @@ var MistUtil = {
 
           //live passthrough of the debugging flag
           Object.defineProperty(converter,"debugging",{
+            configurable: true,
             get: function(){
               return MistVideo.player.debugging; 
             }
@@ -1852,12 +2026,28 @@ var MistUtil = {
         MistVideo.log("Requesting the video track with the resolution that best matches the player size");
         this.setTracks({video:"~"+[size.width,size.height].join("x")});
       };
+      //relay server delay stats if applicable
+      if ("serverDelay" in controller.control) {
+        Object.defineProperty(this,"server_delay",{
+          configurable: true,
+          get: function() {
+            return controller.control.serverDelay.get();
+          }
+        });
+      }
+
+
       // unload
       this.unload = function(){
         controller.control.send({type: "stop"});
         controller.connection.close();
       };
 
+      if (custom_funcs) {
+        for (var i in custom_funcs) {
+          defineProperty(i,custom_funcs[i]);
+        }
+      }
 
 
     }

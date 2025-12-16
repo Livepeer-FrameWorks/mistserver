@@ -551,7 +551,7 @@ namespace Controller{
           }
         }
       }
-      if ((*it).substr(0, 8) == "MistProc"){
+      if ((*it).substr(0, 8) == "MistProc") {
         arg_one = Util::getMyPath() + (*it);
         conn_args[0] = arg_one.c_str();
         capabilities["processes"][(*it).substr(8)] =
