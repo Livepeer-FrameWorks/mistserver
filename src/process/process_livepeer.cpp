@@ -383,15 +383,16 @@ void insertPart(const Mist::preparedSegment & mySeg, const std::string & renditi
   }
 }
 
-///Parses a multipart response
-void parseMultipart(const Mist::preparedSegment & mySeg, const std::string & cType, const std::string & d){
+///Parses a multipart response, returns number of renditions received
+size_t parseMultipart(const Mist::preparedSegment & mySeg, const std::string & cType, const std::string & d){
+  size_t renditionCount = 0;
   std::string bound;
   if (cType.find("boundary=") != std::string::npos){
     bound = "--"+cType.substr(cType.find("boundary=")+9);
   }
   if (!bound.size()){
     FAIL_MSG("Could not parse boundary string from Content-Type header!");
-    return;
+    return 0;
   }
   size_t startPos = 0;
   size_t nextPos = d.find(bound, startPos);
@@ -426,9 +427,11 @@ void parseMultipart(const Mist::preparedSegment & mySeg, const std::string & cTy
       Util::stringToLower(preType);
       if (preType == "video/mp2t"){
         insertPart(mySeg, partHeaders["Rendition-Name"], (void*)(d.data()+headEnd+4), nextPos-headEnd-6);
+        ++renditionCount;
       }
     }
   }
+  return renditionCount;
 }
 
 void segmentRejectedTrigger(Mist::preparedSegment & mySeg, const std::string & bc1, const std::string & bc2){
@@ -493,8 +496,9 @@ void uploadThread(size_t myNum){
           //Wait your turn
           while (myNum != insertTurn && conf.is_active){Util::sleep(100);}
           if (!conf.is_active){return;}//Exit early on shutdown
+          size_t renditionCount = 0;
           if (upper.getHeader("Content-Type").substr(0, 10) == "multipart/"){
-            parseMultipart(mySeg, upper.getHeader("Content-Type"), upper.const_data());
+            renditionCount = parseMultipart(mySeg, upper.getHeader("Content-Type"), upper.const_data());
           }else{
             ++statFailParse;
             FAIL_MSG("Non-multipart response (%s, %zu bytes) received - this version only works "
@@ -503,6 +507,18 @@ void uploadThread(size_t myNum){
           }
           mySeg.fullyRead = true;
           insertTurn = (insertTurn + 1) % PRESEG_COUNT;
+          // Fire LIVEPEER_SEGMENT_COMPLETE trigger
+          if (Triggers::shouldTrigger("LIVEPEER_SEGMENT_COMPLETE", Util::streamName)){
+            std::string payload = std::string(Util::streamName) + "\n" +
+              JSON::Value(mySeg.keyNo).asString() + "\n" +
+              JSON::Value(mySeg.segDuration).asString() + "\n" +
+              JSON::Value(mySeg.width).asString() + "\n" +
+              JSON::Value(mySeg.height).asString() + "\n" +
+              JSON::Value(renditionCount).asString() + "\n" +
+              target.getUrl() + "\n" +
+              JSON::Value(uplTime).asString();
+            Triggers::doTrigger("LIVEPEER_SEGMENT_COMPLETE", payload, Util::streamName);
+          }
           break;//Success: no need to retry
         }else if (upper.getStatusCode() == 422){
           //segment rejected by broadcaster node; try a different broadcaster at most once and keep track
