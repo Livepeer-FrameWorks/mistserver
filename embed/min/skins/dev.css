@@ -95,7 +95,7 @@ to{opacity:1}
 .mistvideo-progress>*{height:2px;background-color:$progressBackground;opacity:.95;position:relative}
 .mistvideo-novideo .mistvideo-progress>*,.mistvideo-progress:hover>*{height:10px}
 .mistvideo-progress:not(:hover)>*{transition:height .25s ease-in .5s}
-.mistvideo-progress .bar{height:inherit;width:0;position:absolute;border-right:inherit;background-color:$accent;z-index:2;transition:width .2s}
+.mistvideo-progress .bar{height:inherit;width:100%;transform:scaleX(0);transform-origin:left;position:absolute;border-right:inherit;background-color:$accent;z-index:2;transition:transform .2s}
 .mistvideo-progress .buffer{height:inherit;width:0;position:absolute;background-color:$semiFill}
 .mistvideo-progress .bar:after{content:'';border:5px solid $accent;border-radius:5px;position:absolute;right:-5px;top:50%;transform:translateY(-50%)}
 .mistvideo-progress .mistvideo-tooltip .mistvideo-realtime{text-align:center;display:block}
@@ -148,8 +148,8 @@ to{opacity:1}
 .mistvideo-log .logs .counter:after{content:'\00d7)'}
 .mistvideo-devbuttons{font-size:.9em}
 .mistvideo-devbuttons button{font-size:.8em;margin:.1em;padding:.2em .4em}
-.mistvideo-forcePlayer>span,.mistvideo-forceSource>span,.mistvideo-forceType>span{display:inline-block;width:7em}
-.mistvideo-forcePlayer>select,.mistvideo-forceSource>select,.mistvideo-forceType>select{width:15em;min-width:auto}
+.mistvideo-debuglevel>span,.mistvideo-forcePlayer>span,.mistvideo-forceSource>span,.mistvideo-forceType>span{display:inline-block;width:7em}
+.mistvideo-debuglevel>select,.mistvideo-forcePlayer>select,.mistvideo-forceSource>select,.mistvideo-forceType>select{width:15em;min-width:auto}
 .mistvideo-devcontrols{margin:.5em 0}
 .mistvideo-decodingIssues>*{display:flex;width:50%;max-width:20em;flex-flow:row nowrap;align-items:flex-start;justify-content:space-between}
 .mistvideo-decodingIssues>*>:last-child{margin-right:.5em}

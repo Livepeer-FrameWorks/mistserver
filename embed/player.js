@@ -38,7 +38,8 @@ function MistVideo(streamName,options) {
     ABR_resize: true,     //for supporting wrappers: when the player resizes, request a video track that matches the resolution best
     ABR_bitrate: true,    //for supporting wrappers: when there are playback issues, request a lower bitrate video track
     useDateTime: true,    //when the unix timestamp of the stream is known, display the date/time,
-    subscribeToMetaTrack: false, //pass [[track index,callback]]; the callback function will be called whenever the specified meta data track receives a message. 
+    subscribeToMetaTrack: false, //pass [[track index,callback]]; the callback function will be called whenever the specified meta data track receives a message.
+    liveCatchup: 60,      //when the player supports it, and the playback position is within 60 seconds from live, play slightly faster to catch up TODO
     MistVideoObject: false//no reference object is passed
   },options);
   if (options.host) { options.host = MistUtil.http.url.sanitizeHost(options.host); }
@@ -116,6 +117,9 @@ function MistVideo(streamName,options) {
   if (options.reloadDelay && (options.reloadDelay > 3600)) {
     options.reloadDelay /= 1000;
     this.log("A reloadDelay of more than an hour was set: assuming milliseconds were intended. ReloadDelay is now "+options.reloadDelay+"s");
+  }
+  if (options.liveCatchup === true) {
+    options.liveCatchup = 60;
   }
 
   new MistSkin(this);
@@ -244,22 +248,6 @@ function MistVideo(streamName,options) {
       source_index: null,
       player: null
     };
-    function calcScore(tracktypes) {
-      //player.isBrowserSupported returns either true or an array of track types that are in the source and that it can play in this browser.
-      //loop over the returned track types and calculate a score of how good this player+source combo is
-      if (tracktypes === true) { return 1.9; } //something will play, but the player doesn't tell us what. Hopefully video will work?
-
-      var scores = {
-        video: 2,
-        audio: 1,
-        subtitle: 0.5
-      };
-      var score = 0;
-      for (var i in tracktypes) {
-        score += scores[tracktypes[i]];
-      }
-      return score;
-    }
     //calculate the best possible score for this stream, so that we can break the loop early
     var hastracktypes = {};
     for (var i in MistVideo.info.meta.tracks) {
@@ -270,7 +258,7 @@ function MistVideo(streamName,options) {
         hastracktypes[MistVideo.info.meta.tracks[i].type] = 1;
       }
     }
-    var maxscore = calcScore(MistUtil.object.keys(hastracktypes));
+    var maxscore = MistVideo.scoreCombo(MistUtil.object.keys(hastracktypes));
 
     outerloop:
     for (var n in variables[map.outer].list) {
@@ -294,7 +282,7 @@ function MistVideo(streamName,options) {
           //this player supports this mime
           var tracktypes = player.isBrowserSupported(source.type,source,MistVideo);
           if (tracktypes) {
-            var score = calcScore(tracktypes);
+            var score = MistVideo.scoreCombo(tracktypes);
             if (score > best.score) {              
               if (!quiet) MistVideo.log("Found a "+(best.score ? "better" : "working")+" combo: "+player.name+" with "+source.url+" (Score: "+score+")");
 
@@ -314,14 +302,30 @@ function MistVideo(streamName,options) {
         }
       }
     }
-
     if (best.score) {
       return best;
     }
     
     return false;
   }
-  
+  this.scoreCombo = function (tracktypes) {
+    //player.isBrowserSupported returns either true or an array of track types that are in the source and that it can play in this browser.
+    //loop over the returned track types and calculate a score of how good this player+source combo is
+    if (tracktypes === true) { return 1.9; } //something will play, but the player doesn't tell us what. Hopefully video will work?
+
+    var scores = {
+      video: 2,
+      audio: 1,
+      subtitle: 0.5
+    };
+    var score = 0;
+    for (var i in tracktypes) {
+      score += scores[tracktypes[i]];
+    }
+    return score;
+  };
+
+
   this.choosePlayer = function() {
     MistVideo.log("Checking available players..");
     
@@ -1860,12 +1864,11 @@ function MistVideo(streamName,options) {
     
     return MistVideo;
   };
-  this.nextCombo = function(){
-    
+  this.nextCombo = function(startCombo,reason){ 
     var time = false;
     if (("player" in this) && ("api" in this.player)) { time = this.player.api.currentTime; }
     
-    var startCombo = {
+    if (typeof startCombo == "undefined") startCombo = {
       source: this.source.index,
       player: this.playerName
     };
@@ -1876,11 +1879,14 @@ function MistVideo(streamName,options) {
         startCombo = false;
       }
       else {
+        MistVideo.showError("No compatible player/source combo found.",{reload:true});
+        MistUtil.event.send("initializeFailed",null,options.target);
+        MistVideo.log("Initialization failed");
         return;
       }
     }
     
-    this.unload("nextCombo");
+    this.unload("nextCombo"+(reason ? ": "+reason : ""));
     var opts = this.options;
     opts.startCombo = startCombo;
     MistVideo = mistPlay(this.stream,opts);

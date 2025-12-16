@@ -36,9 +36,11 @@
   margin: 0.1em;
   padding: 0.2em 0.4em;
 }
+.mistvideo-debuglevel > span,
 .mistvideo-forceSource > span,
 .mistvideo-forceType > span,
 .mistvideo-forcePlayer > span { display: inline-block; width: 7em; }
+.mistvideo-debuglevel > select,
 .mistvideo-forceSource > select,
 .mistvideo-forceType > select,
 .mistvideo-forcePlayer > select {

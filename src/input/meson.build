@@ -18,6 +18,7 @@ inputs = [
     {'name' : 'SDP', 'format' : 'sdp'},
     {'name' : 'AAC', 'format' : 'aac'},
     {'name' : 'FLAC', 'format' : 'flac'},
+    {'name' : 'RawGenerator', 'format' : 'rawgenerator'},
 ]
 
 #Referenced by process targets
