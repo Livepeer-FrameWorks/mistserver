@@ -452,6 +452,24 @@ namespace Mist{
     if (config->getString("nostreamtext") != ""){
       json_resp["on_error"] = config->getString("nostreamtext");
     }
+    // Fire PLAY_REWRITE trigger to allow stream name rewriting before checking status
+    if (Triggers::shouldTrigger("PLAY_REWRITE", streamName)){
+      std::string payload = streamName + "\n" + getConnectedHost() + "\n" +
+                            capa["name"].asStringRef() + "\n" + reqUrl;
+      std::string newStreamName = streamName;
+      Triggers::doTrigger("PLAY_REWRITE", payload, streamName, false, newStreamName);
+      Util::sanitizeName(newStreamName);
+      if (streamName != newStreamName){
+        if (!newStreamName.size()){
+          // Empty response means reject
+          json_resp["error"] = "Playback rejected by PLAY_REWRITE trigger";
+          return json_resp;
+        }
+        INFO_MSG("Rewriting status request from '%s' to '%s'", streamName.c_str(), newStreamName.c_str());
+        streamName = newStreamName;
+        Util::setStreamName(streamName);
+      }
+    }
     // Make note of any defaultStream-based redirection
     if (origStreamName.size() && origStreamName != streamName){
       json_resp["redirected"].append(origStreamName);
