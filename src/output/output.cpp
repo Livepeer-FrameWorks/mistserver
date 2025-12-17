@@ -1,4 +1,5 @@
 #include "output.h"
+#include "dtsc.h"
 
 #include <mist/bitfields.h>
 #include <mist/defines.h>
@@ -235,7 +236,7 @@ namespace Mist{
   void Output::initialize(){
     MEDIUM_MSG("initialize");
     if (isInitialized){return;}
-    if (!isPushing() && Triggers::shouldTrigger("PLAY_REWRITE", streamName)){
+    if (!isPushing() && DTSC::trackValidMask == TRACK_VALID_EXT_HUMAN && Triggers::shouldTrigger("PLAY_REWRITE", streamName)){
       std::string payload = streamName + "\n" + getConnectedHost() + "\n" + capa["name"].asStringRef() + "\n" + reqUrl;
       std::string newStreamName = streamName;
       Triggers::doTrigger("PLAY_REWRITE", payload, streamName, false, newStreamName);
