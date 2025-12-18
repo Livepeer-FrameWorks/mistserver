@@ -396,7 +396,12 @@ namespace Mist {
     opts->addContent("flashVer", "FMLE/3.0 (compatible; " APPNAME ")");
     opts->addContent("tcUrl", targetParams["tcUrl"] + args);
     opts->addContent("capsEx", 15.0);
-    {
+
+    // For servers that don't support the RTMP Enhanced handshake, we support the "diminished=1" option
+    bool enhanced = !targetParams.count("diminished");
+    // Twitter is stupid and doesn't support Enhanced handshakes. Force diminished mode.
+    if (pushUrl.host.find("pscp.tv") != std::string::npos) { enhanced = false; }
+    if (enhanced) {
       AMF::Object *ccList = opts->addContent("fourCcList", AMF::AMF0_STRICT_ARRAY);
       ccList->addContent("av01");
       ccList->addContent("avc1");
@@ -410,7 +415,7 @@ namespace Mist {
       ccList->addContent("fLaC");
       ccList->addContent("mp4a");
     }
-    {
+    if (enhanced) {
       AMF::Object *ccList = opts->addContent("audioFourCcInfoMap", AMF::AMF0_OBJECT);
       ccList->addContent("ac-3", 7.0);
       ccList->addContent("ec-3", 7.0);
@@ -419,7 +424,7 @@ namespace Mist {
       ccList->addContent("fLaC", 7.0);
       ccList->addContent("mp4a", 7.0);
     }
-    {
+    if (enhanced) {
       AMF::Object *ccList = opts->addContent("videoFourCcInfoMap", AMF::AMF0_OBJECT);
       ccList->addContent("av01", 7.0);
       ccList->addContent("avc1", 7.0);
