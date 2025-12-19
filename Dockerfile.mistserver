@@ -6,7 +6,9 @@ RUN apk add --no-cache git patch meson ninja gcc g++ linux-headers pigz curl cjs
 RUN mkdir -p /deps/build/mbedtls /deps/build/libsrtp /deps/build/libsrt /deps/build/librist /deps/build/usrsctp /deps/mbedtls /deps/libsrtp /deps/libsrt /deps/librist /deps/usrsctp
 
 # mbedtls
-ADD --unpack=true https://github.com/Mbed-TLS/mbedtls/releases/download/mbedtls-3.6.5/mbedtls-3.6.5.tar.bz2 /deps
+ADD https://github.com/Mbed-TLS/mbedtls/releases/download/mbedtls-3.6.5/mbedtls-3.6.5.tar.bz2 /deps/mbedtls-3.6.5.tar.bz2
+RUN tar -xjf /deps/mbedtls-3.6.5.tar.bz2 -C /deps
+RUN rm /deps/mbedtls-3.6.5.tar.bz2
 ADD subprojects/packagefiles/mbedtls/meson.build /deps/mbedtls-3.6.5/
 ADD subprojects/packagefiles/mbedtls/include/mbedtls/mbedtls_config.h /deps/mbedtls-3.6.5/include/mbedtls/
 RUN cd /deps/build/mbedtls/ && meson setup /deps/mbedtls-3.6.5 -Dstrip=true && meson install
