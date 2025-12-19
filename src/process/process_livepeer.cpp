@@ -359,6 +359,19 @@ void sourceThread(){
   co.is_active = false;
 }
 
+/// Structure to hold per-rendition information
+struct RenditionInfo {
+  std::string name;
+  size_t bytes;
+};
+
+/// Result from parsing multipart response
+struct MultipartResult {
+  size_t renditionCount;
+  size_t totalOutputBytes;
+  std::vector<RenditionInfo> renditions;
+};
+
 ///Inserts a part into the queue of parts to parse
 void insertPart(const Mist::preparedSegment & mySeg, const std::string & rendition, void * ptr, size_t len){
   uint64_t waitTime = Util::bootMS();
@@ -383,16 +396,18 @@ void insertPart(const Mist::preparedSegment & mySeg, const std::string & renditi
   }
 }
 
-///Parses a multipart response, returns number of renditions received
-size_t parseMultipart(const Mist::preparedSegment & mySeg, const std::string & cType, const std::string & d){
-  size_t renditionCount = 0;
+///Parses a multipart response, returns rendition details
+MultipartResult parseMultipart(const Mist::preparedSegment & mySeg, const std::string & cType, const std::string & d){
+  MultipartResult result;
+  result.renditionCount = 0;
+  result.totalOutputBytes = 0;
   std::string bound;
   if (cType.find("boundary=") != std::string::npos){
     bound = "--"+cType.substr(cType.find("boundary=")+9);
   }
   if (!bound.size()){
     FAIL_MSG("Could not parse boundary string from Content-Type header!");
-    return 0;
+    return result;
   }
   size_t startPos = 0;
   size_t nextPos = d.find(bound, startPos);
@@ -422,16 +437,22 @@ size_t parseMultipart(const Mist::preparedSegment & mySeg, const std::string & c
       for (std::map<std::string, std::string>::iterator it = partHeaders.begin(); it != partHeaders.end(); ++it){
         VERYHIGH_MSG("Header %s = %s", it->first.c_str(), it->second.c_str());
       }
-      VERYHIGH_MSG("Body has length %zi", nextPos-headEnd-6);
+      size_t bodyLen = nextPos - headEnd - 6;
+      VERYHIGH_MSG("Body has length %zi", bodyLen);
       std::string preType = partHeaders["Content-Type"].substr(0, 10);
       Util::stringToLower(preType);
       if (preType == "video/mp2t"){
-        insertPart(mySeg, partHeaders["Rendition-Name"], (void*)(d.data()+headEnd+4), nextPos-headEnd-6);
-        ++renditionCount;
+        insertPart(mySeg, partHeaders["Rendition-Name"], (void*)(d.data()+headEnd+4), bodyLen);
+        ++result.renditionCount;
+        result.totalOutputBytes += bodyLen;
+        RenditionInfo rInfo;
+        rInfo.name = partHeaders["Rendition-Name"];
+        rInfo.bytes = bodyLen;
+        result.renditions.push_back(rInfo);
       }
     }
   }
-  return renditionCount;
+  return result;
 }
 
 void segmentRejectedTrigger(Mist::preparedSegment & mySeg, const std::string & bc1, const std::string & bc2){
@@ -496,9 +517,11 @@ void uploadThread(size_t myNum){
           //Wait your turn
           while (myNum != insertTurn && conf.is_active){Util::sleep(100);}
           if (!conf.is_active){return;}//Exit early on shutdown
-          size_t renditionCount = 0;
+          MultipartResult mpResult;
+          mpResult.renditionCount = 0;
+          mpResult.totalOutputBytes = 0;
           if (upper.getHeader("Content-Type").substr(0, 10) == "multipart/"){
-            renditionCount = parseMultipart(mySeg, upper.getHeader("Content-Type"), upper.const_data());
+            mpResult = parseMultipart(mySeg, upper.getHeader("Content-Type"), upper.const_data());
           }else{
             ++statFailParse;
             FAIL_MSG("Non-multipart response (%s, %zu bytes) received - this version only works "
@@ -509,14 +532,33 @@ void uploadThread(size_t myNum){
           insertTurn = (insertTurn + 1) % PRESEG_COUNT;
           // Fire LIVEPEER_SEGMENT_COMPLETE trigger
           if (Triggers::shouldTrigger("LIVEPEER_SEGMENT_COMPLETE", Util::streamName)){
-            std::string payload = std::string(Util::streamName) + "\n" +
-              JSON::Value(mySeg.keyNo).asString() + "\n" +
-              JSON::Value(mySeg.segDuration).asString() + "\n" +
-              JSON::Value(mySeg.width).asString() + "\n" +
-              JSON::Value(mySeg.height).asString() + "\n" +
-              JSON::Value(renditionCount).asString() + "\n" +
-              target.getUrl() + "\n" +
-              JSON::Value(uplTime).asString();
+            // Build renditions JSON array (only this field is JSON since it's variable-length)
+            JSON::Value renditionsJson;
+            for (size_t i = 0; i < mpResult.renditions.size(); ++i){
+              JSON::Value rend;
+              rend["name"] = mpResult.renditions[i].name;
+              rend["bytes"] = (uint64_t)mpResult.renditions[i].bytes;
+              renditionsJson.append(rend);
+            }
+
+            uint64_t turnaroundMs = uplTime / 1000;
+            double speedFactor = turnaroundMs > 0 ? (double)mySeg.segDuration / (double)turnaroundMs : 0.0;
+
+            std::string payload = std::string(Util::streamName) + "\n" +      // 1. stream name
+              Mist::lpID + "\n" +                                              // 2. livepeer session ID
+              JSON::Value(mySeg.keyNo).asString() + "\n" +                     // 3. segment number
+              JSON::Value(mySeg.time).asString() + "\n" +                      // 4. segment start ms
+              JSON::Value(mySeg.segDuration).asString() + "\n" +               // 5. segment duration ms
+              JSON::Value(mySeg.width).asString() + "\n" +                     // 6. source width
+              JSON::Value(mySeg.height).asString() + "\n" +                    // 7. source height
+              JSON::Value((uint64_t)mySeg.data.size()).asString() + "\n" +     // 8. input bytes
+              JSON::Value((uint64_t)mpResult.totalOutputBytes).asString() + "\n" + // 9. output bytes total
+              JSON::Value(mpResult.renditionCount).asString() + "\n" +         // 10. rendition count
+              JSON::Value((uint64_t)attempts).asString() + "\n" +              // 11. attempt count
+              target.getUrl() + "\n" +                                         // 12. broadcaster URL
+              JSON::Value(turnaroundMs).asString() + "\n" +                    // 13. turnaround ms
+              JSON::Value(speedFactor).asString() + "\n" +                     // 14. speed factor
+              renditionsJson.toString();                                       // 15. renditions (JSON array)
             Triggers::doTrigger("LIVEPEER_SEGMENT_COMPLETE", payload, Util::streamName);
           }
           break;//Success: no need to retry
