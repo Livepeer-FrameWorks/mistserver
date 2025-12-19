@@ -495,13 +495,13 @@ namespace Controller{
 
     trgs["LIVEPEER_SEGMENT_COMPLETE"]["when"] = "After a source segment has been successfully transcoded by Livepeer and all renditions have been received.";
     trgs["LIVEPEER_SEGMENT_COMPLETE"]["stream_specific"] = true;
-    trgs["LIVEPEER_SEGMENT_COMPLETE"]["payload"] = "stream name (string)\nsegment number (integer)\nsegment duration in milliseconds (integer)\nsource width (integer)\nsource height (integer)\nrendition count (integer)\nbroadcaster URL (string)\nupload time in microseconds (integer)";
+    trgs["LIVEPEER_SEGMENT_COMPLETE"]["payload"] = "stream name (string)\nlivepeer session ID (string)\nsegment number (integer)\nsegment start ms (integer)\nsegment duration ms (integer)\nsource width (integer)\nsource height (integer)\ninput bytes (integer)\noutput bytes total (integer)\nrendition count (integer)\nattempt count (integer)\nbroadcaster URL (string)\nturnaround ms (integer)\nspeed factor (float)\nrenditions (JSON array with name and bytes per rendition)";
     trgs["LIVEPEER_SEGMENT_COMPLETE"]["response"] = "ignored";
     trgs["LIVEPEER_SEGMENT_COMPLETE"]["response_action"] = "None.";
 
     trgs["PROCESS_AV_VIRTUAL_SEGMENT_COMPLETE"]["when"] = "Every 5 seconds during MistProcAV operation and once on exit.";
     trgs["PROCESS_AV_VIRTUAL_SEGMENT_COMPLETE"]["stream_specific"] = true;
-    trgs["PROCESS_AV_VIRTUAL_SEGMENT_COMPLETE"]["payload"] = "stream name (string)\nseconds since last trigger (integer)\ninput frame count (integer)\noutput frame count (integer)\ndecode time per frame in microseconds (integer)\ntransform time per frame in microseconds (integer)\nencode time per frame in microseconds (integer)\ninput codec (string)\noutput codec (string)\nsource timestamp in milliseconds (integer)\nsink timestamp in milliseconds (integer)\nis_final (0 or 1)";
+    trgs["PROCESS_AV_VIRTUAL_SEGMENT_COMPLETE"]["payload"] = "stream name (string)\ntrack type (audio or video)\nseconds since last trigger (integer)\ninput frame count cumulative (integer)\noutput frame count cumulative (integer)\ninput frames this window (integer)\noutput frames this window (integer)\ninput bytes this window (integer)\noutput bytes this window (integer)\ndecode us per frame (integer)\ntransform us per frame (integer)\nencode us per frame (integer)\ninput codec short (string)\noutput codec short (string)\ninput width (integer)\ninput height (integer)\noutput width (integer)\noutput height (integer)\ninput fpks (integer)\noutput fps measured (float)\nsample rate (integer)\nchannels (integer)\nsource timestamp ms (integer)\nsink timestamp ms (integer)\nsource advanced ms (integer)\nsink advanced ms (integer)\nreal-time factor in (float)\nreal-time factor out (float)\npipeline lag ms (integer)\noutput bitrate bps (integer)\nis_final (0 or 1)";
     trgs["PROCESS_AV_VIRTUAL_SEGMENT_COMPLETE"]["response"] = "ignored";
     trgs["PROCESS_AV_VIRTUAL_SEGMENT_COMPLETE"]["response_action"] = "None.";
   }

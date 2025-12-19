@@ -77,6 +77,18 @@ uint64_t totalSourceSleep = 0;
 uint64_t lastTriggerTime = 0;
 uint64_t processStartTime = 0;
 
+// Byte tracking for trigger
+uint64_t totalInputBytes = 0;
+uint64_t totalOutputBytes = 0;
+
+// Previous values for delta calculation
+uint64_t prevInputFrameCount = 0;
+uint64_t prevOutputFrameCount = 0;
+uint64_t prevInputBytes = 0;
+uint64_t prevOutputBytes = 0;
+uint64_t prevSourceMs = 0;
+uint64_t prevSinkMs = 0;
+
 char *inputFrameCount = 0;                        ///< Stats: frames/samples ingested
 char *outputFrameCount = 0;                       ///< Stats: frames/samples outputted
 Util::ResizeablePointer ptr;                      ///< Buffer for raw pixels / audio samples
@@ -204,6 +216,7 @@ namespace Mist{
         if (trkIdx == INVALID_TRACK_ID){return;}
         thisIdx = trkIdx;
         bufferLivePacket(thisPacket);
+        totalOutputBytes += packet_out->size;
       }else{
         // Read from raw buffers if we have no target codec
         if (ptr.size()){
@@ -213,6 +226,7 @@ namespace Mist{
           if (trkIdx == INVALID_TRACK_ID){return;}
           thisIdx = trkIdx;
           bufferLivePacket(thisTime, 0, thisIdx, ptr, ptr.size(), 0, true);
+          totalOutputBytes += ptr.size();
         }
       }
       if (autoUpdateFps) {
@@ -236,6 +250,7 @@ namespace Mist{
       if (trkIdx == INVALID_TRACK_ID){return;}
       thisIdx = trkIdx;
       bufferLivePacket(thisTime, 0, thisIdx, ptr, ptrSize, 0, true);
+      totalOutputBytes += ptrSize;
     }
 
     void streamMainLoop(){
@@ -1807,6 +1822,12 @@ namespace Mist{
         sendFirst = true;
       }
 
+      // Retrieve packet buffer pointers
+      size_t dataLen = 0;
+      char *dataPointer = 0;
+      thisPacket.getString("data", dataPointer, dataLen);
+      totalInputBytes += dataLen;
+
       // Allocate encoding/decoding contexts and decode the input if not RAW
       if (isVideo) {
         allocateVideoEncoder();
@@ -1925,20 +1946,87 @@ void fireVirtualSegmentTrigger(bool isFinal){
   uint64_t transformAvg = (uint64_t)inputFrameCount ? (totalTransform / (uint64_t)inputFrameCount) : 0;
   uint64_t encodeAvg = (uint64_t)outputFrameCount ? (totalEncode / (uint64_t)outputFrameCount) : 0;
 
-  std::string payload = sinkName + "\n" +
-    JSON::Value(deltaSecs).asString() + "\n" +
-    JSON::Value((uint64_t)inputFrameCount).asString() + "\n" +
-    JSON::Value((uint64_t)outputFrameCount).asString() + "\n" +
-    JSON::Value(decodeAvg).asString() + "\n" +
-    JSON::Value(transformAvg).asString() + "\n" +
-    JSON::Value(encodeAvg).asString() + "\n" +
-    std::string(codec_in ? codec_in->long_name : "None") + "\n" +
-    std::string(codec_out ? codec_out->long_name : "None") + "\n" +
-    JSON::Value(statSourceMs).asString() + "\n" +
-    JSON::Value(statSinkMs).asString() + "\n" +
-    (isFinal ? "1" : "0");
+  // Calculate deltas for this trigger window
+  uint64_t inFramesDelta = (uint64_t)inputFrameCount - prevInputFrameCount;
+  uint64_t outFramesDelta = (uint64_t)outputFrameCount - prevOutputFrameCount;
+  uint64_t inBytesDelta = totalInputBytes - prevInputBytes;
+  uint64_t outBytesDelta = totalOutputBytes - prevOutputBytes;
+  uint64_t sourceAdvancedMs = statSourceMs - prevSourceMs;
+  uint64_t sinkAdvancedMs = statSinkMs - prevSinkMs;
+
+  // Real-time factors (1.0 = real-time, 2.0 = 2x faster than real-time)
+  double rtfIn = deltaSecs > 0 ? (double)sourceAdvancedMs / (deltaSecs * 1000.0) : 0;
+  double rtfOut = deltaSecs > 0 ? (double)sinkAdvancedMs / (deltaSecs * 1000.0) : 0;
+  int64_t pipelineLagMs = (int64_t)statSourceMs - (int64_t)statSinkMs;
+
+  // Determine track type (audio vs video)
+  bool audioTrack = context_out && context_out->sample_rate > 0;
+  const char* trackType = audioTrack ? "audio" : "video";
+
+  // Resolution (0 if not applicable)
+  int inWidth = context_in ? context_in->width : 0;
+  int inHeight = context_in ? context_in->height : 0;
+  int outWidth = context_out ? context_out->width : 0;
+  int outHeight = context_out ? context_out->height : 0;
+
+  // FPS
+  double outFpsMeasured = (deltaSecs > 0 && outFramesDelta > 0) ? (double)outFramesDelta / deltaSecs : 0;
+
+  // Audio info (0 if not audio)
+  int sampleRate = (context_out && context_out->sample_rate > 0) ? context_out->sample_rate : 0;
+  int channels = 0;
+  if (context_out && context_out->sample_rate > 0){
+#if (LIBAVUTIL_VERSION_MAJOR < 57 || (LIBAVUTIL_VERSION_MAJOR == 57 && LIBAVUTIL_VERSION_MINOR < 24))
+    channels = context_out->channels;
+#else
+    channels = context_out->ch_layout.nb_channels;
+#endif
+  }
+
+  // Measured output bitrate
+  uint64_t outBitrateBps = deltaSecs > 0 ? (outBytesDelta * 8) / deltaSecs : 0;
+
+  std::string payload = sinkName + "\n" +                                      // 1. stream name
+    std::string(trackType) + "\n" +                                            // 2. track type (audio/video)
+    JSON::Value(deltaSecs).asString() + "\n" +                                 // 3. seconds since last trigger
+    JSON::Value((uint64_t)inputFrameCount).asString() + "\n" +                 // 4. input frame count (cumulative)
+    JSON::Value((uint64_t)outputFrameCount).asString() + "\n" +                // 5. output frame count (cumulative)
+    JSON::Value(inFramesDelta).asString() + "\n" +                             // 6. input frames this window
+    JSON::Value(outFramesDelta).asString() + "\n" +                            // 7. output frames this window
+    JSON::Value(inBytesDelta).asString() + "\n" +                              // 8. input bytes this window
+    JSON::Value(outBytesDelta).asString() + "\n" +                             // 9. output bytes this window
+    JSON::Value(decodeAvg).asString() + "\n" +                                 // 10. decode µs/frame
+    JSON::Value(transformAvg).asString() + "\n" +                              // 11. transform µs/frame
+    JSON::Value(encodeAvg).asString() + "\n" +                                 // 12. encode µs/frame
+    std::string(codec_in ? codec_in->name : "none") + "\n" +                   // 13. input codec (short)
+    std::string(codec_out ? codec_out->name : "none") + "\n" +                 // 14. output codec (short)
+    JSON::Value(inWidth).asString() + "\n" +                                   // 15. input width
+    JSON::Value(inHeight).asString() + "\n" +                                  // 16. input height
+    JSON::Value(outWidth).asString() + "\n" +                                  // 17. output width
+    JSON::Value(outHeight).asString() + "\n" +                                 // 18. output height
+    JSON::Value(inFpks).asString() + "\n" +                                    // 19. input fpks (frames per 1000s)
+    JSON::Value(outFpsMeasured).asString() + "\n" +                            // 20. output fps measured
+    JSON::Value(sampleRate).asString() + "\n" +                                // 21. sample rate (audio)
+    JSON::Value(channels).asString() + "\n" +                                  // 22. channels (audio)
+    JSON::Value(statSourceMs).asString() + "\n" +                              // 23. source timestamp ms
+    JSON::Value(statSinkMs).asString() + "\n" +                                // 24. sink timestamp ms
+    JSON::Value(sourceAdvancedMs).asString() + "\n" +                          // 25. source advanced ms
+    JSON::Value(sinkAdvancedMs).asString() + "\n" +                            // 26. sink advanced ms
+    JSON::Value(rtfIn).asString() + "\n" +                                     // 27. real-time factor in
+    JSON::Value(rtfOut).asString() + "\n" +                                    // 28. real-time factor out
+    JSON::Value(pipelineLagMs).asString() + "\n" +                             // 29. pipeline lag ms
+    JSON::Value(outBitrateBps).asString() + "\n" +                             // 30. output bitrate bps
+    (isFinal ? "1" : "0");                                                     // 31. is_final
 
   Triggers::doTrigger("PROCESS_AV_VIRTUAL_SEGMENT_COMPLETE", payload, sinkName);
+
+  // Store current values for next delta calculation
+  prevInputFrameCount = (uint64_t)inputFrameCount;
+  prevOutputFrameCount = (uint64_t)outputFrameCount;
+  prevInputBytes = totalInputBytes;
+  prevOutputBytes = totalOutputBytes;
+  prevSourceMs = statSourceMs;
+  prevSinkMs = statSinkMs;
   lastTriggerTime = Util::bootSecs();
 }
 
