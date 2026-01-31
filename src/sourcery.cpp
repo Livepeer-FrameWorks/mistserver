@@ -10,7 +10,6 @@
 #include <iomanip>
 #include <iostream>
 #include <sstream>
-#include <stdint.h>
 #include <string.h>
 #include <string>
 #include <sstream>
@@ -81,13 +80,13 @@ int main(int argc, char *argv[]){
   }else{
     tmp << "const char *" << argv[2] << "_prefix = " << std::endl << "  \"";
   }
-  uint32_t i = 0;     // Current line byte counter
-  uint32_t total = 0; // Finished lines so far byte counter
+  unsigned int i = 0;     // Current line byte counter
+  unsigned int total = 0; // Finished lines so far byte counter
   bool sawQ = false;
   for (size_t pos = 0; pos < fullText.size(); ++pos){
     if (pos == splitPoint){
       tmp << "\";" << std::endl
-          << "uint32_t " << argv[2] << "_prefix_len = " << i + total << ";" << std::endl;
+          << "unsigned int " << argv[2] << "_prefix_len = " << i + total << ";" << std::endl;
       tmp << "const char *" << argv[2] << "_suffix = " << std::endl << "  \"";
       i = 0;
       total = 0;
@@ -127,7 +126,7 @@ int main(int argc, char *argv[]){
   }
   // end the last line, plus length variable
   tmp << "\";" << std::endl
-      << "uint32_t " << argv[2] << (splitLen ? "_suffix" : "") << "_len = " << i + total << ";"
+      << "unsigned int " << argv[2] << (splitLen ? "_suffix" : "") << "_len = " << i + total << ";"
       << std::endl;
   tmp.close();
   return 0;

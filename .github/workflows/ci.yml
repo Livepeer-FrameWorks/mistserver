@@ -1,0 +1,94 @@
+name: CI
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+    branches: [master, main]
+
+jobs:
+  test:
+    name: Test & Coverage
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            python3-pip \
+            ninja-build \
+            libmbedtls-dev \
+            gcovr \
+            libavcodec-dev \
+            libavformat-dev \
+            libavutil-dev \
+            libswscale-dev \
+            libsrtp2-dev \
+            libusrsctp-dev \
+            libsrt-openssl-dev
+          pip3 install meson>=1.3.0
+
+      - name: Build with coverage
+        run: |
+          meson setup build \
+            -Db_coverage=true \
+            -DWITH_AV=true \
+            -DDEBUG=4
+          ninja -C build
+
+      - name: Run tests
+        run: meson test -C build --print-errorlogs --verbose
+        continue-on-error: true
+
+      - name: Generate coverage
+        run: ninja -C build coverage
+        continue-on-error: true
+
+      - name: Upload to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: build/meson-logs/coverage.xml
+          flags: cpp
+          fail_ci_if_error: false
+
+  asan:
+    name: AddressSanitizer
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            python3-pip \
+            ninja-build \
+            libmbedtls-dev \
+            clang \
+            libavcodec-dev \
+            libavformat-dev \
+            libavutil-dev \
+            libswscale-dev \
+            libsrtp2-dev \
+            libusrsctp-dev \
+            libsrt-openssl-dev
+          pip3 install meson>=1.3.0
+
+      - name: Build with ASan
+        run: |
+          CC=clang CXX=clang++ meson setup build-asan \
+            -Db_sanitize=address \
+            -Db_lundef=false \
+            -DWITH_AV=true
+          ninja -C build-asan
+
+      - name: Run tests with ASan
+        run: |
+          export ASAN_OPTIONS=detect_leaks=1:halt_on_error=0
+          meson test -C build-asan --print-errorlogs --timeout-multiplier 3
+        continue-on-error: true
