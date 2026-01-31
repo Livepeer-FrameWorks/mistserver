@@ -1,0 +1,160 @@
+name: Lint
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+    branches: [master, main]
+
+permissions:
+  contents: read
+
+jobs:
+  clang-tidy:
+    name: clang-tidy
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            clang-tidy \
+            build-essential \
+            python3 python3-pip \
+            ninja-build \
+            libmbedtls-dev
+
+          pip3 install meson>=1.3.0
+
+      - name: Generate compile_commands.json
+        run: |
+          meson setup builddir
+
+      - name: Get changed files
+        id: changed
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            # For PRs, get files changed in the PR
+            FILES=$(git diff --name-only --diff-filter=ACMR ${{ github.event.pull_request.base.sha }}...${{ github.sha }} -- '*.cpp' '*.h' '*.hpp' \
+              | grep -v '^lsp/' \
+              | grep -v '^embed/' \
+              | grep -v '^subprojects/' \
+              | grep -v '\.js\.h$' \
+              | grep -v '\.css\.h$' \
+              || true)
+          else
+            # For pushes, get files changed in the last commit
+            FILES=$(git diff --name-only --diff-filter=ACMR HEAD~1...HEAD -- '*.cpp' '*.h' '*.hpp' \
+              | grep -v '^lsp/' \
+              | grep -v '^embed/' \
+              | grep -v '^subprojects/' \
+              | grep -v '\.js\.h$' \
+              | grep -v '\.css\.h$' \
+              || true)
+          fi
+
+          if [ -z "$FILES" ]; then
+            echo "No C++ files changed"
+            echo "files=" >> "$GITHUB_OUTPUT"
+          else
+            # Convert to space-separated for clang-tidy
+            echo "files=$FILES" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Run clang-tidy on changed files
+        if: steps.changed.outputs.files != ''
+        run: |
+          echo "Running clang-tidy on changed files..."
+          FAILED=0
+
+          for file in ${{ steps.changed.outputs.files }}; do
+            if [ -f "$file" ]; then
+              echo "Checking: $file"
+              if ! clang-tidy -p builddir "$file" 2>&1; then
+                FAILED=1
+              fi
+            fi
+          done
+
+          if [ $FAILED -eq 1 ]; then
+            echo "::error::clang-tidy found issues"
+            exit 1
+          fi
+
+          echo "All clang-tidy checks passed!"
+
+      - name: Skip message
+        if: steps.changed.outputs.files == ''
+        run: echo "No C++ files changed, skipping clang-tidy"
+
+  clang-format:
+    name: clang-format
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install clang-format
+        run: sudo apt-get update && sudo apt-get install -y clang-format
+
+      - name: Get changed files
+        id: changed
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            FILES=$(git diff --name-only --diff-filter=ACMR ${{ github.event.pull_request.base.sha }}...${{ github.sha }} -- '*.cpp' '*.h' '*.hpp' \
+              | grep -v '^lsp/' \
+              | grep -v '^embed/' \
+              | grep -v '^subprojects/' \
+              | grep -v '\.js\.h$' \
+              | grep -v '\.css\.h$' \
+              || true)
+          else
+            FILES=$(git diff --name-only --diff-filter=ACMR HEAD~1...HEAD -- '*.cpp' '*.h' '*.hpp' \
+              | grep -v '^lsp/' \
+              | grep -v '^embed/' \
+              | grep -v '^subprojects/' \
+              | grep -v '\.js\.h$' \
+              | grep -v '\.css\.h$' \
+              || true)
+          fi
+
+          if [ -z "$FILES" ]; then
+            echo "files=" >> "$GITHUB_OUTPUT"
+          else
+            echo "files=$FILES" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Check formatting
+        if: steps.changed.outputs.files != ''
+        run: |
+          echo "Checking formatting on changed files..."
+          FAILED=0
+
+          for file in ${{ steps.changed.outputs.files }}; do
+            if [ -f "$file" ]; then
+              if ! clang-format --dry-run --Werror "$file" 2>&1; then
+                echo "::error file=$file::Formatting issues found"
+                FAILED=1
+              fi
+            fi
+          done
+
+          if [ $FAILED -eq 1 ]; then
+            echo ""
+            echo "To fix formatting issues, run:"
+            echo "  clang-format -i <file>"
+            exit 1
+          fi
+
+          echo "All formatting checks passed!"
+
+      - name: Skip message
+        if: steps.changed.outputs.files == ''
+        run: echo "No C++ files changed, skipping clang-format"

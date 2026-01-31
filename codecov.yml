@@ -1,0 +1,30 @@
+coverage:
+  status:
+    project:
+      default:
+        target: auto
+        threshold: 5%
+        informational: true
+    patch:
+      default:
+        target: 50%
+        informational: true
+
+flags:
+  cpp:
+    paths:
+      - src/
+      - lib/
+    carryforward: true
+
+ignore:
+  - test/**/*
+  - lsp/**/*
+  - embed/**/*
+  - subprojects/**/*
+  - "**/*.js.h"
+  - "**/*.css.h"
+
+comment:
+  layout: "reach,diff,flags,files"
+  require_changes: true

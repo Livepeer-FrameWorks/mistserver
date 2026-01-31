@@ -1,0 +1,42 @@
+# MistServer clang-tidy configuration
+# Tiered approach: Tier 1 (bugs) enabled, Tier 2 (quality) enabled, Tier 3 (style) disabled
+#
+# To run: clang-tidy -p builddir src/file.cpp
+# Requires compile_commands.json from meson setup
+
+---
+Checks: >
+  -*,
+  bugprone-*,
+  clang-analyzer-*,
+  performance-*,
+  misc-unused-*,
+  readability-redundant-*,
+  -bugprone-easily-swappable-parameters,
+  -bugprone-implicit-widening-of-multiplication-result,
+  -clang-analyzer-security.insecureAPI.DeprecatedOrUnsafeBufferHandling,
+
+# Tier 3 (disabled - enable later for modernization):
+#  modernize-*,
+#  readability-*,
+#  -modernize-use-trailing-return-type,
+#  -readability-magic-numbers,
+#  -readability-identifier-length,
+
+WarningsAsErrors: ''
+
+HeaderFilterRegex: '^(?!.*(lsp|embed|subprojects)).*\.(h|hpp)$'
+
+FormatStyle: file
+
+CheckOptions:
+  - key: bugprone-argument-comment.StrictMode
+    value: false
+  - key: bugprone-assert-side-effect.AssertMacros
+    value: 'assert,FAIL_MSG,WARN_ONCE'
+  - key: bugprone-sizeof-expression.WarnOnSizeOfIntegerExpression
+    value: true
+  - key: performance-unnecessary-value-param.AllowedTypes
+    value: 'JSON::Value'
+  - key: misc-unused-parameters.StrictMode
+    value: false
