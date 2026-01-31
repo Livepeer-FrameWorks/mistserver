@@ -1,6 +1,9 @@
 MistServer
 ==========
 
+[![CI](https://github.com/Livepeer-FrameWorks/mistserver/actions/workflows/ci.yml/badge.svg)](https://github.com/Livepeer-FrameWorks/mistserver/actions/workflows/ci.yml)
+[![codecov](https://img.shields.io/codecov/c/github/Livepeer-FrameWorks/mistserver)](https://codecov.io/gh/Livepeer-FrameWorks/mistserver)
+
 MistServer is an open source, public domain, full-featured, next-generation streaming media toolkit for OTT (internet streaming), designed to be ideal for developers and system integrators.
 
 For full documentation, see: https://docs.mistserver.org
