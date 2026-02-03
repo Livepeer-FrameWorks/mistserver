@@ -68,7 +68,7 @@ static void setFDBlocking(int FD, bool blocking) {
   if (!blocking) {
     flags |= O_NONBLOCK;
   } else {
-    flags &= !O_NONBLOCK;
+    flags &= ~O_NONBLOCK;
   }
   fcntl(FD, F_SETFL, flags);
 }
