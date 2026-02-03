@@ -322,7 +322,7 @@ namespace Mist {
               uint64_t lastRead = 0;
               while (!shouldStop && Util::Config::is_active) {
                 struct stat statRslt;
-                if (!stat(S.c_str(), &statRslt) && statRslt.st_mtim.tv_sec > lastRead) {
+                if (!stat(S.c_str(), &statRslt) && statRslt.st_mtime > lastRead) {
                   std::lock_guard<std::recursive_mutex> guard(ptrLock);
                   if (staticImg.data) {
                     free(staticImg.data);
@@ -338,7 +338,7 @@ namespace Mist {
                             &staticImg);
                   ready = !staticImg.error;
                   if (ready) { lastImg = Util::bootMS(); }
-                  lastRead = statRslt.st_mtim.tv_sec;
+                  lastRead = statRslt.st_mtime;
                 }
                 if (!shouldStop && Util::Config::is_active) { Util::sleep(1000); }
               }

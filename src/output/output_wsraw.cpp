@@ -4,7 +4,8 @@
 #include <mist/stream.h>
 
 namespace Mist{
-  OutWSRaw::OutWSRaw(Socket::Connection &conn) : HTTPOutput(conn){
+  OutWSRaw::OutWSRaw(Socket::Connection & conn, Util::Config & cfg, JSON::Value & _capa)
+    : HTTPOutput(conn, cfg, _capa){
     wsCmds = true;
     keysOnly = targetParams.count("keysonly")?1:0;
   }
@@ -65,8 +66,8 @@ namespace Mist{
     webSock->sendFrame(r.toString());
   }
 
-  void OutWSRaw::init(Util::Config *cfg){
-    HTTPOutput::init(cfg);
+  void OutWSRaw::init(Util::Config *cfg, JSON::Value & capa){
+    HTTPOutput::init(cfg, capa);
     capa["name"] = "WSRaw";
     capa["friendly"] = "Raw WebSocket";
     capa["desc"] = "Raw codec data over WebSocket";

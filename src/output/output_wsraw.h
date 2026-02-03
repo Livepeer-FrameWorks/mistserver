@@ -3,8 +3,8 @@
 namespace Mist{
   class OutWSRaw : public HTTPOutput{
   public:
-    OutWSRaw(Socket::Connection &conn);
-    static void init(Util::Config *cfg);
+    OutWSRaw(Socket::Connection & conn, Util::Config & cfg, JSON::Value & capa);
+    static void init(Util::Config *cfg, JSON::Value & capa);
     void respondHTTP(const HTTP::Parser & req, bool headersOnly);
     void sendNext();
     void sendHeader();
