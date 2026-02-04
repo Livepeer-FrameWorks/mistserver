@@ -324,7 +324,7 @@ namespace Mist{
       std::string relurl;
       size_t found = rel.find('$');
       if (found != std::string::npos){
-        relurl = rel.substr(1, found - 1) + Encodings::URL::encode(streamname) + rel.substr(found + 1);
+        relurl = rel.substr(0, found) + Encodings::URL::encode(streamname) + rel.substr(found + 1);
       }else{
         relurl = "";
       }
