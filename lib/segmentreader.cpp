@@ -144,6 +144,7 @@ namespace Mist{
       if (parser == STRM_TS){
         if (currBuf->size() == currBuf->rsize() && offset + 188 > currBuf->size()){tsStream.finish();}
         if (tsStream.hasPacketOnEachTrack() || (currBuf->size() == currBuf->rsize() && offset + 188 > currBuf->size())){
+          if (currBuf->size() == currBuf->rsize() && offset + 188 > currBuf->size()) { tsStream.finish(); }
           if (!tsStream.hasPacket()){return false;}
           tsStream.getEarliestPacket(thisPacket);
           return true;
