@@ -128,9 +128,12 @@ namespace Mist{
     opt["arg_num"] = 1;
     opt["help"] = "Target DTSC URL to push out towards.";
     cfg->addOption("target", opt);
-    cfg->addOption("streamname", JSON::fromString("{\"arg\":\"string\",\"short\":\"s\",\"long\":"
-                                                  "\"stream\",\"help\":\"The name of the stream to "
-                                                  "push out, when pushing out.\"}"));
+    cfg->addOption("streamname", R"-({
+      "arg":"string",
+      "short":"s",
+      "long":"stream",
+      "help":"The name of the stream that this connector will transmit."
+    })-");
 
     opt.null();
     opt["arg"] = "string";

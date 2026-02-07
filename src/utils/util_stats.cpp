@@ -33,29 +33,63 @@ void printStatistics(char *data, size_t len, unsigned int id){
 int main(int argc, char **argv){
   Util::redirectLogsIfNeeded();
   Util::Config conf = Util::Config(argv[0]);
-  conf.addOption("clients",
-                 JSON::fromString("{\"arg\":\"num\", \"short\":\"c\", \"long\":\"clients\", "
-                                  "\"default\":1000, \"help\":\"Amount of clients to emulate.\"}"));
-  conf.addOption("stream", JSON::fromString("{\"arg\":\"string\", \"short\":\"s\", "
-                                            "\"long\":\"stream\", \"default\":\"test\", "
-                                            "\"help\":\"Streamname to pretend to request.\"}"));
-  conf.addOption("up",
-                 JSON::fromString("{\"arg\":\"string\", \"short\":\"u\", \"long\":\"up\", "
-                                  "\"default\":131072, \"help\":\"Bytes per second upstream.\"}"));
-  conf.addOption("down",
-                 JSON::fromString("{\"arg\":\"string\", \"short\":\"d\", \"long\":\"down\", "
-                                  "\"default\":13000, \"help\":\"Bytes per second downstream.\"}"));
-  conf.addOption("sine", JSON::fromString("{\"arg\":\"string\", \"short\":\"S\", "
-                                          "\"long\":\"sine\", \"default\":0, \"help\":\"Bytes per "
-                                          "second variance in a sine pattern.\"}"));
-  conf.addOption("userscale",
-                 JSON::fromString(
-                     "{\"arg\":\"string\", \"short\":\"U\", \"long\":\"userscale\", \"default\":0, "
-                     "\"help\":\"If != 0, scales users from 0% to 100% bandwidth.\"}"));
-  conf.addOption("read", JSON::fromString("{\"arg\":\"num\", \"short\":\"r\", \"long\":\"read\", "
-                                          "\"default\":0, \"help\":\"If != 0, does not simulate, "
-                                          "just reads existing data.\"}"));
-  conf.parseArgs(argc, argv);
+  conf.addOption("clients", R"-({
+    "arg":"num",
+    "short":"c",
+    "long":"clients",
+    "default":1000,
+    "help":"Amount of clients to emulate."
+  })-");
+  "
+    conf.addOption("stream", R"-({
+    "arg":"string",
+    "short":"s",
+    "long":"stream",
+    "default":"test",
+    "help":"Streamname to pretend to request."
+  })-");
+  "
+    conf.addOption("up", R"-({
+    "arg":"string",
+    "short":"u",
+    "long":"up",
+    "default":131072,
+    "help":"Bytes per second upstream."
+  })-");
+  "
+    conf.addOption("down", R"-({
+    "arg":"string",
+    "short":"d",
+    "long":"down",
+    "default":13000,
+    "help":"Bytes per second downstream."
+  })-");
+  "
+    conf.addOption("sine", R"-({
+    "arg":"string",
+    "short":"S",
+    "long":"sine",
+    "default":0,
+    "help":"Bytes per second variance in a sine pattern."
+  })-");
+  "
+    conf.addOption("userscale", R"-({
+    "arg":"string",
+    "short":"U",
+    "long":"userscale",
+    "default":0,
+    "help":"If != 0, scales users from 0% to 100% bandwidth."
+  })-");
+  "
+    conf.addOption("read", R"-({
+    "arg":"num",
+    "short":"r",
+    "long":"read",
+    "default":0,
+    "help":"If != 0, does not simulate, just reads existing data."
+  })-");
+  "
+    conf.parseArgs(argc, argv);
 
   std::string streamName = conf.getString("stream");
   long long clientCount = conf.getInteger("clients");

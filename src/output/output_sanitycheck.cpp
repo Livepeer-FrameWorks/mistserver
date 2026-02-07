@@ -1,8 +1,11 @@
 #include "output_sanitycheck.h"
-#include <iomanip>
+
 #include <mist/bitfields.h>
 #include <mist/checksum.h>
 #include <mist/defines.h>
+
+#include <iomanip>
+#include <iostream>
 
 namespace Mist{
   OutSanityCheck::OutSanityCheck(Socket::Connection & conn, Util::Config & _cfg, JSON::Value & _capa)
@@ -76,17 +79,23 @@ namespace Mist{
     opt["help"] = "Ignored, only exists to handle targetParams";
     cfg->addOption("target", opt);
 
-
-
-    cfg->addOption("streamname", JSON::fromString("{\"arg\":\"string\",\"short\":\"s\",\"long\":"
-                                                  "\"stream\",\"help\":\"The name of the stream "
-                                                  "that this connector will transmit.\"}"));
-    cfg->addOption(
-        "seek", JSON::fromString("{\"arg\":\"string\",\"short\":\"k\",\"long\":\"seek\",\"help\":"
-                                 "\"Time in ms to check from - by default start of stream\"}"));
-    cfg->addOption(
-        "async", JSON::fromString("{\"short\":\"y\",\"long\":\"async\",\"help\":"
-                                 "\"Retrieve tracks in async track sorting mode (default sync)\"}"));
+    cfg->addOption("streamname", R"-({
+      "arg":"string",
+      "short":"s",
+      "long":"stream",
+      "help":"The name of the stream that this connector will transmit."
+    })-");
+    cfg->addOption("seek", R"-({
+      "arg":"string",
+      "short":"k",
+      "long":"seek",
+      "help":"Time in ms to check from - by default start of stream"
+    })-");
+    cfg->addOption("async", R"-({
+      "short":"y",
+      "long":"async",
+      "help":"Retrieve tracks in async track sorting mode (default sync)"
+    })-");
     cfg->addBasicConnectorOptions(capa);
   }
 

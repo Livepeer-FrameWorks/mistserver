@@ -1080,9 +1080,7 @@ namespace DTSC{
 
     version = src.getMember("version").asInt();
 
-    if (src.hasMember("inputLocalVars")){
-      inputLocalVars = JSON::fromString(src.getMember("inputLocalVars").asString());
-    }
+    if (src.hasMember("inputLocalVars")) { inputLocalVars.fromString(src.getMember("inputLocalVars").asString()); }
 
     for (int i = 0; i < tNum; i++){
       addTrackFrom(src.getMember("tracks").getIndice(i));

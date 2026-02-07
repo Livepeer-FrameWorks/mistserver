@@ -530,9 +530,12 @@ namespace Mist{
         capa["codecs"][0u][0u].append("opus");
         capa["codecs"][0u][0u].append("AAC");
       }
-      cfg->addOption("streamname", JSON::fromString("{\"arg\":\"string\",\"short\":\"s\",\"long\":"
-                                              "\"stream\",\"help\":\"The name of the stream "
-                                              "that this connector will transmit.\"}"));
+      cfg->addOption("streamname", R"-({
+        "arg":"string",
+        "short":"s",
+        "long":"stream",
+        "help":"The name of the stream that this connector will transmit."
+      })-");
       cfg->addBasicConnectorOptions(capa);
     }
 
@@ -2289,12 +2292,10 @@ int main(int argc, char *argv[]){
 
   // read configuration
   if (config.getString("configuration") != "-"){
-    Mist::opt = JSON::fromString(config.getString("configuration"));
-  }else{
-    std::string json, line;
+    Mist::opt.fromString(config.getString("configuration"));
+  } else {
     INFO_MSG("Reading configuration from standard input");
-    while (std::getline(std::cin, line)){json.append(line);}
-    Mist::opt = JSON::fromString(json.c_str());
+    Mist::opt.fromStream(std::cin);
   }
 
   if (!Mist::opt.isMember("gopsize") || !Mist::opt["gopsize"].asInt()){

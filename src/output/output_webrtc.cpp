@@ -788,7 +788,8 @@ namespace Mist{
   void OutWebRTC::setIceHeaders(HTTP::Parser & H){
     if (!config->getString("iceservers").size()){return;}
     std::deque<std::string> links;
-    JSON::Value iceConf = JSON::fromString(config->getString("iceservers"));
+    JSON::Value iceConf;
+    iceConf.fromString(config->getString("iceservers"));
     jsonForEach(iceConf, i){
       if (i->isMember("url") && (*i)["url"].isString()){
         JSON::Value &u = (*i)["url"];
@@ -991,8 +992,9 @@ namespace Mist{
       HIGH_MSG("Ignoring non-text websocket frame");
       return;
     }
-    
-    JSON::Value command = JSON::fromString(webSock->data, webSock->data.size());
+
+    JSON::Value command;
+    command.fromString(webSock->data, webSock->data.size());
     JSON::Value commandResult;
 
     if(command.isMember("encrypt")){
@@ -2438,7 +2440,8 @@ namespace Mist{
       }
     }else if (ppid == 51){
       if (wsCmdForce && wSock.dataChannels.count("MistControl") && wSock.dataChannels["MistControl"] == stream){
-        JSON::Value command = JSON::fromString(data, len);
+        JSON::Value command;
+        command.fromString(data, len);
         if (!command || !command.isMember("type")){return;}
         handleCommand(command);
         return;
@@ -2610,7 +2613,7 @@ namespace Mist{
       JSON::Value jPack;
       if (M.getCodec(thisIdx) == "JSON"){
         if (dataLen == 0 || (dataLen == 1 && dataPointer[0] == ' ')){return;}
-        jPack["data"] = JSON::fromString(dataPointer, dataLen);
+        jPack["data"].fromString(dataPointer, dataLen);
         jPack["time"] = thisTime;
         jPack["track"] = (uint64_t)thisIdx;
       }else if (M.getCodec(thisIdx) == "subtitle"){

@@ -323,9 +323,12 @@ void sinkThread(){
 }
 
 void sourceThread(){
-  conf.addOption("streamname", JSON::fromString("{\"arg\":\"string\",\"short\":\"s\",\"long\":"
-                                                  "\"stream\",\"help\":\"The name of the stream "
-                                                  "that this connector will transmit.\"}"));
+  conf.addOption("streamname", R"-({
+    "arg":"string",
+    "short":"s",
+    "long":"stream",
+    "help":"The name of the stream that this connector will transmit."
+  })-");
   JSON::Value opt;
   opt["arg"] = "string";
   opt["default"] = "";
@@ -784,12 +787,10 @@ int main(int argc, char *argv[]){
 
   // read configuration
   if (config.getString("configuration") != "-"){
-    Mist::opt = JSON::fromString(config.getString("configuration"));
-  }else{
-    std::string json, line;
+    Mist::opt.fromString(config.getString("configuration"));
+  } else {
     INFO_MSG("Reading configuration from standard input");
-    while (std::getline(std::cin, line)){json.append(line);}
-    Mist::opt = JSON::fromString(json.c_str());
+    Mist::opt.fromStream(std::cin);
   }
 
   // check config for generic options
@@ -941,7 +942,7 @@ int main(int argc, char *argv[]){
     const std::string & hcbc = Mist::opt["hardcoded_broadcasters"].asStringRef();
     // Detect array
     if (hcbc.size() && hcbc[0] == '[') {
-      Mist::lpBroad = JSON::fromString(hcbc);
+      Mist::lpBroad.fromString(hcbc);
       // If an array element is a string, assume it's the address field only
       jsonForEach (Mist::lpBroad, it) {
         if (it->isString()) {
@@ -961,7 +962,7 @@ int main(int argc, char *argv[]){
       FAIL_MSG("Livepeer API responded negatively to request for broadcaster list");
       return 1;
     }
-    Mist::lpBroad = JSON::fromString(dl.data());
+    Mist::lpBroad.fromString(dl.data());
   }
   if (!Mist::lpBroad || !Mist::lpBroad.isArray()){
     FAIL_MSG("No Livepeer broadcasters available");
@@ -981,7 +982,7 @@ int main(int argc, char *argv[]){
       FAIL_MSG("Livepeer API responded negatively to encode request");
       return 1;
     }
-    Mist::lpEnc = JSON::fromString(dl.data());
+    Mist::lpEnc.fromString(dl.data());
     if (!Mist::lpEnc) {
       FAIL_MSG("Livepeer API did not respond with JSON");
       return 1;

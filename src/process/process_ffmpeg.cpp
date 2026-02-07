@@ -631,12 +631,10 @@ int main(int argc, char *argv[]){
 
   // read configuration
   if (config.getString("configuration") != "-"){
-    opt = JSON::fromString(config.getString("configuration"));
-  }else{
-    std::string json, line;
+    opt.fromString(config.getString("configuration"));
+  } else {
     INFO_MSG("Reading configuration from standard input");
-    while (std::getline(std::cin, line)){json.append(line);}
-    opt = JSON::fromString(json.c_str());
+    opt.fromStream(std::cin);
   }
 
   Enc.SetConfig(opt);

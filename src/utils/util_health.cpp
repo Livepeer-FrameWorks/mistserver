@@ -29,7 +29,8 @@ int main(int argc, char **argv) {
         evLp.setup();
         evLp.addSocket(uSock.getSock(), [&](void *) {
           if (uSock.Receive()) {
-            JSON::Value resp = JSON::fromString(uSock.data, uSock.data.size());
+            JSON::Value resp;
+            resp.fromString(uSock.data, uSock.data.size());
             if (resp.isMember("version")) {
               const JSON::Value & V = resp["version"];
               success = true;
@@ -55,7 +56,8 @@ int main(int argc, char **argv) {
         evLp.setup();
         evLp.addSocket(uSock.getSock(), [&](void *) {
           if (uSock.Receive()) {
-            JSON::Value resp = JSON::fromString(uSock.data, uSock.data.size());
+            JSON::Value resp;
+            resp.fromString(uSock.data, uSock.data.size());
             if (resp.isMember("load")) {
               success = true;
               const JSON::Value & L = resp["load"];
@@ -90,7 +92,8 @@ int main(int argc, char **argv) {
     size_t upCount = 0;
     if (A.isReady()) {
       for (uint32_t i = 0; i < A.getRCount(); ++i) {
-        JSON::Value C = JSON::fromString(A.getPointer("cmd", i));
+        JSON::Value C;
+        C.fromString(A.getPointer("cmd", i));
         uint64_t pid = A.getInt("pid", i);
         if (!Util::Procs::isActive(pid)) {
           std::cerr << C["connector"] << " process is not up!" << std::endl;

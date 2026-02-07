@@ -119,6 +119,9 @@ namespace JSON{
     uint32_t size() const;
     void null();
     void unset();
+    size_t fromString(const std::string & str);
+    size_t fromString(const char *ptr, size_t len);
+    void fromStream(std::istream & fromstream);
   };
 
   Value fromDTMI2(const std::string &data);

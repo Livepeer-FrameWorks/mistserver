@@ -197,7 +197,8 @@ namespace Controller{
       if (!currentConnectors.count(*runningConns.begin()) ||
           !Util::Procs::isActive(currentConnectors[*runningConns.begin()])){
 
-        JSON::Value cnf = JSON::fromString(*runningConns.begin());
+        JSON::Value cnf;
+        cnf.fromString(*runningConns.begin());
 
         std::string tmparg;
         struct stat buf;

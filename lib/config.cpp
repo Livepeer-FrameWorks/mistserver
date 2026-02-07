@@ -255,7 +255,17 @@ void Util::Config::addOption(const std::string & optname, const JSON::Value & op
 }
 
 void Util::Config::addOption(const std::string & optname, const char *jsonStr) {
-  addOption(optname, JSON::fromString(jsonStr));
+  JSON::Value & O = vals[optname];
+  O.fromString(jsonStr);
+  if (!O.isMember("value") && O.isMember("default")) {
+    O["value"].append(O["default"]);
+    O.removeMember("default");
+  }
+  if (O.isMember("value") && O["value"].isArray() && O["value"].size()) { O["has_default"] = true; }
+  long_count = 0;
+  jsonForEach (vals, it) {
+    if (it->isMember("long")) { long_count++; }
+  }
 }
 
 /// Prints a usage message to the given output.

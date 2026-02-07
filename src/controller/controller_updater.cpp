@@ -68,7 +68,8 @@ namespace Controller {
         updates["error"] = "Could not retrieve update information from releases server.";
         return;
       }
-      JSON::Value updrInfo = JSON::fromString(checkerDl.data());
+      JSON::Value updrInfo;
+      updrInfo.fromString(checkerDl.data());
       if (!updrInfo) { updrInfo["error"] = "Could not retrieve update information from releases server."; }
       if (updrInfo.isMember("error")) {
         LOG_MSG("UPDR", "%s", updrInfo["error"].asStringRef().c_str());

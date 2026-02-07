@@ -176,28 +176,34 @@ namespace Mist{
     capa["optional"]["certbot"]["option"] = "--certbot";
     capa["optional"]["certbot"]["short"] = "C";
     cfg->addConnectorOptions(8080, capa);
-    /*LTS-START*/
-    cfg->addOption("nostreamtext",
-                   JSON::fromString("{\"arg\":\"string\", \"default\":\"\", "
-                                    "\"short\":\"t\",\"long\":\"nostreamtext\",\"help\":\"Text or "
-                                    "HTML to display when streams are unavailable.\"}"));
-    capa["optional"]["nostreamtext"]["name"] = "Stream unavailable text";
-    capa["optional"]["nostreamtext"]["help"] =
-        "Text or HTML to display when streams are unavailable.";
-    capa["optional"]["nostreamtext"]["default"] = "";
-    capa["optional"]["nostreamtext"]["type"] = "str";
-    capa["optional"]["nostreamtext"]["option"] = "--nostreamtext";
-    /*LTS-END*/
-    cfg->addOption("pubaddr",
-                   JSON::fromString("{\"arg\":\"string\", \"default\":\"\", "
-                                    "\"short\":\"A\",\"long\":\"public-address\",\"help\":\"Full "
-                                    "public address this output is available as.\"}"));
-    capa["optional"]["pubaddr"]["name"] = "Public address";
-    capa["optional"]["pubaddr"]["help"] =
-        "Full public address this output is available as, if being proxied";
-    capa["optional"]["pubaddr"]["default"] = "";
-    capa["optional"]["pubaddr"]["type"] = "inputlist";
-    capa["optional"]["pubaddr"]["option"] = "--public-address";
+    cfg->addOption("nostreamtext", R"-("{
+      "arg":"string",
+      "default":"",
+      "short":"t",
+      "long":"nostreamtext",
+      "help":"Text or HTML to display when streams are unavailable."
+    })-");
+    capa["optional"]["nostreamtext"].fromString(R"-({
+      "name":"Stream unavailable text",
+      "help": "Text or HTML to display when streams are unavailable.",
+      "default": "",
+      "type": "str",
+      "option": "--nostreamtext"
+    })-");
+    cfg->addOption("pubaddr", R"-({
+      "arg":"string",
+      "default":"",
+      "short":"A",
+      "long":"public-address",
+      "help":"Full public address this output is available as."
+    })-");
+    capa["optional"]["pubaddr"].fromString(R"-({
+      "name": "Public address",
+      "help": "Full public address this output is available as, if being proxied",
+      "default": "",
+      "type": "inputlist",
+      "option": "--public-address"
+    })-");
   }
 
   /// Sorts the JSON::Value objects that hold source information by preference.

@@ -358,7 +358,8 @@ void Controller::handleWebSocket(APIConn *aConn) {
       if (aConn->W->frameType != 1) { return; }
 
       // Parse JSON and check command type
-      JSON::Value command = JSON::fromString(aConn->W->data, aConn->W->data.size());
+      JSON::Value command;
+      command.fromString(aConn->W->data, aConn->W->data.size());
       if (command.isArray() && command[0u].asString() == "auth") {
         std::lock_guard<std::mutex> guard(configMutex);
         JSON::Value req;
@@ -506,7 +507,7 @@ bool Controller::handleAPIConnection(APIConn *aConn) {
       if (auth.substr(0, 5) == "json ") {
         INFO_MSG("Checking auth header");
         JSON::Value req;
-        req["authorize"] = JSON::fromString(auth.substr(5));
+        req["authorize"].fromString(auth.substr(5));
         if (Storage["account"]) {
           std::lock_guard<std::mutex> guard(configMutex);
           if (!Controller::conf.is_active) { return 0; }
@@ -545,9 +546,9 @@ bool Controller::handleAPIConnection(APIConn *aConn) {
     JSON::Value Request;
     std::string reqContType = aConn->H.GetHeader("Content-Type");
     if (reqContType == "application/json") {
-      Request = JSON::fromString(aConn->H.body);
+      Request.fromString(aConn->H.body);
     } else {
-      Request = JSON::fromString(aConn->H.GetVar("command"));
+      Request.fromString(aConn->H.GetVar("command"));
     }
     // invalid request? send the web interface, unless requested as "/api"
     if (!Request.isObject() && aConn->H.url != "/api" && aConn->H.url != "/api2") {
@@ -924,7 +925,7 @@ void Controller::handleAPICommands(JSON::Value &Request, JSON::Value &Response){
         if (in.asStringRef().find("://") != std::string::npos)
           in.append((JSON::Value)in);
         else
-          in = JSON::fromString(R"([{"kid": ")" + in.asStringRef() + R"("}])");
+          in.fromString(R"([{"kid": ")" + in.asStringRef() + R"("}])");
       }
 
       // Iterate over the array and remove the first matching key, entries may be keys or key, perms
@@ -1218,7 +1219,7 @@ void Controller::handleAPICommands(JSON::Value &Request, JSON::Value &Response){
             conn_args[0] = arg_one.c_str();
             conn_args[2] = Request["capabilities"].asStringRef().c_str();
             configMutex.unlock();
-            Response["capabilities"] = JSON::fromString(Util::Procs::getOutputOf((char **)conn_args));
+            Response["capabilities"].fromString(Util::Procs::getOutputOf((char **)conn_args));
             configMutex.lock();
             break;
           }
@@ -1815,7 +1816,7 @@ void Controller::handleAPICommands(JSON::Value &Request, JSON::Value &Response){
           conn_args[0] = arg_one.c_str();
           conn_args[2] = Request["enumerate_sources"].asStringRef().c_str();
           configMutex.unlock();
-          Response["enumerate_sources"] = JSON::fromString(Util::Procs::getOutputOf((char **)conn_args));
+          Response["enumerate_sources"].fromString(Util::Procs::getOutputOf((char **)conn_args));
           configMutex.lock();
           break;
         }

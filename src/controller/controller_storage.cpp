@@ -179,7 +179,8 @@ namespace Controller{
       if (pos != std::string::npos) { uriExpiresAt[mostExpiredUri] = nowTime + 1000 * std::atoi(cc.data() + pos + 8); }
 
       // Get the response, should be either a 'well-known' response or an array of keys
-      const JSON::Value & response = JSON::fromString(jwkDL.data());
+      JSON::Value response;
+      response.fromString(jwkDL.data());
 
       // In the event that the endpoint changed remove all old keys associated with it
       std::string jwksUri = response["jwks_uri"].asString();
@@ -602,7 +603,7 @@ namespace Controller{
         if ((*it)["connector"].asStringRef() == "CMAF"){foundCMAF = true;}
         newVal.append(*it);
       }
-      if (edit && !foundCMAF){newVal.append(JSON::fromString("{\"connector\":\"CMAF\"}"));}
+      if (edit && !foundCMAF) { newVal.append().fromString(R"-({"connector":"CMAF"})-"); }
       if (edit){
         Controller::Storage["config"]["protocols"] = newVal;
         LOG_MSG("CONF", "Translated protocols to new versions");

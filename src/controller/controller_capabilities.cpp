@@ -501,8 +501,7 @@ namespace Controller{
         if (capabilities["connectors"].isMember((*it).substr(8))){continue;}
         arg_one = Util::getMyPath() + (*it);
         conn_args[0] = arg_one.c_str();
-        capabilities["connectors"][(*it).substr(8)] =
-            JSON::fromString(Util::Procs::getOutputOf((char **)conn_args));
+        capabilities["connectors"][(*it).substr(8)].fromString(Util::Procs::getOutputOf((char **)conn_args));
         if (capabilities["connectors"][(*it).substr(8)].size() < 1){
           capabilities["connectors"].removeMember((*it).substr(8));
         }
@@ -511,8 +510,7 @@ namespace Controller{
         arg_one = Util::getMyPath() + (*it);
         conn_args[0] = arg_one.c_str();
         std::string entryName = (*it).substr(7);
-        capabilities["connectors"][entryName] =
-            JSON::fromString(Util::Procs::getOutputOf((char **)conn_args));
+        capabilities["connectors"][entryName].fromString(Util::Procs::getOutputOf((char **)conn_args));
         if (capabilities["connectors"][entryName].size() < 1){
           capabilities["connectors"].removeMember(entryName);
         }else if (capabilities["connectors"][entryName]["version"].asStringRef() != PACKAGE_VERSION){
@@ -537,7 +535,7 @@ namespace Controller{
         conn_args[0] = arg_one.c_str();
         std::string entry = (*it).substr(8);
         JSON::Value & C = capabilities["processes"][entry];
-        C = JSON::fromString(Util::Procs::getOutputOf((char **)conn_args));
+        C.fromString(Util::Procs::getOutputOf((char **)conn_args));
         // Add entry to inputs if type is standalone
         if (C.isMember("type") && C["type"].asStringRef() == "standalone") {
           JSON::Value & I = capabilities["inputs"][entry];
@@ -562,7 +560,7 @@ namespace Controller{
         arg_one = Util::getMyPath() + (*it);
         conn_args[0] = arg_one.c_str();
         std::string entryName = (*it).substr(6);
-        capabilities["inputs"][entryName] = JSON::fromString(Util::Procs::getOutputOf((char **)conn_args));
+        capabilities["inputs"][entryName].fromString(Util::Procs::getOutputOf((char **)conn_args));
         if (capabilities["inputs"][entryName].size() < 1){
           capabilities["inputs"].removeMember((*it).substr(6));
         }else if (capabilities["inputs"][entryName]["version"].asStringRef() != PACKAGE_VERSION){

@@ -767,7 +767,8 @@ namespace Mist{
     // start up new/changed connectors
     while (newProcs.size() && config->is_active){
       const std::string & config = (*newProcs.begin());
-      JSON::Value args = JSON::fromString(config);
+      JSON::Value args;
+      args.fromString(config);
       if (!runningProcs.count(config) || !Util::Procs::isActive(runningProcs[config])){
         // Check restart behaviour - default to instant (re)starts
         std::string restartType = "fixed";
@@ -804,8 +805,7 @@ namespace Mist{
           continue;
         }
 
-        std::string procname =
-            Util::getMyPath() + "MistProc" + JSON::fromString(config)["process"].asString();
+        std::string procname = Util::getMyPath() + "MistProc" + args["process"].asString();
         argarr[0] = (char *)procname.c_str();
         argarr[1] = (char *)config.c_str();
         argarr[2] = 0;
@@ -813,7 +813,7 @@ namespace Mist{
           if (args.isMember("debug")){
             debugLvl = args["debug"].asString();
           }else{
-            debugLvl = JSON::Value(Util::printDebugLevel).asString();
+            debugLvl = std::to_string(Util::printDebugLevel);
           }
           argarr[2] = (char*)"--debug";
           argarr[3] = (char*)debugLvl.c_str();;

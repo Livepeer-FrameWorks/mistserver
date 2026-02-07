@@ -7,10 +7,10 @@ int main(int argc, char **argv){
   JSON::Value J;
   // If JSON_STRING is set, parse it as JSON.
   if (getenv("JSON_STRING")) {
-    J = JSON::fromString(getenv("JSON_STRING"));
+    J.fromString(getenv("JSON_STRING"));
   } else {
     // Otherwise, read from stdin
-    J = JSON::Value(std::cin);
+    J.fromStream(std::cin);
   }
   std::cout << J.toString() << std::endl;
   std::cout << J.toPrettyString() << std::endl;

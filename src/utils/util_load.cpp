@@ -449,7 +449,8 @@ void cleanupHost(hostEntry &H);
 
 ///Fills the given map with the given JSON string of tag adjustments
 void fillTagAdjust(std::map<std::string, int32_t> & tags, const std::string & adjust){
-  JSON::Value adj = JSON::fromString(adjust);
+  JSON::Value adj;
+  adj.fromString(adjust);
   jsonForEach(adj, t){
     tags[t.key()] = t->asInt();
   }
@@ -484,7 +485,8 @@ int handleRequest(Socket::Connection &conn){
         JSON::Value ret;
         // Get/set weights
         if (weights.size()){
-          JSON::Value newVals = JSON::fromString(weights);
+          JSON::Value newVals;
+          newVals.fromString(weights);
           if (newVals.isMember("cpu")){weight_cpu = newVals["cpu"].asInt();}
           if (newVals.isMember("ram")){weight_ram = newVals["ram"].asInt();}
           if (newVals.isMember("bw")){weight_bw = newVals["bw"].asInt();}
@@ -818,7 +820,8 @@ void handleServer(void *hostEntryPointer){
 
   while (cfg->is_active && (entry->state != STATE_GODOWN)){
     if (DL.get(url) && DL.isOk()){
-      JSON::Value servData = JSON::fromString(DL.data());
+      JSON::Value servData;
+      servData.fromString(DL.data());
       if (!servData){
         FAIL_MSG("Can't decode server %s load information", url.host.c_str());
         entry->details->badNess();

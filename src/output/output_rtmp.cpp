@@ -193,7 +193,8 @@ namespace Mist {
       crtAndKey & srvcert = srvcerts.back();
       if (cFile[0] == '[') {
         ignoreKeys = true;
-        const JSON::Value crtCnf = JSON::fromString(cFile);
+        JSON::Value crtCnf;
+        crtCnf.fromString(cFile);
         jsonForEachConst (crtCnf, jt) {
           if (!jt->asStringRef().size()) { continue; }
           if (jt.num() + 1 != crtCnf.size()) {
@@ -633,9 +634,12 @@ namespace Mist {
     opt["arg_num"] = 1;
     opt["help"] = "Target RTMP URL to push out towards.";
     cfg->addOption("target", opt);
-    cfg->addOption("streamname", JSON::fromString("{\"arg\":\"string\",\"short\":\"s\",\"long\":"
-                                                  "\"stream\",\"help\":\"The name of the stream to "
-                                                  "push out, when pushing out.\"}"));
+    cfg->addOption("streamname", R"-({
+      "arg":"string",
+      "short":"s",
+      "long":"stream",
+      "help":"The name of the stream that this connector will transmit."
+    })-");
   }
 
   void OutRTMP::sendSilence(uint64_t timestamp){
@@ -1260,7 +1264,8 @@ namespace Mist {
     vidMultiMap.clear();
     audMultiMap.clear();
     if (targetParams.count("vidmap")) {
-      JSON::Value vidMap = JSON::fromString(targetParams["vidmap"]);
+      JSON::Value vidMap;
+      vidMap.fromString(targetParams["vidmap"]);
       jsonForEachConst (vidMap, it) {
         int k = atoi(it.key().c_str());
         if (vidTracks.count(k)) {
@@ -1270,7 +1275,8 @@ namespace Mist {
       }
     }
     if (targetParams.count("audmap")) {
-      JSON::Value audMap = JSON::fromString(targetParams["audmap"]);
+      JSON::Value audMap;
+      audMap.fromString(targetParams["audmap"]);
       jsonForEachConst (audMap, it) {
         int k = atoi(it.key().c_str());
         if (audTracks.count(k)) {

@@ -94,20 +94,26 @@ namespace Mist{
     capa["optional"]["wrappers"]["option"] = "--wrappers";
     capa["optional"]["wrappers"]["short"] = "w";
     cfg->addConnectorOptions(4433, capa);
-    cfg->addOption("nostreamtext",
-                   JSON::fromString("{\"arg\":\"string\", \"default\":\"\", "
-                                    "\"short\":\"t\",\"long\":\"nostreamtext\",\"help\":\"Text or "
-                                    "HTML to display when streams are unavailable.\"}"));
+    cfg->addOption("nostreamtext", R"-("{
+      "arg":"string",
+      "default":"",
+      "short":"t",
+      "long":"nostreamtext",
+      "help":"Text or HTML to display when streams are unavailable."
+    })-");
     capa["optional"]["nostreamtext"]["name"] = "Stream unavailable text";
     capa["optional"]["nostreamtext"]["help"] =
         "Text or HTML to display when streams are unavailable.";
     capa["optional"]["nostreamtext"]["default"] = "";
     capa["optional"]["nostreamtext"]["type"] = "str";
     capa["optional"]["nostreamtext"]["option"] = "--nostreamtext";
-    cfg->addOption("pubaddr",
-                   JSON::fromString("{\"arg\":\"string\", \"default\":\"\", "
-                                    "\"short\":\"A\",\"long\":\"public-address\",\"help\":\"Full "
-                                    "public address this output is available as.\"}"));
+    cfg->addOption("pubaddr", R"-({
+      "arg":"string",
+      "default":"",
+      "short":"A",
+      "long":"public-address",
+      "help":"Full public address this output is available as."
+    })-");
     capa["optional"]["pubaddr"]["name"] = "Public address";
     capa["optional"]["pubaddr"]["help"] =
         "Full public address this output is available as, if being proxied";
@@ -155,7 +161,8 @@ namespace Mist{
       crtAndKey & srvcert = srvcerts.back();
       if (cFile[0] == '[') {
         ignoreKeys = true;
-        const JSON::Value crtCnf = JSON::fromString(cFile);
+        JSON::Value crtCnf;
+        crtCnf.fromString(cFile);
         jsonForEachConst (crtCnf, jt) {
           if (!jt->asStringRef().size()) { continue; }
           if (jt.num() + 1 != crtCnf.size()) {

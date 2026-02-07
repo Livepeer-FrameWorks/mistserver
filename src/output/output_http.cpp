@@ -65,14 +65,24 @@ namespace Mist{
         "Data to pretend arrived on the socket before parsing the socket.";
     capa["forward"]["prequest"]["type"] = "str";
     capa["forward"]["prequest"]["option"] = "--prequest";
-    cfg->addOption("streamname", JSON::fromString("{\"arg\":\"string\",\"short\":\"s\",\"long\":"
-                                                  "\"stream\",\"help\":\"The name of the stream "
-                                                  "that this connector will transmit.\"}"));
-    cfg->addOption("ip", JSON::fromString("{\"arg\":\"string\",\"short\":\"I\",\"long\":\"ip\","
-                                          "\"help\":\"IP address of connection on stdio.\"}"));
-    cfg->addOption("prequest", JSON::fromString("{\"arg\":\"string\",\"short\":\"R\",\"long\":"
-                                                "\"prequest\",\"help\":\"Data to pretend arrived "
-                                                "on the socket before parsing the socket.\"}"));
+    cfg->addOption("streamname", R"-({
+      "arg":"string",
+      "short":"s",
+      "long":"stream",
+      "help":"The name of the stream that this connector will transmit."
+    })-");
+    cfg->addOption("ip", R"-({
+      "arg":"string",
+      "short":"I",
+      "long":"ip",
+      "help":"IP address of connection on stdio."
+    })-");
+    cfg->addOption("prequest", R"-({
+      "arg":"string",
+      "short":"R",
+      "long":"prequest",
+      "help":"Data to pretend arrived on the socket before parsing the socket."
+    })-");
     cfg->addBasicConnectorOptions(capa);
   }
 
@@ -500,7 +510,8 @@ namespace Mist{
     if (webSock->frameType != 1){return false;}
 
     //Parse JSON and check command type
-    JSON::Value command = JSON::fromString(webSock->data, webSock->data.size());
+    JSON::Value command;
+    command.fromString(webSock->data, webSock->data.size());
     if (!command || !command.isMember("type")){return false;}
 
     return handleCommand(command);
@@ -956,10 +967,7 @@ namespace Mist{
       if (connector == "HTTP" || connector == "HTTP.exe"){
         // restore from values in the environment, regardless of configured settings
         if (getenv("MIST_HTTP_nostreamtext")) { cnf["nostreamtext"] = getenv("MIST_HTTP_nostreamtext"); }
-        if (getenv("MIST_HTTP_pubaddr")){
-          std::string pubAddrs = getenv("MIST_HTTP_pubaddr");
-          cnf["pubaddr"] = JSON::fromString(pubAddrs);
-        }
+        if (getenv("MIST_HTTP_pubaddr")) { cnf["pubaddr"].fromString(getenv("MIST_HTTP_pubaddr")); }
       }else{
         int id = -1;
         // find connector in config
