@@ -1205,8 +1205,9 @@ namespace Mist{
       }
       if (plsLastTime.count(currentPlaylist)){
         if (plsInterval.count(currentPlaylist)){
-          if (allowRemap && (newTime < plsLastTime[currentPlaylist] ||
-                              newTime > plsLastTime[currentPlaylist] + plsInterval[currentPlaylist] * 60)){
+          if (allowRemap &&
+              (newTime < plsLastTime[currentPlaylist] ||
+               newTime > plsLastTime[currentPlaylist] + (plsInterval[currentPlaylist] + 5) * 60)) {
             allowRemap = false;
             // time difference too great, change offset to correct for it
             int64_t prevOffset = plsTimeOffset[currentPlaylist];
