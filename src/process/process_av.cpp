@@ -57,6 +57,7 @@ char * scaler = (char*)"None";
 JSON::Value pStat;
 JSON::Value & pData = pStat["proc_status_update"]["status"];
 std::mutex statsMutex;
+
 uint64_t statSinkMs = 0;
 uint64_t statSourceMs = 0;
 int64_t bootMsOffset = 0;
@@ -71,6 +72,8 @@ uint64_t totalSinkSleep = 0;
 uint64_t totalTransform = 0;
 uint64_t totalEncode = 0;
 uint64_t totalSourceSleep = 0;
+
+uint8_t sinkCommState = COMM_STATUS_ACTSOURCEDNT;
 
 char *inputFrameCount = 0;                        ///< Stats: frames/samples ingested
 char *outputFrameCount = 0;                       ///< Stats: frames/samples outputted
@@ -95,6 +98,7 @@ namespace Mist{
         std::lock_guard<std::mutex> guard(statsMutex);
         pStat["proc_status_update"]["sink"] = streamName;
         pStat["proc_status_update"]["source"] = opt["source"];
+        if (streamName != opt["source"].asStringRef()) { sinkCommState = COMM_STATUS_ACTIVE | COMM_STATUS_SOURCE; }
       }
       Util::setStreamName(opt["source"].asString() + "→" + streamName);
       if (opt.isMember("target_mask") && !opt["target_mask"].isNull() && opt["target_mask"].asString() != ""){
@@ -259,7 +263,7 @@ namespace Mist{
         }
         avCV.notify_all();
 
-        if (!userSelect.count(thisIdx)) { userSelect[thisIdx].reload(streamName, thisIdx, COMM_STATUS_ACTSOURCEDNT); }
+        if (!userSelect.count(thisIdx)) { userSelect[thisIdx].reload(streamName, thisIdx, sinkCommState); }
         if (userSelect[thisIdx].getStatus() & COMM_STATUS_REQDISCONNECT){
           Util::logExitReason(ER_CLEAN_LIVE_BUFFER_REQ, "buffer requested shutdown");
           break;
@@ -329,7 +333,7 @@ namespace Mist{
           }
           meta.setInit(trkIdx, (char*)context_out->extradata, context_out->extradata_size);
           if (trkIdx != INVALID_TRACK_ID && !userSelect.count(trkIdx)){
-            userSelect[trkIdx].reload(streamName, trkIdx, COMM_STATUS_ACTSOURCEDNT);
+            userSelect[trkIdx].reload(streamName, trkIdx, sinkCommState);
           }
           INFO_MSG("AV1 track index is %zu", trkIdx);
         } else if (codecOut == "JPEG"){
@@ -346,7 +350,7 @@ namespace Mist{
           meta.setHeight(trkIdx,  frameConverted->height);
           meta.setFpks(trkIdx, 0);
           if (trkIdx != INVALID_TRACK_ID && !userSelect.count(trkIdx)){
-            userSelect[trkIdx].reload(streamName, trkIdx, COMM_STATUS_ACTSOURCEDNT);
+            userSelect[trkIdx].reload(streamName, trkIdx, sinkCommState);
           }
           INFO_MSG("MJPEG track index is %zu", trkIdx);
         }else if (codecOut == "H264"){
@@ -384,7 +388,7 @@ namespace Mist{
             meta.setFpks(trkIdx, inFpks);
           }
           if (trkIdx != INVALID_TRACK_ID && !userSelect.count(trkIdx)){
-            userSelect[trkIdx].reload(streamName, trkIdx, COMM_STATUS_ACTSOURCEDNT);
+            userSelect[trkIdx].reload(streamName, trkIdx, sinkCommState);
           }
           INFO_MSG("H264 track index is %zu", trkIdx);
         }
@@ -416,7 +420,7 @@ namespace Mist{
           meta.setFpks(trkIdx, inFpks);
         }
         if (trkIdx != INVALID_TRACK_ID && !userSelect.count(trkIdx)){
-          userSelect[trkIdx].reload(streamName, trkIdx, COMM_STATUS_ACTSOURCEDNT);
+          userSelect[trkIdx].reload(streamName, trkIdx, sinkCommState);
         }
         INFO_MSG("%s track index is %zu", codecOut.c_str(), trkIdx);
       }
@@ -436,7 +440,7 @@ namespace Mist{
       meta.setSize(trkIdx, outAudioDepth);
 
       if (trkIdx != INVALID_TRACK_ID && !userSelect.count(trkIdx)){
-        userSelect[trkIdx].reload(streamName, trkIdx, COMM_STATUS_ACTSOURCEDNT);
+        userSelect[trkIdx].reload(streamName, trkIdx, sinkCommState);
       }
       INFO_MSG("%s track index is %zu", codecOut.c_str(), trkIdx);
     }

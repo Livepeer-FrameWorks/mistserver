@@ -30,6 +30,8 @@ uint64_t statSinkMs = 0;
 uint64_t statSourceMs = 0;
 int64_t bootMsOffset = 0;
 
+uint8_t sinkCommState = COMM_STATUS_ACTSOURCEDNT;
+
 namespace Mist{
 
   class ProcessSink : public InputEBML{
@@ -76,6 +78,7 @@ namespace Mist{
         std::lock_guard<std::mutex> guard(statsMutex);
         pStat["proc_status_update"]["sink"] = streamName;
         pStat["proc_status_update"]["source"] = opt["source"];
+        if (streamName != opt["source"].asStringRef()) { sinkCommState = COMM_STATUS_ACTIVE | COMM_STATUS_SOURCE; }
       }
       if (opt.isMember("target_mask") && !opt["target_mask"].isNull() && opt["target_mask"].asString() != ""){
         DTSC::trackValidDefault = opt["target_mask"].asInt();
@@ -87,7 +90,7 @@ namespace Mist{
     bool isSingular(){return false;}
     void connStats(Comms::Connections &statComm){
       for (std::map<size_t, Comms::Users>::iterator it = userSelect.begin(); it != userSelect.end(); it++){
-        if (it->second){it->second.setStatus(COMM_STATUS_DONOTTRACK | it->second.getStatus());}
+        if (it->second) { it->second.setStatus(sinkCommState | it->second.getStatus()); }
       }
       InputEBML::connStats(statComm);
     }

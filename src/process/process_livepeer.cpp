@@ -39,6 +39,8 @@ size_t insertTurn = 0;
 bool isStuck = false;
 size_t sourceIndex = INVALID_TRACK_ID;
 
+uint8_t sinkCommState = COMM_STATUS_ACTSOURCEDNT;
+
 namespace Mist{
 
   void pickRandomBroadcaster(){
@@ -203,6 +205,7 @@ namespace Mist{
         std::lock_guard<std::mutex> guard(statsMutex);
         pStat["proc_status_update"]["sink"] = streamName;
         pStat["proc_status_update"]["source"] = opt["source"];
+        if (streamName != opt["source"].asStringRef()) { sinkCommState = COMM_STATUS_ACTIVE | COMM_STATUS_SOURCE; }
       }
       Util::setStreamName(opt["source"].asString() + "→" + streamName);
       if (opt.isMember("target_mask") && !opt["target_mask"].isNull() && opt["target_mask"].asString() != ""){
@@ -212,6 +215,12 @@ namespace Mist{
       }
       preRun();
     };
+    void connStats(Comms::Connections & statComm) {
+      for (std::map<size_t, Comms::Users>::iterator it = userSelect.begin(); it != userSelect.end(); it++) {
+        if (it->second) { it->second.setStatus(sinkCommState | it->second.getStatus()); }
+      }
+      Input::connStats(statComm);
+    }
     virtual bool needsLock(){return false;}
     bool isSingular(){return false;}
   private:
