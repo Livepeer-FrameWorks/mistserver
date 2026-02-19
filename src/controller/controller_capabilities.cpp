@@ -354,6 +354,15 @@ namespace Controller{
     trgs["INPUT_ABORT"]["response"] = "ignored";
     trgs["INPUT_ABORT"]["response_action"] = "None.";
 
+    trgs["PUSH_INPUT_CLOSE"]["when"] = "Every time an Input process exits";
+    trgs["PUSH_INPUT_CLOSE"]["stream_specific"] = true;
+    trgs["PUSH_INPUT_CLOSE"]["payload"] =
+      "stream name (string)\nremote host (string)\nbinary name (string)\npid (integer)\nmachine-readable "
+      "reason for exit (string, enum)\nhuman-readable reason for exit (string)\nListing of track IDs, codecs and types "
+      "that were being pushed (JSON object)";
+    trgs["PUSH_INPUT_CLOSE"]["response"] = "ignored";
+    trgs["PUSH_INPUT_CLOSE"]["response_action"] = "None.";
+
     trgs["RTMP_PUSH_REWRITE"]["when"] =
         "On incoming RTMP pushes, allows rewriting the RTMP URL to/from custom formatting";
     trgs["RTMP_PUSH_REWRITE"]["stream_specific"] = false;

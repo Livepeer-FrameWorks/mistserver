@@ -2194,17 +2194,30 @@ namespace Mist{
     }
     if (myConn && myConn.isChunkedMode()) { myConn.SendNow(0, 0); }
 
-    /*LTS-START*/
+    if (isPushing() && Triggers::shouldTrigger("PUSH_INPUT_CLOSE", streamName)) {
+      JSON::Value tracks;
+      for (const auto & it : userSelect) {
+        JSON::Value & T = tracks.append();
+        T["idx"] = it.first;
+        if (M) {
+          T["id"] = M.getID(it.first);
+          T["codec"] = M.getCodec(it.first);
+          T["type"] = M.getType(it.first);
+        }
+      }
+      std::string payload = streamName + "\n" + getConnectedHost() + "\n" + capa["name"].asStringRef() + "\n" +
+        std::to_string(getpid()) + "\n" + Util::mRExitReason + "\n" + Util::exitReason + "\n" + tracks.toString();
+      Triggers::doTrigger("PUSH_INPUT_CLOSE", payload, streamName);
+    }
+
     if (Triggers::shouldTrigger("CONN_CLOSE", streamName)){
-      std::string payload =
-          streamName + "\n" + getConnectedHost() + "\n" + capa["name"].asStringRef() + "\n" + reqUrl;
+      std::string payload = streamName + "\n" + getConnectedHost() + "\n" + capa["name"].asStringRef() + "\n" + reqUrl;
       Triggers::doTrigger("CONN_CLOSE", payload, streamName);
     }
     if (isRecordingToFile){
       recEndTrigger();
     }
     outputEndTrigger();
-    /*LTS-END*/
 
     disconnect();
     stats(true);
