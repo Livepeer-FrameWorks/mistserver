@@ -18,11 +18,14 @@ namespace Utils{
     ~bitstream();
     void append(const char *input, size_t bytes);
     void append(const std::string &input);
-    long long unsigned int size();
+    void appendPreventEmulation(const char *input, size_t bytes);
+    void appendPreventEmulation(const std::string & input);
+    size_t size();
+    size_t getOffset();
+    void setOffset(size_t newOffset);
     void skip(size_t count);
     long long unsigned int get(size_t count);
     long long unsigned int peek(size_t count);
-    bool peekOffset(size_t peekOffset);
     void flush();
     void clear();
     long long int getExpGolomb();
@@ -42,6 +45,7 @@ namespace Utils{
 
   private:
     bool checkBufferSize(unsigned int size);
+    bool peekOffset(size_t peekOffset);
     long long unsigned int golombGetter();
     long long unsigned int golombPeeker();
     char *data;

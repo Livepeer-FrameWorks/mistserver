@@ -94,10 +94,7 @@ namespace h264{
 
     uint8_t getType(){return payload[0] & 0x1F;}
     size_t getSize(){return payload.size();}
-    virtual void toPrettyString(std::ostream &out){
-      out << "Nal unit of type " << (((uint8_t)payload[0]) & 0x1F) << ", " << payload.size()
-          << " bytes long" << std::endl;
-    }
+    virtual void toPrettyString(std::ostream & out);
     void write(std::ostream &out){
       // always writes in annex_b style
       out.write("\000\000\000\001", 4);
@@ -307,11 +304,7 @@ namespace h264{
   class seiUnit : public nalUnit{
   public:
     seiUnit(const char *data, size_t len);
-    void toPrettyString(std::ostream &out);
-
-    uint32_t payloadType;
-    uint32_t payloadSize;
-    uint32_t payloadOffset;
+    void toPrettyString(std::ostream & out);
   };
 
   nalUnit *nalFactory(FILE *in, bool annexb = true);

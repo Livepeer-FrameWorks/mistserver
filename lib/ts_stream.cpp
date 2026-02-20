@@ -971,6 +971,10 @@ namespace TS{
         isKeyFrame = true;
         break;
       }
+      case 0x06: {
+        if (pesPayload[1] == 6) { isKeyFrame = true; }
+        break;
+      }
       case 0x07:{
         spsInfo[tid] = std::string(pesPayload, (nextPtr - pesPayload));
         break;

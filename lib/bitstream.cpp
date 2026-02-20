@@ -31,14 +31,36 @@ namespace Utils{
     return true;
   }
 
-  void bitstream::append(const char *input, size_t bytes){
-    if (checkBufferSize(dataSize + bytes)){
+  void bitstream::append(const char *input, size_t bytes) {
+    if (checkBufferSize(dataSize + bytes)) {
       memcpy(data + dataSize, input, bytes);
       dataSize += bytes;
     }
   }
 
-  void bitstream::append(const std::string &input){append((char *)input.c_str(), input.size());}
+  void bitstream::append(const std::string & input) {
+    append(input.c_str(), input.size());
+  }
+
+  void bitstream::appendPreventEmulation(const char *input, size_t bytes) {
+    if (!checkBufferSize(dataSize + bytes)) { return; }
+    for (size_t i = 0; i < bytes; ++i) {
+      if (i + 2 < bytes && (memcmp(input + i, "\000\000\003", 3) == 0)) { // Emulation prevention bytes
+        memcpy(data + dataSize, input + i, 2);
+        dataSize += 2;
+        // Yes, we increase i here
+        i += 2;
+      } else {
+        data[dataSize] = input[i];
+        ++dataSize;
+        // No we don't increase i here
+      }
+    }
+  }
+
+  void bitstream::appendPreventEmulation(const std::string & input) {
+    appendPreventEmulation(input.c_str(), input.size());
+  }
 
   bool bitstream::peekOffset(size_t peekOffset){
     peekOffset += offset;
@@ -94,6 +116,14 @@ namespace Utils{
     }
   }
 
+  size_t bitstream::getOffset() {
+    return offset;
+  }
+
+  void bitstream::setOffset(size_t newOffset) {
+    offset = newOffset;
+  }
+
   void bitstream::skip(size_t count){
     if (count <= size()){
       offset += count;
@@ -102,7 +132,10 @@ namespace Utils{
     }
   }
 
-  long long unsigned int bitstream::size(){return (dataSize * 8) - offset;}
+  size_t bitstream::size() {
+    if (offset > dataSize * 8) { return 0; }
+    return (dataSize * 8) - offset;
+  }
 
   void bitstream::clear(){
     dataSize = 0;

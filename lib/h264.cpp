@@ -1,22 +1,27 @@
 #ifndef _GNU_SOURCE
 #define _GNU_SOURCE
 #endif
+#include "h264.h"
+
 #include "bitfields.h"
 #include "bitstream.h"
 #include "defines.h"
-#include "h264.h"
+#include "timing.h"
+
 #include <cmath>
 #include <cstring>
-#include <sstream>
 #include <iomanip>
+#include <sstream>
 
 namespace h264{
 
   /// Helper function to determine if a H264 NAL unit is a keyframe or not
   bool isKeyframe(const char *data, uint32_t len){
     uint8_t nalType = (data[0] & 0x1F);
-    if (nalType == 0x05){return true;}
-    if (nalType != 0x01){return false;}
+    if (nalType == 5) { return true; }
+    // SEI unit: Recovery Point (technically not a keyframe, but indicates we may never see one)
+    if (nalType == 6 && data[1] == 6) { return true; }
+    if (nalType != 1) { return false; }
     Utils::bitstream bs;
     for (size_t i = 1; i < 10 && i < len; ++i){
       if (i + 2 < len && (memcmp(data + i, "\000\000\003", 3) == 0)){// Emulation prevention bytes
@@ -329,6 +334,34 @@ namespace h264{
       offset += 2 + ppsLen;
     }
     valid = spsCount && ppsCount;
+  }
+
+  void nalUnit::toPrettyString(std::ostream & out) {
+    const char *nalName = 0;
+    switch (payload[0] & 0x1F) {
+      case 1: nalName = "Coded Slice of non-IDR"; break;
+      case 2: nalName = "Coded Slice Part A"; break;
+      case 3: nalName = "Coded Slice Part B"; break;
+      case 4: nalName = "Coded Slice Part C"; break;
+      case 5: nalName = "Coded Slice of IDR"; break;
+      case 6: nalName = "Supplemental Enhancement Information"; break;
+      case 7: nalName = "Sequence Parameter Set"; break;
+      case 8: nalName = "Picture Parameter Set"; break;
+      case 9: nalName = "Access Unit Delimiter"; break;
+      case 10: nalName = "End of Sequence"; break;
+      case 11: nalName = "End of Stream"; break;
+      case 12: nalName = "Filler Data"; break;
+      case 13: nalName = "Sequence Parameter Set Extension"; break;
+      case 14: nalName = "Prefix NAL Unit"; break;
+      case 15: nalName = "Subset Sequence Parameter Set"; break;
+      case 16: nalName = "Depth Parameter Set"; break;
+      case 19: nalName = "Coded Slice of Aux Pict"; break;
+      case 20: nalName = "Coded Slice Extension"; break;
+      case 21: nalName = "Coded Slice Extension for Depth"; break;
+      default: nalName = "Unspecified"; break;
+    }
+    out << "Nal unit of type " << (((uint8_t)payload[0]) & 0x1F) << " [" << nalName << "], " << payload.size()
+        << " bytes long" << std::endl;
   }
 
   void spsUnit::scalingList(uint64_t *scalingList, size_t sizeOfScalingList,
@@ -1015,58 +1048,109 @@ namespace h264{
         << (picParameterSetId >= 256 ? " INVALID" : "") << std::endl;
   }
 
-  seiUnit::seiUnit(const char *data, size_t len) : nalUnit(data, len){
+  seiUnit::seiUnit(const char *data, size_t len) : nalUnit(data, len) {}
+
+  void seiUnit::toPrettyString(std::ostream & out) {
+    out << "Nal unit of type " << (((uint8_t)payload[0]) & 0x1F) << " [Supplemental Enhancement Unit] , "
+        << payload.size() << " bytes long" << std::endl;
+
     Utils::bitstream bs;
-    payloadOffset = 1;
-    for (size_t i = 1; i < len; i++){
-      if (i + 2 < len && (memcmp(data + i, "\000\000\003", 3) == 0)){// Emulation prevention bytes
-        // Yes, we increase i here
-        bs.append(data + i, 2);
-        i += 2;
-      }else{
-        // No we don't increase i here
-        bs.append(data + i, 1);
+    bs.appendPreventEmulation(payload.data() + 1, payload.size() - 1);
+
+    while (bs.size() >= 16) { // need at least 2 bytes for type and size
+      size_t payloadType = 0;
+      uint8_t tmp = bs.get(8);
+      while (tmp == 0xFF) {
+        payloadType += tmp;
+        tmp = bs.get(8);
       }
-    }
-    uint8_t tmp = bs.get(8);
-    ++payloadOffset;
-    payloadType = 0;
-    while (tmp == 0xFF){
       payloadType += tmp;
-      tmp = bs.get(8);
-      ++payloadOffset;
-    }
-    payloadType += tmp;
 
-    tmp = bs.get(8);
-    ++payloadOffset;
-    payloadSize = 0;
-    while (tmp == 0xFF){
+      tmp = bs.get(8);
+      size_t payloadSize = 0;
+      while (tmp == 0xFF) {
+        payloadSize += tmp;
+        tmp = bs.get(8);
+      }
       payloadSize += tmp;
-      tmp = bs.get(8);
-      ++payloadOffset;
-    }
-    payloadSize += tmp;
-  }
+      if (payloadSize * 8 > bs.size()) {
+        out << "  Message of type " << payloadType << ", " << payloadSize << " bytes long" << std::endl;
+        out << "    !!payload overflows packet!!" << std::endl;
+        break;
+      }
 
-  void seiUnit::toPrettyString(std::ostream &out){
-    out << "Nal unit of type " << (((uint8_t)payload[0]) & 0x1F)
-        << " [Supplemental Enhancement Unit] , " << payload.size() << " bytes long" << std::endl;
-    switch (payloadType){
-    case 5:{// User data, unregistered
-      out << "  Type 5: User data, unregistered." << std::endl;
-      std::stringstream uuid;
-      for (uint32_t i = payloadOffset; i < payloadOffset + 16; ++i){
-        uuid << std::setw(2) << std::setfill('0') << std::hex << (int)(payload.data()[i]);
+      size_t currOffset = bs.getOffset();
+      switch (payloadType) {
+        case 1: out << "  Type 1: Picture timing (unimplemented), " << payloadSize << " bytes long" << std::endl; break;
+        case 5: { // User data, unregistered
+          out << "  Type 5: User data, unregistered (" << payloadSize << "b)" << std::endl;
+          std::stringstream uuid;
+          for (uint32_t i = 0; i < 16; ++i) { uuid << std::setw(2) << std::setfill('0') << std::hex << bs.get(8); }
+          if (uuid.str() == "dc45e9bde6d948b7962cd820d923eeef") {
+            out << "   x264 encoder configuration" << std::endl;
+            out << "   Payload: ";
+            while (bs.getOffset() < currOffset + payloadSize * 8) { out << (char)bs.get(8); }
+            out << std::endl;
+            break;
+          }
+          // Specified in https://www.scribd.com/doc/41215895/MISB-RP-0604 chapter 4.2.2
+          if (uuid.str() == "4d4953506d6963726f73656374696d65") {
+            out << "   MISP Microsecond Timestamp" << std::endl;
+            uint8_t flags = bs.get(8);
+            out << "   Status: ";
+            out << ((flags & 0x80) ? "Flywheel" : "Locked");
+            if (flags & 0x40) { out << "Discontinuity " << ((flags & 0x20) ? "Reverse" : "Forward"); }
+            out << std::endl;
+            uint64_t time = (bs.get(16) << 48);
+            bs.get(8);
+            time |= (bs.get(16) << 32);
+            bs.get(8);
+            time |= (bs.get(16) << 16);
+            bs.get(8);
+            time |= bs.get(16);
+            if (time < 0x11EF9B4758000ull) {
+              out << "   Time: " << time << " (";
+              if (time >= (uint64_t)1000000 * 60 * 60 * 24) {
+                out << (time / 1000000 / 60 / 60 / 24) << "d ";
+                time %= (uint64_t)1000000 * 60 * 60 * 24;
+              }
+              if (time >= (uint64_t)1000000 * 60 * 60) {
+                out << (time / 1000000 / 60 / 60) << "h ";
+                time %= (uint64_t)1000000 * 60 * 60;
+              }
+              if (time >= (uint64_t)1000000 * 60) {
+                out << (time / 1000000 / 60) << "m ";
+                time %= (uint64_t)1000000 * 60;
+              }
+              if (time >= (uint64_t)1000000) {
+                out << (time / 1000000) << "s ";
+                time %= (uint64_t)1000000;
+              }
+              out << time << "us";
+              out << std::endl;
+            } else {
+              out << "   Time: " << time << " (" << Util::getUTCStringMillis(time / 1000) << ")" << std::endl;
+            }
+            break;
+          }
+          out << "   UUID: " << uuid.str() << std::endl;
+          out << "   Payload: ";
+          while (bs.getOffset() < currOffset + payloadSize * 8) {
+            out << std::setw(2) << std::setfill('0') << std::hex << bs.get(8);
+          }
+          out << std::dec << std::endl;
+        } break;
+        case 6: { // Recovery Point
+          out << "  Type 6: Recovery Point (" << payloadSize << "b)" << std::endl;
+          out << "   Recovery frame count: " << bs.getUExpGolomb() << std::endl;
+          out << "   Exact match: " << bs.get(1) << std::endl;
+          out << "   Broken link: " << bs.get(1) << std::endl;
+          out << "   Changing Slice Group: " << bs.get(2) << std::endl;
+        } break;
+        default: out << "  Message of type " << payloadType << ", " << payloadSize << " bytes long" << std::endl;
       }
-      if (uuid.str() == "dc45e9bde6d948b7962cd820d923eeef"){
-        uuid.str("x264 encoder configuration");
-      }
-      out << "   UUID: " << uuid.str() << std::endl;
-      out << "   Payload: " << std::string(payload.data() + payloadOffset + 16, payloadSize - 17) << std::endl;
-    }break;
-    default:
-      out << "  Message of type " << payloadType << ", " << payloadSize << " bytes long" << std::endl;
+      // Ensure we've gone past all of payloadSize exactly
+      bs.setOffset(currOffset + payloadSize * 8);
     }
   }
 
