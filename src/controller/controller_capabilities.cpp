@@ -8,6 +8,13 @@
 #include <stdio.h>
 #include <string.h>
 #include <sys/statvfs.h> //for shm space check
+#ifdef __APPLE__
+#include <sys/sysctl.h>
+#include <mach/mach.h>
+#include <mach/host_info.h>
+#include <mach/mach_host.h>
+#include <mach/processor_info.h>
+#endif
 
 
 uint64_t memTotal = 0, memFree = 0;
@@ -62,9 +69,34 @@ namespace Controller{
 
   /// Thread that updates system load information once per second
   size_t updateLoad() {
+#ifndef __APPLE__
     char line[300];
+#endif
     // Get CPU info just once
     if (!cpuInfo){
+#ifdef __APPLE__
+      char brand[256] = "Unknown";
+      size_t len = sizeof(brand);
+      sysctlbyname("machdep.cpu.brand_string", brand, &len, NULL, 0);
+      int physCores = 1, logCores = 1;
+      len = sizeof(int);
+      sysctlbyname("hw.physicalcpu", &physCores, &len, NULL, 0);
+      len = sizeof(int);
+      sysctlbyname("hw.logicalcpu", &logCores, &len, NULL, 0);
+      uint64_t cpuFreq = 0;
+      len = sizeof(cpuFreq);
+      // hw.cpufrequency may not be available on Apple Silicon
+      sysctlbyname("hw.cpufrequency", &cpuFreq, &len, NULL, 0);
+      int mhz = cpuFreq / 1000000;
+      JSON::Value thiscpu;
+      thiscpu["model"] = std::string(brand);
+      thiscpu["cores"] = physCores;
+      thiscpu["threads"] = logCores;
+      thiscpu["mhz"] = mhz;
+      cpuInfo["cpu"].append(thiscpu);
+      cpuInfo["speed"] = physCores * mhz;
+      cpuInfo["threads"] = logCores;
+#else
       std::ifstream cpuinfo("/proc/cpuinfo");
       if (cpuinfo){
         std::map<int, cpudata> cpus;
@@ -111,9 +143,33 @@ namespace Controller{
         cpuInfo["speed"] = total_speed;
         cpuInfo["threads"] = total_threads;
       }
+#endif
     }
     // Get RAM/swap usage stats
     {
+#ifdef __APPLE__
+      int64_t physMem = 0;
+      size_t len = sizeof(physMem);
+      sysctlbyname("hw.memsize", &physMem, &len, NULL, 0);
+      memTotal = physMem / (1024 * 1024);
+      vm_size_t pageSize;
+      mach_port_t machPort = mach_host_self();
+      host_page_size(machPort, &pageSize);
+      vm_statistics64_data_t vmStats;
+      mach_msg_type_number_t count = HOST_VM_INFO64_COUNT;
+      if (host_statistics64(machPort, HOST_VM_INFO64, (host_info64_t)&vmStats, &count) == KERN_SUCCESS){
+        memFree = ((uint64_t)vmStats.free_count * pageSize) / (1024 * 1024);
+        bufcache = ((uint64_t)(vmStats.external_page_count + vmStats.purgeable_count) * pageSize) / (1024 * 1024);
+        memUsed = memTotal - memFree - bufcache;
+        if (memTotal > 0){memK = (memUsed * 1000) / memTotal;}
+      }
+      struct xsw_usage swapUsage;
+      len = sizeof(swapUsage);
+      if (sysctlbyname("vm.swapusage", &swapUsage, &len, NULL, 0) == 0){
+        swapTotal = swapUsage.xsu_total / (1024 * 1024);
+        swapFree = swapUsage.xsu_avail / (1024 * 1024);
+      }
+#else
       std::ifstream meminfo("/proc/meminfo");
       if (meminfo) {
         bufcache = 0;
@@ -138,6 +194,7 @@ namespace Controller{
         memUsed = memTotal - memFree - bufcache;
         memK = (memUsed * 1000) / memTotal;
       }
+#endif
     }
     // Get shared memory stats
     {
@@ -154,6 +211,14 @@ namespace Controller{
     }
     // Get load averages
     {
+#ifdef __APPLE__
+      double lavg[3];
+      if (getloadavg(lavg, 3) == 3){
+        load_1 = lavg[0];
+        load_5 = lavg[1];
+        load_15 = lavg[2];
+      }
+#else
       std::ifstream loadavg("/proc/loadavg");
       if (loadavg) {
         loadavg.getline(line, 300);
@@ -164,9 +229,35 @@ namespace Controller{
           load_15 = 0;
         }
       }
+#endif
     }
     // Get CPU usage
     {
+#ifdef __APPLE__
+      natural_t numCPUs = 0;
+      processor_info_array_t cpuLoadInfo;
+      mach_msg_type_number_t infoCount;
+      if (host_processor_info(mach_host_self(), PROCESSOR_CPU_LOAD_INFO, &numCPUs, &cpuLoadInfo, &infoCount) == KERN_SUCCESS){
+        uint64_t totalUser = 0, totalSystem = 0, totalIdle = 0, totalNice = 0;
+        for (natural_t i = 0; i < numCPUs; i++){
+          totalUser += cpuLoadInfo[CPU_STATE_MAX * i + CPU_STATE_USER];
+          totalSystem += cpuLoadInfo[CPU_STATE_MAX * i + CPU_STATE_SYSTEM];
+          totalIdle += cpuLoadInfo[CPU_STATE_MAX * i + CPU_STATE_IDLE];
+          totalNice += cpuLoadInfo[CPU_STATE_MAX * i + CPU_STATE_NICE];
+        }
+        c_user = totalUser;
+        c_nice = totalNice;
+        c_syst = totalSystem;
+        c_idle = totalIdle;
+        c_total = c_user + c_nice + c_syst + c_idle;
+        if (cl_total && cl_idle <= c_idle && cl_total < c_total){
+          cpuK = 1000 - ((c_idle - cl_idle) * 1000) / (c_total - cl_total);
+        }
+        cl_total = c_total;
+        cl_idle = c_idle;
+        vm_deallocate(mach_task_self(), (vm_address_t)cpuLoadInfo, infoCount * sizeof(integer_t));
+      }
+#else
       std::ifstream cpustat("/proc/stat");
       if (cpustat) {
         while (cpustat.getline(line, 300)) {
@@ -181,6 +272,7 @@ namespace Controller{
           }
         }
       }
+#endif
     }
     return 1000;
   }
