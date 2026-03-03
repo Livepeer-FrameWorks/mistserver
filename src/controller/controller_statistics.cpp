@@ -19,6 +19,10 @@
 #include <signal.h>
 #include <sstream>
 #include <sys/statvfs.h> //for fstatvfs
+#ifdef __APPLE__
+#include <net/if.h>
+#include <ifaddrs.h>
+#endif
 
 #ifndef KILL_ON_EXIT
 #define KILL_ON_EXIT false
@@ -1792,6 +1796,21 @@ void Controller::handlePrometheus(HTTP::Parser &H, Socket::Connection &conn, int
   // Collect core server stats
   uint64_t bw_up_total = 0, bw_down_total = 0;
   {
+#ifdef __APPLE__
+    struct ifaddrs *ifap, *ifa;
+    if (getifaddrs(&ifap) == 0){
+      for (ifa = ifap; ifa; ifa = ifa->ifa_next){
+        if (!ifa->ifa_addr || ifa->ifa_addr->sa_family != AF_LINK){continue;}
+        if (strncmp(ifa->ifa_name, "lo", 2) == 0){continue;}
+        struct if_data *ifData = (struct if_data *)ifa->ifa_data;
+        if (ifData){
+          bw_up_total += ifData->ifi_obytes;
+          bw_down_total += ifData->ifi_ibytes;
+        }
+      }
+      freeifaddrs(ifap);
+    }
+#else
     std::ifstream netUsage("/proc/net/dev");
     while (netUsage){
       char line[300];
@@ -1806,6 +1825,7 @@ void Controller::handlePrometheus(HTTP::Parser &H, Socket::Connection &conn, int
         }
       }
     }
+#endif
   }
 
   if (mode == PROMETHEUS_TEXT){
