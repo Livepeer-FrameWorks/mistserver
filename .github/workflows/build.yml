@@ -269,10 +269,9 @@ jobs:
   # ---------------------------------------------------------------------------
   # Native binaries — all arm64 + darwin on self-hosted Mac Mini
   #
-  # Builds three targets:
+  # Builds two targets:
   #   1. linux/arm64  — inside Docker container (Alpine ARM, native via Docker Desktop)
   #   2. darwin/arm64 — native Meson build
-  #   3. darwin/amd64 — Meson build under Rosetta 2 (arch -x86_64)
   # ---------------------------------------------------------------------------
   build-arm64-and-darwin:
     name: Build Native Binaries (arm64 + darwin)
@@ -352,28 +351,6 @@ jobs:
           name: mistserver-darwin-arm64
           path: mistserver-darwin-arm64-${{ steps.version.outputs.tag }}.tar.gz
 
-      # -- darwin/amd64 (Rosetta 2 cross-build) --
-      - name: Build darwin/amd64
-        run: |
-          arch -x86_64 meson setup build-darwin-amd64 \
-            --default-library=static \
-            -DWITH_AV=true \
-            -DDEBUG=3 \
-            -DRELEASE=macOS_x86_64 \
-            --prefix="$RUNNER_TEMP/darwin-amd64/mistserver-install"
-          arch -x86_64 ninja -C build-darwin-amd64 install
-
-      - name: Package darwin/amd64
-        run: |
-          cd "$RUNNER_TEMP/darwin-amd64/mistserver-install"
-          tar czf "${{ github.workspace }}/mistserver-darwin-amd64-${{ steps.version.outputs.tag }}.tar.gz" bin/ lib/
-
-      - name: Upload darwin/amd64 artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: mistserver-darwin-amd64
-          path: mistserver-darwin-amd64-${{ steps.version.outputs.tag }}.tar.gz
-
   # ---------------------------------------------------------------------------
   # Code signing + notarization for darwin binaries
   # ---------------------------------------------------------------------------
@@ -388,17 +365,10 @@ jobs:
           name: mistserver-darwin-arm64
           path: dist/
 
-      - name: Download darwin/amd64 artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: mistserver-darwin-amd64
-          path: dist/
-
       - name: Extract darwin binaries
         run: |
-          mkdir -p sign/darwin-arm64 sign/darwin-amd64
+          mkdir -p sign/darwin-arm64
           tar xzf dist/mistserver-darwin-arm64-*.tar.gz -C sign/darwin-arm64
-          tar xzf dist/mistserver-darwin-amd64-*.tar.gz -C sign/darwin-amd64
 
       - name: Import Apple signing certificate
         uses: apple-actions/import-codesign-certs@v2
@@ -408,22 +378,18 @@ jobs:
 
       - name: Sign darwin binaries
         run: |
-          for dir in sign/darwin-arm64 sign/darwin-amd64; do
-            for bin in "$dir"/bin/Mist*; do
-              [ -f "$bin" ] || continue
-              codesign --sign "${{ secrets.APPLE_DEVELOPER_ID }}" \
-                --timestamp --options runtime --force "$bin"
-              echo "Signed: $bin"
-            done
+          for bin in sign/darwin-arm64/bin/Mist*; do
+            [ -f "$bin" ] || continue
+            codesign --sign "${{ secrets.APPLE_DEVELOPER_ID }}" \
+              --timestamp --options runtime --force "$bin"
+            echo "Signed: $bin"
           done
 
       - name: Verify signatures
         run: |
-          for dir in sign/darwin-arm64 sign/darwin-amd64; do
-            for bin in "$dir"/bin/Mist*; do
+          for bin in sign/darwin-arm64/bin/Mist*; do
               [ -f "$bin" ] || continue
               codesign --verify --verbose=2 "$bin"
-            done
           done
 
       - name: Notarize darwin/arm64
@@ -431,16 +397,6 @@ jobs:
           cd sign/darwin-arm64
           zip -r ../../notarize-darwin-arm64.zip bin/
           xcrun notarytool submit ../../notarize-darwin-arm64.zip \
-            --apple-id "${{ secrets.APPLE_ID }}" \
-            --team-id "${{ secrets.APPLE_TEAM_ID }}" \
-            --password "${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}" \
-            --wait
-
-      - name: Notarize darwin/amd64
-        run: |
-          cd sign/darwin-amd64
-          zip -r ../../notarize-darwin-amd64.zip bin/
-          xcrun notarytool submit ../../notarize-darwin-amd64.zip \
             --apple-id "${{ secrets.APPLE_ID }}" \
             --team-id "${{ secrets.APPLE_TEAM_ID }}" \
             --password "${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}" \
@@ -457,20 +413,12 @@ jobs:
           TAG="${{ steps.version.outputs.tag }}"
           cd sign/darwin-arm64
           tar czf "${{ github.workspace }}/mistserver-darwin-arm64-${TAG}.tar.gz" bin/ lib/
-          cd "${{ github.workspace }}/sign/darwin-amd64"
-          tar czf "${{ github.workspace }}/mistserver-darwin-amd64-${TAG}.tar.gz" bin/ lib/
 
       - name: Upload signed darwin/arm64
         uses: actions/upload-artifact@v4
         with:
           name: mistserver-darwin-arm64-signed
           path: mistserver-darwin-arm64-*.tar.gz
-
-      - name: Upload signed darwin/amd64
-        uses: actions/upload-artifact@v4
-        with:
-          name: mistserver-darwin-amd64-signed
-          path: mistserver-darwin-amd64-*.tar.gz
 
   # ---------------------------------------------------------------------------
   # GitHub Release — assemble all artifacts
@@ -502,12 +450,6 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: mistserver-darwin-arm64-signed
-          path: dist/
-
-      - name: Download signed darwin/amd64 binary
-        uses: actions/download-artifact@v4
-        with:
-          name: mistserver-darwin-amd64-signed
           path: dist/
 
       - name: Download Docker metadata
