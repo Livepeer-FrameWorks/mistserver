@@ -16,8 +16,11 @@ env:
   REGISTRY_DOCKERHUB: livepeerframeworks
 
 jobs:
-  build:
-    name: Build and Push MistServer Image
+  # ---------------------------------------------------------------------------
+  # Docker image — linux/amd64 on ubuntu
+  # ---------------------------------------------------------------------------
+  build-image-amd64:
+    name: Build Docker Image (linux/amd64)
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -28,15 +31,9 @@ jobs:
       - name: Get version info
         id: version
         run: |
-          # Get short commit hash
           SHORT_SHA=$(git rev-parse --short HEAD)
           echo "short_sha=${SHORT_SHA}" >> "$GITHUB_OUTPUT"
-
-          # Use "development" as base tag (tracking upstream development branch)
           echo "tag=development-${SHORT_SHA}" >> "$GITHUB_OUTPUT"
-
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -54,56 +51,42 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - name: Build and push
+      - name: Build and push (amd64)
         id: build
         uses: docker/build-push-action@v5
         with:
           context: .
           file: Dockerfile.mistserver
-          platforms: linux/amd64,linux/arm64
+          platforms: linux/amd64
           push: true
           provenance: true
           sbom: true
           tags: |
-            ${{ env.REGISTRY_GHCR }}/mistserver:${{ steps.version.outputs.tag }}
-            ${{ env.REGISTRY_GHCR }}/mistserver:latest
-            ${{ env.REGISTRY_DOCKERHUB }}/mistserver:${{ steps.version.outputs.tag }}
-            ${{ env.REGISTRY_DOCKERHUB }}/mistserver:latest
+            ${{ env.REGISTRY_GHCR }}/mistserver:${{ steps.version.outputs.tag }}-amd64
+            ${{ env.REGISTRY_DOCKERHUB }}/mistserver:${{ steps.version.outputs.tag }}-amd64
           cache-from: |
-            type=gha,scope=mistserver
+            type=gha,scope=mistserver-amd64
             type=registry,ref=${{ env.REGISTRY_GHCR }}/mistserver:latest
-          cache-to: type=gha,mode=max,scope=mistserver
+          cache-to: type=gha,mode=max,scope=mistserver-amd64
 
-      - name: Output build info
-        run: |
-          echo "Built and pushed MistServer image"
-          echo "Tag: ${{ steps.version.outputs.tag }}"
-          echo "Digest: ${{ steps.build.outputs.digest }}"
-          echo ""
-          echo "Images:"
-          echo "  - ${{ env.REGISTRY_GHCR }}/mistserver:${{ steps.version.outputs.tag }}"
-          echo "  - ${{ env.REGISTRY_DOCKERHUB }}/mistserver:${{ steps.version.outputs.tag }}"
-
-      - name: Save Docker metadata
+      - name: Save digest
         run: |
           mkdir -p release-metadata
-          echo "${{ steps.build.outputs.digest }}" > release-metadata/docker-digest.txt
+          echo "${{ steps.build.outputs.digest }}" > release-metadata/docker-digest-amd64.txt
           echo "${{ steps.version.outputs.tag }}" > release-metadata/docker-tag.txt
 
-      - name: Upload Docker metadata artifact
+      - name: Upload metadata
         uses: actions/upload-artifact@v4
         with:
-          name: docker-metadata
+          name: docker-metadata-amd64
           path: release-metadata/*.txt
 
-  build-binaries:
-    name: Build Native Binaries (${{ matrix.arch }})
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    strategy:
-      matrix:
-        arch: [amd64, arm64]
+  # ---------------------------------------------------------------------------
+  # Docker image — linux/arm64 on self-hosted Mac (Docker Desktop, native ARM)
+  # ---------------------------------------------------------------------------
+  build-image-arm64:
+    name: Build Docker Image (linux/arm64)
+    runs-on: macos-arm64-self-hosted
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -117,9 +100,137 @@ jobs:
           echo "short_sha=${SHORT_SHA}" >> "$GITHUB_OUTPUT"
           echo "tag=development-${SHORT_SHA}" >> "$GITHUB_OUTPUT"
 
-      - name: Set up QEMU (for cross-arch builds)
-        if: matrix.arch == 'arm64'
-        uses: docker/setup-qemu-action@v3
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Log in to DockerHub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build and push (arm64)
+        id: build
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: Dockerfile.mistserver
+          platforms: linux/arm64
+          push: true
+          provenance: true
+          sbom: true
+          tags: |
+            ${{ env.REGISTRY_GHCR }}/mistserver:${{ steps.version.outputs.tag }}-arm64
+            ${{ env.REGISTRY_DOCKERHUB }}/mistserver:${{ steps.version.outputs.tag }}-arm64
+          cache-from: |
+            type=gha,scope=mistserver-arm64
+          cache-to: type=gha,mode=max,scope=mistserver-arm64
+
+      - name: Save digest
+        run: |
+          mkdir -p release-metadata
+          echo "${{ steps.build.outputs.digest }}" > release-metadata/docker-digest-arm64.txt
+
+      - name: Upload metadata
+        uses: actions/upload-artifact@v4
+        with:
+          name: docker-metadata-arm64
+          path: release-metadata/*.txt
+
+  # ---------------------------------------------------------------------------
+  # Multi-arch Docker manifest — combine amd64 + arm64 images
+  # ---------------------------------------------------------------------------
+  create-manifest:
+    name: Create Multi-arch Docker Manifest
+    needs: [build-image-amd64, build-image-arm64]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Get version info
+        id: version
+        run: |
+          SHORT_SHA=$(git rev-parse --short HEAD)
+          echo "tag=development-${SHORT_SHA}" >> "$GITHUB_OUTPUT"
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Log in to DockerHub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Create and push multi-arch manifests
+        run: |
+          TAG="${{ steps.version.outputs.tag }}"
+
+          # GHCR manifests
+          docker manifest create ${{ env.REGISTRY_GHCR }}/mistserver:${TAG} \
+            ${{ env.REGISTRY_GHCR }}/mistserver:${TAG}-amd64 \
+            ${{ env.REGISTRY_GHCR }}/mistserver:${TAG}-arm64
+          docker manifest push ${{ env.REGISTRY_GHCR }}/mistserver:${TAG}
+
+          docker manifest create ${{ env.REGISTRY_GHCR }}/mistserver:latest \
+            ${{ env.REGISTRY_GHCR }}/mistserver:${TAG}-amd64 \
+            ${{ env.REGISTRY_GHCR }}/mistserver:${TAG}-arm64
+          docker manifest push ${{ env.REGISTRY_GHCR }}/mistserver:latest
+
+          # DockerHub manifests
+          docker manifest create ${{ env.REGISTRY_DOCKERHUB }}/mistserver:${TAG} \
+            ${{ env.REGISTRY_DOCKERHUB }}/mistserver:${TAG}-amd64 \
+            ${{ env.REGISTRY_DOCKERHUB }}/mistserver:${TAG}-arm64
+          docker manifest push ${{ env.REGISTRY_DOCKERHUB }}/mistserver:${TAG}
+
+          docker manifest create ${{ env.REGISTRY_DOCKERHUB }}/mistserver:latest \
+            ${{ env.REGISTRY_DOCKERHUB }}/mistserver:${TAG}-amd64 \
+            ${{ env.REGISTRY_DOCKERHUB }}/mistserver:${TAG}-arm64
+          docker manifest push ${{ env.REGISTRY_DOCKERHUB }}/mistserver:latest
+
+      - name: Save Docker metadata
+        run: |
+          mkdir -p release-metadata
+          echo "${{ steps.version.outputs.tag }}" > release-metadata/docker-tag.txt
+
+      - name: Upload Docker metadata
+        uses: actions/upload-artifact@v4
+        with:
+          name: docker-metadata
+          path: release-metadata/*.txt
+
+  # ---------------------------------------------------------------------------
+  # Native binary — linux/amd64 on ubuntu
+  # ---------------------------------------------------------------------------
+  build-binaries-amd64:
+    name: Build Native Binaries (linux/amd64)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Get version info
+        id: version
+        run: |
+          SHORT_SHA=$(git rev-parse --short HEAD)
+          echo "short_sha=${SHORT_SHA}" >> "$GITHUB_OUTPUT"
+          echo "tag=development-${SHORT_SHA}" >> "$GITHUB_OUTPUT"
 
       - name: Install build dependencies
         run: |
@@ -136,6 +247,7 @@ jobs:
             --default-library=static \
             -DWITH_AV=true \
             -DDEBUG=3 \
+            -DRELEASE=Generic_x86_64 \
             --prefix=/tmp/mistserver-install
           ninja -C build install
 
@@ -146,24 +258,32 @@ jobs:
       - name: Package binaries
         run: |
           cd /tmp/mistserver-install
-          tar czf ${{ github.workspace }}/mistserver-linux-${{ matrix.arch }}-${{ steps.version.outputs.tag }}.tar.gz bin/ lib/
+          tar czf ${{ github.workspace }}/mistserver-linux-amd64-${{ steps.version.outputs.tag }}.tar.gz bin/ lib/
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: mistserver-linux-${{ matrix.arch }}
-          path: mistserver-linux-${{ matrix.arch }}-${{ steps.version.outputs.tag }}.tar.gz
+          name: mistserver-linux-amd64
+          path: mistserver-linux-amd64-${{ steps.version.outputs.tag }}.tar.gz
 
-  create-release:
-    name: Create GitHub Release
-    needs: [build, build-binaries]
-    runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/')
+  # ---------------------------------------------------------------------------
+  # Native binaries — all arm64 + darwin on self-hosted Mac Mini
+  #
+  # Builds three targets:
+  #   1. linux/arm64  — inside Docker container (Alpine ARM, native via Docker Desktop)
+  #   2. darwin/arm64 — native Meson build
+  #   3. darwin/amd64 — Meson build under Rosetta 2 (arch -x86_64)
+  # ---------------------------------------------------------------------------
+  build-arm64-and-darwin:
+    name: Build Native Binaries (arm64 + darwin)
+    runs-on: macos-arm64-self-hosted
     permissions:
       contents: write
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Get version info
         id: version
@@ -172,16 +292,223 @@ jobs:
           echo "short_sha=${SHORT_SHA}" >> "$GITHUB_OUTPUT"
           echo "tag=development-${SHORT_SHA}" >> "$GITHUB_OUTPUT"
 
-      - name: Download amd64 binary
+      - name: Install macOS build dependencies
+        run: |
+          export PATH="/opt/homebrew/bin:$PATH"
+          brew install meson ninja pkg-config ffmpeg srt libsrtp
+
+      # -- linux/arm64 via Docker (native ARM container, no QEMU) --
+      - name: Build linux/arm64 via Docker
+        run: |
+          docker run --rm \
+            -v "${{ github.workspace }}:/src:ro" \
+            -v "$RUNNER_TEMP/linux-arm64:/output" \
+            alpine:3.19 sh -c '
+              apk add --no-cache build-base git python3 py3-pip ninja pkgconf \
+                mbedtls-dev libsrtp-dev srt-dev cjson-dev \
+                ffmpeg-dev ffmpeg-libavcodec ffmpeg-libavformat ffmpeg-libavutil \
+                ffmpeg-libswscale ffmpeg-libswresample
+              pip3 install --break-system-packages meson>=1.3.0
+              cp -r /src /build-src && cd /build-src
+              meson setup /build \
+                --default-library=static \
+                -DWITH_AV=true \
+                -DDEBUG=3 \
+                -DRELEASE=Generic_aarch64 \
+                --prefix=/output/mistserver-install
+              ninja -C /build install
+              strip /output/mistserver-install/bin/Mist*
+            '
+
+      - name: Package linux/arm64
+        run: |
+          cd "$RUNNER_TEMP/linux-arm64/mistserver-install"
+          tar czf "${{ github.workspace }}/mistserver-linux-arm64-${{ steps.version.outputs.tag }}.tar.gz" bin/ lib/
+
+      - name: Upload linux/arm64 artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: mistserver-linux-arm64
+          path: mistserver-linux-arm64-${{ steps.version.outputs.tag }}.tar.gz
+
+      # -- darwin/arm64 (native build) --
+      - name: Build darwin/arm64
+        run: |
+          meson setup build-darwin-arm64 \
+            --default-library=static \
+            -DWITH_AV=true \
+            -DDEBUG=3 \
+            -DRELEASE=macOS_aarch64 \
+            --prefix="$RUNNER_TEMP/darwin-arm64/mistserver-install"
+          ninja -C build-darwin-arm64 install
+
+      - name: Package darwin/arm64
+        run: |
+          cd "$RUNNER_TEMP/darwin-arm64/mistserver-install"
+          tar czf "${{ github.workspace }}/mistserver-darwin-arm64-${{ steps.version.outputs.tag }}.tar.gz" bin/ lib/
+
+      - name: Upload darwin/arm64 artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: mistserver-darwin-arm64
+          path: mistserver-darwin-arm64-${{ steps.version.outputs.tag }}.tar.gz
+
+      # -- darwin/amd64 (Rosetta 2 cross-build) --
+      - name: Build darwin/amd64
+        run: |
+          arch -x86_64 meson setup build-darwin-amd64 \
+            --default-library=static \
+            -DWITH_AV=true \
+            -DDEBUG=3 \
+            -DRELEASE=macOS_x86_64 \
+            --prefix="$RUNNER_TEMP/darwin-amd64/mistserver-install"
+          arch -x86_64 ninja -C build-darwin-amd64 install
+
+      - name: Package darwin/amd64
+        run: |
+          cd "$RUNNER_TEMP/darwin-amd64/mistserver-install"
+          tar czf "${{ github.workspace }}/mistserver-darwin-amd64-${{ steps.version.outputs.tag }}.tar.gz" bin/ lib/
+
+      - name: Upload darwin/amd64 artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: mistserver-darwin-amd64
+          path: mistserver-darwin-amd64-${{ steps.version.outputs.tag }}.tar.gz
+
+  # ---------------------------------------------------------------------------
+  # Code signing + notarization for darwin binaries
+  # ---------------------------------------------------------------------------
+  sign-darwin:
+    name: Sign and Notarize darwin Binaries
+    needs: [build-arm64-and-darwin]
+    runs-on: macos-arm64-self-hosted
+    steps:
+      - name: Download darwin/arm64 artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: mistserver-darwin-arm64
+          path: dist/
+
+      - name: Download darwin/amd64 artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: mistserver-darwin-amd64
+          path: dist/
+
+      - name: Extract darwin binaries
+        run: |
+          mkdir -p sign/darwin-arm64 sign/darwin-amd64
+          tar xzf dist/mistserver-darwin-arm64-*.tar.gz -C sign/darwin-arm64
+          tar xzf dist/mistserver-darwin-amd64-*.tar.gz -C sign/darwin-amd64
+
+      - name: Import Apple signing certificate
+        uses: apple-actions/import-codesign-certs@v2
+        with:
+          p12-file-base64: ${{ secrets.APPLE_CERTIFICATE_P12 }}
+          p12-password: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+
+      - name: Sign darwin binaries
+        run: |
+          for dir in sign/darwin-arm64 sign/darwin-amd64; do
+            for bin in "$dir"/bin/Mist*; do
+              [ -f "$bin" ] || continue
+              codesign --sign "${{ secrets.APPLE_DEVELOPER_ID }}" \
+                --timestamp --options runtime --force "$bin"
+              echo "Signed: $bin"
+            done
+          done
+
+      - name: Verify signatures
+        run: |
+          for dir in sign/darwin-arm64 sign/darwin-amd64; do
+            for bin in "$dir"/bin/Mist*; do
+              [ -f "$bin" ] || continue
+              codesign --verify --verbose=2 "$bin"
+            done
+          done
+
+      - name: Notarize darwin/arm64
+        run: |
+          cd sign/darwin-arm64
+          zip -r ../../notarize-darwin-arm64.zip bin/
+          xcrun notarytool submit ../../notarize-darwin-arm64.zip \
+            --apple-id "${{ secrets.APPLE_ID }}" \
+            --team-id "${{ secrets.APPLE_TEAM_ID }}" \
+            --password "${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}" \
+            --wait
+
+      - name: Notarize darwin/amd64
+        run: |
+          cd sign/darwin-amd64
+          zip -r ../../notarize-darwin-amd64.zip bin/
+          xcrun notarytool submit ../../notarize-darwin-amd64.zip \
+            --apple-id "${{ secrets.APPLE_ID }}" \
+            --team-id "${{ secrets.APPLE_TEAM_ID }}" \
+            --password "${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}" \
+            --wait
+
+      - name: Get version info
+        id: version
+        run: |
+          SHORT_SHA=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
+          echo "tag=development-${SHORT_SHA}" >> "$GITHUB_OUTPUT"
+
+      - name: Re-package signed binaries
+        run: |
+          TAG="${{ steps.version.outputs.tag }}"
+          cd sign/darwin-arm64
+          tar czf "${{ github.workspace }}/mistserver-darwin-arm64-${TAG}.tar.gz" bin/ lib/
+          cd "${{ github.workspace }}/sign/darwin-amd64"
+          tar czf "${{ github.workspace }}/mistserver-darwin-amd64-${TAG}.tar.gz" bin/ lib/
+
+      - name: Upload signed darwin/arm64
+        uses: actions/upload-artifact@v4
+        with:
+          name: mistserver-darwin-arm64-signed
+          path: mistserver-darwin-arm64-*.tar.gz
+
+      - name: Upload signed darwin/amd64
+        uses: actions/upload-artifact@v4
+        with:
+          name: mistserver-darwin-amd64-signed
+          path: mistserver-darwin-amd64-*.tar.gz
+
+  # ---------------------------------------------------------------------------
+  # GitHub Release — assemble all artifacts
+  # ---------------------------------------------------------------------------
+  create-release:
+    name: Create GitHub Release
+    needs: [create-manifest, build-binaries-amd64, build-arm64-and-darwin, sign-darwin]
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Download linux/amd64 binary
         uses: actions/download-artifact@v4
         with:
           name: mistserver-linux-amd64
           path: dist/
 
-      - name: Download arm64 binary
+      - name: Download linux/arm64 binary
         uses: actions/download-artifact@v4
         with:
           name: mistserver-linux-arm64
+          path: dist/
+
+      - name: Download signed darwin/arm64 binary
+        uses: actions/download-artifact@v4
+        with:
+          name: mistserver-darwin-arm64-signed
+          path: dist/
+
+      - name: Download signed darwin/amd64 binary
+        uses: actions/download-artifact@v4
+        with:
+          name: mistserver-darwin-amd64-signed
           path: dist/
 
       - name: Download Docker metadata
