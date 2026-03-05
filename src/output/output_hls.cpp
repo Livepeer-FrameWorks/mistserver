@@ -1,4 +1,5 @@
 #include "output_hls.h"
+#include <iomanip>
 #include <mist/langcodes.h> /*LTS*/
 #include <mist/stream.h>
 #include <mist/url.h>
@@ -81,6 +82,19 @@ namespace Mist{
         return "";
       }
     }
+
+    // Add thumbnail image stream references (EXT-X-IMAGE-STREAM-INF)
+    for (std::map<size_t, Comms::Users>::iterator it = userSelect.begin(); it != userSelect.end(); ++it){
+      if (M.getType(it->first) == "video" && M.getCodec(it->first) == "JPEG" &&
+          M.getLang(it->first) == "thumbnails"){
+        result << "#EXT-X-IMAGE-STREAM-INF:BANDWIDTH=20000"
+               << ",RESOLUTION=" << M.getWidth(it->first) << "x" << M.getHeight(it->first)
+               << ",CODECS=\"jpeg\""
+               << ",URI=\"" << it->first << "/thumbs.m3u8" << tknStr << "\""
+               << "\r\n";
+      }
+    }
+
     return result.str();
   }
 
@@ -434,6 +448,43 @@ namespace Mist{
           onFail("No HLS compatible tracks found");
           return;
         }
+      }else if (request.find("thumbs.m3u8") != std::string::npos){
+        // Image media playlist for thumbnail sprite sheets
+        size_t idx = atoi(request.substr(0, request.find("/")).c_str());
+        if (!M.getValidTracks().count(idx) || M.getCodec(idx) != "JPEG" ||
+            M.getLang(idx) != "thumbnails"){
+          H.SendResponse("404", "No thumbnail track found", myConn);
+          return;
+        }
+        uint32_t gridCols = 10, gridRows = 10;
+        // Infer grid dimensions from resolution and typical thumb size
+        uint32_t w = M.getWidth(idx);
+        uint32_t h = M.getHeight(idx);
+        if (w && h){
+          // Assume 160x90 per thumbnail as default
+          uint32_t tw = 160, th = 90;
+          if (w >= tw && h >= th){
+            gridCols = w / tw;
+            gridRows = h / th;
+          }
+        }
+        uint64_t duration = M.getLive() ? (M.getLastms(idx) - M.getFirstms(idx)) : M.getDuration(idx);
+        double totalCells = gridCols * gridRows;
+        double cellDuration = (double)duration / 1000.0 / totalCells;
+
+        std::stringstream img;
+        img << "#EXTM3U\r\n";
+        img << "#EXT-X-TARGETDURATION:" << (uint32_t)(duration / 1000 + 1) << "\r\n";
+        img << "#EXT-X-VERSION:8\r\n";
+        img << "#EXT-X-IMAGES-ONLY\r\n";
+        img << "#EXTINF:" << std::fixed << std::setprecision(3) << (double)duration / 1000.0
+            << ",\r\n";
+        img << "#EXT-X-TILES:RESOLUTION=" << w << "x" << h << ",LAYOUT=" << gridCols << "x"
+            << gridRows << ",DURATION=" << std::fixed << std::setprecision(3) << cellDuration
+            << "\r\n";
+        img << "../../../" << streamName << ".jpg?track=" << idx << "\r\n";
+        if (!M.getLive()){img << "#EXT-X-ENDLIST\r\n";}
+        manifest = img.str();
       }else{
         size_t idx = atoi(request.substr(0, request.find("/")).c_str());
         if (!M.getValidTracks().count(idx)){

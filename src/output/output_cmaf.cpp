@@ -715,6 +715,28 @@ namespace Mist{
       }
     }
 
+    // Add thumbnail image adaptation sets
+    for (std::map<size_t, Comms::Users>::iterator it = userSelect.begin(); it != userSelect.end(); it++){
+      if (M.getType(it->first) == "video" && M.getCodec(it->first) == "JPEG" &&
+          M.getLang(it->first) == "thumbnails"){
+        uint32_t w = M.getWidth(it->first);
+        uint32_t h = M.getHeight(it->first);
+        // Infer grid layout from resolution (assume 160x90 per thumbnail)
+        uint32_t cols = w / 160;
+        uint32_t rows = h / 90;
+        if (!cols) cols = 1;
+        if (!rows) rows = 1;
+        r << "<AdaptationSet id=\"" << it->first
+          << "\" contentType=\"image\" mimeType=\"image/jpeg\">"
+          << "<EssentialProperty schemeIdUri=\"http://dashif.org/thumbnail_tile\" value=\""
+          << cols << "x" << rows << "\"/>"
+          << "<Representation id=\"" << it->first << "\" bandwidth=\"20000\" width=\"" << w
+          << "\" height=\"" << h << "\">"
+          << "<BaseURL>../../" << streamName << ".jpg?track=" << it->first << "</BaseURL>"
+          << "</Representation></AdaptationSet>" << std::endl;
+      }
+    }
+
     r << "</Period></MPD>" << std::endl;
 
     return r.str();
