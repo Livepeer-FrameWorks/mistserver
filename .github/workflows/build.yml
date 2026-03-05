@@ -95,10 +95,6 @@ jobs:
 
       - name: Setup Docker environment (Colima)
         run: |
-          DOCKER_CONFIG="$RUNNER_TEMP/.docker-ci"
-          mkdir -p "$DOCKER_CONFIG"
-          echo '{"credsStore":""}' > "$DOCKER_CONFIG/config.json"
-          echo "DOCKER_CONFIG=$DOCKER_CONFIG" >> "$GITHUB_ENV"
           echo "DOCKER_HOST=unix://$HOME/.colima/default/docker.sock" >> "$GITHUB_ENV"
 
       - name: Get version info
@@ -297,10 +293,6 @@ jobs:
 
       - name: Setup Docker environment (Colima)
         run: |
-          DOCKER_CONFIG="$RUNNER_TEMP/.docker-ci"
-          mkdir -p "$DOCKER_CONFIG"
-          echo '{"credsStore":""}' > "$DOCKER_CONFIG/config.json"
-          echo "DOCKER_CONFIG=$DOCKER_CONFIG" >> "$GITHUB_ENV"
           echo "DOCKER_HOST=unix://$HOME/.colima/default/docker.sock" >> "$GITHUB_ENV"
 
       - name: Get version info
