@@ -87,8 +87,6 @@ jobs:
   build-image-arm64:
     name: Build Docker Image (linux/arm64)
     runs-on: macos-arm64-self-hosted
-    env:
-      DOCKER_CONFIG: ${{ runner.temp }}/.docker-ci
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -97,8 +95,10 @@ jobs:
 
       - name: Setup clean Docker config
         run: |
+          DOCKER_CONFIG="$RUNNER_TEMP/.docker-ci"
           mkdir -p "$DOCKER_CONFIG"
           echo '{}' > "$DOCKER_CONFIG/config.json"
+          echo "DOCKER_CONFIG=$DOCKER_CONFIG" >> "$GITHUB_ENV"
 
       - name: Get version info
         id: version
@@ -285,8 +285,6 @@ jobs:
     runs-on: macos-arm64-self-hosted
     permissions:
       contents: write
-    env:
-      DOCKER_CONFIG: ${{ runner.temp }}/.docker-ci
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -295,8 +293,10 @@ jobs:
 
       - name: Setup clean Docker config
         run: |
+          DOCKER_CONFIG="$RUNNER_TEMP/.docker-ci"
           mkdir -p "$DOCKER_CONFIG"
           echo '{}' > "$DOCKER_CONFIG/config.json"
+          echo "DOCKER_CONFIG=$DOCKER_CONFIG" >> "$GITHUB_ENV"
 
       - name: Get version info
         id: version
