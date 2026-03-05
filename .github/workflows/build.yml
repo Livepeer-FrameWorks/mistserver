@@ -253,8 +253,11 @@ jobs:
         run: |
           meson setup build \
             --default-library=static \
+            --wrap-mode=default \
+            --force-fallback-for=mbedtls,usrsctp \
             -DWITH_AV=true \
             -DDEBUG=3 \
+            -DNORIST=true \
             -DRELEASE=Generic_x86_64 \
             --prefix=/tmp/mistserver-install
           ninja -C build install
@@ -327,9 +330,14 @@ jobs:
               cp -r /src /build-src && cd /build-src
               meson setup /build \
                 --default-library=static \
+                --wrap-mode=default \
+                --force-fallback-for=mbedtls,usrsctp \
                 -DWITH_AV=true \
                 -DDEBUG=3 \
+                -DNORIST=true \
                 -DRELEASE=Generic_aarch64 \
+                -Dmbedtls:default_library=static \
+                -Dusrsctp:default_library=static \
                 --prefix=/output/mistserver-install
               ninja -C /build install
               strip /output/mistserver-install/bin/Mist*
@@ -351,8 +359,11 @@ jobs:
         run: |
           meson setup build-darwin-arm64 \
             --default-library=static \
+            --wrap-mode=default \
+            --force-fallback-for=mbedtls,usrsctp \
             -DWITH_AV=true \
             -DDEBUG=3 \
+            -DNORIST=true \
             -DRELEASE=macOS_aarch64 \
             --prefix="$RUNNER_TEMP/darwin-arm64/mistserver-install"
           ninja -C build-darwin-arm64 install
