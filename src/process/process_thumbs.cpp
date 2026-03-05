@@ -245,9 +245,8 @@ namespace Mist{
       av_frame_free(&frame);
       avcodec_free_context(&jpegCtx);
 
-      // Generate and buffer VTT
+      // Generate and buffer VTT cues (no WEBVTT header — the subtitle output adds its own)
       std::stringstream vtt;
-      vtt << "WEBVTT\n\n";
       for (uint32_t i = 0; i < totalCells; i++){
         uint64_t startMs = firstMs + (uint64_t)(cellDuration * i);
         uint64_t endMs = firstMs + (uint64_t)(cellDuration * (i + 1));
