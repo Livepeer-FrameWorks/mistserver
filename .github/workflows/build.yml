@@ -294,7 +294,7 @@ jobs:
       - name: Install macOS build dependencies
         run: |
           export PATH="/opt/homebrew/bin:$PATH"
-          brew install meson ninja pkg-config ffmpeg srt libsrtp
+          brew install meson ninja pkg-config ffmpeg srt srtp cmake
 
       # -- linux/arm64 via Docker (native ARM container, no QEMU) --
       - name: Build linux/arm64 via Docker
