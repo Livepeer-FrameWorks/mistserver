@@ -12,6 +12,7 @@
 #include <iostream>
 #include <map>
 #include <mutex>
+#include <sstream>
 #include <thread>
 
 extern "C"{

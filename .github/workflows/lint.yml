@@ -62,11 +62,9 @@ jobs:
             echo "No C++ files changed"
             echo "files=" >> "$GITHUB_OUTPUT"
           else
-            {
-              echo 'files<<EOF'
-              echo "$FILES"
-              echo 'EOF'
-            } >> "$GITHUB_OUTPUT"
+            echo 'files<<EOF' >> "$GITHUB_OUTPUT"
+              echo "$FILES" >> "$GITHUB_OUTPUT"
+              echo 'EOF' >> "$GITHUB_OUTPUT"
           fi
 
       - name: Run clang-tidy on changed files
@@ -131,11 +129,9 @@ jobs:
           if [ -z "$FILES" ]; then
             echo "files=" >> "$GITHUB_OUTPUT"
           else
-            {
-              echo 'files<<EOF'
-              echo "$FILES"
-              echo 'EOF'
-            } >> "$GITHUB_OUTPUT"
+            echo 'files<<EOF' >> "$GITHUB_OUTPUT"
+              echo "$FILES" >> "$GITHUB_OUTPUT"
+              echo 'EOF' >> "$GITHUB_OUTPUT"
           fi
 
       - name: Check formatting
