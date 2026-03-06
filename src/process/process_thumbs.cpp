@@ -7,8 +7,10 @@
 #include <mist/proc_stats.h>
 #include <mist/procs.h>
 #include <mist/shared_memory.h>
+#include <mist/triggers.h>
 #include <mist/util.h>
 
+#include <atomic>
 #include <condition_variable>
 #include <cstdarg>
 #include <iostream>
@@ -83,6 +85,10 @@ JSON::Value pStat;
 JSON::Value &pData = pStat["proc_status_update"]["status"];
 std::mutex statsMutex;
 IPC::sharedPage procStatsPage;
+std::atomic<uint64_t> thumbTotalWork{0};
+std::atomic<uint64_t> thumbTotalSourceSleep{0};
+std::atomic<uint64_t> thumbFrameCount{0};
+std::atomic<uint64_t> thumbLastWorkEnd{0};
 
 namespace Mist{
 
@@ -158,6 +164,42 @@ namespace Mist{
 
       INFO_MSG("Thumbnail tracks created: sprite=%zu vtt=%zu preview=%zu (grid %ux%u = %ux%u)",
                spriteIdx, vttIdx, previewIdx, gridCols, gridRows, gridW, gridH);
+    }
+
+    void writeToDiskAndFireTrigger(const std::string &posterData,
+                                    const std::string &spriteData,
+                                    const std::string &vttData){
+      std::string base = "/tmp/mist_thumbs/" + streamName;
+      std::string posterPath = base + "/poster.jpg";
+      std::string spritePath = base + "/sprite.jpg";
+      std::string vttPath = base + "/sprite.vtt";
+
+      Util::createPathFor(posterPath);
+
+      struct FileEntry{
+        const std::string &path;
+        const std::string &data;
+      };
+      FileEntry files[] = {
+        {posterPath, posterData},
+        {spritePath, spriteData},
+        {vttPath, vttData},
+      };
+      for (auto &f : files){
+        if (f.data.empty()){continue;}
+        FILE *fp = fopen(f.path.c_str(), "wb");
+        if (!fp){
+          WARN_MSG("Failed to write thumbnail file %s", f.path.c_str());
+          continue;
+        }
+        fwrite(f.data.data(), 1, f.data.size(), fp);
+        fclose(fp);
+      }
+
+      if (Triggers::shouldTrigger("THUMBNAIL_UPDATED", streamName)){
+        std::string payload = streamName + "\n" + posterPath + "\n" + spritePath + "\n" + vttPath;
+        Triggers::doTrigger("THUMBNAIL_UPDATED", payload, streamName);
+      }
     }
 
     /// Compose the 10x10 grid from cached thumbnails, encode as JPEG, generate VTT
@@ -264,6 +306,7 @@ namespace Mist{
 
       // Encode
       AVPacket *pkt = av_packet_alloc();
+      std::string spriteJpegData;
       int ret = avcodec_send_frame(jpegCtx, frame);
       if (ret >= 0){
         ret = avcodec_receive_packet(jpegCtx, pkt);
@@ -273,6 +316,7 @@ namespace Mist{
           thisIdx = spriteIdx;
           thisTime = bufTs;
           bufferLivePacket(bufTs, 0, spriteIdx, (const char *)pkt->data, pkt->size, 0, true);
+          spriteJpegData.assign((const char *)pkt->data, pkt->size);
           INFO_MSG("Buffered sprite sheet: %d bytes at %" PRIu64 "ms", pkt->size, bufTs);
         }else{
           ERROR_MSG("MJPEG encode receive failed: %d", ret);
@@ -325,6 +369,7 @@ namespace Mist{
                selected.size(), vttStr.size(), localCache.size(), bufTs);
 
       // Encode latest thumbnail as standalone preview JPEG
+      std::string previewJpegData;
       auto &latestEntry = localCache.back();
       if (latestEntry.rgb && latestEntry.rgb->size() == rgbSize){
         const AVCodec *prevCodec = avcodec_find_encoder(AV_CODEC_ID_MJPEG);
@@ -357,6 +402,7 @@ namespace Mist{
               thisIdx = previewIdx;
               thisTime = bufTs;
               bufferLivePacket(bufTs, 0, previewIdx, (const char *)prevPkt->data, prevPkt->size, 0, true);
+              previewJpegData.assign((const char *)prevPkt->data, prevPkt->size);
               INFO_MSG("Buffered preview JPEG: %d bytes at %" PRIu64 "ms", prevPkt->size, bufTs);
             }
             av_packet_free(&prevPkt);
@@ -364,6 +410,10 @@ namespace Mist{
           }
           avcodec_free_context(&prevCtx);
         }
+      }
+
+      if (!previewJpegData.empty() || !spriteJpegData.empty()){
+        writeToDiskAndFireTrigger(previewJpegData, spriteJpegData, vttStr);
       }
     }
 

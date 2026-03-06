@@ -596,6 +596,12 @@ namespace Controller{
     trgs["PROCESS_AV_VIRTUAL_SEGMENT_COMPLETE"]["payload"] = "stream name (string)\ntrack type (audio or video)\nseconds since last trigger (integer)\ninput frame count cumulative (integer)\noutput frame count cumulative (integer)\ninput frames this window (integer)\noutput frames this window (integer)\ninput bytes this window (integer)\noutput bytes this window (integer)\ndecode us per frame (integer)\ntransform us per frame (integer)\nencode us per frame (integer)\ninput codec short (string)\noutput codec short (string)\ninput width (integer)\ninput height (integer)\noutput width (integer)\noutput height (integer)\ninput fpks (integer)\noutput fps measured (float)\nsample rate (integer)\nchannels (integer)\nsource timestamp ms (integer)\nsink timestamp ms (integer)\nsource advanced ms (integer)\nsink advanced ms (integer)\nreal-time factor in (float)\nreal-time factor out (float)\npipeline lag ms (integer)\noutput bitrate bps (integer)\nis_final (0 or 1)";
     trgs["PROCESS_AV_VIRTUAL_SEGMENT_COMPLETE"]["response"] = "ignored";
     trgs["PROCESS_AV_VIRTUAL_SEGMENT_COMPLETE"]["response_action"] = "None.";
+
+    trgs["THUMBNAIL_UPDATED"]["when"] = "When MistProcThumbs regenerates the sprite sheet and preview frame.";
+    trgs["THUMBNAIL_UPDATED"]["stream_specific"] = true;
+    trgs["THUMBNAIL_UPDATED"]["payload"] = "stream name (string)\npath to poster.jpg (string)\npath to sprite.jpg (string)\npath to sprite.vtt (string)";
+    trgs["THUMBNAIL_UPDATED"]["response"] = "ignored";
+    trgs["THUMBNAIL_UPDATED"]["response_action"] = "None.";
   }
 
   /// Acquire list of available protocols, storing in global 'capabilities' JSON::Value.
