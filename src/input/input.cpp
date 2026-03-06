@@ -476,8 +476,8 @@ namespace Mist{
         //Set stream status to STRMSTAT_INIT, then close the page in non-master mode to keep it around
         char pageName[NAME_BUFFER_SIZE];
         snprintf(pageName, NAME_BUFFER_SIZE, SHM_STREAM_STATE, streamName.c_str());
-        streamStatus.init(pageName, 2, false, false);
-        if (!streamStatus){streamStatus.init(pageName, 2, true, false);}
+        streamStatus.init(pageName, 16, false, false);
+        if (!streamStatus){streamStatus.init(pageName, 16, true, false);}
         if (streamStatus){streamStatus.mapped[0] = STRMSTAT_INIT;}
         streamStatus.master = false;
         streamStatus.close();
@@ -523,8 +523,8 @@ namespace Mist{
         // Re-init streamStatus, previously closed
         char pageName[NAME_BUFFER_SIZE];
         snprintf(pageName, NAME_BUFFER_SIZE, SHM_STREAM_STATE, streamName.c_str());
-        streamStatus.init(pageName, 2, false, false);
-        if (!streamStatus){streamStatus.init(pageName, 2, true, false);}
+        streamStatus.init(pageName, 16, false, false);
+        if (!streamStatus){streamStatus.init(pageName, 16, true, false);}
         streamStatus.master = false;
         if (streamStatus){streamStatus.mapped[0] = STRMSTAT_INIT;}
       }
@@ -1131,6 +1131,24 @@ namespace Mist{
     Comms::Connections statComm;
 
 
+    // Read realtime_speed from stream config (0 = uncapped, 1 = normal, N = Nx speed)
+    uint64_t realtimeSpeed = 1;
+    {
+      std::string strName = streamName.substr(0, (streamName.find_first_of("+ ")));
+      char tmpBuf[NAME_BUFFER_SIZE];
+      snprintf(tmpBuf, NAME_BUFFER_SIZE, SHM_STREAM_CONF, strName.c_str());
+      Util::DTSCShmReader rStrmConf(tmpBuf);
+      DTSC::Scan streamCfg = rStrmConf.getScan();
+      if (streamCfg && streamCfg.getMember("realtime_speed")){
+        realtimeSpeed = streamCfg.getMember("realtime_speed").asInt();
+      }
+    }
+    if (realtimeSpeed > 1){
+      INFO_MSG("Realtime speed set to %" PRIu64 "x", realtimeSpeed);
+    }else if (realtimeSpeed == 0){
+      INFO_MSG("Realtime speed set to uncapped");
+    }
+
     DTSC::Meta liveMeta(config->getString("streamname"), false);
     DTSC::veryUglyJitterOverride = SIMULATED_LIVE_BUFFER;
 
@@ -1239,10 +1257,22 @@ namespace Mist{
         Util::logExitReason(ER_CLEAN_LIVE_BUFFER_REQ, "buffer requested shutdown");
         break;
       }
-      while (config->is_active && userSelect[idx] &&
-             Util::bootMS() + SIMULATED_LIVE_BUFFER < (thisTime + timeOffset) + bootMsOffset){
-        Util::sleep(std::min(((thisTime + timeOffset) + bootMsOffset) - (Util::getMS() + SIMULATED_LIVE_BUFFER),
-                             (uint64_t)1000));
+      if (realtimeSpeed != 0){
+        // Read effective_speed from InputBuffer (if set via rate control)
+        uint64_t activeSpeed = realtimeSpeed;
+        if (streamStatus && streamStatus.len >= 16){
+          uint64_t effectiveSpeed = 0;
+          memcpy(&effectiveSpeed, streamStatus.mapped + 8, sizeof(uint64_t));
+          if (effectiveSpeed > 0 && effectiveSpeed < activeSpeed){
+            activeSpeed = effectiveSpeed;
+          }
+        }
+        uint64_t scaledBuffer = SIMULATED_LIVE_BUFFER * activeSpeed;
+        while (config->is_active && userSelect[idx] &&
+               Util::bootMS() + scaledBuffer < (thisTime + timeOffset) + bootMsOffset){
+          Util::sleep(std::min(((thisTime + timeOffset) + bootMsOffset) - (Util::getMS() + scaledBuffer),
+                               (uint64_t)1000));
+        }
       }
 
       //Buffer the packet

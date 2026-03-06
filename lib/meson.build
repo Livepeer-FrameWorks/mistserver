@@ -35,6 +35,7 @@ headers = [
   'nal.h',
   'ogg.h',
   'pixels.h',
+  'proc_stats.h',
   'procs.h',
   'rtmpchunks.h',
   'rtp_fec.h',

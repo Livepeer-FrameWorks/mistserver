@@ -4,7 +4,9 @@
 #include "../output/output.h"
 #include "process.hpp"
 
+#include <mist/proc_stats.h>
 #include <mist/procs.h>
+#include <mist/shared_memory.h>
 #include <mist/util.h>
 
 #include <condition_variable>
@@ -80,6 +82,7 @@ void smartThin(){
 JSON::Value pStat;
 JSON::Value &pData = pStat["proc_status_update"]["status"];
 std::mutex statsMutex;
+IPC::sharedPage procStatsPage;
 
 namespace Mist{
 
@@ -564,12 +567,35 @@ namespace Mist{
       // Only process keyframes
       if (!thisPacket.getFlag("keyframe")){return;}
 
+      // Track source sleep: time between end of last work and start of this work
+      uint64_t workStart = Util::getMicros();
+      uint64_t lastEnd = thumbLastWorkEnd.load(std::memory_order_relaxed);
+      if (lastEnd){
+        thumbTotalSourceSleep.store(
+          thumbTotalSourceSleep.load(std::memory_order_relaxed) + (workStart - lastEnd),
+          std::memory_order_relaxed);
+      }
+
       // Init decoder on first keyframe
-      if (!initDecoder()){return;}
+      if (!initDecoder()){
+        thumbLastWorkEnd.store(Util::getMicros(), std::memory_order_relaxed);
+        return;
+      }
 
       // Decode and scale outside lock
       auto rgbData = std::make_shared<std::vector<uint8_t>>();
-      if (!decodeAndScale(thisData, thisDataLen, *rgbData)){return;}
+      if (!decodeAndScale(thisData, thisDataLen, *rgbData)){
+        thumbLastWorkEnd.store(Util::getMicros(), std::memory_order_relaxed);
+        return;
+      }
+
+      thumbTotalWork.store(
+        thumbTotalWork.load(std::memory_order_relaxed) + Util::getMicros(workStart),
+        std::memory_order_relaxed);
+      thumbLastWorkEnd.store(Util::getMicros(), std::memory_order_relaxed);
+      thumbFrameCount.store(
+        thumbFrameCount.load(std::memory_order_relaxed) + 1,
+        std::memory_order_relaxed);
 
       {
         std::lock_guard<std::mutex> lk(thumbMutex);
@@ -638,6 +664,15 @@ namespace Mist{
         pData["ainfo"]["buffer_first_ms"] = bufferFirstMs;
         pData["ainfo"]["buffer_last_ms"] = bufferLastMs;
         Util::sendUDPApi(pStat);
+        // Write timing stats to shm for InputBuffer rate control
+        if (procStatsPage.mapped){
+          ProcTimingStats *s = (ProcTimingStats *)procStatsPage.mapped;
+          s->totalWork = thumbTotalWork.load(std::memory_order_relaxed);
+          s->totalSourceSleep = thumbTotalSourceSleep.load(std::memory_order_relaxed);
+          s->totalSinkSleep = 0;
+          s->frameCount = thumbFrameCount.load(std::memory_order_relaxed);
+          s->lastUpdateMs = Util::bootMS();
+        }
         lastProcUpdate = Util::bootSecs();
       }
     }

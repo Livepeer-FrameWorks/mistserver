@@ -16,6 +16,14 @@
 #include <string>
 #include <sys/stat.h>
 
+#ifdef __APPLE__
+#include <libproc.h>
+#include <mach/mach.h>
+#include <mach/processor_info.h>
+#else
+#include <unistd.h>
+#endif
+
 #ifndef TIMEOUTMULTIPLIER
 #define TIMEOUTMULTIPLIER 2
 #endif
@@ -31,6 +39,10 @@ namespace Mist{
     firstProcTime = 0;
     lastProcTime = 0;
     allProcsRunning = false;
+    effectiveSpeed = 0;
+    lastRateUpdateMs = 0;
+    sysCpuIdlePrev = 0;
+    sysCpuTotalPrev = 0;
 
     capa["optional"].removeMember("realtime");
 
@@ -462,6 +474,183 @@ namespace Mist{
     updateMeta();
   }
 
+  void InputBuffer::updateProcessingRate(){
+    if (runningProcs.empty()){return;}
+    uint64_t now = Util::bootMS();
+    if (lastRateUpdateMs && now - lastRateUpdateMs < 1000){return;}
+    lastRateUpdateMs = now;
+
+    // Read realtime_speed cap from stream config
+    uint64_t realtimeSpeed = 0;
+    {
+      std::string strName = config->getString("streamname");
+      Util::sanitizeName(strName);
+      strName = strName.substr(0, (strName.find_first_of("+ ")));
+      char tmpBuf[NAME_BUFFER_SIZE];
+      snprintf(tmpBuf, NAME_BUFFER_SIZE, SHM_STREAM_CONF, strName.c_str());
+      Util::DTSCShmReader rStrmConf(tmpBuf);
+      DTSC::Scan streamCfg = rStrmConf.getScan();
+      if (streamCfg && streamCfg.getMember("realtime_speed")){
+        realtimeSpeed = streamCfg.getMember("realtime_speed").asInt();
+      }
+    }
+    if (realtimeSpeed <= 1){return;}
+
+    // Phase 1: System CPU — raw ticks converted to microseconds
+    double systemCpu = 0.0;
+    uint64_t sysTotalDelta = 0;
+    {
+      uint64_t curIdle = 0, curTotal = 0;
+#ifdef __APPLE__
+      natural_t numCPUs = 0;
+      processor_info_array_t cpuLoadInfo;
+      mach_msg_type_number_t infoCount;
+      if (host_processor_info(mach_host_self(), PROCESSOR_CPU_LOAD_INFO, &numCPUs, &cpuLoadInfo, &infoCount) == KERN_SUCCESS){
+        uint64_t tickIdle = 0, tickTotal = 0;
+        for (natural_t i = 0; i < numCPUs; i++){
+          tickIdle += cpuLoadInfo[CPU_STATE_MAX * i + CPU_STATE_IDLE];
+          tickTotal += cpuLoadInfo[CPU_STATE_MAX * i + CPU_STATE_USER] +
+                       cpuLoadInfo[CPU_STATE_MAX * i + CPU_STATE_SYSTEM] +
+                       cpuLoadInfo[CPU_STATE_MAX * i + CPU_STATE_NICE] +
+                       cpuLoadInfo[CPU_STATE_MAX * i + CPU_STATE_IDLE];
+        }
+        static long ticksPerSec = sysconf(_SC_CLK_TCK);
+        curIdle = tickIdle * 1000000 / ticksPerSec;
+        curTotal = tickTotal * 1000000 / ticksPerSec;
+        vm_deallocate(mach_task_self(), (vm_address_t)cpuLoadInfo, infoCount * sizeof(integer_t));
+      }
+#else
+      std::ifstream cpustat("/proc/stat");
+      if (cpustat){
+        char line[300];
+        while (cpustat.getline(line, 300)){
+          uint64_t user, nice, syst, idle;
+          if (sscanf(line, "cpu %" PRIu64 " %" PRIu64 " %" PRIu64 " %" PRIu64, &user, &nice, &syst, &idle) == 4){
+            static long ticksPerSec = sysconf(_SC_CLK_TCK);
+            curIdle = idle * 1000000 / ticksPerSec;
+            curTotal = (user + nice + syst + idle) * 1000000 / ticksPerSec;
+            break;
+          }
+        }
+      }
+#endif
+      if (sysCpuTotalPrev && curTotal > sysCpuTotalPrev){
+        sysTotalDelta = curTotal - sysCpuTotalPrev;
+        uint64_t sysIdleDelta = curIdle - sysCpuIdlePrev;
+        systemCpu = 1.0 - (double)sysIdleDelta / (double)sysTotalDelta;
+      }
+      sysCpuIdlePrev = curIdle;
+      sysCpuTotalPrev = curTotal;
+    }
+
+    // Phase 2: Per-process CPU fraction + process timing stats
+    double maxProcFraction = 0.0;
+    double minSleepRatio = 1.0;
+    bool hasTimingStats = false;
+
+    for (auto it = procCpuPrev.begin(); it != procCpuPrev.end();){
+      bool found = false;
+      for (auto &rp : runningProcs){
+        if (rp.second == it->first){found = true; break;}
+      }
+      if (!found){
+        procStatsPrev.erase(it->first);
+        it = procCpuPrev.erase(it);
+      }else{
+        ++it;
+      }
+    }
+
+    for (auto &rp : runningProcs){
+      pid_t pid = rp.second;
+      if (!pid){continue;}
+
+      uint64_t cpuTimeUs = 0;
+#ifdef __APPLE__
+      struct proc_taskinfo pti;
+      if (proc_pidinfo(pid, PROC_PIDTASKINFO, 0, &pti, sizeof(pti)) > 0){
+        cpuTimeUs = (pti.pti_total_user + pti.pti_total_system) / 1000;
+      }
+#else
+      {
+        char statPath[64];
+        snprintf(statPath, sizeof(statPath), "/proc/%d/stat", pid);
+        std::ifstream pstat(statPath);
+        if (pstat){
+          char line[512];
+          pstat.getline(line, sizeof(line));
+          char *p = strrchr(line, ')');
+          if (p){
+            unsigned long utime = 0, stime = 0;
+            if (sscanf(p + 2, "%*c %*d %*d %*d %*d %*d %*u %*u %*u %*u %*u %lu %lu", &utime, &stime) == 2){
+              static long ticksPerSec = sysconf(_SC_CLK_TCK);
+              cpuTimeUs = (utime + stime) * 1000000 / ticksPerSec;
+            }
+          }
+        }
+      }
+#endif
+      if (procCpuPrev.count(pid) && sysTotalDelta > 0 && cpuTimeUs >= procCpuPrev[pid]){
+        uint64_t procDelta = cpuTimeUs - procCpuPrev[pid];
+        double fraction = (double)procDelta / (double)sysTotalDelta;
+        if (fraction > maxProcFraction){maxProcFraction = fraction;}
+      }
+      if (cpuTimeUs > 0){procCpuPrev[pid] = cpuTimeUs;}
+
+      char statsName[NAME_BUFFER_SIZE];
+      snprintf(statsName, NAME_BUFFER_SIZE, SHM_PROC_STATS, pid);
+      IPC::sharedPage sp;
+      sp.init(statsName, 0, false, false);
+      if (sp && sp.mapped && sp.len >= sizeof(ProcTimingStats)){
+        ProcTimingStats cur;
+        memcpy(&cur, sp.mapped, sizeof(ProcTimingStats));
+        sp.master = false;
+        if (cur.lastUpdateMs && now - cur.lastUpdateMs < 10000){
+          if (procStatsPrev.count(pid)){
+            ProcTimingStats &prev = procStatsPrev[pid];
+            uint64_t dWork = cur.totalWork - prev.totalWork;
+            uint64_t dSrcSleep = cur.totalSourceSleep - prev.totalSourceSleep;
+            uint64_t dSnkSleep = cur.totalSinkSleep - prev.totalSinkSleep;
+            uint64_t dTotal = dWork + dSrcSleep + dSnkSleep;
+            if (dTotal > 0){
+              double sleepRatio = (double)dSrcSleep / (double)dTotal;
+              if (sleepRatio < minSleepRatio){minSleepRatio = sleepRatio;}
+              hasTimingStats = true;
+            }
+          }
+          procStatsPrev[pid] = cur;
+        }
+      }
+    }
+
+    // Phase 3: Rate adjustment — independent signals
+    if (!effectiveSpeed){effectiveSpeed = realtimeSpeed;}
+
+    bool shouldSlowDown = false;
+    bool canSpeedUp = true;
+
+    if (systemCpu > 0.85){shouldSlowDown = true;}
+    if (systemCpu > 0.6){canSpeedUp = false;}
+
+    if (hasTimingStats){
+      if (minSleepRatio < 0.05){shouldSlowDown = true;}
+      if (minSleepRatio < 0.3){canSpeedUp = false;}
+    }
+
+    if (maxProcFraction > 0.3){shouldSlowDown = true;}
+    if (maxProcFraction > 0.15){canSpeedUp = false;}
+
+    if (shouldSlowDown){
+      effectiveSpeed = std::max((uint64_t)(effectiveSpeed * 0.8), (uint64_t)1);
+    }else if (canSpeedUp && effectiveSpeed < realtimeSpeed){
+      effectiveSpeed = std::min((uint64_t)(effectiveSpeed * 1.2 + 1), realtimeSpeed);
+    }
+
+    if (streamStatus && streamStatus.len >= 16){
+      memcpy(streamStatus.mapped + 8, &effectiveSpeed, sizeof(uint64_t));
+    }
+  }
+
   void InputBuffer::userLeadIn(){
     meta.reloadReplacedPagesIfNeeded();
     /*LTS-START*/
@@ -493,6 +682,7 @@ namespace Mist{
         allProcsRunning = true;
       }
     }
+    updateProcessingRate();
     /*LTS-END*/
     connectedUsers = 0;
 
