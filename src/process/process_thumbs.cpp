@@ -10,7 +10,8 @@
 #include <condition_variable>
 #include <cstdarg>
 #include <iostream>
-#include <map>
+#include <deque>
+#include <memory>
 #include <mutex>
 #include <sstream>
 #include <thread>
@@ -26,21 +27,22 @@ extern "C"{
 Util::Config co;
 Util::Config conf;
 
-// Thumbnail cache: timestamp -> scaled RGB pixels
+// Thumbnail cache entry: timestamp + shared RGB pixels
 struct ThumbFrame{
   uint64_t timeMs;
-  std::vector<uint8_t> rgb; // thumb_width * thumb_height * 3
+  std::shared_ptr<std::vector<uint8_t>> rgb;
 };
 
 // Shared state between source and sink threads
 std::mutex thumbMutex;
 std::condition_variable thumbCV;
-std::map<uint64_t, ThumbFrame> thumbCache; // keyframe timestamp -> decoded thumb
+std::deque<ThumbFrame> thumbCache;
 uint64_t bufferFirstMs = 0;
 uint64_t bufferLastMs = 0;
 int64_t bootMsOffset = 0;
 bool isVod = false;
 bool vodDone = false; // true when VOD source has finished scanning
+bool newData = false; // set by source when new keyframes are cached
 
 // Config values
 uint32_t thumbWidth = 160;
@@ -49,6 +51,30 @@ uint32_t gridCols = 10;
 uint32_t gridRows = 10;
 uint32_t jpegQuality = 75;
 uint32_t regenInterval = 5000; // ms between regenerations for live
+size_t maxCacheSize = 300;     // cap for smart thinning (set from gridCols * gridRows * 3)
+
+/// Thin the cache to stay under maxCacheSize while preserving even temporal coverage.
+/// Keeps recent entries dense (near live edge), thins older entries evenly.
+/// Must be called under thumbMutex.
+void smartThin(){
+  size_t totalCells = gridCols * gridRows;
+  size_t recentKeep = totalCells / 2;
+  if (thumbCache.size() <= recentKeep){return;}
+
+  size_t histSize = thumbCache.size() - recentKeep;
+  size_t targetHist = maxCacheSize - recentKeep;
+  if (histSize <= targetHist){return;}
+
+  std::deque<ThumbFrame> thinned;
+  for (size_t i = 0; i < targetHist; ++i){
+    size_t idx = i * (histSize - 1) / (targetHist - 1);
+    thinned.push_back(std::move(thumbCache[idx]));
+  }
+  for (size_t i = histSize; i < thumbCache.size(); ++i){
+    thinned.push_back(std::move(thumbCache[i]));
+  }
+  thumbCache.swap(thinned);
+}
 
 // Stats
 JSON::Value pStat;
@@ -61,11 +87,13 @@ namespace Mist{
   private:
     size_t spriteIdx;
     size_t vttIdx;
+    size_t previewIdx;
 
   public:
     ProcessSink(Util::Config *cfg) : Input(cfg){
       spriteIdx = INVALID_TRACK_ID;
       vttIdx = INVALID_TRACK_ID;
+      previewIdx = INVALID_TRACK_ID;
       capa["name"] = "Thumbs";
       streamName = opt["sink"].asString();
       if (!streamName.size()){streamName = opt["source"].asString();}
@@ -95,11 +123,11 @@ namespace Mist{
       uint32_t gridW = thumbWidth * gridCols;
       uint32_t gridH = thumbHeight * gridRows;
 
-      // Sprite sheet JPEG track (lang="thumbnails" used by HLS/DASH for detection)
+      // Sprite sheet JPEG track
       spriteIdx = meta.addTrack();
       meta.setType(spriteIdx, "video");
       meta.setCodec(spriteIdx, "JPEG");
-      meta.setLang(spriteIdx, "thumbnails");
+      meta.setLang(spriteIdx, "thu");
       meta.setWidth(spriteIdx, gridW);
       meta.setHeight(spriteIdx, gridH);
       meta.setID(spriteIdx, spriteIdx);
@@ -109,13 +137,24 @@ namespace Mist{
       // VTT subtitle track
       vttIdx = meta.addTrack();
       meta.setType(vttIdx, "meta");
-      meta.setCodec(vttIdx, "subtitle");
+      meta.setCodec(vttIdx, "thumbvtt");
       meta.setID(vttIdx, vttIdx);
       meta.markUpdated(vttIdx);
       userSelect[vttIdx].reload(streamName, vttIdx, COMM_STATUS_ACTSOURCEDNT);
 
-      INFO_MSG("Thumbnail tracks created: sprite=%zu vtt=%zu (grid %ux%u = %ux%u)",
-               spriteIdx, vttIdx, gridCols, gridRows, gridW, gridH);
+      // Preview JPEG track (single latest keyframe, lang="pre")
+      previewIdx = meta.addTrack();
+      meta.setType(previewIdx, "video");
+      meta.setCodec(previewIdx, "JPEG");
+      meta.setLang(previewIdx, "pre");
+      meta.setWidth(previewIdx, thumbWidth);
+      meta.setHeight(previewIdx, thumbHeight);
+      meta.setID(previewIdx, previewIdx);
+      meta.markUpdated(previewIdx);
+      userSelect[previewIdx].reload(streamName, previewIdx, COMM_STATUS_ACTSOURCEDNT);
+
+      INFO_MSG("Thumbnail tracks created: sprite=%zu vtt=%zu preview=%zu (grid %ux%u = %ux%u)",
+               spriteIdx, vttIdx, previewIdx, gridCols, gridRows, gridW, gridH);
     }
 
     /// Compose the 10x10 grid from cached thumbnails, encode as JPEG, generate VTT
@@ -126,8 +165,8 @@ namespace Mist{
       uint32_t gridW = thumbWidth * gridCols;
       uint32_t gridH = thumbHeight * gridRows;
 
-      // Copy thumbCache under lock
-      std::map<uint64_t, ThumbFrame> localCache;
+      // Snapshot thumbCache under lock (cheap: shared_ptr refcount bumps only)
+      std::deque<ThumbFrame> localCache;
       uint64_t firstMs, lastMs;
       {
         std::lock_guard<std::mutex> lk(thumbMutex);
@@ -142,37 +181,34 @@ namespace Mist{
         return;
       }
 
-      uint64_t duration = lastMs - firstMs;
-      double cellDuration = (double)duration / totalCells;
+      // Sample evenly when cache exceeds grid capacity
+      std::vector<size_t> selected;
+      size_t cacheSize = localCache.size();
+      if (cacheSize <= totalCells){
+        for (size_t i = 0; i < cacheSize; ++i){ selected.push_back(i); }
+      }else{
+        for (uint32_t c = 0; c < totalCells; ++c){
+          selected.push_back(c * (cacheSize - 1) / (totalCells - 1));
+        }
+      }
 
       // Allocate RGB buffer for the full grid
       std::vector<uint8_t> gridRgb(gridW * gridH * 3, 0);
+      size_t rgbSize = thumbWidth * thumbHeight * 3;
 
-      // For each cell, find the nearest cached thumbnail
-      for (uint32_t i = 0; i < totalCells; i++){
-        uint64_t cellMidMs = firstMs + (uint64_t)(cellDuration * (i + 0.5));
+      uint32_t cellIdx = 0;
+      for (size_t si = 0; si < selected.size(); ++si, ++cellIdx){
+        auto &entry = localCache[selected[si]];
+        if (!entry.rgb || entry.rgb->size() != rgbSize){continue;}
 
-        // Find nearest thumbnail by timestamp
-        auto it = localCache.lower_bound(cellMidMs);
-        if (it == localCache.end()){
-          --it; // use last
-        }else if (it != localCache.begin()){
-          auto prev = std::prev(it);
-          if (cellMidMs - prev->first < it->first - cellMidMs){it = prev;}
-        }
-
-        if (it->second.rgb.size() != thumbWidth * thumbHeight * 3){continue;}
-
-        // Calculate grid position
-        uint32_t col = i % gridCols;
-        uint32_t row = i / gridCols;
+        uint32_t col = cellIdx % gridCols;
+        uint32_t row = cellIdx / gridCols;
         uint32_t xOff = col * thumbWidth;
         uint32_t yOff = row * thumbHeight;
 
-        // Blit thumbnail into grid
         for (uint32_t y = 0; y < thumbHeight; y++){
           memcpy(&gridRgb[(yOff + y) * gridW * 3 + xOff * 3],
-                 &it->second.rgb[y * thumbWidth * 3], thumbWidth * 3);
+                 &(*entry.rgb)[y * thumbWidth * 3], thumbWidth * 3);
         }
       }
 
@@ -229,11 +265,12 @@ namespace Mist{
       if (ret >= 0){
         ret = avcodec_receive_packet(jpegCtx, pkt);
         if (ret >= 0){
-          // Buffer the JPEG sprite sheet
+          // Buffer the JPEG sprite sheet at the latest cached keyframe's time
+          uint64_t bufTs = localCache.back().timeMs;
           thisIdx = spriteIdx;
-          thisTime = lastMs;
-          bufferLivePacket(thisTime, 0, spriteIdx, (const char *)pkt->data, pkt->size, 0, true);
-          INFO_MSG("Buffered sprite sheet: %d bytes at %" PRIu64 "ms", pkt->size, thisTime);
+          thisTime = bufTs;
+          bufferLivePacket(bufTs, 0, spriteIdx, (const char *)pkt->data, pkt->size, 0, true);
+          INFO_MSG("Buffered sprite sheet: %d bytes at %" PRIu64 "ms", pkt->size, bufTs);
         }else{
           ERROR_MSG("MJPEG encode receive failed: %d", ret);
         }
@@ -245,37 +282,86 @@ namespace Mist{
       av_frame_free(&frame);
       avcodec_free_context(&jpegCtx);
 
-      // Generate and buffer VTT cues (no WEBVTT header — the subtitle output adds its own)
+      // Build VTT manifest using the same sampled entries as the grid
       std::stringstream vtt;
-      for (uint32_t i = 0; i < totalCells; i++){
-        uint64_t startMs = firstMs + (uint64_t)(cellDuration * i);
-        uint64_t endMs = firstMs + (uint64_t)(cellDuration * (i + 1));
-        uint32_t col = i % gridCols;
-        uint32_t row = i / gridCols;
+      vtt << "WEBVTT\n\n";
+      for (size_t si = 0; si < selected.size(); ++si){
+        uint64_t startMs = localCache[selected[si]].timeMs;
+        uint64_t endMs;
+        if (si + 1 < selected.size()){
+          endMs = localCache[selected[si + 1]].timeMs;
+        }else{
+          endMs = lastMs;
+        }
+        if (endMs <= startMs){endMs = startMs + 1000;}
+
+        uint32_t col = (uint32_t)si % gridCols;
+        uint32_t row = (uint32_t)si / gridCols;
         uint32_t x = col * thumbWidth;
         uint32_t y = row * thumbHeight;
 
-        // Format timestamps HH:MM:SS.mmm
-        auto fmtTime = [](uint64_t ms) -> std::string{
-          char buf[32];
-          uint32_t h = ms / 3600000;
-          uint32_t m = (ms / 60000) % 60;
-          uint32_t s = (ms / 1000) % 60;
-          uint32_t f = ms % 1000;
-          snprintf(buf, sizeof(buf), "%02u:%02u:%02u.%03u", h, m, s, f);
-          return std::string(buf);
-        };
-
-        vtt << fmtTime(startMs) << " --> " << fmtTime(endMs) << "\n";
-        vtt << "/" << streamName << ".jpg?track=" << spriteIdx << "#xywh=" << x << "," << y
-            << "," << thumbWidth << "," << thumbHeight << "\n\n";
+        char timeBuf[80];
+        snprintf(timeBuf, sizeof(timeBuf),
+                 "%02" PRIu64 ":%02" PRIu64 ":%02" PRIu64 ".%03" PRIu64
+                 " --> "
+                 "%02" PRIu64 ":%02" PRIu64 ":%02" PRIu64 ".%03" PRIu64,
+                 startMs / 3600000, (startMs % 3600000) / 60000,
+                 ((startMs % 3600000) % 60000) / 1000, startMs % 1000,
+                 endMs / 3600000, (endMs % 3600000) / 60000,
+                 ((endMs % 3600000) % 60000) / 1000, endMs % 1000);
+        vtt << timeBuf << "\n";
+        vtt << "/" << streamName << ".jpg?track=" << spriteIdx
+            << "#xywh=" << x << "," << y << "," << thumbWidth << "," << thumbHeight << "\n\n";
       }
-
       std::string vttStr = vtt.str();
+      uint64_t bufTs = localCache.back().timeMs;
       thisIdx = vttIdx;
-      thisTime = lastMs;
-      bufferLivePacket(thisTime, 0, vttIdx, vttStr.data(), vttStr.size(), 0, true);
-      INFO_MSG("Buffered VTT: %zu bytes", vttStr.size());
+      thisTime = bufTs;
+      bufferLivePacket(bufTs, 0, vttIdx, vttStr.c_str(), vttStr.size(), 0, true);
+      INFO_MSG("Buffered VTT manifest (%zu cues, %zu bytes) from %zu keyframes at %" PRIu64 "ms",
+               selected.size(), vttStr.size(), localCache.size(), bufTs);
+
+      // Encode latest thumbnail as standalone preview JPEG
+      auto &latestEntry = localCache.back();
+      if (latestEntry.rgb && latestEntry.rgb->size() == rgbSize){
+        const AVCodec *prevCodec = avcodec_find_encoder(AV_CODEC_ID_MJPEG);
+        AVCodecContext *prevCtx = prevCodec ? avcodec_alloc_context3(prevCodec) : NULL;
+        if (prevCtx){
+          prevCtx->width = thumbWidth;
+          prevCtx->height = thumbHeight;
+          prevCtx->pix_fmt = AV_PIX_FMT_YUVJ420P;
+          prevCtx->time_base = (AVRational){1, 1};
+          prevCtx->codec_type = AVMEDIA_TYPE_VIDEO;
+          prevCtx->qmin = qval;
+          prevCtx->qmax = qval;
+          if (avcodec_open2(prevCtx, prevCodec, 0) >= 0){
+            AVFrame *prevFrame = av_frame_alloc();
+            prevFrame->width = thumbWidth;
+            prevFrame->height = thumbHeight;
+            prevFrame->format = AV_PIX_FMT_YUVJ420P;
+            av_frame_get_buffer(prevFrame, 0);
+            SwsContext *prevSws = sws_getContext(thumbWidth, thumbHeight, AV_PIX_FMT_RGB24,
+                                                 thumbWidth, thumbHeight, AV_PIX_FMT_YUVJ420P,
+                                                 SWS_BILINEAR, NULL, NULL, NULL);
+            uint8_t *prevSrc[1] = {latestEntry.rgb->data()};
+            int prevStride[1] = {(int)(thumbWidth * 3)};
+            sws_scale(prevSws, prevSrc, prevStride, 0, thumbHeight, prevFrame->data, prevFrame->linesize);
+            sws_freeContext(prevSws);
+            prevFrame->pts = 0;
+            AVPacket *prevPkt = av_packet_alloc();
+            if (avcodec_send_frame(prevCtx, prevFrame) >= 0 &&
+                avcodec_receive_packet(prevCtx, prevPkt) >= 0){
+              thisIdx = previewIdx;
+              thisTime = bufTs;
+              bufferLivePacket(bufTs, 0, previewIdx, (const char *)prevPkt->data, prevPkt->size, 0, true);
+              INFO_MSG("Buffered preview JPEG: %d bytes at %" PRIu64 "ms", prevPkt->size, bufTs);
+            }
+            av_packet_free(&prevPkt);
+            av_frame_free(&prevFrame);
+          }
+          avcodec_free_context(&prevCtx);
+        }
+      }
     }
 
     void streamMainLoop(){
@@ -285,13 +371,17 @@ namespace Mist{
         {
           std::unique_lock<std::mutex> lk(thumbMutex);
           thumbCV.wait_for(lk, std::chrono::milliseconds(regenInterval),
-                           [&](){return vodDone || !co.is_active || !config->is_active;});
+                           [&](){return newData || vodDone || !co.is_active || !config->is_active;});
           if (!co.is_active || !config->is_active){return;}
+          newData = false;
         }
 
         // Check for shutdown requests
         if (spriteIdx != INVALID_TRACK_ID && !userSelect.count(spriteIdx)){
           userSelect[spriteIdx].reload(streamName, spriteIdx, COMM_STATUS_ACTSOURCEDNT);
+        }
+        if (previewIdx != INVALID_TRACK_ID && !userSelect.count(previewIdx)){
+          userSelect[previewIdx].reload(streamName, previewIdx, COMM_STATUS_ACTSOURCEDNT);
         }
         if (spriteIdx != INVALID_TRACK_ID && userSelect.count(spriteIdx) &&
             (userSelect[spriteIdx].getStatus() & COMM_STATUS_REQDISCONNECT)){
@@ -393,7 +483,7 @@ namespace Mist{
       return true;
     }
 
-    bool decodeAndScale(char *data, size_t len, ThumbFrame &out){
+    bool decodeAndScale(char *data, size_t len, std::vector<uint8_t> &outRgb){
       AVPacket *pktIn = av_packet_alloc();
       av_new_packet(pktIn, len);
       memcpy(pktIn->data, data, len);
@@ -422,12 +512,11 @@ namespace Mist{
         }
       }
 
-      out.rgb.resize(thumbWidth * thumbHeight * 3);
-      uint8_t *dstSlice[1] = {out.rgb.data()};
+      outRgb.resize(thumbWidth * thumbHeight * 3);
+      uint8_t *dstSlice[1] = {outRgb.data()};
       int dstStride[1] = {(int)(thumbWidth * 3)};
       sws_scale(scaleCtx, rawFrame->data, rawFrame->linesize, 0, rawFrame->height, dstSlice,
                 dstStride);
-      out.timeMs = thisTime;
       return true;
     }
 
@@ -478,21 +567,31 @@ namespace Mist{
       // Init decoder on first keyframe
       if (!initDecoder()){return;}
 
-      // Track buffer range
+      // Decode and scale outside lock
+      auto rgbData = std::make_shared<std::vector<uint8_t>>();
+      if (!decodeAndScale(thisData, thisDataLen, *rgbData)){return;}
+
       {
         std::lock_guard<std::mutex> lk(thumbMutex);
         bufferFirstMs = M.getFirstms(thisIdx);
         bufferLastMs = M.getLastms(thisIdx);
         bootMsOffset = M.getBootMsOffset();
         isVod = M.getVod();
-      }
 
-      // Decode and scale this keyframe
-      ThumbFrame frame;
-      if (decodeAndScale(thisData, thisDataLen, frame)){
-        std::lock_guard<std::mutex> lk(thumbMutex);
-        thumbCache[thisTime] = std::move(frame);
+        thumbCache.push_back({thisTime, std::move(rgbData)});
+        newData = true;
+
+        // Hard prune: entries outside DVR window
+        while (!thumbCache.empty() && thumbCache.front().timeMs < bufferFirstMs){
+          thumbCache.pop_front();
+        }
+
+        // Smart thin: cap memory usage
+        if (thumbCache.size() > maxCacheSize){
+          smartThin();
+        }
       }
+      thumbCV.notify_all();
     }
 
     /// Called when we've caught up with the live edge or end of VOD
@@ -507,19 +606,6 @@ namespace Mist{
         return true;
       }
 
-      // For live: prune old entries, notify sink, then continue reading
-      {
-        std::lock_guard<std::mutex> lk(thumbMutex);
-        uint64_t newFirstMs = bufferFirstMs;
-        auto it = thumbCache.begin();
-        while (it != thumbCache.end()){
-          if (it->first < newFirstMs){
-            it = thumbCache.erase(it);
-          }else{
-            break;
-          }
-        }
-      }
       thumbCV.notify_all();
 
       HIGH_MSG("Live scan cycle done, %zu keyframes cached. Continuing...", thumbCache.size());
@@ -642,7 +728,7 @@ int main(int argc, char *argv[]){
           "Which video track to use as source. Defaults to first video track.";
       genopts["track_select"]["type"] = "string";
       genopts["track_select"]["validate"][0u] = "track_selector";
-      genopts["track_select"]["default"] = "video=smallfirst";
+      genopts["track_select"]["default"] = "video=lowres";
       genopts["track_select"]["sort"] = "a";
 
       genopts["sink"]["name"] = "Target stream";
@@ -750,6 +836,8 @@ int main(int argc, char *argv[]){
   if (Mist::opt.isMember("interval") && Mist::opt["interval"].asInt()){
     regenInterval = Mist::opt["interval"].asInt();
   }
+
+  maxCacheSize = (size_t)gridCols * gridRows * 3;
 
   // Validate
   Mist::ProcThumbs proc;

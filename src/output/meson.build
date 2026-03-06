@@ -24,6 +24,7 @@ outputs = [
     {'name' : 'HTTP',              'format' : 'http_internal',      'extra': ['http','embed']},
     {'name' : 'JSONLine',          'format' : 'jsonline'},
     {'name' : 'JPG',               'format' : 'jpg',                'extra': ['http']},
+    {'name' : 'ThumbVTT',          'format' : 'thumbvtt',           'extra': ['http']},
 ]
 
 if usessl 
