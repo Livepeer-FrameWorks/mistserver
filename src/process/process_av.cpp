@@ -7,7 +7,9 @@
 #include <mist/h264.h>
 #include <mist/mp4_generic.h>
 #include <mist/nal.h>
+#include <mist/proc_stats.h>
 #include <mist/procs.h>
+#include <mist/shared_memory.h>
 #include <mist/triggers.h>
 #include <mist/util.h>
 
@@ -73,6 +75,7 @@ uint64_t totalSinkSleep = 0;
 uint64_t totalTransform = 0;
 uint64_t totalEncode = 0;
 uint64_t totalSourceSleep = 0;
+IPC::sharedPage procStatsPage;
 
 uint8_t sinkCommState = COMM_STATUS_ACTSOURCEDNT;
 
@@ -1900,6 +1903,12 @@ namespace Mist{
       pStat["proc_status_update"]["id"] = getpid();
       pStat["proc_status_update"]["proc"] = "AV";
     }
+    // Init per-process stats shm page for rate control
+    {
+      char statsName[NAME_BUFFER_SIZE];
+      snprintf(statsName, NAME_BUFFER_SIZE, SHM_PROC_STATS, getpid());
+      procStatsPage.init(statsName, sizeof(ProcTimingStats), true, false);
+    }
     uint64_t startTime = Util::bootSecs();
     processStartTime = startTime;
     uint64_t encPrevTime = 0;
@@ -1936,6 +1945,15 @@ namespace Mist{
         }
         pData["ainfo"]["scaler"] = scaler;
         Util::sendUDPApi(pStat);
+        // Write timing stats to shm for InputBuffer rate control
+        if (procStatsPage.mapped){
+          ProcTimingStats *s = (ProcTimingStats *)procStatsPage.mapped;
+          s->totalWork = totalDecode + totalEncode + totalTransform;
+          s->totalSourceSleep = totalSourceSleep;
+          s->totalSinkSleep = totalSinkSleep;
+          s->frameCount = (uint64_t)outputFrameCount;
+          s->lastUpdateMs = Util::bootMS();
+        }
         lastProcUpdate = Util::bootSecs();
         fireVirtualSegmentTrigger(false);
       }
