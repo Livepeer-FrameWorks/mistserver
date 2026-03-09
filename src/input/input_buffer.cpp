@@ -39,6 +39,7 @@ namespace Mist{
     firstProcTime = 0;
     lastProcTime = 0;
     allProcsRunning = false;
+    processOverrideResolved = false;
     effectiveSpeed = 0;
     lastRateUpdateMs = 0;
     sysCpuIdlePrev = 0;
@@ -675,7 +676,27 @@ namespace Mist{
       Util::DTSCShmReader rStrmConf(tmpBuf);
       DTSC::Scan streamCfg = rStrmConf.getScan();
       if (streamCfg){
-        JSON::Value configuredProcesses = streamCfg.getMember("processes").asJSON();
+        JSON::Value configuredProcesses;
+        /*LTS-START*/
+        if (!processOverrideResolved){
+          processOverrideResolved = true;
+          std::string fullStreamName = config->getString("streamname");
+          std::string baseName = fullStreamName.substr(0, fullStreamName.find_first_of("+ "));
+          if (Triggers::shouldTrigger("STREAM_PROCESS", baseName)){
+            std::string response;
+            Triggers::doTrigger("STREAM_PROCESS", fullStreamName, baseName, false, response);
+            if (response.size()){
+              processOverride = JSON::fromString(response);
+              if (!processOverride.isArray()){processOverride.null();}
+            }
+          }
+        }
+        if (processOverride.isArray() && processOverride.size()){
+          configuredProcesses = processOverride;
+        }else{
+          configuredProcesses = streamCfg.getMember("processes").asJSON();
+        }
+        /*LTS-END*/
         checkProcesses(configuredProcesses);
       }else{
         //If there is no config, we assume all processes are running, since, well, there can't be any

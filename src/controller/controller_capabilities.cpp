@@ -394,6 +394,14 @@ namespace Controller{
         "will cause the stream source to not be changed from the normally configured stream "
         "source.";
 
+    trgs["STREAM_PROCESS"]["when"] = "When a stream's process list is first loaded, before processes start";
+    trgs["STREAM_PROCESS"]["stream_specific"] = true;
+    trgs["STREAM_PROCESS"]["payload"] = "stream name (string)";
+    trgs["STREAM_PROCESS"]["response"] = "when-blocking";
+    trgs["STREAM_PROCESS"]["response_action"] =
+        "A non-empty response (JSON array of process objects) will override the configured "
+        "processes for this stream instance. An empty response uses the default configured processes.";
+
     trgs["STREAM_LOAD"]["when"] = "Before a stream input is loaded";
     trgs["STREAM_LOAD"]["stream_specific"] = true;
     trgs["STREAM_LOAD"]["payload"] = "stream name (string)";
