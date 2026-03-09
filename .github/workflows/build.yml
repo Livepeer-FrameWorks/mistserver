@@ -31,7 +31,7 @@ jobs:
       - name: Get version info
         id: version
         run: |
-          SHORT_SHA=$(git rev-parse --short HEAD)
+          SHORT_SHA=$(git rev-parse --short=7 HEAD)
           echo "short_sha=${SHORT_SHA}" >> "$GITHUB_OUTPUT"
           echo "tag=development-${SHORT_SHA}" >> "$GITHUB_OUTPUT"
 
@@ -67,7 +67,7 @@ jobs:
           cache-from: |
             type=gha,scope=mistserver-amd64
             type=registry,ref=${{ env.REGISTRY_GHCR }}/mistserver:latest
-          cache-to: type=gha,mode=max,scope=mistserver-amd64
+          cache-to: type=gha,mode=max,ignore-error=true,scope=mistserver-amd64
 
       - name: Save digest
         run: |
@@ -100,7 +100,7 @@ jobs:
       - name: Get version info
         id: version
         run: |
-          SHORT_SHA=$(git rev-parse --short HEAD)
+          SHORT_SHA=$(git rev-parse --short=7 HEAD)
           echo "short_sha=${SHORT_SHA}" >> "$GITHUB_OUTPUT"
           echo "tag=development-${SHORT_SHA}" >> "$GITHUB_OUTPUT"
 
@@ -135,7 +135,7 @@ jobs:
             ${{ env.REGISTRY_DOCKERHUB }}/mistserver:${{ steps.version.outputs.tag }}-arm64
           cache-from: |
             type=gha,scope=mistserver-arm64
-          cache-to: type=gha,mode=max,scope=mistserver-arm64
+          cache-to: type=gha,mode=max,ignore-error=true,scope=mistserver-arm64
 
       - name: Save digest
         run: |
@@ -162,7 +162,7 @@ jobs:
       - name: Get version info
         id: version
         run: |
-          SHORT_SHA=$(git rev-parse --short HEAD)
+          SHORT_SHA=$(git rev-parse --short=7 HEAD)
           echo "tag=development-${SHORT_SHA}" >> "$GITHUB_OUTPUT"
 
       - name: Log in to GHCR
@@ -178,31 +178,34 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
       - name: Create and push multi-arch manifests
         run: |
           TAG="${{ steps.version.outputs.tag }}"
 
           # GHCR manifests
-          docker manifest create ${{ env.REGISTRY_GHCR }}/mistserver:${TAG} \
+          docker buildx imagetools create \
+            -t ${{ env.REGISTRY_GHCR }}/mistserver:${TAG} \
             ${{ env.REGISTRY_GHCR }}/mistserver:${TAG}-amd64 \
             ${{ env.REGISTRY_GHCR }}/mistserver:${TAG}-arm64
-          docker manifest push ${{ env.REGISTRY_GHCR }}/mistserver:${TAG}
 
-          docker manifest create ${{ env.REGISTRY_GHCR }}/mistserver:latest \
+          docker buildx imagetools create \
+            -t ${{ env.REGISTRY_GHCR }}/mistserver:latest \
             ${{ env.REGISTRY_GHCR }}/mistserver:${TAG}-amd64 \
             ${{ env.REGISTRY_GHCR }}/mistserver:${TAG}-arm64
-          docker manifest push ${{ env.REGISTRY_GHCR }}/mistserver:latest
 
           # DockerHub manifests
-          docker manifest create ${{ env.REGISTRY_DOCKERHUB }}/mistserver:${TAG} \
+          docker buildx imagetools create \
+            -t ${{ env.REGISTRY_DOCKERHUB }}/mistserver:${TAG} \
             ${{ env.REGISTRY_DOCKERHUB }}/mistserver:${TAG}-amd64 \
             ${{ env.REGISTRY_DOCKERHUB }}/mistserver:${TAG}-arm64
-          docker manifest push ${{ env.REGISTRY_DOCKERHUB }}/mistserver:${TAG}
 
-          docker manifest create ${{ env.REGISTRY_DOCKERHUB }}/mistserver:latest \
+          docker buildx imagetools create \
+            -t ${{ env.REGISTRY_DOCKERHUB }}/mistserver:latest \
             ${{ env.REGISTRY_DOCKERHUB }}/mistserver:${TAG}-amd64 \
             ${{ env.REGISTRY_DOCKERHUB }}/mistserver:${TAG}-arm64
-          docker manifest push ${{ env.REGISTRY_DOCKERHUB }}/mistserver:latest
 
       - name: Save Docker metadata
         run: |
@@ -232,7 +235,7 @@ jobs:
       - name: Get version info
         id: version
         run: |
-          SHORT_SHA=$(git rev-parse --short HEAD)
+          SHORT_SHA=$(git rev-parse --short=7 HEAD)
           echo "short_sha=${SHORT_SHA}" >> "$GITHUB_OUTPUT"
           echo "tag=development-${SHORT_SHA}" >> "$GITHUB_OUTPUT"
 
@@ -298,7 +301,7 @@ jobs:
       - name: Get version info
         id: version
         run: |
-          SHORT_SHA=$(git rev-parse --short HEAD)
+          SHORT_SHA=$(git rev-parse --short=7 HEAD)
           echo "short_sha=${SHORT_SHA}" >> "$GITHUB_OUTPUT"
           echo "tag=development-${SHORT_SHA}" >> "$GITHUB_OUTPUT"
 
@@ -390,6 +393,9 @@ jobs:
         run: |
           mkdir -p sign/darwin-arm64
           tar xzf dist/mistserver-darwin-arm64-*.tar.gz -C sign/darwin-arm64
+
+      - name: Clean up stale keychain
+        run: security delete-keychain signing_temp.keychain 2>/dev/null || true
 
       - name: Import Apple signing certificate
         uses: apple-actions/import-codesign-certs@v2
