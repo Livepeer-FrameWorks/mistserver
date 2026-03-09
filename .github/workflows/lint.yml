@@ -69,18 +69,21 @@ jobs:
 
       - name: Run clang-tidy on changed files
         if: steps.changed.outputs.files != ''
+        env:
+          CHANGED_FILES: ${{ steps.changed.outputs.files }}
         run: |
           echo "Running clang-tidy on changed files..."
           FAILED=0
 
-          for file in ${{ steps.changed.outputs.files }}; do
+          while IFS= read -r file; do
+            [ -z "$file" ] && continue
             if [ -f "$file" ]; then
               echo "Checking: $file"
               if ! clang-tidy -p builddir "$file" 2>&1; then
                 FAILED=1
               fi
             fi
-          done
+          done <<< "$CHANGED_FILES"
 
           if [ $FAILED -eq 1 ]; then
             echo "::error::clang-tidy found issues"
@@ -136,18 +139,21 @@ jobs:
 
       - name: Check formatting
         if: steps.changed.outputs.files != ''
+        env:
+          CHANGED_FILES: ${{ steps.changed.outputs.files }}
         run: |
           echo "Checking formatting on changed files..."
           FAILED=0
 
-          for file in ${{ steps.changed.outputs.files }}; do
+          while IFS= read -r file; do
+            [ -z "$file" ] && continue
             if [ -f "$file" ]; then
               if ! clang-format --dry-run --Werror "$file" 2>&1; then
                 echo "::error file=$file::Formatting issues found"
                 FAILED=1
               fi
             fi
-          done
+          done <<< "$CHANGED_FILES"
 
           if [ $FAILED -eq 1 ]; then
             echo ""
