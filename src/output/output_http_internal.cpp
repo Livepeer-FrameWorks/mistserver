@@ -484,6 +484,8 @@ namespace Mist{
       json_resp["redirected"].append(origStreamName);
       json_resp["redirected"].append(streamName);
     }
+    // Boot stream if not alive (matches websocket handler behavior at line 1184)
+    if (!Util::streamAlive(streamName)){Util::startInput(streamName, "", true, false);}
     uint8_t streamStatus = Util::getStreamStatus(streamName);
     uint8_t streamStatusPerc = Util::getStreamStatusPercentage(streamName);
     if (streamStatus != STRMSTAT_READY){
