@@ -87,6 +87,8 @@ jobs:
   build-image-arm64:
     name: Build Docker Image (linux/arm64)
     runs-on: macos-arm64-self-hosted
+    env:
+      ACTIONS_ARTIFACT_UPLOAD_CONCURRENCY: "4"
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -288,6 +290,8 @@ jobs:
     runs-on: macos-arm64-self-hosted
     permissions:
       contents: write
+    env:
+      ACTIONS_ARTIFACT_UPLOAD_CONCURRENCY: "4"
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -381,6 +385,8 @@ jobs:
     name: Sign and Notarize darwin Binaries
     needs: [build-arm64-and-darwin]
     runs-on: macos-arm64-self-hosted
+    env:
+      ACTIONS_ARTIFACT_UPLOAD_CONCURRENCY: "4"
     steps:
       - name: Download darwin/arm64 artifact
         uses: actions/download-artifact@v7
