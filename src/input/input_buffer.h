@@ -14,6 +14,8 @@ namespace Mist{
 
   private:
     void fillBufferDetails(JSON::Value &details) const;
+    JSON::Value processOverride;       /*LTS*/
+    bool processOverrideResolved;      /*LTS*/
     uint64_t bufferTime;
     uint64_t idleTime;
     uint64_t cutTime;
