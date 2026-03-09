@@ -76,7 +76,7 @@ jobs:
           echo "${{ steps.version.outputs.tag }}" > release-metadata/docker-tag.txt
 
       - name: Upload metadata
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: docker-metadata-amd64
           path: release-metadata/*.txt
@@ -143,7 +143,7 @@ jobs:
           echo "${{ steps.build.outputs.digest }}" > release-metadata/docker-digest-arm64.txt
 
       - name: Upload metadata
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: docker-metadata-arm64
           path: release-metadata/*.txt
@@ -210,7 +210,7 @@ jobs:
           echo "${{ steps.version.outputs.tag }}" > release-metadata/docker-tag.txt
 
       - name: Upload Docker metadata
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: docker-metadata
           path: release-metadata/*.txt
@@ -268,7 +268,7 @@ jobs:
           tar czf ${{ github.workspace }}/mistserver-linux-amd64-${{ steps.version.outputs.tag }}.tar.gz bin/ lib/
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: mistserver-linux-amd64
           path: mistserver-linux-amd64-${{ steps.version.outputs.tag }}.tar.gz
@@ -342,7 +342,7 @@ jobs:
           tar czf "${{ github.workspace }}/mistserver-linux-arm64-${{ steps.version.outputs.tag }}.tar.gz" bin/ lib/
 
       - name: Upload linux/arm64 artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: mistserver-linux-arm64
           path: mistserver-linux-arm64-${{ steps.version.outputs.tag }}.tar.gz
@@ -367,7 +367,7 @@ jobs:
           tar czf "${{ github.workspace }}/mistserver-darwin-arm64-${{ steps.version.outputs.tag }}.tar.gz" bin/ lib/
 
       - name: Upload darwin/arm64 artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: mistserver-darwin-arm64
           path: mistserver-darwin-arm64-${{ steps.version.outputs.tag }}.tar.gz
@@ -381,7 +381,7 @@ jobs:
     runs-on: macos-arm64-self-hosted
     steps:
       - name: Download darwin/arm64 artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           name: mistserver-darwin-arm64
           path: dist/
@@ -436,7 +436,7 @@ jobs:
           tar czf "${{ github.workspace }}/mistserver-darwin-arm64-${TAG}.tar.gz" bin/ lib/
 
       - name: Upload signed darwin/arm64
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: mistserver-darwin-arm64-signed
           path: mistserver-darwin-arm64-*.tar.gz
@@ -456,25 +456,25 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Download linux/amd64 binary
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           name: mistserver-linux-amd64
           path: dist/
 
       - name: Download linux/arm64 binary
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           name: mistserver-linux-arm64
           path: dist/
 
       - name: Download signed darwin/arm64 binary
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           name: mistserver-darwin-arm64-signed
           path: dist/
 
       - name: Download Docker metadata
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           name: docker-metadata
           path: dist/
