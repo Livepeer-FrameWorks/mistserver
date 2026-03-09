@@ -29,7 +29,7 @@ function MistVideo(streamName,options) {
     reloadDelay: false,   //don't override default reload delay
     urlappend: false,     //don't add this to urls
     setTracks: false,     //don't set tracks
-    fillSpace: false,     //don't fill parent container
+    fillSpace: false,     //don't fill parent container; true (grow to fit container if video is smaller) or "cover" (if container aspect is different, clip larger side), "cover_h" (only clip top/bottom) or "cover_v" (only clip left/right)
     width: false,         //no set width
     height: false,        //no set height,
     rotate: false,        //do not rotate; 1: rotate clockwise, -1: counter clockwise, 2: 180 degrees
@@ -430,10 +430,15 @@ function MistVideo(streamName,options) {
             }
           }
           else {
-            
             //neither width or height are being forced. Set them to the minimum of video and target size
-            var cw = ('maxwidth' in options && options.maxwidth ? options.maxwidth : window.innerWidth);
-            var ch = ('maxheight' in options && options.maxheight ? options.maxheight : window.innerHeight);
+
+            var cw = window.innerWidth;
+            if (("maxwidth" in options) && options.maxwidth) cw = options.maxwidth;
+            if (("maxwidth" in size) && size.maxwidth) cw = Math.min(cw,size.maxwidth);
+            var ch = window.innerHeight;
+            if (("maxheight" in options) && options.maxheight) ch = options.maxheight;
+            if (("maxheight" in size) && size.maxheight) ch = Math.min(ch,size.maxheight);
+            
             var fw = MistVideo.info.width;
             var fh = MistVideo.info.height;
             
@@ -442,23 +447,38 @@ function MistVideo(streamName,options) {
               fh /= factor;
             };
             
-            if (fw < 426) { //rescale if video width is smaller than 240p
-              rescale(fw / 426);
-            }
-            if (fh < 240) { //rescale if video height is smaller than 240p
-              rescale(fh / 240);
-            }
             
-            if (cw) {
-              if (fw > cw) { //rescale if video width is larger than the target
+            if (size.cover) {
+              if (size.cover.h && cw && (cw > fw)) {
+                //grow if container width is larger than video width
                 rescale(fw / cw);
               }
-            }
-            if (ch) {
-              if (fh > ch) { //rescale if video height is (still?) larger than the target
+              if (size.cover.v && ch && (ch > fh)) {
+                //grow if container height is larger than video height
                 rescale(fh / ch);
               }
             }
+
+
+            if (cw && (!size.cover || !size.cover.v)) {
+              if (fw > cw) { //shrink if video width is larger than the target
+                rescale(fw / cw);
+              }
+            }
+            if (ch && (!size.cover || !size.cover.h)) {
+              if (fh > ch) { //shrink if video height is larger than the target
+                rescale(fh / ch);
+              }
+            }
+            
+            if (fw < 426) { //grow if video width is smaller than 240p
+              rescale(fw / 426);
+            }
+            if (fh < 240) { //grow if video height is smaller than 240p
+              rescale(fh / 240);
+            }
+
+
           }
         }
       }
@@ -1032,6 +1052,8 @@ function MistVideo(streamName,options) {
           if (!MistUtil.class.has(MistVideo.options.target,"mistvideo-secondaryVideo")) {
             //this is the main MistVideo
             MistVideo.player.resizeAll = function(){
+              if (MistVideo.destroyed) return;
+
               function findVideo(startAt,matchTarget) {
                 if (startAt.video.currentTarget == matchTarget) {
                   return startAt.video;
@@ -1082,52 +1104,103 @@ function MistVideo(streamName,options) {
                 height: MistVideo.video.clientHeight
               };
             }
-            if (!container.hasAttribute("data-fullscreen")) {
-              //if ((!document.fullscreenElement) || (document.fullscreenElement.parentElement != MistVideo.video.currentTarget)) {
-              //first, base the size on the video dimensions
-              size = MistVideo.calcSize(options);
-              this.setSize(size);
-              container.style.width = size.width+"px";
-              container.style.height = size.height+"px";
-              container.style.setProperty("--width",size.width+"px");
-              container.style.setProperty("--height",size.height+"px");
-              
-              if ((MistVideo.options.fillSpace) && (!options || !options.reiterating)) {
-                //if this container is set to fill the available space
-                //start by fitting the video to the window size, then iterate until the container is not smaller than the video
-                return this.resize({
-                  width:window.innerWidth,
-                  height: false,
-                  reiterating: true
-                },oldsize);
+            if ((""+MistVideo.options.fillSpace).slice(0,5) == "cover") {
+              var cover = {
+                h: (""+MistVideo.options.fillSpace).slice(6,7) == "v" ? false : true,
+                v: (""+MistVideo.options.fillSpace).slice(6,7) == "h" ? false : true
+              };
+              if (container.hasAttribute("data-fullscreen")) {
+                var size = MistVideo.calcSize({
+                  maxwidth: window.innerWidth,
+                  maxheight: window.innerHeight,
+                  cover: cover
+                });
+                MistVideo.player.setSize(size);
               }
-              
-              //check if the container is smaller than the video, if so, set the max size to the current container dimensions and reiterate
-              if ((MistVideo.video.currentTarget.clientHeight) && (MistVideo.video.currentTarget.clientHeight < size.height)) {
-                //console.log("current h:",size.height,"target h:",MistVideo.video.currentTarget.clientHeight);
-                return this.resize({
-                  width: false,
-                  height: MistVideo.video.currentTarget.clientHeight,
-                  reiterating: true
-                },oldsize);
-              }
-              if ((MistVideo.video.currentTarget.clientWidth) && (MistVideo.video.currentTarget.clientWidth < size.width)) {
-                //console.log("current w:",size.width,"target w:",MistVideo.video.currentTarget.clientWidth);
-                return this.resize({
-                  width: MistVideo.video.currentTarget.clientWidth,
-                  height: false,
-                  reiterating: true
-                },oldsize);
-              }
+              else {
+                //the website owner should configure maxheight/maxwidth to contain the video
+                //first, find max container dimensions
+                container.style.width = window.innerWidth+"px";
+                container.style.height = window.innerHeight+"px";
+                var tw = getComputedStyle ? getComputedStyle(MistVideo.video.currentTarget).width.slice(0,-2) : MistVideo.video.currentTarget.clientWidth;
+                var th = getComputedStyle ? getComputedStyle(MistVideo.video.currentTarget).height.slice(0,-2) : MistVideo.video.currentTarget.clientHeight;
+                function apply() {
+                  var opts = {
+                    maxwidth: tw,
+                    maxheight: th,
+                    cover: cover
+                  };
 
+                  var size = MistVideo.calcSize(opts);
+                  MistVideo.player.setSize(size);
+                  MistVideo.video.currentTarget.style.overflow = "hidden";
+                  container.style.width = Math.min(size.width,opts.maxwidth)+"px";
+                  container.style.height = Math.min(size.height,opts.maxheight)+"px";
+                  container.style.setProperty("--width",container.style.width);
+                  container.style.setProperty("--height",container.style.height);
+
+                  var ntw = getComputedStyle ? getComputedStyle(MistVideo.video.currentTarget).width.slice(0,-2) : MistVideo.video.currentTarget.clientWidth;
+                  var nth = getComputedStyle ? getComputedStyle(MistVideo.video.currentTarget).height.slice(0,-2) : MistVideo.video.currentTarget.clientHeight;
+
+                  if ((ntw != tw) || (nth != th)) {
+                    tw = ntw;
+                    th = nth;
+                    return apply();
+                  }
+
+                  return size;
+                }
+                var size = apply();
+              }
             }
             else {
-              //this is the video that is in the main container, and resize this one to the screen dimensions
-              size = {
-                width: window.innerWidth,
-                height: window.innerHeight
+              if (!container.hasAttribute("data-fullscreen")) {
+                //if ((!document.fullscreenElement) || (document.fullscreenElement.parentElement != MistVideo.video.currentTarget)) {
+                //first, base the size on the video dimensions
+                var size = MistVideo.calcSize(options);
+                this.setSize(size);
+                container.style.width = size.width+"px";
+                container.style.height = size.height+"px";
+                container.style.setProperty("--width",size.width+"px");
+                container.style.setProperty("--height",size.height+"px");
+
+                if ((MistVideo.options.fillSpace) && (!options || !options.reiterating)) {
+                  //if this container is set to fill the available space
+                  //start by fitting the video to the window size, then iterate until the container is not smaller than the video
+                  return this.resize({
+                    width:window.innerWidth,
+                    height: false,
+                    reiterating: true
+                  },oldsize);
+                }
+
+                //check if the container is smaller than the video, if so, set the max size to the current container dimensions and reiterate
+                if ((MistVideo.video.currentTarget.clientHeight) && (MistVideo.video.currentTarget.clientHeight < size.height)) {
+                  //console.log("current h:",size.height,"target h:",MistVideo.video.currentTarget.clientHeight);
+                  return this.resize({
+                    width: false,
+                    height: MistVideo.video.currentTarget.clientHeight,
+                    reiterating: true
+                  },oldsize);
+                }
+                if ((MistVideo.video.currentTarget.clientWidth) && (MistVideo.video.currentTarget.clientWidth < size.width)) {
+                  //console.log("current w:",size.width,"target w:",MistVideo.video.currentTarget.clientWidth);
+                  return this.resize({
+                    width: MistVideo.video.currentTarget.clientWidth,
+                    height: false,
+                    reiterating: true
+                  },oldsize);
+                }
+
               }
-              this.setSize(size);
+              else {
+                //this is the video that is in the main container, and resize this one to the screen dimensions
+                size = {
+                  width: window.innerWidth,
+                  height: window.innerHeight
+                }
+                this.setSize(size);
+              }
             }
             if ((size.width != oldsize.width) || (size.height != oldsize.height)) {
               MistVideo.log("Player size calculated: "+size.width+" x "+size.height+" px"); 
@@ -1142,10 +1215,14 @@ function MistVideo(streamName,options) {
               if (MistVideo.destroyed) { return; }
               MistVideo.player.resizeAll();
             },MistVideo.video);
-            MistUtil.event.addListener(MistVideo.options.target,"resize",function(){
-              MistVideo.player.resizeAll();
-            },MistVideo.video);
-            MistVideo.player.resizeAll();
+            if (ResizeObserver) {
+              var ro = new ResizeObserver(function(entries){
+                if (MistVideo.destroyed) { ro.disconnect(); }
+                //only the target was added to the observer, so just call resizeAll - no need to iterate
+                MistVideo.player.resizeAll();
+              });
+              ro.observe(MistVideo.options.target);
+            }
           }
         }
         

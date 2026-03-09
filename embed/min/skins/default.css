@@ -1,7 +1,8 @@
-.mistvideo{display:inline-block;position:relative;color:$stroke;font-family:sans-serif;background-color:#000;justify-content:center;align-items:center}
+.mistvideo{display:block;margin:0 auto;position:relative;color:$stroke;font-family:sans-serif;background-color:#000;justify-content:center;align-items:center;max-width:100vw!important;max-width:min(100%,100vw)!important;max-width:min(100%,100vw,100dvw)!important;max-height:100vh!important;max-height:min(100%,100vh)!important;max-height:min(100%,100vh,100dvh)!important;overflow:hidden}
 .mistvideo-controls{-webkit-user-select:none;-moz-user-select:none;-ms-user-select:none;user-select:none}
 .mistvideo.novideo{overflow:visible}
 .mistvideo-video{overflow:hidden;outline:0}
+.mistvideo .mistvideo-videocontainer{justify-content:center;align-items:center}
 .mistvideo .mistvideo-maincontainer,.mistvideo .mistvideo-videocontainer{width:var(--width);height:var(--height)}
 .mistvideo[data-fullscreen] .mistvideo-maincontainer,.mistvideo[data-fullscreen] .mistvideo-videocontainer{width:100vw;height:100vh}
 [data-mist-rotate="-1"],[data-mist-rotate="1"]{width:var(--height)!important;height:var(--width)!important;transform-origin:bottom left;transform:translate(calc(var(--factor) * var(--width)),calc(var(--factor) * var(--height) - var(--width))) rotate(var(--rotate));object-fit:contain}
