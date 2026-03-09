@@ -388,6 +388,11 @@ jobs:
     env:
       ACTIONS_ARTIFACT_UPLOAD_CONCURRENCY: "4"
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
       - name: Download darwin/arm64 artifact
         uses: actions/download-artifact@v7
         with:
@@ -399,14 +404,8 @@ jobs:
           mkdir -p sign/darwin-arm64
           tar xzf dist/mistserver-darwin-arm64-*.tar.gz -C sign/darwin-arm64
 
-      - name: Clean up stale keychain
-        run: security delete-keychain signing_temp.keychain 2>/dev/null || true
-
-      - name: Import Apple signing certificate
-        uses: apple-actions/import-codesign-certs@v2
-        with:
-          p12-file-base64: ${{ secrets.APPLE_CERTIFICATE_P12 }}
-          p12-password: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+      - name: Unlock keychain
+        run: security unlock-keychain -p "${{ secrets.LOGIN_KEYCHAIN_PASSWORD }}" login.keychain
 
       - name: Sign darwin binaries
         run: |
@@ -437,7 +436,7 @@ jobs:
       - name: Get version info
         id: version
         run: |
-          SHORT_SHA=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
+          SHORT_SHA=$(git rev-parse --short=7 HEAD)
           echo "tag=development-${SHORT_SHA}" >> "$GITHUB_OUTPUT"
 
       - name: Re-package signed binaries
