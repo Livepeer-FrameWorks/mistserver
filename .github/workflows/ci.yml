@@ -23,9 +23,11 @@ jobs:
             libmbedtls-dev \
             gcovr \
             libavcodec-dev \
+            libavfilter-dev \
             libavformat-dev \
             libavutil-dev \
             libswscale-dev \
+            libswresample-dev \
             libsrtp2-dev \
             libusrsctp-dev \
             libsrt-openssl-dev
@@ -71,9 +73,11 @@ jobs:
             libmbedtls-dev \
             clang \
             libavcodec-dev \
+            libavfilter-dev \
             libavformat-dev \
             libavutil-dev \
             libswscale-dev \
+            libswresample-dev \
             libsrtp2-dev \
             libusrsctp-dev \
             libsrt-openssl-dev
