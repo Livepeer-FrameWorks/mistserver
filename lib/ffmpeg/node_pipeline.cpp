@@ -138,7 +138,7 @@ namespace FFmpeg {
 
     // Set FormatInfo
     PacketContext::FormatInfo formatInfo;
-    formatInfo.codecName = codec?codec:"";
+    formatInfo.codecName = codec ? codec : "";
     formatInfo.width = width;
     formatInfo.height = height;
     formatInfo.fpks = fpks;
@@ -257,9 +257,9 @@ namespace FFmpeg {
     if (codec == "AAC") {
       formatInfo.codecId = AV_CODEC_ID_AAC;
     } else if (codec == "PCM") {
-      if (bitDepth == 32){
+      if (bitDepth == 32) {
         formatInfo.codecId = AV_CODEC_ID_PCM_S32BE;
-      }else if (bitDepth == 16){
+      } else if (bitDepth == 16) {
         formatInfo.codecId = AV_CODEC_ID_PCM_S16BE;
       }
     } else if (codec == "opus") {
@@ -502,7 +502,7 @@ namespace FFmpeg {
   }
 
   // Backward construction implementation
-  bool NodePipeline::createNodeGraphBackwards(PacketContext * packet) {
+  bool NodePipeline::createNodeGraphBackwards(PacketContext *packet) {
     if (!packet) {
       ERROR_MSG("Pipeline construction: Invalid packet for backward construction");
       return false;
@@ -522,7 +522,8 @@ namespace FFmpeg {
       if (config.isVideo) {
         bool isRaw = isRawFormat(config.codecOut);
         if (isRaw) {
-          MEDIUM_MSG("Pipeline construction: Raw format detected (%s), encoder will pass through to egress", config.codecOut.c_str());
+          MEDIUM_MSG("Pipeline construction: Raw format detected (%s), encoder will pass through to egress",
+                     config.codecOut.c_str());
         }
 
         // Create video encoder
@@ -994,7 +995,7 @@ namespace FFmpeg {
     return true;
   }
 
-  void NodePipeline::addCallback(std::function<void(void*)> cb){
+  void NodePipeline::addCallback(std::function<void(void *)> cb) {
     outCb = cb;
     for (auto & N : videoEncoders) { N.second->callbacks.push_back(cb); }
     for (auto & N : audioEncoders) { N.second->callbacks.push_back(cb); }
@@ -1032,7 +1033,7 @@ namespace FFmpeg {
     return r;
   }
 
-  void NodePipeline::getSleepTimes(uint64_t &sinkSleepMicros, uint64_t &sourceSleepMicros) const {
+  void NodePipeline::getSleepTimes(uint64_t & sinkSleepMicros, uint64_t & sourceSleepMicros) const {
     sinkSleepMicros = totalSinkSleep.load(std::memory_order_relaxed);
     sourceSleepMicros = totalSourceSleep.load(std::memory_order_relaxed);
   }

@@ -93,7 +93,7 @@ namespace Mist {
 
       // Required Input class overrides
       void streamMainLoop() override;
-      void onData(void * data);
+      void onData(void *data);
       bool checkArguments() override { return true; }
       bool needHeader() override { return false; }
       bool readHeader() override { return true; }
@@ -107,14 +107,15 @@ namespace Mist {
 
   class ProcessSource : public Output {
     protected:
-      inline virtual bool keepGoing() override {return config->is_active;}
+      inline virtual bool keepGoing() override { return config->is_active; }
+
     private:
       uint64_t lastJPEGSent{0};
       uint64_t lastSendNextEnd{0};
       bool sendFirst{false}; //< Whether first packet has been sent
 
     public:
-      explicit ProcessSource(Socket::Connection &c, Util::Config & _cfg, JSON::Value & _capa);
+      explicit ProcessSource(Socket::Connection & c, Util::Config & _cfg, JSON::Value & _capa);
       virtual ~ProcessSource();
 
       virtual bool isRecording() override;

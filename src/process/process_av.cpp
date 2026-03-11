@@ -28,7 +28,7 @@
 // Global state variables
 FFmpeg::PipelineConfig pipelineConfig;
 FFmpeg::NodePipeline pipeline; // Initialize pipeline
-                                 //
+                               //
 namespace Mist {
   Util::Config co; // Global config
   Util::Config conf; // Configuration instance
@@ -221,7 +221,6 @@ namespace Mist {
       if (trackIdx == INVALID_TRACK_ID) { return; }
     }
     thisIdx = trackIdx;
-
 
     // Buffer the actual track data
     if (!isVideo || isRawVideo || formatInfo.codecName == "JPEG") {
@@ -578,7 +577,8 @@ namespace Mist {
     cfg->addBasicConnectorOptions(capa);
   }
 
-  ProcessSource::ProcessSource(Socket::Connection &c, Util::Config & _cfg, JSON::Value & _capa) : Output(c, _cfg, _capa){
+  ProcessSource::ProcessSource(Socket::Connection & c, Util::Config & _cfg, JSON::Value & _capa)
+    : Output(c, _cfg, _capa) {
     meta.ignorePid(getpid());
     // Initialize source-specific variables
     streamName = opt["source"].asString();
@@ -637,9 +637,7 @@ namespace Mist {
 
   void ProcessSource::sendNext() {
     uint64_t callStart = Util::getMicros();
-    if (lastSendNextEnd) {
-      pipeline.updateSleepTimes(0, callStart - lastSendNextEnd);
-    }
+    if (lastSendNextEnd) { pipeline.updateSleepTimes(0, callStart - lastSendNextEnd); }
     {
       std::lock_guard<std::mutex> guard(statsMutex);
       if (pData["source_tracks"].size() != userSelect.size()) {
@@ -838,21 +836,11 @@ namespace Mist {
 
     const char *codecIn = pipeline.getCodecIn();
 
-    std::string payload =
-      sinkName + "\n" +
-      std::string(isVideo ? "video" : "audio") + "\n" +
-      std::to_string(deltaSecs) + "\n" +
-      std::to_string(inFr) + "\n" +
-      std::to_string(outFr) + "\n" +
-      std::to_string(windowInFrames) + "\n" +
-      std::to_string(windowOutFrames) + "\n" +
-      std::to_string(windowInBytes) + "\n" +
-      std::to_string(windowOutBytes) + "\n" +
-      std::to_string(decodeAvg) + "\n" +
-      std::to_string(transformAvg) + "\n" +
-      std::to_string(encodeAvg) + "\n" +
-      std::string(codecIn ? codecIn : "unknown") + "\n" +
-      codecOut + "\n" +
+    std::string payload = sinkName + "\n" + std::string(isVideo ? "video" : "audio") + "\n" +
+      std::to_string(deltaSecs) + "\n" + std::to_string(inFr) + "\n" + std::to_string(outFr) + "\n" +
+      std::to_string(windowInFrames) + "\n" + std::to_string(windowOutFrames) + "\n" + std::to_string(windowInBytes) +
+      "\n" + std::to_string(windowOutBytes) + "\n" + std::to_string(decodeAvg) + "\n" + std::to_string(transformAvg) +
+      "\n" + std::to_string(encodeAvg) + "\n" + std::string(codecIn ? codecIn : "unknown") + "\n" + codecOut + "\n" +
       std::to_string(lastInWidth.load(std::memory_order_relaxed)) + "\n" +
       std::to_string(lastInHeight.load(std::memory_order_relaxed)) + "\n" +
       std::to_string(lastOutWidth.load(std::memory_order_relaxed)) + "\n" +
@@ -860,16 +848,10 @@ namespace Mist {
       std::to_string(lastInFpks.load(std::memory_order_relaxed)) + "\n" +
       std::to_string(deltaSecs ? ((double)windowOutFrames / deltaSecs) : 0.0) + "\n" +
       std::to_string(lastSampleRate.load(std::memory_order_relaxed)) + "\n" +
-      std::to_string(lastChannels.load(std::memory_order_relaxed)) + "\n" +
-      std::to_string(statSourceMs) + "\n" +
-      std::to_string(statSinkMs) + "\n" +
-      std::to_string(sourceAdvancedMs) + "\n" +
-      std::to_string(sinkAdvancedMs) + "\n" +
-      std::to_string(rtFactorIn) + "\n" +
-      std::to_string(rtFactorOut) + "\n" +
-      std::to_string(lagMs) + "\n" +
-      std::to_string(outBitrate) + "\n" +
-      (isFinal ? "1" : "0");
+      std::to_string(lastChannels.load(std::memory_order_relaxed)) + "\n" + std::to_string(statSourceMs) + "\n" +
+      std::to_string(statSinkMs) + "\n" + std::to_string(sourceAdvancedMs) + "\n" + std::to_string(sinkAdvancedMs) +
+      "\n" + std::to_string(rtFactorIn) + "\n" + std::to_string(rtFactorOut) + "\n" + std::to_string(lagMs) + "\n" +
+      std::to_string(outBitrate) + "\n" + (isFinal ? "1" : "0");
 
     Triggers::doTrigger("PROCESS_AV_VIRTUAL_SEGMENT_COMPLETE", payload, sinkName);
 
@@ -950,19 +932,19 @@ int main(int argc, char *argv[]) {
     capa["sort"] = "sort"; // sort the parameters by this key
     addGenericProcessOptions(capa);
 
-    { 
+    {
       //////////////////////
       // required options //
       //////////////////////
 
-      JSON::Value &required = capa["required"];
+      JSON::Value & required = capa["required"];
 
       {
-        JSON::Value &o = required["x-LSP-kind"];
+        JSON::Value & o = required["x-LSP-kind"];
 
         o["name"] = "Input type"; // human readable name of option
         o["help"] = "The type of input to use"; // extra information
-        o["type"] = "select";          // type of input field to use
+        o["type"] = "select"; // type of input field to use
         o["select"][0u][0u] = "video"; // value of first select field
         o["select"][0u][1u] = "Video"; // label of first select field
         o["select"][1u][0u] = "audio";
@@ -982,7 +964,7 @@ int main(int argc, char *argv[]) {
         o["value"] = "video"; // preselect this value
       }
       {
-        JSON::Value &o = required["codec"][0u];
+        JSON::Value & o = required["codec"][0u];
 
         o["name"] = "Target codec";
         o["help"] = "Wanted output codec";
@@ -1010,7 +992,7 @@ int main(int argc, char *argv[]) {
         o["influences"].append("gopsize");
       }
       {
-        JSON::Value &o = required["codec"][1u];
+        JSON::Value & o = required["codec"][1u];
         o = required["codec"][0u];
         o.removeMember("select");
         o["select"].append("AAC");
@@ -1021,7 +1003,6 @@ int main(int argc, char *argv[]) {
         o["select"].append("vorbis");
         o["dependent"]["x-LSP-kind"] = "audio"; // this field is only shown if x-LSP-kind is set to "audio"
       }
-
     }
 
     {
@@ -1029,25 +1010,25 @@ int main(int argc, char *argv[]) {
       // optional options //
       //////////////////////
 
-      JSON::Value &optional = capa["optional"];
+      JSON::Value & optional = capa["optional"];
 
-      //group for options that we consider common
+      // group for options that we consider common
       optional["common"]["name"] = "Commonly used options";
       optional["common"]["type"] = "group";
       optional["common"]["expand"] = true;
       optional["common"]["sort"] = "aaa";
-      JSON::Value &common = optional["common"]["options"]; 
+      JSON::Value & common = optional["common"]["options"];
 
-      //group for options that we consider advanced
+      // group for options that we consider advanced
       optional["advanced"]["name"] = "Advanced options";
       optional["advanced"]["type"] = "group";
       optional["advanced"]["expand"] = false;
       optional["advanced"]["sort"] = "xxx";
-      JSON::Value &advanced = optional["advanced"]["options"];
+      JSON::Value & advanced = optional["advanced"]["options"];
 
       // video options
       {
-        JSON::Value &o = common["resolution"];
+        JSON::Value & o = common["resolution"];
         o["name"] = "resolution";
         o["help"] = "Resolution of the output stream, e.g. 1920x1080";
         o["type"] = "str";
@@ -1059,10 +1040,11 @@ int main(int argc, char *argv[]) {
         o["sort"] = "b";
       }
       {
-        //TODO for backend: when gopsize is 0, add keyframe when the source has a keyframe. Otherwise, obey time interval
-        JSON::Value &o = common["gopsize"][0u];
+        // TODO for backend: when gopsize is 0, add keyframe when the source has a keyframe. Otherwise, obey time interval
+        JSON::Value & o = common["gopsize"][0u];
         o["name"] = "Keyframe interval";
-        o["help"] = "Amount of time before a new keyframe is sent. Defaults to whenever there is a keyframe in the source.";
+        o["help"] =
+          "Amount of time before a new keyframe is sent. Defaults to whenever there is a keyframe in the source.";
         o["type"] = "selectinput";
         o["default"] = 0;
 
@@ -1070,8 +1052,8 @@ int main(int argc, char *argv[]) {
         entry[0u] = "0";
         entry[1u] = "Match source";
         o["selectinput"].append(entry);
-        
-        JSON::Value &i = entry[0u];
+
+        JSON::Value & i = entry[0u];
         i["name"] = "Interval";
         i["type"] = "uint";
         i["value"] = 2000;
@@ -1083,23 +1065,24 @@ int main(int argc, char *argv[]) {
         o["selectinput"].append(entry);
 
         o["dependent"]["x-LSP-kind"] = "video";
-        o["dependent_not"]["codec"].append("JPEG"); //do not show this field if the codec is JPEG
-        o["dependent_not"]["codec"].append("UYVY"); //do not show this field if the codec is raw
-        o["dependent_not"]["codec"].append("YUYV"); //do not show this field if the codec is raw
+        o["dependent_not"]["codec"].append("JPEG"); // do not show this field if the codec is JPEG
+        o["dependent_not"]["codec"].append("UYVY"); // do not show this field if the codec is raw
+        o["dependent_not"]["codec"].append("YUYV"); // do not show this field if the codec is raw
         o["sort"] = "c";
       }
       {
-        JSON::Value &o = common["gopsize"][1u];
+        JSON::Value & o = common["gopsize"][1u];
         o = common["gopsize"][0u];
         o["name"] = "Time between images";
         o["help"] = "Amount of milliseconds between images. Defaults to whenever there is a keyframe in the source.";
-        o["dependent_not"]["codec"].shrink(2); //throw out all but the last 2 elements
+        o["dependent_not"]["codec"].shrink(2); // throw out all but the last 2 elements
         o["dependent"]["codec"] = "JPEG"; //*do* show this field if the codec is jpeg
       }
       {
-        JSON::Value &o = common["bitrate"][0u];
+        JSON::Value & o = common["bitrate"][0u];
         o["name"] = "Target bitrate";
-        o["help"] = "Set the target bitrate in bits per second. When set to 0, the bitrate will be automatically determined based on the codec.";
+        o["help"] = "Set the target bitrate in bits per second. When set to 0, the bitrate will be automatically "
+                    "determined based on the codec.";
         o["type"] = "uint";
         o["default"] = 0;
         o["unit"][0u][0u] = "1";
@@ -1120,14 +1103,14 @@ int main(int argc, char *argv[]) {
 
       // audio options
       {
-        JSON::Value &o = common["bitrate"][1u];
+        JSON::Value & o = common["bitrate"][1u];
         o = common["bitrate"][0u];
         o["value"] = 128000;
         o["dependent"]["x-LSP-kind"] = "audio";
         o["sort"] = "a";
       }
       {
-        JSON::Value &o = advanced["split_audio"];
+        JSON::Value & o = advanced["split_audio"];
         o["name"] = "Split audio channels";
         o["help"] = "List of channels to split the audio into. Defaults to all channels. IE: \"4, 2, 2, 4\"";
         o["type"] = "inputlist";
@@ -1140,18 +1123,18 @@ int main(int argc, char *argv[]) {
 
       // selection options (secretly part of generic options)
       {
-        JSON::Value &opts = capa["optional"]["general_process_options"]["options"];
+        JSON::Value & opts = capa["optional"]["general_process_options"]["options"];
 
-        JSON::Value &g = opts["selection"];
+        JSON::Value & g = opts["selection"];
         g["name"] = "Selection";
         g["desc"] = "Choose what tracks to insert into the process, and where process output should go.";
         g["type"] = "group";
         g["expand"] = true;
         g["sort"] = "aaa";
         {
-          JSON::Value &opts = g["options"];
+          JSON::Value & opts = g["options"];
           {
-            JSON::Value &o = opts["track_select"];
+            JSON::Value & o = opts["track_select"];
             o["name"] = "Source selector(s)";
             o["help"] = "What tracks to select for the input. Defaults to audio=all&video=all.";
             o["type"] = "string";
@@ -1160,14 +1143,15 @@ int main(int argc, char *argv[]) {
             o["sort"] = "a";
           }
           {
-            JSON::Value &o = opts["exit_unmask"];
+            JSON::Value & o = opts["exit_unmask"];
             o["name"] = "Undo masks on process exit/fail";
-            o["help"] = "If/when the process exits or fails, the masks for input tracks will be reset to defaults. (NOT to previous value, but to defaults!)";
+            o["help"] = "If/when the process exits or fails, the masks for input tracks will be reset to defaults. "
+                        "(NOT to previous value, but to defaults!)";
             o["default"] = false;
             o["sort"] = "b";
           }
           {
-            JSON::Value &o = opts["source_mask"];
+            JSON::Value & o = opts["source_mask"];
             o["name"] = "Source track mask";
             o["help"] = "What internal processes should have access to the source track(s)";
             o["type"] = "select";
@@ -1183,7 +1167,7 @@ int main(int argc, char *argv[]) {
             o["sort"] = "c";
           }
           {
-            JSON::Value &o = opts["target_mask"];
+            JSON::Value & o = opts["target_mask"];
             o["name"] = "Output track mask";
             o["help"] = "What internal processes should have access to the ouput track(s)";
             o["type"] = "select";
@@ -1209,9 +1193,10 @@ int main(int argc, char *argv[]) {
             o["sort"] = "d";
           }
           {
-            JSON::Value &o = opts["sink"];
+            JSON::Value & o = opts["sink"];
             o["name"] = "Target stream";
-            o["help"] = "What stream the encoded track should be added to. Defaults to source stream. May contain variables.";
+            o["help"] =
+              "What stream the encoded track should be added to. Defaults to source stream. May contain variables.";
             o["type"] = "string";
             o["validate"][0u] = "streamname_with_wildcard_and_variables";
             o["sort"] = "e";
@@ -1220,9 +1205,9 @@ int main(int argc, char *argv[]) {
       }
 
       {
-        JSON::Value &opts = advanced;
+        JSON::Value & opts = advanced;
         {
-          JSON::Value &o = opts["accel"];
+          JSON::Value & o = opts["accel"];
           o["name"] = "Acceleration";
           o["help"] = "Control whether hardware acceleration is used or not.";
           o["type"] = "bitmask";
@@ -1242,13 +1227,13 @@ int main(int argc, char *argv[]) {
           entry[0u] = 16;
           entry[1u] = "Videotoolbox";
           o["bitmask"].append(entry);
-          o["default"] = 0xff;  // when calculating the field value, we start with this value, then check or uncheck the bits for the displayed fields
-          o["value"] = 0xff;    // these fields are checked when configuring a new process
+          o["default"] = 0xff; // when calculating the field value, we start with this value, then check or uncheck the bits for the displayed fields
+          o["value"] = 0xff; // these fields are checked when configuring a new process
           o["dependent"]["x-LSP-kind"] = "video";
           o["sort"] = "a";
         }
         {
-          JSON::Value &o = opts["preset"];
+          JSON::Value & o = opts["preset"];
           o["name"] = "Transcode preset";
           o["help"] = "Preset for encoding speed and compression ratio";
           o["type"] = "select";
@@ -1275,7 +1260,7 @@ int main(int argc, char *argv[]) {
           o["dependent"]["x-LSP-kind"] = "video";
         }
         {
-          JSON::Value &o = opts["tune"];
+          JSON::Value & o = opts["tune"];
           o["name"] = "Encode tuning";
           o["help"] = "Set the encode tuning";
           o["type"] = "select";
@@ -1296,7 +1281,7 @@ int main(int argc, char *argv[]) {
           o["sort"] = "b";
         }
         {
-          JSON::Value &o = opts["rate_control"];
+          JSON::Value & o = opts["rate_control"];
           o["name"] = "Rate control";
           o["help"] = "Select the encoder rate control strategy";
           o["type"] = "select";
@@ -1319,7 +1304,7 @@ int main(int argc, char *argv[]) {
           o["dependent"]["x-LSP-kind"] = "video";
         }
         {
-          JSON::Value &o = opts["max_bitrate"];
+          JSON::Value & o = opts["max_bitrate"];
           o["name"] = "Maximum bitrate";
           o["help"] = "Optional maximum bitrate cap when operating in bitrate/VBR modes (bits per second).";
           o["type"] = "uint";
@@ -1337,27 +1322,27 @@ int main(int argc, char *argv[]) {
           o["dependent"]["x-LSP-kind"] = "video";
           o["dependent"]["rate_control"] = "vbr";
         }
-        { //TODO for backend: convert this general "quality" to the value required for encoders (cq, vbr, qscale etc)
-          JSON::Value &o = opts["quality"];
+        { // TODO for backend: convert this general "quality" to the value required for encoders (cq, vbr, qscale etc)
+          JSON::Value & o = opts["quality"];
           o["name"] = "Quality";
           o["help"] = "Select the desired quality";
           o["type"] = "select";
 
           JSON::Value entry;
           entry[0u] = 1;
-          entry[1u] = "very low"; 
+          entry[1u] = "very low";
           o["select"].append(entry);
           entry[0u] = 6;
-          entry[1u] = "low"; 
+          entry[1u] = "low";
           o["select"].append(entry);
           entry[0u] = 11;
-          entry[1u] = "medium"; 
+          entry[1u] = "medium";
           o["select"].append(entry);
           entry[0u] = 21;
-          entry[1u] = "high"; 
+          entry[1u] = "high";
           o["select"].append(entry);
           entry[0u] = 31;
-          entry[1u] = "very high"; 
+          entry[1u] = "very high";
           o["select"].append(entry);
 
           o["default"] = 21;
@@ -1489,7 +1474,7 @@ int main(int argc, char *argv[]) {
     if (!maxRateStr.empty()) {
       try {
         pipelineConfig.maxBitrate = std::stoull(maxRateStr);
-      } catch (const std::exception &e) {
+      } catch (const std::exception & e) {
         WARN_MSG("Main: Invalid max_bitrate value '%s': %s", maxRateStr.c_str(), e.what());
       }
     }
@@ -1500,16 +1485,14 @@ int main(int argc, char *argv[]) {
     if (!vbvStr.empty()) {
       try {
         pipelineConfig.vbvBufferSize = std::stoull(vbvStr);
-      } catch (const std::exception &e) {
+      } catch (const std::exception & e) {
         WARN_MSG("Main: Invalid vbv_buffer value '%s': %s", vbvStr.c_str(), e.what());
       }
     }
   }
 
   std::string rcOptionSuffix;
-  if (!pipelineConfig.rateControlRcOption.empty()) {
-    rcOptionSuffix = " (" + pipelineConfig.rateControlRcOption + ")";
-  }
+  if (!pipelineConfig.rateControlRcOption.empty()) { rcOptionSuffix = " (" + pipelineConfig.rateControlRcOption + ")"; }
   INFO_MSG("Main: Rate control mode: %s%s", pipelineConfig.rateControlMode.c_str(), rcOptionSuffix.c_str());
 
   // Set GOP size

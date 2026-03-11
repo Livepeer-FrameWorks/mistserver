@@ -224,7 +224,7 @@ namespace FFmpeg {
       /// @brief Create complete node graph using backward construction
       /// @param packet First packet containing input format information
       /// @return True if node graph was created successfully
-      bool createNodeGraphBackwards(PacketContext * packet);
+      bool createNodeGraphBackwards(PacketContext *packet);
 
       /// @brief Recursively create input nodes for a target node
       /// @param targetNode The node that needs input
@@ -276,16 +276,16 @@ namespace FFmpeg {
       const std::string & getEncoderName();
       const std::string & getTransformerName();
 
-      void addCallback(std::function<void(void*)>);
+      void addCallback(std::function<void(void *)>);
 
     protected:
       // Node management helpers
       bool needsTransformer(const PipelineConfig & config) const;
 
     private:
-      std::function<void(void*)> outCb;
+      std::function<void(void *)> outCb;
 
-      AVPacket * inPacket{0};
+      AVPacket *inPacket{0};
 
       // Thread safety - focused mutexes for different concerns
       mutable std::mutex queueMutex; // Protects frame queues
@@ -318,7 +318,6 @@ namespace FFmpeg {
       std::atomic<uint64_t> droppedFrameCount;
       std::atomic<uint64_t> totalSinkSleep{0};
       std::atomic<uint64_t> totalSourceSleep{0};
-
 
       // Configuration
       PipelineConfig config;
