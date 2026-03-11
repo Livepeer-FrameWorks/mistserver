@@ -110,6 +110,7 @@ namespace Mist {
       inline virtual bool keepGoing() override {return config->is_active;}
     private:
       uint64_t lastJPEGSent{0};
+      uint64_t lastSendNextEnd{0};
       bool sendFirst{false}; //< Whether first packet has been sent
 
     public:

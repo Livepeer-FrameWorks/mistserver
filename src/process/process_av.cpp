@@ -636,6 +636,10 @@ namespace Mist {
   }
 
   void ProcessSource::sendNext() {
+    uint64_t callStart = Util::getMicros();
+    if (lastSendNextEnd) {
+      pipeline.updateSleepTimes(0, callStart - lastSendNextEnd);
+    }
     {
       std::lock_guard<std::mutex> guard(statsMutex);
       if (pData["source_tracks"].size() != userSelect.size()) {
@@ -719,6 +723,7 @@ namespace Mist {
       totalInputBytes.fetch_add(thisDataLen);
       pipeline.receiveAudio(sendPacketTime, thisTime, thisData, thisDataLen, inDepth, inChannels, inRate, init, inCodec.c_str());
     }
+    lastSendNextEnd = Util::getMicros();
   }
 
   ProcessSource::~ProcessSource() = default;
