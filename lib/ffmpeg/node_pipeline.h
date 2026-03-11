@@ -316,6 +316,8 @@ namespace FFmpeg {
 
       // Metrics (atomic)
       std::atomic<uint64_t> droppedFrameCount;
+      std::atomic<uint64_t> totalSinkSleep{0};
+      std::atomic<uint64_t> totalSourceSleep{0};
 
 
       // Configuration

@@ -1032,4 +1032,14 @@ namespace FFmpeg {
     return r;
   }
 
+  void NodePipeline::getSleepTimes(uint64_t &sinkSleepMicros, uint64_t &sourceSleepMicros) const {
+    sinkSleepMicros = totalSinkSleep.load(std::memory_order_relaxed);
+    sourceSleepMicros = totalSourceSleep.load(std::memory_order_relaxed);
+  }
+
+  void NodePipeline::updateSleepTimes(uint64_t sinkSleepMicros, uint64_t sourceSleepMicros) {
+    totalSinkSleep.fetch_add(sinkSleepMicros, std::memory_order_relaxed);
+    totalSourceSleep.fetch_add(sourceSleepMicros, std::memory_order_relaxed);
+  }
+
 } // namespace FFmpeg
