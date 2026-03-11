@@ -149,10 +149,10 @@ namespace Mist{
     // If we have a target, scan for trailing ?, remove it, parse into targetParams
     if (config->hasOption("target")){
       std::string tgt = config->getString("target");
-      if (tgt.rfind('?') != std::string::npos){
-        INFO_MSG("Stripping target options: %s", tgt.substr(tgt.rfind('?') + 1).c_str());
-        HTTP::parseVars(tgt.substr(tgt.rfind('?') + 1), targetParams);
-        config->getOption("target", true).append(tgt.substr(0, tgt.rfind('?')));
+      if (tgt.rfind('#') != std::string::npos){
+        INFO_MSG("Stripping target options: %s", tgt.substr(tgt.rfind('#') + 1).c_str());
+        HTTP::parseVars(tgt.substr(tgt.rfind('#') + 1), targetParams);
+        config->getOption("target", true).append(tgt.substr(0, tgt.rfind('#')));
       }
     }
     if (targetParams.count("rate")){
@@ -1485,19 +1485,19 @@ namespace Mist{
       if (lMs - mKa - needsLookAhead > cTime + 50){
         // We need to speed up!
         uint64_t diff = (lMs - mKa - needsLookAhead) - cTime;
-        if (!rateOnly && diff > 3000){
+        if (!rateOnly && diff > 2000){
           noReturn = true;
           newSpeed = 1000;
         }else if (diff > 1000){
-          newSpeed = 750;
+          newSpeed = 400;
         }else if (diff > 500){
-          newSpeed = 900;
+          newSpeed = 600;
         }else{
-          newSpeed = 950;
+          newSpeed = 800;
         }
       }
       if (realTime != newSpeed){
-        VERYHIGH_MSG("Changing playback speed from %" PRIu64 " to %" PRIu64 "(%" PRIu64 " ms LA, %" PRIu64 " ms mKA)", realTime, newSpeed, needsLookAhead, mKa);
+        VERYHIGH_MSG("Changing playback speed from %" PRIu64 " to %" PRIu64 "(%" PRIu64 " ms LA, %" PRIu64 " ms mKA) - " PRETTY_PRINT_MSTIME " / " PRETTY_PRINT_MSTIME " -" PRETTY_PRINT_MSTIME " from live point", realTime, newSpeed, needsLookAhead, mKa, PRETTY_ARG_MSTIME(cTime), PRETTY_ARG_MSTIME(lMs), PRETTY_ARG_MSTIME(lMs - cTime));
         resetTiming(cTime);
         realTime = newSpeed;
       }
@@ -1650,16 +1650,12 @@ namespace Mist{
     const char* origTargetPtr = getenv("MST_ORIG_TARGET");
     if (origTargetPtr){
       origTarget = origTargetPtr;
-      if (origTarget.rfind('?') != std::string::npos){
+      if (origTarget.rfind('#') != std::string::npos){
         std::map<std::string, std::string> tmpParams;
-        HTTP::parseVars(origTarget.substr(origTarget.rfind('?') + 1), tmpParams);
-        origTarget.erase(origTarget.rfind('?'));
-        if (tmpParams.count("m3u8")){
-          targetParams["m3u8"] = tmpParams["m3u8"];
-        }
-        if (tmpParams.count("segment")){
-          targetParams["segment"] = tmpParams["segment"];
-        }
+        HTTP::parseVars(HTTP::URL(origTarget).frag, tmpParams);
+        origTarget.erase(origTarget.rfind('#'));
+        if (tmpParams.count("m3u8")) { targetParams["m3u8"] = tmpParams["m3u8"]; }
+        if (tmpParams.count("segment")) { targetParams["segment"] = tmpParams["segment"]; }
       }
     }else if (config->hasOption("target")){
       origTarget = config->getString("target");
@@ -2797,6 +2793,7 @@ namespace Mist{
     // Disable stats for HTTP internal output
     if (Comms::sessionStreamInfoMode == SESS_HTTP_DISABLED && capa["name"].asStringRef() == "HTTP"){return;}
     if (getenv("NOSESS")) { return; } // Disable sessions and stats if NOSESS env variable is set
+    if (capa["name"].asStringRef() == "JPG") { return; }
 
     // Set the token to the pid for outputs which do not generate it in the requestHandler
     if (!tkn.size()){ tkn = JSON::Value(getpid()).asString(); }

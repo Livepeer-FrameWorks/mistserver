@@ -158,14 +158,12 @@ namespace Mist{
     cfg->addOption("target", opt);
 
     // MP4 live is broken on Apple
-    capa["exceptions"]["live"].fromString(R"-([
-      ["blacklist",["iPad","iPhone","iPod","Safari"]],
-      ["whitelist",["Chrome","Chromium"]]
-    ])-");
-    capa["exceptions"]["codec:MP3"].fromString(R"-([
-      ["blacklist",["Windows NT 5", "Windows NT 6.0", "Windows NT 6.1"]],
-      ["whitelist_except",["Trident"]]
-    ])-");
+    capa["exceptions"]["live"] =
+        JSON::fromString("[[\"blacklist\",[\"iPad\",\"iPhone\",\"iPod\",\"Safari\"]], "
+                         "[\"whitelist\",[\"Chrome\",\"Chromium\"]]]");
+    capa["exceptions"]["codec:MP3"] =
+        JSON::fromString("[[\"blacklist\",[\"Windows NT 5\", \"Windows NT 6.0\", \"Windows NT "
+                         "6.1\"]],[\"whitelist_except\",[\"Trident\"]]]");
   }
 
   uint64_t OutMP4::estimateFileSize() const{
@@ -1444,8 +1442,7 @@ namespace Mist{
   }
 
   void OutMP4::onWebsocketFrame() {
-    JSON::Value command;
-    command.fromString(webSock->data, webSock->data.size());
+    JSON::Value command = JSON::fromString(webSock->data, webSock->data.size());
     if (!command.isMember("type")) {return;}
     
     if (command["type"] == "request_codec_data") {

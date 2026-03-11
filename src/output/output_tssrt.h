@@ -26,6 +26,7 @@ namespace Mist{
   private:
     virtual bool isRecording();
     HTTP::URL target;
+    bool timeInited;
     int64_t timeStampOffset;
     uint64_t lastTimeStamp;
     uint64_t lastWorked;

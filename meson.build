@@ -212,6 +212,28 @@ if get_option('WITH_AV')
   av_libs += dependency('libavcodec')
   av_libs += dependency('libavutil')
   av_libs += dependency('libswresample')
+  av_libs += dependency('libavfilter')
+endif
+
+have_quic = false
+quic_deps = []
+if not get_option('NOQUIC')
+  have_quic = true
+  quic_deps += dependency('libngtcp2', required : false)
+  quic_deps += dependency('libngtcp2_crypto_gnutls', required : false)
+  quic_deps += dependency('gnutls', required : false) # Dependency of libngtcp2_crypto_gnutls
+  quic_deps += dependency('gmp', required : false) # Dependency of nettle
+  quic_deps += dependency('nettle', required : false) # Dependency of gnutls
+  quic_deps += dependency('hogweed', required : false) # Dependency of gnutls
+  quic_deps += dependency('zlib', required : false) # Dependency of gnutls
+  foreach d : quic_deps
+    if not d.found()
+      message('Building without QUIC support (missing dependency @0@)'.format(d.name()))
+      have_quic = false
+    endif
+  endforeach
+else
+  message('Building without QUIC support (NOQUIC option set by user)')
 endif
 
 # Add thread dependency since we always have thread code in libmist

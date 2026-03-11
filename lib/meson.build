@@ -16,6 +16,7 @@ headers = [
   'dtsc.h',
   'ev.h',
   'flv_tag.h',
+  'foghorn.h',
   'h264.h',
   'h265.h',
   'hls_support.h',
@@ -75,6 +76,10 @@ if usessl
   extra_code += ['stun.cpp', 'certificate.cpp', 'encryption.cpp',]
 endif
 
+if get_option('WITH_DECKLINK')
+  headers += 'decklink.h'
+endif
+
 install_headers(headers, subdir: 'mist')
 
 libmist = library('mist',
@@ -91,6 +96,7 @@ libmist = library('mist',
   'dtsc.cpp',
   'ev.cpp',
   'flv_tag.cpp',
+  'foghorn.cpp',
   'h264.cpp',
   'h265.cpp',
   'hls_support.cpp',
@@ -147,8 +153,33 @@ libmist_dep = declare_dependency(
     include_directories: incroot
 )
 
+subdir('ffmpeg')
+
 if have_srt
   libmist_srt = library('mist_srt', 'socket_srt.cpp', dependencies: [libsrt, libmist_dep], install: true)
   libmist_srt_dep = declare_dependency(link_with: [libmist_srt])
+endif
+
+if get_option('WITH_DECKLINK')
+  decklink_dep_list = [libmist_dep]
+
+  if host_machine.system() == 'darwin'
+    decklink_dep_list += dependency('CoreFoundation', required: true)
+    decklink_dep_list += declare_dependency(
+      compile_args: ['-I/usr/local/include'],
+      link_args: ['-framework', 'DeckLinkAPI', '-F/Library/Frameworks']
+    )
+  else
+    decklink_dep_list += ccpp.find_library('DeckLinkAPI', required: true)
+  endif
+
+  libdecklink = library(
+    'mistdecklink',
+    'decklink.cpp',
+    include_directories: incroot,
+    dependencies: decklink_dep_list,
+    install: true
+  )
+  decklink_dep = declare_dependency(link_with: [libdecklink])
 endif
 

@@ -322,7 +322,7 @@ namespace Mist {
               uint64_t lastRead = 0;
               while (!shouldStop && Util::Config::is_active) {
                 struct stat statRslt;
-                if (!stat(S.c_str(), &statRslt) && statRslt.st_mtime > lastRead) {
+                if (!stat(S.c_str(), &statRslt) && statRslt.st_mtim.tv_sec > lastRead) {
                   std::lock_guard<std::recursive_mutex> guard(ptrLock);
                   if (staticImg.data) {
                     free(staticImg.data);
@@ -338,7 +338,7 @@ namespace Mist {
                             &staticImg);
                   ready = !staticImg.error;
                   if (ready) { lastImg = Util::bootMS(); }
-                  lastRead = statRslt.st_mtime;
+                  lastRead = statRslt.st_mtim.tv_sec;
                 }
                 if (!shouldStop && Util::Config::is_active) { Util::sleep(1000); }
               }
@@ -1431,10 +1431,12 @@ int main(int argc, char *argv[]) {
   } else {
     // read configuration
     if (config.getString("configuration") != "-") {
-      Mist::opt.fromString(config.getString("configuration"));
+      Mist::opt = JSON::fromString(config.getString("configuration"));
     } else {
+      std::string json, line;
       INFO_MSG("Reading configuration from standard input");
-      Mist::opt.fromStream(std::cin);
+      while (std::getline(std::cin, line)) { json.append(line); }
+      Mist::opt = JSON::fromString(json.c_str());
     }
   }
 

@@ -65,11 +65,12 @@ if get_option('WITH_AV')
         'sources' : [
             files('process.hpp', 'process_av.cpp'),
             header_tgts,
+            transcode_header_tgts,
             io_cpp,
             input_cpp,
             output_cpp,
         ],
-        'deps' :[libmist_dep, av_libs],
+        'deps' :[libmist_dep, av_libs, libmist_transcode_dep, process_common_dep],
         'defines': [],
     }
     executables += {

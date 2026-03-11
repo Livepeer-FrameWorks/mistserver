@@ -41,6 +41,10 @@ if ccpp.has_header('linux/videodev2.h')
   inputs += {'name' : 'V4L2', 'format' : 'v4l2'}
 endif
 
+if get_option('WITH_DECKLINK')
+  inputs += {'name' : 'DeckLink', 'format' : 'decklink', 'extra': 'with_decklink'}
+endif
+
 inputs_tgts = []
 
 foreach input : inputs
@@ -56,6 +60,9 @@ foreach input : inputs
     endif
     if input.get('extra').contains('with_av')
       deps += av_libs
+    endif
+    if input.get('extra').contains('with_decklink')
+      deps += decklink_dep
     endif
   endif
   if input.get('name').contains('AV')

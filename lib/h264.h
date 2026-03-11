@@ -85,6 +85,8 @@ namespace h264{
       bool valid;
   };
 
+  std::string initFromAnnexB(const char *ptr, size_t len);
+
   bool isKeyframe(const char *data, uint32_t len);
 
   class nalUnit{

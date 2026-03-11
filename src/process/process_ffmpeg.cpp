@@ -48,8 +48,6 @@ uint64_t statSinkMs = 0;
 uint64_t statSourceMs = 0;
 int64_t bootMsOffset = 0;
 
-uint8_t sinkCommState = COMM_STATUS_ACTSOURCEDNT;
-
 namespace Mist{
   class ProcessSink : public InputEBML{
   public:
@@ -95,7 +93,6 @@ namespace Mist{
         std::lock_guard<std::mutex> guard(statsMutex);
         pStat["proc_status_update"]["sink"] = streamName;
         pStat["proc_status_update"]["source"] = opt["source"];
-        if (streamName != opt["source"].asStringRef()) { sinkCommState = COMM_STATUS_ACTIVE | COMM_STATUS_SOURCE; }
       }
       if (opt.isMember("target_mask") && !opt["target_mask"].isNull() && opt["target_mask"].asString() != ""){
         DTSC::trackValidDefault = opt["target_mask"].asInt();
@@ -107,7 +104,7 @@ namespace Mist{
     bool isSingular(){return false;}
     void connStats(Comms::Connections &statComm){
       for (std::map<size_t, Comms::Users>::iterator it = userSelect.begin(); it != userSelect.end(); it++){
-        if (it->second) { it->second.setStatus(sinkCommState | it->second.getStatus()); }
+        if (it->second){it->second.setStatus(COMM_STATUS_DONOTTRACK | it->second.getStatus());}
       }
       InputEBML::connStats(statComm);
     }
@@ -552,11 +549,62 @@ int main(int argc, char *argv[]){
     capa["optional"]["sources"]["name"] = "Layers";
     capa["optional"]["sources"]["type"] = "sublist";
     capa["optional"]["sources"]["itemLabel"] = "layer";
+    capa["optional"]["sources"]["hrn"] = "src";
     capa["optional"]["sources"]["help"] =
         "List of sources to overlay on top of each other, in order. If left empty, simply uses the "
         "input track without modifications and nothing else.";
     capa["optional"]["sources"]["sort"] = "baa";
     capa["optional"]["sources"]["dependent"]["x-LSP-kind"] = "video";
+
+    JSON::Value &grp = capa["optional"]["sources"]["sublist"];
+    grp["src"]["name"] = "Source";
+    grp["src"]["help"] =
+        "Source image/video file or URL to overlay. Leave empty to apply original source.";
+    grp["src"]["type"] = "str";
+    grp["src"]["default"] = "-";
+    grp["src"]["sort"] = 0;
+
+    grp["width"]["name"] = "Width";
+    grp["width"]["help"] =
+        "Width to scale the layer to, use -1 to keep aspect ratio if only height is known.";
+    grp["width"]["unit"] = "pixels";
+    grp["width"]["type"] = "int";
+    grp["width"]["default"] = "original width";
+    grp["width"]["sort"] = 1;
+
+    grp["height"]["name"] = "Height";
+    grp["height"]["help"] =
+        "Height to scale the layer to, use -1 to keep aspect ratio if only width is known.";
+    grp["height"]["unit"] = "pixels";
+    grp["height"]["type"] = "int";
+    grp["height"]["default"] = "original height";
+    grp["height"]["sort"] = 2;
+
+    grp["anchor"]["name"] = "Origin corner";
+    grp["anchor"]["help"] =
+        "What corner to use as origin for the X/Y coordinate system for placement.";
+    grp["anchor"]["type"] = "select";
+    grp["anchor"]["default"] = "topleft";
+    grp["anchor"]["select"].append("topleft");
+    grp["anchor"]["select"].append("topright");
+    grp["anchor"]["select"].append("bottomleft");
+    grp["anchor"]["select"].append("bottomright");
+    grp["anchor"]["select"].append("center");
+    grp["anchor"]["sort"] = 3;
+
+    grp["x"]["name"] = "X position";
+    grp["x"]["help"] = "Horizontal distance of this layer to the origin corner.";
+    grp["x"]["unit"] = "pixels";
+    grp["x"]["type"] = "int";
+    grp["x"]["default"] = 0;
+    grp["x"]["sort"] = 4;
+    
+    grp["y"]["name"] = "Y position";
+    grp["y"]["help"] = "Vertical distance of this layer to the origin corner.";
+    grp["y"]["unit"] = "pixels";
+    grp["y"]["type"] = "int";
+    grp["y"]["default"] = 0;
+    grp["y"]["sort"] = 5;
 
     capa["codecs"][0u][0u].append("H264");
     capa["codecs"][0u][0u].append("HEVC");
@@ -581,50 +629,6 @@ int main(int argc, char *argv[]){
     capa["codecs"][0u][1u].append("DTS");
     capa["codecs"][0u][2u].append("+JSON");
 
-    JSON::Value &grp = capa["optional"]["sources"]["optional"];
-    grp["src"]["name"] = "Source";
-    grp["src"]["help"] =
-        "Source image/video file or URL to overlay. Leave empty to apply original source.";
-    grp["src"]["type"] = "str";
-    grp["src"]["default"] = "-";
-    grp["src"]["n"] = 0;
-    grp["anchor"]["name"] = "Origin corner";
-    grp["anchor"]["help"] =
-        "What corner to use as origin for the X/Y coordinate system for placement.";
-    grp["anchor"]["type"] = "select";
-    grp["anchor"]["default"] = "topleft";
-    grp["anchor"]["select"].append("topleft");
-    grp["anchor"]["select"].append("topright");
-    grp["anchor"]["select"].append("bottomleft");
-    grp["anchor"]["select"].append("bottomright");
-    grp["anchor"]["select"].append("center");
-    grp["anchor"]["n"] = 3;
-    grp["x"]["name"] = "X position";
-    grp["x"]["help"] = "Horizontal distance of this layer to the origin corner.";
-    grp["x"]["unit"] = "pixels";
-    grp["x"]["type"] = "int";
-    grp["x"]["default"] = 0;
-    grp["x"]["n"] = 4;
-    grp["y"]["name"] = "Y position";
-    grp["y"]["help"] = "Vertical distance of this layer to the origin corner.";
-    grp["y"]["unit"] = "pixels";
-    grp["y"]["type"] = "int";
-    grp["y"]["default"] = 0;
-    grp["y"]["n"] = 5;
-    grp["width"]["name"] = "Width";
-    grp["width"]["help"] =
-        "Width to scale the layer to, use -1 to keep aspect ratio if only height is known.";
-    grp["width"]["unit"] = "pixels";
-    grp["width"]["type"] = "int";
-    grp["width"]["default"] = "original width";
-    grp["width"]["n"] = 1;
-    grp["height"]["name"] = "Height";
-    grp["height"]["help"] =
-        "Height to scale the layer to, use -1 to keep aspect ratio if only width is known.";
-    grp["height"]["unit"] = "pixels";
-    grp["height"]["type"] = "int";
-    grp["height"]["default"] = "original height";
-    grp["height"]["n"] = 2;
 
     std::cout << capa.toString() << std::endl;
     return -1;
@@ -634,10 +638,12 @@ int main(int argc, char *argv[]){
 
   // read configuration
   if (config.getString("configuration") != "-"){
-    opt.fromString(config.getString("configuration"));
-  } else {
+    opt = JSON::fromString(config.getString("configuration"));
+  }else{
+    std::string json, line;
     INFO_MSG("Reading configuration from standard input");
-    opt.fromStream(std::cin);
+    while (std::getline(std::cin, line)){json.append(line);}
+    opt = JSON::fromString(json.c_str());
   }
 
   Enc.SetConfig(opt);

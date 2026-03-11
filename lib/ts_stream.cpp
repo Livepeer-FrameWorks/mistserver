@@ -297,15 +297,13 @@ namespace TS{
               pidToCodec[pid] = OPUS;
             }else if (reg == "JSON"){
               pidToCodec[pid] = JSON;
-            }else if (rParser == JSON){
-              pidToCodec[pid] = JSON;
             } else if (reg == "AV01") {
               pidToCodec[pid] = AV1;
-            } else if (rParser == AV1) {
-              pidToCodec[pid] = AV1;
-            } else if (rParser == OPUS) {
-              pidToCodec[pid] = OPUS;
-            } else {
+            }else if (reg.size() == 8 && reg.substr(0, 3) == "PCM"){
+              pidToCodec[pid] = PCM;
+            }else if (rParser != NONE){
+              pidToCodec[pid] = rParser;
+            }else{
               pidToCodec.erase(pid);
             }
           }
@@ -680,6 +678,10 @@ namespace TS{
       out.push_back(DTSC::Packet());
       //Skip the first two bytes
       out.back().genericFill(timeStamp, timeOffset, tid, pesPayload+2, realPayloadSize-2, bPos, 0);
+    }
+    if (thisCodec == PCM){
+      out.push_back(DTSC::Packet());
+      out.back().genericFill(timeStamp, timeOffset, tid, pesPayload, realPayloadSize, bPos, 0);
     }
     if (thisCodec == OPUS){
       size_t offset = 0;
@@ -1177,6 +1179,15 @@ namespace TS{
         type = "meta";
         codec = "SCTE35";
       } break;
+      case PCM:{
+        addNewTrack = true;
+        type = "audio";
+        codec = "PCM";
+        std::string reg = TS::ProgramDescriptors(metaInit[it->first].data(), metaInit[it->first].size()).getRegistration();
+        channels = reg[3];
+        size = reg[4];
+        rate = Bit::btoh24(reg.data()+5);
+      }break;
       case OPUS:{
         addNewTrack = true;
         type = "audio";

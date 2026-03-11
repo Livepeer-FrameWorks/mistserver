@@ -8,6 +8,7 @@ namespace Mist{
 
   InputEBML::InputEBML(Util::Config *cfg) : Input(cfg){
     timeScale = 1.0;
+    liveOffsetSet = false;
     capa["name"] = "EBML";
     capa["desc"] = "Allows loading MKV, MKA, MK3D, MKS and WebM files for Video on Demand, or "
                    "accepts live streams in those formats over standard input.";
@@ -629,6 +630,13 @@ namespace Mist{
         }
       }break;
       }
+    }
+    if (M.getLive()){
+      if (!liveOffsetSet){
+        liveOffset = Util::bootMS() - M.getBootMsOffset() - C.time;
+        liveOffsetSet = true;
+      }
+      C.time += liveOffset;
     }
     thisPacket.genericFill(C.time, C.offset, C.track, C.ptr, C.dsize,
                            C.bpos, C.key);

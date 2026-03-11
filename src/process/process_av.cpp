@@ -1,2117 +1,888 @@
 #include "process_av.h"
 
-#include "../input/input.h"
-#include "../output/output.h"
+#include "defines.h"
+#include "lib/defines.h"
+#include "mist/ffmpeg/node_pipeline.h"
 #include "process.hpp"
 
 #include <mist/h264.h>
+#include <mist/h265.h>
 #include <mist/mp4_generic.h>
 #include <mist/nal.h>
 #include <mist/proc_stats.h>
 #include <mist/procs.h>
 #include <mist/shared_memory.h>
+#include <mist/socket.h>
 #include <mist/triggers.h>
 #include <mist/util.h>
 
-#include <condition_variable>
-#include <cstdarg> //for libav log handling
+#include <algorithm>
+#include <cctype>
+#include <exception>
 #include <mutex>
-#include <ostream>
-#include <sys/stat.h> //for stat
-#include <sys/types.h> //for stat
+#include <sys/stat.h>
+#include <sys/types.h>
 #include <thread>
-#include <unistd.h> //for stat
+#include <unistd.h>
 
-// libav headers
-extern "C" {
-  #include "libavcodec/version.h"
-  #include "libavcodec/avcodec.h"
-  #include "libavutil/avutil.h"
-  #include "libavutil/imgutils.h"         ///< Video frame operations
-  #include "libswscale/swscale.h"         ///< Video scaling & converting pixel format
-  #include "libswresample/swresample.h"   ///< Audio resampling libs
-  #include "libavutil/audio_fifo.h"       ///< Audio resample buffer
-  #include "libavutil/channel_layout.h"   ///< Audio channels <> Speaker layouts
-//  #include <libavfilter/buffersink.h>
-//  #include <libavfilter/buffersrc.h>
-}
+// Global state variables
+FFmpeg::PipelineConfig pipelineConfig;
+FFmpeg::NodePipeline pipeline; // Initialize pipeline
+                                 //
+namespace Mist {
+  Util::Config co; // Global config
+  Util::Config conf; // Configuration instance
 
-bool allowHW = true;
-bool allowSW = true;
-bool autoUpdateFps = false;
+  // Statistics and state tracking
+  JSON::Value pStat; // Process statistics
+  JSON::Value & pData = pStat["proc_status_update"]["status"]; // Status data reference
+  std::mutex statsMutex; // Mutex for statistics access
+  uint64_t statSinkMs = 0; // Sink timestamp
+  uint64_t statSourceMs = 0; // Source timestamp
+  int64_t bootMsOffset = 0; // Boot time offset
+  bool isRawVideo = false; // Raw video mode flag
 
-Util::Config co;
-Util::Config conf;
-const AVCodec *codec_out = 0, *codec_in = 0;      ///< Decoding/encoding codecs for libav
-AVPacket* packet_out;                             ///< Buffer for encoded audio/video packets
-AVFrame *frameConverted = 0;                      ///< Buffer for encoded audio/video frames
-AVFrame *frameInHW = 0;                           ///< Buffer for frames when encoding hardware accelerated
-AVFrame *frameDecodeHW = 0;                       ///< Buffer for frames when decoding hardware accelerated
-AVAudioFifo *audioBuffer = 0;                     ///< Buffer for encoded audio samples
-AVCodecContext *context_out = 0, *context_in = 0; ///< Decoding/encoding contexts
-std::deque<uint64_t> frameTimes;                  ///< Frame timestamps
-bool frameReady = false;
-std::mutex avMutex;                       ///< Lock for reading/writing frameTimes/frameReady
-std::condition_variable avCV; ///< Condition variable for reading/writing frameTimes/frameReady
-int av_logLevel = AV_LOG_WARNING;
-char * scaler = (char*)"None";
+  // Performance tracking
+  uint64_t encPrevTime = 0; // Previous encode time
+  uint64_t encPrevCount = 0; // Previous encode count
+  uint64_t decPrevTime = 0; // Previous decode time
+  uint64_t decPrevCount = 0; // Previous decode count
 
-//Stat related stuff
-JSON::Value pStat;
-JSON::Value & pData = pStat["proc_status_update"]["status"];
-std::mutex statsMutex;
+  // Global state
+  std::atomic_uint64_t inFrames;
+  std::atomic_uint64_t outFrames;
+  bool getFirst = false;
+  bool sendFirst = false;
+  uint64_t packetTimeDiff = 0;
+  uint64_t sendPacketTime = 0;
+  JSON::Value opt;
+  ProcessSink *sinkClass = nullptr;
 
-uint64_t statSinkMs = 0;
-uint64_t statSourceMs = 0;
-int64_t bootMsOffset = 0;
-uint64_t inFpks = 0;                              ///< Framerate to set to the output video track
-uint64_t outAudioRate = 0;                        ///< Audio sampling rate to set to the output
-uint64_t outAudioChannels = 0;                    ///< Audio channel count to set to the output
-uint64_t outAudioDepth = 0;                       ///< Audio bit depth to set to the output
-std::string codecIn, codecOut;                    ///< If not raw pixels: names of encoding/decoding codecs
-bool isVideo = true;                              ///< Transcoding in video or audio mode
-uint64_t totalDecode = 0;
-uint64_t totalSinkSleep = 0;
-uint64_t totalTransform = 0;
-uint64_t totalEncode = 0;
-uint64_t totalSourceSleep = 0;
-IPC::sharedPage procStatsPage;
+  // Codec-related globals
+  bool isVideo = true;
+  std::string codecOut;
 
-uint8_t sinkCommState = COMM_STATUS_ACTSOURCEDNT;
+  // Process timing stats SHM for rate control (read by input_buffer.cpp)
+  IPC::sharedPage procStatsPage;
 
-// Virtual segment trigger timing
-uint64_t lastTriggerTime = 0;
-uint64_t processStartTime = 0;
+  // Virtual segment trigger state
+  uint64_t lastTriggerTime = 0;
+  uint64_t processStartTime = 0;
+  std::atomic_uint64_t totalOutputBytes{0};
+  std::atomic_uint64_t totalInputBytes{0};
+  uint64_t prevInFrames = 0;
+  uint64_t prevOutFrames = 0;
+  uint64_t prevOutputBytes = 0;
+  uint64_t prevInputBytes = 0;
+  uint64_t prevSourceMs = 0;
+  uint64_t prevSinkMs = 0;
 
-// Byte tracking for trigger
-uint64_t totalInputBytes = 0;
-uint64_t totalOutputBytes = 0;
+  // Runtime dimensions (tracked from source/sink threads)
+  std::atomic_uint64_t lastInWidth{0};
+  std::atomic_uint64_t lastInHeight{0};
+  std::atomic_uint64_t lastInFpks{0};
+  std::atomic_uint64_t lastOutWidth{0};
+  std::atomic_uint64_t lastOutHeight{0};
+  std::atomic_uint64_t lastSampleRate{0};
+  std::atomic_uint64_t lastChannels{0};
 
-// Previous values for delta calculation
-uint64_t prevInputFrameCount = 0;
-uint64_t prevOutputFrameCount = 0;
-uint64_t prevInputBytes = 0;
-uint64_t prevOutputBytes = 0;
-uint64_t prevSourceMs = 0;
-uint64_t prevSinkMs = 0;
+  void fireVirtualSegmentTrigger(bool isFinal);
 
-char *inputFrameCount = 0;                        ///< Stats: frames/samples ingested
-char *outputFrameCount = 0;                       ///< Stats: frames/samples outputted
-Util::ResizeablePointer ptr;                      ///< Buffer for raw pixels / audio samples
-
-// Forward declaration for virtual segment trigger
-void fireVirtualSegmentTrigger(bool isFinal);
-
-namespace Mist{
-
-  class ProcessSink : public Input{
-  private:
-    size_t trkIdx;
-    Util::ResizeablePointer ppsInfo;
-    Util::ResizeablePointer spsInfo;
-
-  public:
-    ProcessSink(Util::Config *cfg) : Input(cfg){
-      trkIdx = INVALID_TRACK_ID;
-      capa["name"] = "AV";
-      streamName = opt["sink"].asString();
-      if (!streamName.size()){streamName = opt["source"].asString();}
-      Util::streamVariables(streamName, opt["source"].asString());
-      {
-        std::lock_guard<std::mutex> guard(statsMutex);
-        pStat["proc_status_update"]["sink"] = streamName;
-        pStat["proc_status_update"]["source"] = opt["source"];
-        if (streamName != opt["source"].asStringRef()) { sinkCommState = COMM_STATUS_ACTIVE | COMM_STATUS_SOURCE; }
-      }
-      Util::setStreamName(opt["source"].asString() + "→" + streamName);
-      if (opt.isMember("target_mask") && !opt["target_mask"].isNull() && opt["target_mask"].asString() != ""){
-        DTSC::trackValidDefault = opt["target_mask"].asInt();
+  // Method implementations for ProcessSink
+  ProcessSink::ProcessSink(Util::Config *cfg) : Input(cfg) {
+    capa["name"] = "AV";
+    streamName = opt["sink"].asString();
+    if (!streamName.size()) { streamName = opt["source"].asString(); }
+    Util::streamVariables(streamName, opt["source"].asString());
+    {
+      std::lock_guard<std::mutex> guard(statsMutex);
+      pStat["proc_status_update"]["sink"] = streamName;
+      pStat["proc_status_update"]["source"] = opt["source"];
+    }
+    Util::setStreamName(opt["source"].asString() + "→" + streamName);
+    if (opt.isMember("target_mask") && !opt["target_mask"].isNull() && opt["target_mask"].asString() != "") {
+      DTSC::trackValidDefault = opt["target_mask"].asInt();
+    } else {
+      std::string codec = opt["codec"].asString();
+      if (codec == "UYVY" || codec == "YUYV" || codec == "PCM" || codec == "NV12") {
+        DTSC::trackValidDefault = TRACK_VALID_EXT_HUMAN | TRACK_VALID_INT_PROCESS;
       } else {
-        if (codecOut == "UYVY" || codecOut == "YUYV" || codecOut == "PCM" || codecOut == "NV12") {
-          DTSC::trackValidDefault = TRACK_VALID_EXT_HUMAN | TRACK_VALID_INT_PROCESS;
-        } else {
-          DTSC::trackValidDefault = TRACK_VALID_EXT_HUMAN | TRACK_VALID_EXT_PUSH;
-        }
-      }
-    };
-
-    void setNowMS(uint64_t t){
-      if (!userSelect.size()){return;}
-      meta.setNowms(userSelect.begin()->first, t);
-    }
-
-    ~ProcessSink(){ }
-
-    void parseH264(bool isKey){
-      // Get buffer pointers
-      const char* bufIt = (char*)packet_out->data;
-      uint64_t bufSize = packet_out->size;
-      const char *nextPtr;
-      const char *pesEnd = (char*)packet_out->data + bufSize;
-      uint32_t nalSize = 0;
-
-      // Parse H264-specific data
-      nextPtr = nalu::scanAnnexB(bufIt, bufSize);
-      if (!nextPtr){
-        WARN_MSG("Unable to find AnnexB data in the H264 buffer");
-        return;
-      }
-      thisPacket.null();
-      while (nextPtr < pesEnd){
-        if (!nextPtr){nextPtr = pesEnd;}
-        // Calculate size of NAL unit, removing null bytes from the end
-        nalSize = nalu::nalEndPosition(bufIt, nextPtr - bufIt) - bufIt;
-        if (nalSize){
-          // If we don't have a packet yet, init an empty packet
-          if (!thisPacket){
-            thisPacket.genericFill(thisTime, 0, 1, 0, 0, 0, isKey);
-          }
-          // Set PPS/SPS info
-          uint8_t typeNal = bufIt[0] & 0x1F;
-          if (typeNal == 0x07){
-            spsInfo.assign(std::string(bufIt, (nextPtr - bufIt)));
-          } else if (typeNal == 0x08){
-            ppsInfo.assign(std::string(bufIt, (nextPtr - bufIt)));
-          }
-          thisPacket.appendNal(bufIt, nalSize);
-        }
-        if (((nextPtr - bufIt) + 3) >= bufSize){break;}// end of the line
-        bufSize -= ((nextPtr - bufIt) + 3); // decrease the total size
-        bufIt = nextPtr + 3;
-        nextPtr = nalu::scanAnnexB(bufIt, bufSize);
+        DTSC::trackValidDefault = TRACK_VALID_EXT_HUMAN | TRACK_VALID_EXT_PUSH;
       }
     }
-
-    void parseAV1(bool isKey){
-      thisPacket.null();
-      // Get buffer pointers
-      const char* bufIt = (char*)packet_out->data;
-      uint64_t bufSize = packet_out->size;
-      thisPacket.genericFill(thisTime, 0, 1, bufIt, bufSize, 0, isKey);
-    }
-
-    void parseJPEG(){
-      thisPacket.null();
-      // Get buffer pointers
-      const char* bufIt = (char*)packet_out->data;
-      uint64_t bufSize = packet_out->size;
-      thisPacket.genericFill(thisTime, 0, 1, bufIt, bufSize, 0, 1);
-    }
-
-    /// \brief Outputs buffer as video
-    void bufferVideo(){
-      // Read from encoded buffers if we have a target codec
-      if (codec_out){
-        bool isKey = packet_out->flags & AV_PKT_FLAG_KEY;
-        if (isKey){
-          MEDIUM_MSG("Buffering %iB keyframe @%zums", packet_out->size, thisTime);
-        }else{
-          VERYHIGH_MSG("Buffering %iB packet @%zums", packet_out->size, thisTime);
-        }
-
-        if (codecOut == "AV1"){
-          parseAV1(isKey);
-        }else if (codecOut == "H264"){
-          parseH264(isKey);
-        }else if (codecOut == "JPEG"){
-          parseJPEG();
-        }
-
-        if (!thisPacket){return;}
-        // Now that we have SPS and PPS info, init the video track
-        setVideoInit();
-        if (trkIdx == INVALID_TRACK_ID){return;}
-        thisIdx = trkIdx;
-        bufferLivePacket(thisPacket);
-        totalOutputBytes += packet_out->size;
-      }else{
-        // Read from raw buffers if we have no target codec
-        if (ptr.size()){
-          VERYHIGH_MSG("Reading raw frame %" PRIu64 " of %zu bytes", (uint64_t)outputFrameCount, ptr.size());
-          // Init video track
-          setVideoInit();
-          if (trkIdx == INVALID_TRACK_ID){return;}
-          thisIdx = trkIdx;
-          bufferLivePacket(thisTime, 0, thisIdx, ptr, ptr.size(), 0, true);
-          totalOutputBytes += ptr.size();
-        }
-      }
-      if (autoUpdateFps) {
-        if (inFpks != M.getFpks(thisIdx)) { meta.setFpks(thisIdx, inFpks); }
-      }
-    }
-
-    /// \brief Outputs buffer as audio
-    void bufferAudio(){
-      // Init audio track
-      setAudioInit();
-      VERYHIGH_MSG("Buffering %iB audio packet @%zums", packet_out->size, thisTime);
-      // Set init data
-      if (context_out->extradata_size && !M.getInit(thisIdx).size()){
-        meta.setInit(thisIdx, (char*)context_out->extradata, context_out->extradata_size);
-      }
-      // Get pointers to buffer
-      const char* ptr = (char*)packet_out->data;
-      uint64_t ptrSize = packet_out->size;
-      // Buffer packet
-      if (trkIdx == INVALID_TRACK_ID){return;}
-      thisIdx = trkIdx;
-      bufferLivePacket(thisTime, 0, thisIdx, ptr, ptrSize, 0, true);
-      totalOutputBytes += ptrSize;
-    }
-
-    void streamMainLoop(){
-      uint64_t statTimer = 0;
-      uint64_t startTime = Util::bootSecs();
-      Comms::Connections statComm;
-      while (config->is_active){
-        // Get current frame time
-        {
-          uint64_t sleepTime = Util::getMicros();
-          // Wait for frame/samples to become available
-          std::unique_lock<std::mutex> lk(avMutex);
-          avCV.wait(lk,[](){return frameReady || !config->is_active;});
-          totalSinkSleep += Util::getMicros(sleepTime);
-          if (!config->is_active){return;}
-          thisTime = frameTimes.front();
-          frameTimes.pop_front();
-          if (thisTime >= statSinkMs){statSinkMs = thisTime;}
-          if (meta && meta.getBootMsOffset() != bootMsOffset){meta.setBootMsOffset(bootMsOffset);}
-
-          // Output current video/audio buffers
-          if (isVideo){
-            bufferVideo();
-          }else{
-            bufferAudio();
-          }
-          // Notify input that we require another frame
-          frameReady = false;
-        }
-        avCV.notify_all();
-
-        if (!userSelect.count(thisIdx)) { userSelect[thisIdx].reload(streamName, thisIdx, sinkCommState); }
-        if (userSelect[thisIdx].getStatus() & COMM_STATUS_REQDISCONNECT){
-          Util::logExitReason(ER_CLEAN_LIVE_BUFFER_REQ, "buffer requested shutdown");
-          break;
-        }
-        if (isSingular() && !bufferActive()){
-          Util::logExitReason(ER_SHM_LOST, "Buffer shut down");
-          return;
-        }
-
-        if (Util::bootSecs() - statTimer > 1){
-          // Connect to stats for INPUT detection
-          if (!statComm && !getenv("NOSESS")) {
-            statComm.reload(streamName, getConnectedBinHost(), JSON::Value(getpid()).asString(),
-                            "INPUT:" + capa["name"].asStringRef(), "");
-          }
-          if (statComm){
-            if (!statComm){
-              config->is_active = false;
-              Util::logExitReason(ER_CLEAN_CONTROLLER_REQ, "received shutdown request from controller");
-              return;
-            }
-            uint64_t now = Util::bootSecs();
-            statComm.setNow(now);
-            statComm.setStream(streamName);
-            statComm.setTime(now - startTime);
-            statComm.setLastSecond(0);
-            connStats(statComm);
-          }
-
-          statTimer = Util::bootSecs();
-          {
-            std::lock_guard<std::mutex> guard(statsMutex);
-            if (pData["sink_tracks"].size() != userSelect.size()){
-              pData["sink_tracks"].null();
-              for (std::map<size_t, Comms::Users>::iterator it = userSelect.begin(); it != userSelect.end(); it++){
-                pData["sink_tracks"].append((uint64_t)it->first);
-              }
-            }
-          }
-        }
-      }
-    }
-
-    /// \brief Sets init data based on the last loaded SPS and PPS data
-    void setVideoInit(){
-      if (trkIdx != INVALID_TRACK_ID){return;}
-      // We're encoding to a target codec
-      if (codec_out){
-        if (codecOut == "AV1"){
-          // Add a single track and init some metadata
-          meta.reInit(streamName, false);
-          trkIdx = meta.addTrack();
-          if (trkIdx == INVALID_TRACK_ID) {
-            FAIL_MSG("Could not add track to metadata");
-            return;
-          }
-          meta.setType(trkIdx, "video");
-          meta.setCodec(trkIdx, codecOut);
-          meta.setID(trkIdx, 1);
-          meta.setWidth(trkIdx, frameConverted->width);
-          meta.setHeight(trkIdx,  frameConverted->height);
-          if (opt.isMember("framerate") && opt["framerate"].asDouble()) {
-            meta.setFpks(trkIdx, opt["framerate"].asDouble() * 1000);
-          } else {
-            meta.setFpks(trkIdx, inFpks);
-            autoUpdateFps = true;
-          }
-          meta.setInit(trkIdx, (char*)context_out->extradata, context_out->extradata_size);
-          if (trkIdx != INVALID_TRACK_ID && !userSelect.count(trkIdx)){
-            userSelect[trkIdx].reload(streamName, trkIdx, sinkCommState);
-          }
-          INFO_MSG("AV1 track index is %zu", trkIdx);
-        } else if (codecOut == "JPEG"){
-          meta.reInit(streamName, false);
-          trkIdx = meta.addTrack();
-          if (trkIdx == INVALID_TRACK_ID) {
-            FAIL_MSG("Could not add track to metadata");
-            return;
-          }
-          meta.setType(trkIdx, "video");
-          meta.setCodec(trkIdx, codecOut);
-          meta.setID(trkIdx, 1);
-          meta.setWidth(trkIdx, frameConverted->width);
-          meta.setHeight(trkIdx,  frameConverted->height);
-          meta.setFpks(trkIdx, 0);
-          if (trkIdx != INVALID_TRACK_ID && !userSelect.count(trkIdx)){
-            userSelect[trkIdx].reload(streamName, trkIdx, sinkCommState);
-          }
-          INFO_MSG("MJPEG track index is %zu", trkIdx);
-        }else if (codecOut == "H264"){
-          if (!spsInfo.size() || !ppsInfo.size()){return;}
-          // First generate needed data
-          h264::sequenceParameterSet sps(spsInfo, spsInfo.size());
-
-          MP4::AVCC avccBox;
-          avccBox.setVersion(1);
-          avccBox.setProfile(spsInfo[1]);
-          avccBox.setCompatibleProfiles(spsInfo[2]);
-          avccBox.setLevel(spsInfo[3]);
-          avccBox.setSPSCount(1);
-          avccBox.setSPS(spsInfo, spsInfo.size());
-          avccBox.setPPSCount(1);
-          avccBox.setPPS(ppsInfo, ppsInfo.size());
-
-          // Add a single track and init some metadata
-          meta.reInit(streamName, false);
-          trkIdx = meta.addTrack();
-          if (trkIdx == INVALID_TRACK_ID) {
-            FAIL_MSG("Could not add track to metadata");
-            return;
-          }
-          meta.setType(trkIdx, "video");
-          meta.setCodec(trkIdx, "H264");
-          meta.setID(trkIdx, 1);
-          if (avccBox.payloadSize()){meta.setInit(trkIdx, avccBox.payload(), avccBox.payloadSize());}
-          meta.setWidth(trkIdx, sps.chars.width);
-          meta.setHeight(trkIdx, sps.chars.height);
-          if (opt.isMember("framerate") && opt["framerate"].asDouble()) {
-            meta.setFpks(trkIdx, opt["framerate"].asDouble() * 1000);
-          } else {
-            autoUpdateFps = true;
-            meta.setFpks(trkIdx, inFpks);
-          }
-          if (trkIdx != INVALID_TRACK_ID && !userSelect.count(trkIdx)){
-            userSelect[trkIdx].reload(streamName, trkIdx, sinkCommState);
-          }
-          INFO_MSG("H264 track index is %zu", trkIdx);
-        }
-      }else{
-        // Add a single track and init some metadata
-        meta.reInit(streamName, false);
-        size_t staticSize = Util::pixfmtToSize(codecOut, frameConverted->width, frameConverted->height);
-        if (staticSize){
-          //Known static frame sizes: raw track mode
-          trkIdx = meta.addTrack(0, 0, 0, 0, true, staticSize);
-        }else{
-          // Other cases: standard track mode
-          trkIdx = meta.addTrack();
-        }
-        if (trkIdx == INVALID_TRACK_ID) {
-          FAIL_MSG("Could not add track to metadata");
-          return;
-        }
-        meta.markUpdated(trkIdx);
-        meta.setType(trkIdx, "video");
-        meta.setCodec(trkIdx, codecOut);
-        meta.setID(trkIdx, 1);
-        meta.setWidth(trkIdx, frameConverted->width);
-        meta.setHeight(trkIdx,  frameConverted->height);
-        if (opt.isMember("framerate") && opt["framerate"].asDouble()) {
-          meta.setFpks(trkIdx, opt["framerate"].asDouble() * 1000);
-        } else {
-          autoUpdateFps = true;
-          meta.setFpks(trkIdx, inFpks);
-        }
-        if (trkIdx != INVALID_TRACK_ID && !userSelect.count(trkIdx)){
-          userSelect[trkIdx].reload(streamName, trkIdx, sinkCommState);
-        }
-        INFO_MSG("%s track index is %zu", codecOut.c_str(), trkIdx);
-      }
-    }
-
-    void setAudioInit(){
-      if (trkIdx != INVALID_TRACK_ID){return;}
-
-      // Add a single track and init some metadata
-      meta.reInit(streamName, false);
-      trkIdx = meta.addTrack();
-      meta.setType(trkIdx, "audio");
-      meta.setCodec(trkIdx, codecOut);
-      meta.setID(trkIdx, 1);
-      meta.setRate(trkIdx, outAudioRate);
-      meta.setChannels(trkIdx, outAudioChannels);
-      meta.setSize(trkIdx, outAudioDepth);
-
-      if (trkIdx != INVALID_TRACK_ID && !userSelect.count(trkIdx)){
-        userSelect[trkIdx].reload(streamName, trkIdx, sinkCommState);
-      }
-      INFO_MSG("%s track index is %zu", codecOut.c_str(), trkIdx);
-    }
-
-    bool checkArguments(){return true;}
-    bool needHeader(){return false;}
-    bool readHeader(){return true;}
-    bool openStreamSource(){return true;}
-    void parseStreamHeader(){}
-    bool needsLock(){return false;}
-    bool isSingular(){return false;}
-    virtual bool publishesTracks(){return false;}
-    void connStats(Comms::Connections &statComm){}
-  };
-
-  ProcessSink * sinkClass = 0;
-
-  class ProcessSource : public Output{
-  protected:
-    inline virtual bool keepGoing(){return config->is_active;}
-  private:
-    SwsContext *convertCtx; ///< Convert input to target-codec-compatible YUV420 format
-    SwrContext *resampleContext; ///< Resample audio formats
-    enum AVPixelFormat pixelFormat;
-    enum AVPixelFormat softFormat;
-    enum AVPixelFormat softDecodeFormat;
-    AVFrame *frame_RAW;     ///< Hold decoded frames/samples
-    int64_t pts;
-    int resampledSampleCount;
-    AVBufferRef *hw_decode_ctx;
-    AVPixelFormat hw_decode_fmt;
-    AVPixelFormat hw_decode_sw_fmt;
-    uint64_t skippedFrames; //< Amount of frames since last JPEG image
-
-    // Filter vars
-//    AVFilterContext *buffersink_ctx;
-//    AVFilterContext *buffersrc_ctx;
-//    AVFilterGraph *filter_graph;
-
-    /// \brief Prints error codes from LibAV
-    void printError(std::string preamble, int code){
-      char err[128];
-      av_strerror(code, err, sizeof(err));
-      ERROR_MSG("%s: `%s` (%i)", preamble.c_str(), err, code);
-    }
-  public:
-    bool isRecording(){return false;}
-
-    ProcessSource(Socket::Connection & c, Util::Config & _cfg, JSON::Value & _capa) : Output(c, _cfg, _capa) {
-      meta.ignorePid(getpid());
-      closeMyConn();
-      targetParams["keeptimes"] = true;
-      realTime = 0;
-      convertCtx = NULL;
-      resampleContext = NULL;
-      initialize();
-      wantRequest = false;
-      parseData = true;
-      pixelFormat = AV_PIX_FMT_NONE;
-      frame_RAW = NULL;
-      pts = 0;
-      resampledSampleCount = 0;
-      softFormat = AV_PIX_FMT_NONE;
-      softDecodeFormat = AV_PIX_FMT_NONE;
-      hw_decode_ctx = 0;
-      skippedFrames = 99999; //< Init high so that it does not skip the first keyframe
-    }
-
-    ~ProcessSource(){
-      if (convertCtx){
-        sws_freeContext(convertCtx);
-      }
-      if (resampleContext){
-        swr_free(&resampleContext);
-      }
-    }
-
-    static void init(Util::Config *cfg, JSON::Value & capa) {
-      Output::init(cfg, capa);
-      capa["name"] = "AV";
-      // Track selection
-      if (isVideo){
-        capa["codecs"][0u][0u].append("YUYV");
-        capa["codecs"][0u][0u].append("UYVY");
-        capa["codecs"][0u][0u].append("NV12");
-        capa["codecs"][0u][0u].append("H264");
-        capa["codecs"][0u][0u].append("AV1");
-        capa["codecs"][0u][0u].append("JPEG");
-      }else{
-        capa["codecs"][0u][0u].append("PCM");
-        capa["codecs"][0u][0u].append("opus");
-        capa["codecs"][0u][0u].append("AAC");
-      }
-      cfg->addOption("streamname", R"-({
-        "arg":"string",
-        "short":"s",
-        "long":"stream",
-        "help":"The name of the stream that this connector will transmit."
-      })-");
-      cfg->addBasicConnectorOptions(capa);
-    }
-
-    virtual bool onFinish(){
-      if (opt.isMember("exit_unmask") && opt["exit_unmask"].asBool()){
-        if (userSelect.size()){
-          for (std::map<size_t, Comms::Users>::iterator it = userSelect.begin(); it != userSelect.end(); it++){
-            INFO_MSG("Unmasking source track %zu" PRIu64, it->first);
-            meta.validateTrack(it->first, TRACK_VALID_ALL);
-          }
-        }
-      }
-      return Output::onFinish();
-    }
-
-    virtual void dropTrack(size_t trackId, const std::string &reason, bool probablyBad = true){
-      if (opt.isMember("exit_unmask") && opt["exit_unmask"].asBool()){
-        INFO_MSG("Unmasking source track %zu" PRIu64, trackId);
-        meta.validateTrack(trackId, TRACK_VALID_ALL);
-      }
-      Output::dropTrack(trackId, reason, probablyBad);
-    }
-
-    void sendHeader(){
-      if (opt["source_mask"].asBool()){
-        for (std::map<size_t, Comms::Users>::iterator ti = userSelect.begin(); ti != userSelect.end(); ++ti){
-          if (ti->first == INVALID_TRACK_ID){continue;}
-          INFO_MSG("Masking source track %zu", ti->first);
-          meta.validateTrack(ti->first, meta.trackValid(ti->first) & ~(TRACK_VALID_EXT_HUMAN | TRACK_VALID_EXT_PUSH));
-        }
-      }
-      realTime = 0;
-      Output::sendHeader();
-    };
-
-    void connStats(uint64_t now, Comms::Connections &statComm){
-      for (std::map<size_t, Comms::Users>::iterator it = userSelect.begin(); it != userSelect.end(); it++){
-        if (it->second){it->second.setStatus(COMM_STATUS_DONOTTRACK | it->second.getStatus());}
-      }
-    }
-
-    /// \brief Tries to open a given encoder. On success immediately configures it
-    bool tryEncoder(std::string encoder, AVHWDeviceType hwDev, AVPixelFormat pixFmt, AVPixelFormat softFmt){
-      av_logLevel = AV_LOG_DEBUG;
-      if (encoder.size()){
-        codec_out = avcodec_find_encoder_by_name(encoder.c_str());
-      }else{
-        if (codecOut == "AV1"){
-          codec_out = avcodec_find_encoder(AV_CODEC_ID_AV1);
-        }else if (codecOut == "H264"){
-          codec_out = avcodec_find_encoder(AV_CODEC_ID_H264);
-        }else if (codecOut == "JPEG"){
-          codec_out = avcodec_find_encoder(AV_CODEC_ID_MJPEG);
-        }
-      }
-      if (!codec_out) {
-        FAIL_MSG("Could not find encoder: %s", encoder.size() ? encoder.c_str() : "H264 generic");
-        return false;
-      }
-      AVCodecContext * tmpCtx = avcodec_alloc_context3(codec_out);
-      if (!tmpCtx) {
-        ERROR_MSG("Could not allocate %s %s encode context", encoder.c_str(), codecOut.c_str());
-        av_logLevel = AV_LOG_WARNING;
-        return false;
-      }
-
-      uint64_t targetFPKS = M.getFpks(getMainSelectedTrack());
-      if (opt.isMember("framerate") && opt["framerate"].asDouble()) { targetFPKS = opt["framerate"].asDouble() * 1000; }
-      if (!targetFPKS) {
-        targetFPKS = M.getEfpks(getMainSelectedTrack());
-        if (!targetFPKS) {
-          WARN_MSG("No FPS set, assuming 60 FPS for the encoder.");
-          targetFPKS = 60000;
-        }
-      }
-      uint64_t reqWidth = M.getWidth(getMainSelectedTrack());
-      uint64_t reqHeight = M.getHeight(getMainSelectedTrack());
-      if (opt.isMember("resolution") && opt["resolution"]){
-        reqWidth = strtol(opt["resolution"].asString().substr(0, opt["resolution"].asString().find("x")).c_str(), NULL, 0);
-        reqHeight = strtol(opt["resolution"].asString().substr(opt["resolution"].asString().find("x") + 1).c_str(), NULL, 0);
-      }
-      tmpCtx->bit_rate = Mist::opt["bitrate"].asInt();
-      tmpCtx->rc_max_rate = Mist::opt["bitrate"].asInt();
-      tmpCtx->rc_min_rate = 0;
-      tmpCtx->rc_buffer_size = 2 * Mist::opt["bitrate"].asInt();
-      tmpCtx->time_base.num = 1000;
-      tmpCtx->time_base.den = targetFPKS;
-      tmpCtx->codec_type = AVMEDIA_TYPE_VIDEO;
-      tmpCtx->pix_fmt = pixFmt;
-      tmpCtx->height = reqHeight;
-      tmpCtx->width = reqWidth;
-      tmpCtx->qmin = 20;
-      tmpCtx->qmax = 51;
-      tmpCtx->framerate = (AVRational){(int)targetFPKS, 1000};
-      if (codecOut == "AV1"){
-#if defined(LIBAVCODEC_VERSION_MAJOR) && LIBAVCODEC_VERSION_MAJOR >= 61
-        tmpCtx->profile = AV_PROFILE_AV1_MAIN;
-#elif defined(FF_PROFILE_AV1_MAIN)
-        tmpCtx->profile = FF_PROFILE_AV1_MAIN;
-#endif
-      }else if (codecOut == "H264"){
-#if defined(LIBAVCODEC_VERSION_MAJOR) && LIBAVCODEC_VERSION_MAJOR >= 61
-        if (Mist::opt.isMember("profile")) {
-          if (Mist::opt["profile"].asStringRef() == "main") { tmpCtx->profile = AV_PROFILE_H264_MAIN; }
-          if (Mist::opt["profile"].asStringRef() == "baseline") { tmpCtx->profile = AV_PROFILE_H264_BASELINE; }
-        }
-#elif defined(FF_PROFILE_H264_HIGH)
-        if (Mist::opt.isMember("profile")) {
-          if (Mist::opt["profile"].asStringRef() == "main") { tmpCtx->profile = FF_PROFILE_H264_MAIN; }
-          if (Mist::opt["profile"].asStringRef() == "baseline") { tmpCtx->profile = FF_PROFILE_H264_BASELINE; }
-        }
-#endif
-      }
-      tmpCtx->gop_size = Mist::opt["gopsize"].asInt();
-      tmpCtx->max_b_frames = 0;
-      tmpCtx->has_b_frames = false;
-      tmpCtx->refs = 2;
-      tmpCtx->slices = 0;
-      tmpCtx->codec_id = codec_out->id;
-      tmpCtx->compression_level = 4;
-      tmpCtx->flags &= ~AV_CODEC_FLAG_CLOSED_GOP;
-
-      AVBufferRef *hw_device_ctx = 0;
-      if (hwDev != AV_HWDEVICE_TYPE_NONE){
-        tmpCtx->refs = 0;
-        av_hwdevice_ctx_create(&hw_device_ctx, hwDev, 0, 0, 0);
-
-        if (!hw_device_ctx){
-          INFO_MSG("Could not open %s %s hardware acceleration", encoder.c_str(), codecOut.c_str());
-          avcodec_free_context(&tmpCtx);
-          av_logLevel = AV_LOG_WARNING;
-          softFormat = AV_PIX_FMT_NONE;
-          return false;
-        }
-
-        INFO_MSG("Creating hw frame context");
-        AVBufferRef *hw_frames_ref = av_hwframe_ctx_alloc(hw_device_ctx);
-
-        AVHWFramesContext *frames_ctx; 
-        frames_ctx = (AVHWFramesContext *)(hw_frames_ref->data);
-        frames_ctx->initial_pool_size = 1;
-        frames_ctx->format    = pixFmt;
-        frames_ctx->sw_format = softFmt;
-        softFormat = softFmt;
-        frames_ctx->width     = reqWidth;
-        frames_ctx->height    = reqHeight;
-
-        av_hwframe_ctx_init(hw_frames_ref);
-        tmpCtx->hw_frames_ctx = av_buffer_ref(hw_frames_ref);
-
-        INFO_MSG("Creating hw frame memory");
-
-        frameInHW = av_frame_alloc();
-        av_hwframe_get_buffer(tmpCtx->hw_frames_ctx, frameInHW, 0);
-      }
-
-      INFO_MSG("Initing codec...");
-      int ret;
-      if (hwDev == AV_HWDEVICE_TYPE_CUDA){
-        AVDictionary *avDict = NULL;
-        if (codecOut == "H264" && Mist::opt["tune"].asString() == "zerolatency"){
-          av_dict_set(&avDict, "preset", "ll", 0);
-          av_dict_set(&avDict, "tune", "ull", 0);
-        }
-        if (Mist::opt["tune"].asString() == "zerolatency-lq"){
-          av_dict_set(&avDict, "preset", "llhp", 0);
-          av_dict_set(&avDict, "tune", "ull", 0);
-        }
-        if (Mist::opt["tune"].asString() == "zerolatency-hq"){
-          av_dict_set(&avDict, "preset", "llhq", 0);
-          av_dict_set(&avDict, "tune", "ull", 0);
-        }
-        av_dict_set(&avDict, "rc", "cbr", 0);
-        if (codecOut == "H264"){
-#if defined(LIBAVCODEC_VERSION_MAJOR) && LIBAVCODEC_VERSION_MAJOR >= 61
-          if (tmpCtx->profile == AV_PROFILE_H264_BASELINE) { av_dict_set(&avDict, "profile", "0", 0); }
-          if (tmpCtx->profile == AV_PROFILE_H264_MAIN) { av_dict_set(&avDict, "profile", "1", 0); }
-          if (tmpCtx->profile == AV_PROFILE_H264_HIGH) { av_dict_set(&avDict, "profile", "2", 0); }
-#elif defined(FF_PROFILE_H264_BASELINE)
-          if (tmpCtx->profile == FF_PROFILE_H264_BASELINE) { av_dict_set(&avDict, "profile", "0", 0); }
-          if (tmpCtx->profile == FF_PROFILE_H264_MAIN) { av_dict_set(&avDict, "profile", "1", 0); }
-          if (tmpCtx->profile == FF_PROFILE_H264_HIGH) { av_dict_set(&avDict, "profile", "2", 0); }
-#endif
-        }
-        ret = avcodec_open2(tmpCtx, codec_out, &avDict);
-      }else if (hwDev == AV_HWDEVICE_TYPE_QSV){
-        AVDictionary *avDict = NULL;
-        if (codecOut == "H264"){
-          av_dict_set(&avDict, "preset", "medium", 0);
-#if defined(LIBAVCODEC_VERSION_MAJOR) && LIBAVCODEC_VERSION_MAJOR >= 61
-          if (tmpCtx->profile == AV_PROFILE_H264_BASELINE) { av_dict_set(&avDict, "profile", "66", 0); }
-          if (tmpCtx->profile == AV_PROFILE_H264_MAIN) { av_dict_set(&avDict, "profile", "77", 0); }
-          if (tmpCtx->profile == AV_PROFILE_H264_HIGH) { av_dict_set(&avDict, "profile", "100", 0); }
-#elif defined(FF_PROFILE_H264_BASELINE)
-          if (tmpCtx->profile == FF_PROFILE_H264_BASELINE) { av_dict_set(&avDict, "profile", "66", 0); }
-          if (tmpCtx->profile == FF_PROFILE_H264_MAIN) { av_dict_set(&avDict, "profile", "77", 0); }
-          if (tmpCtx->profile == FF_PROFILE_H264_HIGH) { av_dict_set(&avDict, "profile", "100", 0); }
-#endif
-        }
-        av_dict_set(&avDict, "look_ahead", "0", 0);
-        ret = avcodec_open2(tmpCtx, codec_out, &avDict);
-      }else{
-        AVDictionary *avDict = NULL;
-        if (codecOut == "H264"){
-          // x264 has basically 2 useful encode modes:
-          // - average bit rate (default)
-          // - constant quality (if crf is set greater than zero)
-          // In both cases the max bit rate setting is obeyed
-          if (Mist::opt.isMember("crf") && Mist::opt["crf"].asInt()) {
-            av_dict_set(&avDict, "crf", std::to_string(Mist::opt["crf"].asInt()).c_str(), 0);
-          }
-          if (Mist::opt["tune"] == "zerolatency-lq"){Mist::opt["tune"] = "zerolatency";}
-          if (Mist::opt["tune"] == "zerolatency-hq"){Mist::opt["tune"] = "zerolatency";}
-          av_dict_set(&avDict, "tune", Mist::opt["tune"].asString().c_str(), 0);
-          av_dict_set(&avDict, "preset", Mist::opt["preset"].asString().c_str(), 0);
-        }else if (codecOut =="AV1"){
-          tmpCtx->thread_count = 8;
-        }
-        ret = avcodec_open2(tmpCtx, codec_out, &avDict);
-      }
-
-      if (ret < 0) {
-        if (hw_device_ctx){av_buffer_unref(&hw_device_ctx);}
-        if (frameInHW){av_frame_free(&frameInHW);}
-        avcodec_free_context(&tmpCtx);
-        printError("Could not open " + codecIn + " codec context", ret);
-        av_logLevel = AV_LOG_WARNING;
-        softFormat = AV_PIX_FMT_NONE;
-        return false;
-      }
-      context_out = tmpCtx;
-
-      av_logLevel = AV_LOG_WARNING;
-      return true;
-    }
-
-    /// \brief Tries various encoders for video transcoding
-    void allocateVideoEncoder(){
-      // Prepare target codec encoder
-      if (!context_out && (codecOut == "H264" || codecOut == "AV1" || codecOut == "JPEG")) {
-        INFO_MSG("Initting %s encoder", codecOut.c_str());
-        if(codecOut == "H264"){
-          // if (!allowHW || !tryEncoder("h264_qsv", AV_HWDEVICE_TYPE_QSV, AV_PIX_FMT_QSV, AV_PIX_FMT_YUV420P)){
-            if (!allowHW || !tryEncoder("h264_nvenc", AV_HWDEVICE_TYPE_CUDA, AV_PIX_FMT_CUDA, AV_PIX_FMT_YUV420P)){
-              INFO_MSG("Falling back to software encoder.");
-              if (!allowSW || !tryEncoder("", AV_HWDEVICE_TYPE_NONE, AV_PIX_FMT_YUV420P, AV_PIX_FMT_NONE)){
-                ERROR_MSG("Could not allocate H264 context");
-                exit(1);
-              }
-            }
-          // }
-        }else if(codecOut == "AV1"){
-          // if (!allowHW || !tryEncoder("av1_qsv", AV_HWDEVICE_TYPE_QSV, AV_PIX_FMT_QSV, AV_PIX_FMT_YUV420P)){
-            if (!allowHW || !tryEncoder("av1_nvenc", AV_HWDEVICE_TYPE_CUDA, AV_PIX_FMT_CUDA, AV_PIX_FMT_YUV420P)){
-              INFO_MSG("Falling back to software encoder.");
-              if (!allowSW || !tryEncoder("", AV_HWDEVICE_TYPE_NONE, AV_PIX_FMT_YUV420P, AV_PIX_FMT_NONE)){
-                ERROR_MSG("Could not allocate AV1 context");
-                exit(1);
-              }
-            }
-          // }
-        }else if(codecOut == "JPEG"){
-          // Default to a software transcode
-          if (!allowSW || !tryEncoder("", AV_HWDEVICE_TYPE_NONE, AV_PIX_FMT_YUVJ420P, AV_PIX_FMT_NONE)){
-            // if (!allowHW || !tryEncoder("mjpeg_qsv", AV_HWDEVICE_TYPE_QSV, AV_PIX_FMT_QSV, AV_PIX_FMT_YUVJ420P)){
-              if (!allowHW || !tryEncoder("mjpeg_nvenc", AV_HWDEVICE_TYPE_CUDA, AV_PIX_FMT_CUDA, AV_PIX_FMT_YUVJ420P)){
-                  ERROR_MSG("Could not allocate AV1 context");
-                  exit(1);
-              }
-            // }
-          }
-
-
-        }
-        INFO_MSG("%s encoder initted", codecOut.c_str());
-      }
-
-      if (!inFpks) {
-        inFpks = M.getFpks(thisIdx);
-        if (!inFpks) { inFpks = M.getEfpks(thisIdx); }
-      }
-    }
-
-    void allocateAudioEncoder(){
-      if (codec_out && !context_out) {
-        AVDictionary *avDict = NULL;
-        INFO_MSG("Allocating %s encoder", codecOut.c_str());
-        AVCodecContext * tmpCtx = avcodec_alloc_context3(codec_out);
-        if (!tmpCtx) {
-          ERROR_MSG("Could not allocate %s context", codecOut.c_str());
-          exit(1);
-        }
-
-        tmpCtx->bit_rate = Mist::opt["bitrate"].asInt();
-        tmpCtx->time_base = (AVRational){1, (int)M.getRate(getMainSelectedTrack())};
-        tmpCtx->codec_type = AVMEDIA_TYPE_AUDIO;
-        tmpCtx->strict_std_compliance = FF_COMPLIANCE_EXPERIMENTAL;
-
-        // Retrieve audio bit depth
-        uint16_t depth = M.getSize(getMainSelectedTrack());
-        if (depth == 16){
-          tmpCtx->sample_fmt = AV_SAMPLE_FMT_S16;
-        }else if (depth == 32){
-          tmpCtx->sample_fmt = AV_SAMPLE_FMT_S32;
-        }
-
-        // Retrieve audio sample rate
-        tmpCtx->sample_rate = M.getRate(getMainSelectedTrack());
-        if (Mist::opt.isMember("sample_rate")) { tmpCtx->sample_rate = Mist::opt["sample_rate"].asInt(); }
-
-        // Retrieve audio channel count / layout
-        #if (LIBAVUTIL_VERSION_MAJOR < 57 || (LIBAVUTIL_VERSION_MAJOR == 57 && LIBAVUTIL_VERSION_MINOR < 24))
-          tmpCtx->channels = M.getChannels(getMainSelectedTrack());
-          outAudioChannels = tmpCtx->channels;
-        #else
-          tmpCtx->ch_layout.nb_channels = M.getChannels(getMainSelectedTrack());
-          outAudioChannels = tmpCtx->ch_layout.nb_channels;
-        #endif
-
-        #if (LIBAVUTIL_VERSION_MAJOR < 57 || (LIBAVUTIL_VERSION_MAJOR == 57 && LIBAVUTIL_VERSION_MINOR < 24))
-          if (tmpCtx->channels == 1){
-            tmpCtx->channel_layout = AV_CH_LAYOUT_MONO;
-          }else if (tmpCtx->channels == 2){
-            tmpCtx->channel_layout = AV_CH_LAYOUT_STEREO;
-          }else if (tmpCtx->channels == 8){
-            tmpCtx->channel_layout = AV_CH_LAYOUT_7POINT1;
-          }else if (tmpCtx->channels == 16){
-            tmpCtx->channel_layout = AV_CH_LAYOUT_HEXADECAGONAL;
-            if (codecOut == "opus"){
-              av_dict_set_int(&avDict, "mapping_family", 255, 0);
-            }else if (codecOut == "AAC"){
-              WARN_MSG("AAC supports a max of 8 channels, dropping the last 8 channels...");
-              outAudioChannels = 8;
-              tmpCtx->channel_layout = AV_CH_LAYOUT_7POINT1;
-            }
-          }
-        #else
-          if (tmpCtx->ch_layout.nb_channels == 1){
-            tmpCtx->ch_layout = AV_CHANNEL_LAYOUT_MONO;
-          }else if (tmpCtx->ch_layout.nb_channels == 2){
-            tmpCtx->ch_layout = AV_CHANNEL_LAYOUT_STEREO;
-          }else if (tmpCtx->ch_layout.nb_channels == 8){
-            tmpCtx->ch_layout = AV_CHANNEL_LAYOUT_7POINT1;
-          }else if (tmpCtx->ch_layout.nb_channels == 16){
-            tmpCtx->ch_layout = AV_CHANNEL_LAYOUT_HEXADECAGONAL;
-            if (codecOut == "opus"){
-              av_dict_set_int(&avDict, "mapping_family", 255, 0);
-            }else if (codecOut == "AAC"){
-              WARN_MSG("AAC supports a max of 8 channels, dropping the last 8 channels...");
-              outAudioChannels = 8;
-              tmpCtx->ch_layout = AV_CHANNEL_LAYOUT_7POINT1;
-            }
-          }
-        #endif
-
-        // Codec-specific overrides
-        if (codecOut == "AAC"){
-          tmpCtx->sample_fmt = AV_SAMPLE_FMT_FLTP;
-#if defined(LIBAVCODEC_VERSION_MAJOR) && LIBAVCODEC_VERSION_MAJOR >= 61
-          tmpCtx->profile = AV_PROFILE_AAC_LOW;
-          if (Mist::opt.isMember("profile")) {
-            if (Mist::opt["profile"].asStringRef() == "main") { tmpCtx->profile = AV_PROFILE_AAC_MAIN; }
-            if (Mist::opt["profile"].asStringRef() == "he") { tmpCtx->profile = AV_PROFILE_AAC_HE; }
-          }
-#elif defined(FF_PROFILE_AAC_MAIN)
-          tmpCtx->profile = FF_PROFILE_AAC_LOW;
-          if (Mist::opt.isMember("profile")) {
-            if (Mist::opt["profile"].asStringRef() == "main") { tmpCtx->profile = FF_PROFILE_AAC_MAIN; }
-            if (Mist::opt["profile"].asStringRef() == "he") { tmpCtx->profile = FF_PROFILE_AAC_HE; }
-          }
-#endif
-          depth = 16;
-        }else if (codecOut == "opus"){
-          tmpCtx->sample_fmt = AV_SAMPLE_FMT_S16;
-          tmpCtx->sample_rate = 48000;
-          tmpCtx->time_base = (AVRational){1, 48000};
-          if (tmpCtx->bit_rate < 500){
-            WARN_MSG("Opus does not support a bitrate of %lu, clipping to 500", tmpCtx->bit_rate);
-            tmpCtx->bit_rate = 500;
-          } else if (tmpCtx->bit_rate > 256000) {
-            WARN_MSG("Opus does not support a bitrate of %lu, clipping to 128000", tmpCtx->bit_rate);
-            tmpCtx->bit_rate = 128000;
-          }
-          depth = 16;
-        }else if (codecOut == "PCM"){
-          tmpCtx->sample_fmt = AV_SAMPLE_FMT_S32;
-          depth = 32;
-        }else{
-          avcodec_free_context(&tmpCtx);
-          ERROR_MSG("Unsupported audio codec %s.", codecOut.c_str());
-          return;
-        }
-
-        // Set globals so the output can set meta track info correctly
-        outAudioRate = tmpCtx->sample_rate;
-        outAudioDepth = depth;
-
-        int ret = avcodec_open2(tmpCtx, codec_out, &avDict);
-        if (ret < 0) {
-          avcodec_free_context(&tmpCtx);
-          printError("Could not open " + codecOut + " codec context", ret);
-          return;
-        }
-        context_out = tmpCtx;
-        INFO_MSG("%s encoder allocated", codecOut.c_str());
-      }
-    }
-
-    /// \brief Tries to open a given encoder. On success immediately configures it
-    bool tryDecoder(std::string decoder, AVHWDeviceType hwDev, AVPixelFormat pixFmt, AVPixelFormat softFmt){
-      av_logLevel = AV_LOG_DEBUG;
-       if (decoder.size()){
-         codec_in = avcodec_find_decoder_by_name(decoder.c_str());
-      }else{
-        if (codecIn == "AV1"){
-          codec_in = avcodec_find_decoder(AV_CODEC_ID_AV1);
-        }else if (codecIn == "JPEG"){
-          codec_in = avcodec_find_decoder(AV_CODEC_ID_MJPEG);
-        }else if (codecIn == "H264"){
-          codec_in = avcodec_find_decoder(AV_CODEC_ID_H264);
-        }else{
-          codec_in = avcodec_find_decoder(AV_CODEC_ID_H264);
-        }
-      }
-      AVCodecContext * tmpCtx = avcodec_alloc_context3(codec_in);
-      if (!tmpCtx) {
-        ERROR_MSG("Could not allocate %s %s decode context", decoder.c_str(), codecIn.c_str());
-        av_logLevel = AV_LOG_WARNING;
-        return false;
-      }
-
-      std::string init = M.getInit(thisIdx);
-      tmpCtx->extradata = (unsigned char *)malloc(init.size());
-      tmpCtx->extradata_size = init.size();
-      memcpy(tmpCtx->extradata, init.data(), init.size());
-
-      uint64_t h = M.getHeight(thisIdx);
-      uint64_t w = M.getWidth(thisIdx);
-      tmpCtx->pix_fmt = pixFmt;
-      tmpCtx->height = h;
-      tmpCtx->width = w;
-
-      if (hwDev != AV_HWDEVICE_TYPE_NONE){
-        tmpCtx->refs = 0;
-        av_hwdevice_ctx_create(&hw_decode_ctx, hwDev, 0, 0, 0);
-
-        if (!hw_decode_ctx){
-          INFO_MSG("Could not open %s %s hardware decode acceleration", decoder.c_str(), codecIn.c_str());
-          avcodec_free_context(&tmpCtx);
-          av_logLevel = AV_LOG_WARNING;
-          softDecodeFormat = AV_PIX_FMT_NONE;
-          return false;
-        }
-
-        INFO_MSG("Creating hw frame context");
-        AVBufferRef *hw_frames_ref = av_hwframe_ctx_alloc(hw_decode_ctx);
-
-        AVHWFramesContext *frames_ctx; 
-        frames_ctx = (AVHWFramesContext *)(hw_frames_ref->data);
-        frames_ctx->initial_pool_size = 1;
-        frames_ctx->format    = pixFmt;
-        frames_ctx->sw_format = softFmt;
-        softDecodeFormat = softFmt;
-        frames_ctx->width     = w;
-        frames_ctx->height    = h;
-        hw_decode_fmt         = pixFmt;
-        hw_decode_sw_fmt      = softFmt;
-
-        av_hwframe_ctx_init(hw_frames_ref);
-        tmpCtx->hw_frames_ctx = av_buffer_ref(hw_frames_ref);
-
-        INFO_MSG("Creating hw frame memory");
-
-        frameDecodeHW = av_frame_alloc();
-        av_hwframe_get_buffer(tmpCtx->hw_frames_ctx, frameDecodeHW, 0);
-      }
-
-      INFO_MSG("Initing codec...");
-      int ret = avcodec_open2(tmpCtx, codec_in, 0);
-
-      if (ret < 0) {
-        if (hw_decode_ctx) {
-          av_buffer_unref(&hw_decode_ctx);
-          hw_decode_ctx = NULL;
-        }
-        if (frameDecodeHW){av_frame_free(&frameDecodeHW);}
-        avcodec_free_context(&tmpCtx);
-        printError("Could not open " + codecOut + " codec context", ret);
-        av_logLevel = AV_LOG_WARNING;
-        softDecodeFormat = AV_PIX_FMT_NONE;
-        return false;
-      }
-      context_in = tmpCtx;
-
-      av_logLevel = AV_LOG_WARNING;
-      return true;
-    }
-
-    /// \brief Init some flags and variables based on the input track
-    bool configVideoDecoder(){
-      // We only need to do this once
-      if (pixelFormat == AV_PIX_FMT_NONE && !codec_in){
-        codecIn = M.getCodec(thisIdx);
-        // Only set pixel formats for RAW inputs
-        if (codecIn == "YUYV"){
-          pixelFormat = AV_PIX_FMT_YUYV422;
-        }else if(codecIn == "UYVY"){
-          pixelFormat = AV_PIX_FMT_UYVY422;
-        }else if(codecIn == "NV12"){
-          pixelFormat = AV_PIX_FMT_NV12;
-        }else if(codecIn == "H264"){
-          if (!allowHW || !tryDecoder("h264_cuvid", AV_HWDEVICE_TYPE_CUDA, AV_PIX_FMT_CUDA, AV_PIX_FMT_YUV420P)){
-            // if (!allowHW || !tryDecoder("h264_qsv", AV_HWDEVICE_TYPE_QSV, AV_PIX_FMT_QSV, AV_PIX_FMT_YUV420P)){
-              if (!allowSW){
-                INFO_MSG("Disallowing software decode, aborting!");
-                return false;
-              }
-              INFO_MSG("Falling back to software decoding");
-              tryDecoder("", AV_HWDEVICE_TYPE_NONE, AV_PIX_FMT_YUV420P, AV_PIX_FMT_NONE);
-            // }
-          }
-        }else if(codecIn == "AV1"){
-          if (!allowHW || !tryDecoder("av1_cuvid", AV_HWDEVICE_TYPE_CUDA, AV_PIX_FMT_CUDA, AV_PIX_FMT_YUV420P)){
-            // if (!allowHW || !tryDecoder("av1_qsv", AV_HWDEVICE_TYPE_QSV, AV_PIX_FMT_QSV, AV_PIX_FMT_YUV420P)){
-              if (!allowSW){
-                INFO_MSG("Disallowing software decode, aborting!");
-                return false;
-              }
-              INFO_MSG("Falling back to software decoding");
-              tryDecoder("", AV_HWDEVICE_TYPE_NONE, AV_PIX_FMT_YUV420P, AV_PIX_FMT_NONE);
-            // }
-          }
-        }else if(codecIn == "JPEG"){
-          // Init MJPEG decoder
-          if (!codec_in){
-            codec_in = avcodec_find_decoder(AV_CODEC_ID_MJPEG);
-            AVCodecContext * tmpCtx = avcodec_alloc_context3(codec_in);
-            if (!tmpCtx) {
-              ERROR_MSG("Could not allocate MJPEG decode context");
-              return false;
-            }
-            int ret = avcodec_open2(tmpCtx, codec_in, 0);
-            if (ret < 0) {
-              avcodec_free_context(&tmpCtx);
-              printError("Could not open MJPEG decode context", ret);
-              return false;
-            }
-            context_in = tmpCtx;
-            INFO_MSG("MJPEG decoder allocated!");
-          }
-        }else{
-          ERROR_MSG("Unknown input codec %s", codecIn.c_str());
-          return false;
-        }
-      }
-      return true;
-    }
-
-    bool configAudioDecoder(){
-      if (!codec_in){
-        codecIn = M.getCodec(thisIdx);
-        // NOTE: PCM has a 'codec' in LibAV for decoding and encoding which is used for encoding/decoding
-        if(codecIn == "PCM"){
-          uint16_t depth = M.getSize(getMainSelectedTrack());
-          if (depth == 16){
-            codec_in = avcodec_find_decoder(AV_CODEC_ID_PCM_S16BE);
-          }else if (depth == 32){
-            codec_in = avcodec_find_decoder(AV_CODEC_ID_PCM_S32BE);
-          }
-
-          AVCodecContext * tmpCtx = avcodec_alloc_context3(codec_in);
-          if (!tmpCtx) {
-            ERROR_MSG("Could not allocate PCM decode context");
-            return false;
-          }
-
-          #if (LIBAVUTIL_VERSION_MAJOR < 57 || (LIBAVUTIL_VERSION_MAJOR == 57 && LIBAVUTIL_VERSION_MINOR < 24))
-            tmpCtx->channels = M.getChannels(getMainSelectedTrack());
-          #else
-            tmpCtx->ch_layout.nb_channels = M.getChannels(getMainSelectedTrack());
-          #endif
-
-          #if (LIBAVUTIL_VERSION_MAJOR < 57 || (LIBAVUTIL_VERSION_MAJOR == 57 && LIBAVUTIL_VERSION_MINOR < 24))
-            if (tmpCtx->channels == 1){
-              tmpCtx->channel_layout = AV_CH_LAYOUT_MONO;
-            }else if (tmpCtx->channels == 2){
-              tmpCtx->channel_layout = AV_CH_LAYOUT_STEREO;
-            }else if (tmpCtx->channels == 8){
-              tmpCtx->channel_layout = AV_CH_LAYOUT_7POINT1;
-            }else if (tmpCtx->channels == 16){
-              tmpCtx->channel_layout = AV_CH_LAYOUT_HEXADECAGONAL;
-            }
-          #else
-            if (tmpCtx->ch_layout.nb_channels == 1){
-              tmpCtx->ch_layout = AV_CHANNEL_LAYOUT_MONO;
-            }else if (tmpCtx->ch_layout.nb_channels == 2){
-              tmpCtx->ch_layout = AV_CHANNEL_LAYOUT_STEREO;
-            }else if (tmpCtx->ch_layout.nb_channels == 8){
-              tmpCtx->ch_layout = AV_CHANNEL_LAYOUT_7POINT1;
-            }else if (tmpCtx->ch_layout.nb_channels == 16){
-              tmpCtx->ch_layout = AV_CHANNEL_LAYOUT_HEXADECAGONAL;
-            }
-          #endif
-
-          tmpCtx->sample_rate = M.getRate(getMainSelectedTrack());
-          if (depth == 16){
-            tmpCtx->sample_fmt = AV_SAMPLE_FMT_S16;
-          }else if (depth == 32){
-            tmpCtx->sample_fmt = AV_SAMPLE_FMT_S32;
-          }
-
-          int ret = avcodec_open2(tmpCtx, codec_in, 0);
-          if (ret < 0) {
-            avcodec_free_context(&tmpCtx);
-            printError("Could not open PCM decode context", ret);
-            return false;
-          }
-
-          context_in = tmpCtx;
-          INFO_MSG("PCM decoder allocated!");
-        }else if(codecIn == "opus"){
-          codec_in = avcodec_find_decoder(AV_CODEC_ID_OPUS);
-          AVCodecContext * tmpCtx = avcodec_alloc_context3(codec_in);
-          if (!tmpCtx) {
-            ERROR_MSG("Could not allocate opus decode context");
-            return false;
-          }
-          std::string init = M.getInit(thisIdx);
-          if (init.size()){
-            tmpCtx->extradata = (unsigned char *)malloc(init.size());
-            tmpCtx->extradata_size = init.size();
-            memcpy(tmpCtx->extradata, init.data(), init.size());
-          }
-          int ret = avcodec_open2(tmpCtx, codec_in, 0);
-          if (ret < 0) {
-            avcodec_free_context(&tmpCtx);
-            printError("Could not open opus decode context", ret);
-            return false;
-          }
-          context_in = tmpCtx;
-          INFO_MSG("Opus decoder allocated!");
-        }else if(codecIn == "AAC"){
-          codec_in = avcodec_find_decoder(AV_CODEC_ID_AAC);
-          AVCodecContext * tmpCtx = avcodec_alloc_context3(codec_in);
-          if (!tmpCtx) {
-            ERROR_MSG("Could not allocate AAC decode context");
-            return false;
-          }
-          std::string init = M.getInit(thisIdx);
-          tmpCtx->extradata = (unsigned char *)malloc(init.size());
-          tmpCtx->extradata_size = init.size();
-          memcpy(tmpCtx->extradata, init.data(), init.size());
-
-          int ret = avcodec_open2(tmpCtx, codec_in, 0);
-          if (ret < 0) {
-            avcodec_free_context(&tmpCtx);
-            printError("Could not open AAC decode context", ret);
-            return false;
-          }
-          context_in = tmpCtx;
-          INFO_MSG("AAC decoder allocated!");
-        }else{
-          ERROR_MSG("Unknown input codec %s", codecIn.c_str());
-          return false;
-        }
-      }
-      return true;
-    }
-
-    /// \brief Decode frame using the configured decoding context
-    bool decodeFrame(char *dataPointer, size_t dataLen){
-      // Allocate packet
-      AVPacket *packet_in = av_packet_alloc();
-      av_new_packet(packet_in, dataLen);
-      // Copy buffer to packet
-      memcpy(packet_in->data, dataPointer, dataLen);
-      // Send packet to decoding context
-      int ret = avcodec_send_packet(context_in, packet_in);
-      av_packet_free(&packet_in);
-      if (ret < 0) {
-        printError("Error sending a packet for decoding", ret);
-        return false;
-      }
-      // Retrieve RAW packet from decoding context
-      if (frameDecodeHW){
-        ret = avcodec_receive_frame(context_in, frameDecodeHW);
-        if (!frameDecodeHW->width || !frameDecodeHW->height) {
-          INFO_MSG("Ignoring invalid frame");
-          return false;
-        }
-        if (frameDecodeHW->format == AV_PIX_FMT_NV12){
-          pixelFormat = AV_PIX_FMT_NV12;
-          frame_RAW = frameDecodeHW;
-        }else{
-          pixelFormat = softDecodeFormat;
-        }
-        // Allocate RAW frame
-        if (!frame_RAW){
-          if (!(frame_RAW = av_frame_alloc())){
-            ERROR_MSG("Unable to allocate raw frame");
-            return false;
-          }
-          frame_RAW->width  = frameDecodeHW->width;
-          frame_RAW->height = frameDecodeHW->height;
-          frame_RAW->format = pixelFormat;
-          // Allocate buffer
-          int ret = av_frame_get_buffer(frame_RAW, 0);
-          if (ret < 0){
-            av_frame_free(&frame_RAW);
-            frame_RAW = 0;
-            printError("Could not allocate RAW buffer", ret);
-            return false;
-          }
-          av_image_fill_linesizes(frame_RAW->linesize, pixelFormat, frame_RAW->width);
-          INFO_MSG("Raw video frame allocated for hardware download!");
-        }
-      }else{
-        // Allocate RAW frame
-        if (!frame_RAW){
-          if (!(frame_RAW = av_frame_alloc())){
-            ERROR_MSG("Unable to allocate raw frame");
-            return false;
-          }
-        }
-        ret = avcodec_receive_frame(context_in, frame_RAW);
-        // Set the pixel format to whatever the decoder detected
-        pixelFormat = (AVPixelFormat)frame_RAW->format;
-      }
-      if (ret < 0) {
-        printError("Error during decoding", ret);
-        return false;
-      }
-      return true;
-    }
-
-    /// \brief Decode video frame, given packet data
-    bool decodeVideoFrame(char *dataPointer, size_t dataLen){
-      ++inputFrameCount;
-
-      // Generic case with a allocated decoding context
-      if (context_in){
-        if(decodeFrame(dataPointer, dataLen)){return true;}
-        return false;
-      }
-
-      // RAW input, we have to allocate and config the RAW frame manually
-      if (!frame_RAW){
-        if (!(frame_RAW = av_frame_alloc())){
-          ERROR_MSG("Unable to open RAW frame");
-          return false;
-        }
-        // Config based on the target codec.
-        // NOTE: this assumes that we're transcoding from RAW->non-RAW
-        // NOTE: this needs adjustment if we ever add a variable output resolution
-        frame_RAW->width  = context_out->width;
-        frame_RAW->height = context_out->height;
-        frame_RAW->format = pixelFormat;
-
-        // Allocate buffer
-        int ret = av_frame_get_buffer(frame_RAW, 0);
-        if (ret < 0){
-          av_frame_free(&frame_RAW);
-          frame_RAW = 0;
-          printError("Could not allocate RAW buffer", ret);
-          return false;
-        }
-        av_image_fill_linesizes(frame_RAW->linesize, pixelFormat, frame_RAW->width);
-        INFO_MSG("Raw video frame allocated!");
-      }
-
-      // Load pixel data from DTSC packet into buffer
-      av_image_fill_pointers(frame_RAW->data, pixelFormat, frame_RAW->height, (uint8_t *)dataPointer, frame_RAW->linesize);
-      return true;
-    }
-
-    /// \brief Transforms the RAW video buffer to have required output properties
-    bool transformVideoFrame(){
-
-
-      AVPixelFormat convertToPixFmt;
-      if (codecOut == "H264"){
-        if (softFormat == AV_PIX_FMT_NONE){
-          convertToPixFmt = context_out->pix_fmt;
-        }else{
-          convertToPixFmt = softFormat;
-        }
-      }else if (codecOut == "AV1"){
-        if (softFormat == AV_PIX_FMT_NONE){
-          convertToPixFmt = context_out->pix_fmt;
-        }else{
-          convertToPixFmt = softFormat;
-        }
-      }else if (codecOut == "JPEG"){
-        if (softFormat == AV_PIX_FMT_NONE){
-          convertToPixFmt = context_out->pix_fmt;
-        }else{
-          convertToPixFmt = softFormat;
-        }
-      }else if (codecOut == "YUYV"){
-        convertToPixFmt = AV_PIX_FMT_YUYV422;
-      }else if (codecOut == "UYVY"){
-        convertToPixFmt = AV_PIX_FMT_UYVY422;
-      }
-
-      if (frameDecodeHW && frameDecodeHW != frame_RAW && (!frameInHW || softDecodeFormat != convertToPixFmt )){
-        int ret = av_hwframe_transfer_data(frame_RAW, frameDecodeHW, 0);
-        if (ret){
-          INFO_MSG("Transferring from %s to %s",av_get_pix_fmt_name((enum AVPixelFormat)frameDecodeHW->format),av_get_pix_fmt_name((enum AVPixelFormat)frame_RAW->format));
-          printError("Unable to download frame from the hardware", ret);
-          return false;
-        }
-      }
-
-
-
-      // Create context to convert the pixel format
-      // NOTE: this is done here, rather than in the allocate and config
-      //        functions, as frame_RAW is initted during decoding 
-      if (convertToPixFmt == AV_PIX_FMT_VAAPI){
-
-/*
-        const char *filters_descr = "vaapi_npp";
-
-        char args[512];
-        int ret = 0;
-        const AVFilter *buffersrc  = avfilter_get_by_name("buffer");
-        const AVFilter *buffersink = avfilter_get_by_name("buffersink");
-        AVFilterInOut *outputs = avfilter_inout_alloc();
-        AVFilterInOut *inputs  = avfilter_inout_alloc();
-        AVRational time_base = fmt_ctx->streams[video_stream_index]->time_base;
-        enum AVPixelFormat pix_fmts[] = { AV_PIX_FMT_GRAY8, AV_PIX_FMT_NONE };
-     
-        filter_graph = avfilter_graph_alloc();
-        if (!outputs || !inputs || !filter_graph) {
-            ret = AVERROR(ENOMEM);
-            goto end;
-        }
-     
-        // buffer video source: the decoded frames from the decoder will be inserted here.
-        snprintf(args, sizeof(args),
-                "video_size=%dx%d:pix_fmt=%d:time_base=%d/%d:pixel_aspect=%d/%d",
-                dec_ctx->width, dec_ctx->height, dec_ctx->pix_fmt,
-                time_base.num, time_base.den,
-                dec_ctx->sample_aspect_ratio.num, dec_ctx->sample_aspect_ratio.den);
-     
-        ret = avfilter_graph_create_filter(&buffersrc_ctx, buffersrc, "in",
-                                           args, NULL, filter_graph);
-        if (ret < 0) {
-            av_log(NULL, AV_LOG_ERROR, "Cannot create buffer source\n");
-            goto end;
-        }
-     
-        // buffer video sink: to terminate the filter chain.
-        ret = avfilter_graph_create_filter(&buffersink_ctx, buffersink, "out",
-                                           NULL, NULL, filter_graph);
-        if (ret < 0) {
-            av_log(NULL, AV_LOG_ERROR, "Cannot create buffer sink\n");
-            goto end;
-        }
-     
-        ret = av_opt_set_int_list(buffersink_ctx, "pix_fmts", pix_fmts,
-                                  AV_PIX_FMT_NONE, AV_OPT_SEARCH_CHILDREN);
-        if (ret < 0) {
-            av_log(NULL, AV_LOG_ERROR, "Cannot set output pixel format\n");
-            goto end;
-        }
-     
-     
-        outputs->name       = av_strdup("in");
-        outputs->filter_ctx = buffersrc_ctx;
-        outputs->pad_idx    = 0;
-        outputs->next       = NULL;
-     
-        inputs->name       = av_strdup("out");
-        inputs->filter_ctx = buffersink_ctx;
-        inputs->pad_idx    = 0;
-        inputs->next       = NULL;
-     
-        if ((ret = avfilter_graph_parse_ptr(filter_graph, filters_descr,
-                                        &inputs, &outputs, NULL)) < 0)
-            goto end;
-     
-        if ((ret = avfilter_graph_config(filter_graph, NULL)) < 0)
-            goto end;
-     
-    end:
-        avfilter_inout_free(&inputs);
-        avfilter_inout_free(&outputs);
-     
-        return ret;
-
-
-
-
-        // push the decoded frame into the filtergraph
-        if (av_buffersrc_add_frame_flags(buffersrc_ctx, frame, AV_BUFFERSRC_FLAG_KEEP_REF) < 0) {
-            av_log(NULL, AV_LOG_ERROR, "Error while feeding the filtergraph\n");
-            break;
-        }
-
-        // pull filtered frames from the filtergraph
-        while (1) {
-            ret = av_buffersink_get_frame(buffersink_ctx, filt_frame);
-            if (ret == AVERROR(EAGAIN) || ret == AVERROR_EOF)
-                break;
-            if (ret < 0)
-                goto end;
-            display_frame(filt_frame, buffersink_ctx->inputs[0]->time_base);
-            av_frame_unref(filt_frame);
-        }
-        av_frame_unref(frame);
-
-
-*/
-
-
-        INFO_MSG("Not converting VAAPI frame");
-        frameConverted = frame_RAW;
-      }else{
-        // No conversion needed? Do nothing.
-        if (frame_RAW->format == convertToPixFmt && !opt.isMember("resolution")){
-          frameConverted = frame_RAW;
-          return true;
-        }
-
-        // Init scaling context if needed
-        if (!convertCtx){
-          INFO_MSG("Allocating scaling context for %s -> %s...", av_get_pix_fmt_name((enum AVPixelFormat)frame_RAW->format), av_get_pix_fmt_name(convertToPixFmt));
-          uint64_t reqWidth = frame_RAW->width;
-          uint64_t reqHeight = frame_RAW->height;
-          if (opt.isMember("resolution") && opt["resolution"]){
-            reqWidth = strtol(opt["resolution"].asString().substr(0, opt["resolution"].asString().find("x")).c_str(), NULL, 0);
-            reqHeight = strtol(opt["resolution"].asString().substr(opt["resolution"].asString().find("x") + 1).c_str(), NULL, 0);\
-          }
-          convertCtx = sws_getContext(frame_RAW->width, frame_RAW->height, (enum AVPixelFormat)frame_RAW->format, reqWidth, reqHeight, convertToPixFmt, SWS_FAST_BILINEAR | SWS_FULL_CHR_H_INT | SWS_ACCURATE_RND, NULL, NULL, NULL);
-          if (!convertCtx) {
-            FAIL_MSG("Could not allocate scaling context");
-            return false;
-          }
-          static char scaleTxt[500];
-          snprintf(scaleTxt, 500, "%s -> %s", av_get_pix_fmt_name((enum AVPixelFormat)frame_RAW->format), av_get_pix_fmt_name(convertToPixFmt));
-          scaler = scaleTxt;
-        }
-        // Create frame to hold the result of the scaling context
-        if (!frameConverted || frameConverted == frame_RAW){
-          frameConverted = av_frame_alloc();
-          if (!frameConverted) {
-            FAIL_MSG("Could not allocate scaling video frame");
-            return false;
-          }
-          uint64_t reqWidth = frame_RAW->width;
-          uint64_t reqHeight = frame_RAW->height;
-          if (opt.isMember("resolution") && opt["resolution"]){
-            reqWidth = strtol(opt["resolution"].asString().substr(0, opt["resolution"].asString().find("x")).c_str(), NULL, 0);
-            reqHeight = strtol(opt["resolution"].asString().substr(opt["resolution"].asString().find("x") + 1).c_str(), NULL, 0);
-          }
-          frameConverted->format = convertToPixFmt;
-          frameConverted->width  = reqWidth;
-          frameConverted->height = reqHeight;
-          frameConverted->flags |= AV_CODEC_FLAG_QSCALE;
-          frameConverted->quality = FF_QP2LAMBDA * Mist::opt["quality"].asInt();;
-          int ret = av_image_alloc(frameConverted->data, frameConverted->linesize, frameConverted->width, frameConverted->height, convertToPixFmt, 32);
-          if (ret < 0) {
-            av_frame_free(&frameConverted);
-            frameConverted = 0;
-            FAIL_MSG("Could not allocate converted frame buffer");
-            return false;
-          }
-          INFO_MSG("Allocated converted frame buffer");
-        }
-        // Convert RAW frame to a target codec compatible pixel format
-        sws_scale(convertCtx, (const uint8_t * const *)frame_RAW->data, frame_RAW->linesize, 0, frame_RAW->height, frameConverted->data, frameConverted->linesize);
-      }
-      return true;
-    }
-
-    /// \brief Transforms the RAW audio buffer to have required output properties
-    bool transformAudioFrame(){
-      // Create context to resample audio
-      // NOTE: this is done here, rather than in the allocate and config
-      //        functions, as frame_RAW is initted during decoding 
-      if (!resampleContext){
-        INFO_MSG("Allocating resampling context...");
-        #if (LIBAVUTIL_VERSION_MAJOR < 57 || (LIBAVUTIL_VERSION_MAJOR == 57 && LIBAVUTIL_VERSION_MINOR < 24))
-          resampleContext = swr_alloc_set_opts(NULL,
-                                              context_out->channel_layout,
-                                              context_out->sample_fmt,
-                                              context_out->sample_rate,
-                                              frame_RAW->channel_layout,
-                                              (AVSampleFormat)frame_RAW->format,
-                                              frame_RAW->sample_rate,
-                                              0, NULL);
-        #else
-          swr_alloc_set_opts2(&resampleContext,
-                              &context_out->ch_layout,
-                              context_out->sample_fmt,
-                              context_out->sample_rate,
-                              &frame_RAW->ch_layout,
-                              (AVSampleFormat)frame_RAW->format,
-                              frame_RAW->sample_rate,
-                              0, NULL);
-        #endif
-
-        if (!resampleContext) {
-          FAIL_MSG("Could not allocate resampling context");
-          return false;
-        }
-        int ret = swr_init(resampleContext);
-        if (ret < 0) { 
-          FAIL_MSG("Could not open resample context");
-          swr_free(&resampleContext);
-          return false;
-        }
-        INFO_MSG("Allocated resampling context!");
-      }
-
-      // Create frame to hold converted samples
-      if (!frameConverted){
-        INFO_MSG("Allocating converted frame...");
-        frameConverted = av_frame_alloc();
-        if (!frameConverted) {
-          FAIL_MSG("Could not allocate audio resampling frame");
-          return false;
-        }
-        // If we have a target codec, we need to transform to something compatible with the output
-        frameConverted->sample_rate = context_out->sample_rate;
-        #if (LIBAVUTIL_VERSION_MAJOR < 57 || (LIBAVUTIL_VERSION_MAJOR == 57 && LIBAVUTIL_VERSION_MINOR < 24))
-          frameConverted->channels = context_out->channels;
-          frameConverted->channel_layout = context_out->channel_layout;
-        #else
-          frameConverted->ch_layout.nb_channels = context_out->ch_layout.nb_channels;
-          frameConverted->ch_layout = context_out->ch_layout;
-        #endif
-        frameConverted->format = context_out->sample_fmt;
-        // Since PCM has no concept of a frame, retain input frame size
-        if (codecOut == "PCM"){
-          frameConverted->nb_samples = frame_RAW->nb_samples;
-        }else{
-          frameConverted->nb_samples = context_out->frame_size;
-        }
-        resampledSampleCount = swr_get_out_samples(resampleContext, frame_RAW->nb_samples) * 3 + frame_RAW->nb_samples;
-        frameConverted->nb_samples = resampledSampleCount;
-
-        // Allocate buffers
-        int ret = av_frame_get_buffer(frameConverted, 0);
-        if (ret < 0) {
-          printError("Could not allocate output frame sample buffer", ret);
-          av_frame_free(&frameConverted);
-          return false;
-        }else{
-          INFO_MSG("Allocated converted frame!");
-        }
-      }
-
-      // Allocate local audio sample buffer
-      static uint8_t **converted_input_samples = NULL;
-      int ret;
-      if (!converted_input_samples){
-        #if (LIBAVUTIL_VERSION_MAJOR < 57 || (LIBAVUTIL_VERSION_MAJOR == 57 && LIBAVUTIL_VERSION_MINOR < 24))
-          ret = av_samples_alloc_array_and_samples(&converted_input_samples, NULL, context_out->channels,
-                                                  resampledSampleCount, context_out->sample_fmt, 0);
-        #else
-          ret = av_samples_alloc_array_and_samples(&converted_input_samples, NULL, context_out->ch_layout.nb_channels,
-                                                  resampledSampleCount, context_out->sample_fmt, 0);
-        #endif
-        if (ret < 0) {
-          printError("Could not allocate converted input samples", ret);
-          return false;
-        }
-      }
-
-      // Resample audio
-      int samplesConverted = swr_convert(resampleContext, converted_input_samples, resampledSampleCount,
-                        (const uint8_t**)frame_RAW->extended_data, frame_RAW->nb_samples);
-      if (samplesConverted < 0) {
-        printError("Could not convert input samples", ret);
-        return false;
-      }
-
-      // Allocate resampling audio buffer
-      if (!audioBuffer){
-        INFO_MSG("Allocating audio sample buffer...");
-        #if (LIBAVUTIL_VERSION_MAJOR < 57 || (LIBAVUTIL_VERSION_MAJOR == 57 && LIBAVUTIL_VERSION_MINOR < 24))
-          audioBuffer = av_audio_fifo_alloc(context_out->sample_fmt, context_out->channels, resampledSampleCount);
-        #else
-          audioBuffer = av_audio_fifo_alloc(context_out->sample_fmt, context_out->ch_layout.nb_channels, resampledSampleCount);
-        #endif
-        if (!audioBuffer){
-          FAIL_MSG("Could not allocate audio buffer");
-          return false;
-        }
-        INFO_MSG("Allocated audio buffer");
-      }
-
-      // Copy local buffer over to audio sample buffer
-      if (av_audio_fifo_write(audioBuffer, (void **)converted_input_samples, samplesConverted) < samplesConverted) {
-        printError("Could not write data to audio sample buffer", ret);
-        return false;
-      }
-      return true;
-    }
-
-    /// @brief Takes raw video buffer and encode it to create an output packet
-    void encodeVideo(){
-      // Encode to target codec. Force P frame to prevent keyframe-only outputs from appearing
-      int ret;
-      frameConverted->pict_type = AV_PICTURE_TYPE_P;
-      frameConverted->pts++;
-      {
-        // Encode frame
-        if (frameDecodeHW && frameInHW && frameDecodeHW != frame_RAW && softDecodeFormat == softFormat){
-          ret = av_hwframe_transfer_data(frameInHW, frameDecodeHW, 0);
-          if (ret){
-            printError("Unable to transfer frame between the decoder and encoder", ret);
-            return;
-          }
-          ret = avcodec_send_frame(context_out, frameInHW);
-        }else{
-          if (frameInHW){
-            ret = av_hwframe_transfer_data(frameInHW, frameConverted, 0);
-            if (ret){
-              printError("Unable to upload frame to the hardware", ret);
-              return;
-            }
-            ret = avcodec_send_frame(context_out, frameInHW);
-          }else{
-            ret = avcodec_send_frame(context_out, frameConverted);
-          }
-        }
-        if (!ret){
-        }
-      }
-      if (ret < 0){printError("Unable to send frame to the encoder", ret);}
-
-      {
-        uint64_t sleepTime = Util::getMicros();
-        std::unique_lock<std::mutex> lk(avMutex);
-        avCV.wait(lk, [this]() { return !frameReady || !config->is_active; });
-        totalSourceSleep += Util::getMicros(sleepTime);
-        frameTimes.push_back(thisTime);
-        ++outputFrameCount;
-        // Retrieve encoded packet
-        ret = avcodec_receive_packet(context_out, packet_out);
-        if (ret < 0){
-          return;
-        }
-        frameReady = true;
-      }
-      avCV.notify_all();
-    }
-
-    /// @brief Takes raw audio buffer and encode it to create an output packet
-    void encodeAudio(){
-      int ret;
-      int reqSize = 0;
-      if (context_out->frame_size){
-        reqSize = context_out->frame_size;
-      }else{
-        reqSize = context_out->time_base.den / 50;
-      }
-      frameConverted->nb_samples = reqSize;
-      // Check if we have enough samples to fill a frame
-      if (av_audio_fifo_size(audioBuffer) < reqSize){
-        HIGH_MSG("Encoder requires more audio samples...");
-        return;
-      }
-      while (av_audio_fifo_size(audioBuffer) >= reqSize){
-        // Buffer audio samples into frame
-        if (av_audio_fifo_read(audioBuffer, (void **)frameConverted->data, reqSize) < reqSize) {
-          FAIL_MSG("Could not read data from audio buffer");
-          return;
-        }
-        // Update PTS
-        frameConverted->pts = pts;
-        pts += reqSize;
-        // Encode frame
-        ret = avcodec_send_frame(context_out, frameConverted);
-        if (!ret){
-        }
-        if (ret < 0) {
-          printError("Unable to send frame to the encoder", ret);
-          return;
-        }
-        {
-          uint64_t sleepTime = Util::getMicros();
-          std::unique_lock<std::mutex> lk(avMutex);
-          avCV.wait(lk, [this]() { return !frameReady || !config->is_active; });
-          totalSourceSleep += Util::getMicros(sleepTime);
-
-          // Retrieve encoded packet
-          ret = avcodec_receive_packet(context_out, packet_out);
-          if (ret == AVERROR(EAGAIN) || ret == AVERROR_EOF){
-            HIGH_MSG("Encoder requires more input samples...");
-            return;
-          }else if (ret < 0) {
-            printError("Unable to encode", ret);
-            return;
-          }
-
-          frameTimes.push_back(sendPacketTime + (packet_out->pts * 1000 * context_out->time_base.num) / context_out->time_base.den);
-          outputFrameCount = (char*)packet_out->pts;
-          
-          frameReady = true;
-        }
-        avCV.notify_all();
-      }
-    }
-
-    /// @brief Sends RAW video frames to the output using `ptr` rather than going through LibAV's contexts
-    void sendRawVideo(){
-      int sizeNeeded = av_image_get_buffer_size((AVPixelFormat)frameConverted->format, frameConverted->width, frameConverted->height, 32);
-      ptr.allocate(sizeNeeded);
-      ptr.truncate(0);
-      int bytes = av_image_copy_to_buffer((uint8_t*)(char*)ptr, ptr.rsize(), frameConverted->data, frameConverted->linesize, (AVPixelFormat)frameConverted->format, frameConverted->width, frameConverted->height, 32);
-      if (bytes > 0){
-        {
-          uint64_t sleepTime = Util::getMicros();
-          std::unique_lock<std::mutex> lk(avMutex);
-          avCV.wait(lk, [this]() { return !frameReady || !config->is_active; });
-          totalSourceSleep += Util::getMicros(sleepTime);
-          // Adjust ptr size to how many bytes were actually written
-          ptr.append(0, bytes);
-          frameTimes.push_back(thisTime);
-          ++outputFrameCount;
-          frameReady = true;
-        }
-        avCV.notify_all();
-      }
-    }
-
-    void sendNext(){
-      // Wait for the other side to process the last frame that was ready for buffering
-      if (!config->is_active){return;}
-
-      {
-        std::lock_guard<std::mutex> guard(statsMutex);
-        if (pData["source_tracks"].size() != userSelect.size()){
-          pData["source_tracks"].null();
-          for (std::map<size_t, Comms::Users>::iterator it = userSelect.begin(); it != userSelect.end(); it++){
-            pData["source_tracks"].append((uint64_t)it->first);
-          }
-        }
-        if (codecIn.size() && pData["source_codec"].asStringRef() != codecIn){pData["source_codec"] = codecIn;}
-      }
-
-      if (thisTime > statSourceMs){statSourceMs = thisTime;}
-
-      // Keyframe only mode for MJPEG output
-      if (codecOut == "JPEG"){
-        ++skippedFrames;
-        if(!thisPacket.getFlag("keyframe") || skippedFrames < Mist::opt["gopsize"].asInt()){
-          sinkClass->setNowMS(thisTime);
-          return;
-        }
-        skippedFrames = 0;
-      }
-
-      needsLookAhead = 0;
-      maxSkipAhead = 0;
-      realTime = 0;
-      if (!sendFirst){
-        sendPacketTime = thisTime;
-        bootMsOffset = M.getBootMsOffset();
-        sendFirst = true;
-      }
-
-      // Retrieve packet buffer pointers
-      size_t dataLen = 0;
-      char *dataPointer = 0;
-      thisPacket.getString("data", dataPointer, dataLen);
-      totalInputBytes += dataLen;
-
-      // Allocate encoding/decoding contexts and decode the input if not RAW
-      if (isVideo) {
-        allocateVideoEncoder();
-        if (!configVideoDecoder()){ return; }
-        uint64_t startTime = Util::getMicros();
-        if (!decodeVideoFrame(thisData, thisDataLen)) { return; }
-        uint64_t decodeTime = Util::getMicros();
-        if(!transformVideoFrame()){ return; }
-        uint64_t transformTime = Util::getMicros();
-        totalDecode += decodeTime - startTime;
-        totalTransform += transformTime - decodeTime;
-
-        inFpks = M.getFpks(thisIdx);
-        if (!inFpks) { inFpks = M.getEfpks(thisIdx); }
-      } else {
-        if (!configAudioDecoder()){ return; }
-        // Since PCM has a 'codec' in LibAV, handle all decoding using the generic function
-        if (!decodeFrame(thisData, thisDataLen)) { return; }
-        inputFrameCount += frame_RAW->nb_samples;
-        if (sendPacketTime + (((size_t)inputFrameCount)*1000)/M.getRate(thisIdx) < thisTime){
-          sendPacketTime += thisTime - (sendPacketTime + (((size_t)inputFrameCount)*1000)/M.getRate(thisIdx));
-        }
-        allocateAudioEncoder();
-        if(!transformAudioFrame()){ return; }
-      }
-
-      // If the output is RAW, immediately send it to the output using `ptr` rather than going through LibAV's contexts
-      if (!context_out && isVideo){
-        sendRawVideo();
-        return;
-      }
-
-      // If the output was not RAW, encode the RAW buffers
-      if (isVideo){
-        uint64_t startTime = Util::getMicros();
-        encodeVideo();
-        totalEncode += Util::getMicros(startTime);
-      }else{
-        encodeAudio();
-      }
-    }
-  };
-
-  /// check source, sink, source_track, codec, bitrate, flags  and process options.
-  bool ProcAV::CheckConfig(){
-    // Check generic configuration variables
-    if (!opt.isMember("source") || !opt["source"] || !opt["source"].isString()){
-      FAIL_MSG("invalid source in config!");
-      return false;
-    }
-
-    if (!opt.isMember("sink") || !opt["sink"] || !opt["sink"].isString()){
-      INFO_MSG("No sink explicitly set, using source as sink");
-    }
-
-    return true;
   }
 
-  void ProcAV::Run(){
-    uint64_t lastProcUpdate = Util::bootSecs();
+  ProcessSink::~ProcessSink() = default;
+
+  void ProcessSink::setNowMS(uint64_t t) {
+    if (!userSelect.size()) { return; }
+    meta.setNowms(userSelect.begin()->first, t);
+  }
+
+  void ProcessSink::parseH264(bool isKey, const char *bufIt, uint64_t bufSize) {
+    const char *nextPtr;
+    const char *pesEnd = bufIt + bufSize;
+    uint32_t nalSize = 0;
+
+    // Parse H264 packet data (slice data only when using AV_CODEC_FLAG_GLOBAL_HEADER)
+    nextPtr = nalu::scanAnnexB(bufIt, bufSize);
+    if (!nextPtr) {
+      WARN_MSG("Sink: Unable to find AnnexB data in the H264 buffer");
+      return;
+    }
+    thisPacket.null();
+    while (nextPtr < pesEnd) {
+      if (!nextPtr) { nextPtr = pesEnd; }
+      // Calculate size of NAL unit, removing null bytes from the end
+      nalSize = nalu::nalEndPosition(bufIt, nextPtr - bufIt) - bufIt;
+      if (nalSize) {
+        // If we don't have a packet yet, init an empty packet
+        if (!thisPacket) { thisPacket.genericFill(thisTime, 0, thisIdx, 0, 0, 0, isKey); }
+        // Note: With AV_CODEC_FLAG_GLOBAL_HEADER, SPS/PPS are in extradata, not packet data
+        // Packets only contain slice data (NAL types 0x01, 0x05, etc.)
+        thisPacket.appendNal(bufIt, nalSize);
+      }
+      if (((nextPtr - bufIt) + 3) >= bufSize) { break; } // end of the line
+      bufSize -= ((nextPtr - bufIt) + 3); // decrease the total size
+      bufIt = nextPtr + 3;
+      nextPtr = nalu::scanAnnexB(bufIt, bufSize);
+    }
+  }
+
+  void ProcessSink::streamMainLoop() {
+    uint64_t statTimer = 0;
+    Comms::Connections statComm;
+
+    while (config->is_active) {
+
+      Util::sleep(5000);
+
+      {
+        std::lock_guard<std::mutex> lock(sinkMutex);
+        // Update stats periodically
+        uint64_t now = Util::bootSecs();
+        if (now > statTimer) {
+          connStats(statComm);
+          statTimer = now + 1;
+        }
+      }
+    }
+  }
+
+  void ProcessSink::onData(void *data) {
+    std::lock_guard<std::mutex> lock(sinkMutex);
+    FFmpeg::PacketContext *packet = (FFmpeg::PacketContext *)data;
+
+    if (!packet) { return; }
+
+    VERYHIGH_MSG("Sink: got packet: size=%d, time=%" PRIu64 ", isKey=%d", packet->getSize(), packet->getPts(), packet->isKeyframe());
+
+    size_t trackIdx = INVALID_TRACK_ID;
+    bool newTrack = false;
+
+    // Use encoder node ID to determine track ID
+    size_t encoderNodeId = packet->getEncoderNodeId();
+    auto trackIt = encoderToTrackMap.find(encoderNodeId);
+    if (trackIt != encoderToTrackMap.end()) {
+      trackIdx = trackIt->second;
+      newTrack = false;
+    } else {
+      trackIdx = INVALID_TRACK_ID;
+      newTrack = true;
+    }
+
+    thisTime = packet->getPts();
+    if (thisTime >= statSinkMs) { statSinkMs = thisTime; }
+
+    // Get format info from packet
+    FFmpeg::PacketContext::FormatInfo formatInfo = packet->getFormatInfo();
+
+    // Get packet data
+    const char *packetData = (const char *)packet->getData();
+    size_t packetSize = packet->getSize();
+    bool isKey = packet->isKeyframe();
+
+    if (!packetData || !packetSize) {
+      WARN_MSG("Skipping empty packet");
+      return;
+    }
+
+    // Init the track, if needed
+    if (trackIdx == INVALID_TRACK_ID) {
+      if (!isVideo) {
+        setAudioInit(trackIdx, formatInfo.codecName, formatInfo.sampleRate, formatInfo.channels, formatInfo.bitDepth,
+                     packet->getCodecData());
+      } else if (isRawVideo) {
+        setRawVideoInit(trackIdx, formatInfo.codecName, formatInfo.width, formatInfo.height, formatInfo.fpks);
+      } else {
+        setVideoInit(trackIdx, formatInfo.codecName, formatInfo.width, formatInfo.height, packet->getCodecData(),
+                     formatInfo.fpks);
+      }
+      if (trackIdx == INVALID_TRACK_ID) { return; }
+    }
+    thisIdx = trackIdx;
+
+
+    // Buffer the actual track data
+    if (!isVideo || isRawVideo || formatInfo.codecName == "JPEG") {
+      // JPEG, audio and raw video are always keyframes and have no offsets
+      bufferLivePacket(thisTime, 0, thisIdx, packetData, packetSize, 0, true);
+    } else if (formatInfo.codecName == "H264") {
+      parseH264(isKey, packetData, packetSize);
+      if (!thisPacket) {
+        VERYHIGH_MSG("Sink: H264 packet parsing failed or incomplete");
+        return;
+      }
+      bufferLivePacket(thisPacket);
+    } else {
+      // All other tracks use the generic handler
+      bufferLivePacket(thisTime, packet->getDts() - thisTime, trackIdx, packetData, packetSize, 0, isKey);
+    }
+
+    outFrames.fetch_add(1);
+    totalOutputBytes.fetch_add(packetSize);
+
+    // Update encoder to track mapping if a new track was created
+    if (trackIdx != INVALID_TRACK_ID && newTrack) {
+      encoderToTrackMap[encoderNodeId] = trackIdx;
+      INFO_MSG("Sink: Mapped encoder node %zu to track %zu", encoderNodeId, trackIdx);
+    }
+  }
+
+  /// \brief Sets init data based on the last loaded SPS and PPS data
+  void ProcessSink::setVideoInit(size_t & trackIdx, std::string codecOut, uint64_t outWidth, uint64_t outHeight,
+                                 const std::string & extradata, uint64_t outFpks) {
+    if (codecOut == "H265") { codecOut = "HEVC"; }
+    if (codecOut == "JPEG") { outFpks = 0; }
+    // For H.264, require SPS/PPS before creating track
+    if (codecOut == "H264" && !extradata.size()) {
+      INFO_MSG("Sink: H.264 track creation aborted - no init data available");
+      trackIdx = INVALID_TRACK_ID;
+      return;
+    }
+
+    if (codecOut == "HEVC" && !extradata.size()) {
+      INFO_MSG("Sink: HEVC track creation aborted - no VPS (%zu bytes) or SPS (%zu bytes) or PPS "
+               "(%zu bytes) available",
+               vpsInfo.size(), spsInfo.size(), ppsInfo.size());
+      trackIdx = INVALID_TRACK_ID;
+      return;
+    }
+
+    // Create a new track
+    meta.reInit(streamName, false);
+    trackIdx = meta.addTrack();
+    meta.setCodec(trackIdx, codecOut);
+    meta.setType(trackIdx, "video");
+    meta.setID(trackIdx, trackIdx);
+    meta.setWidth(trackIdx, outWidth);
+    meta.setHeight(trackIdx, outHeight);
+    meta.setFpks(trackIdx, outFpks);
+    meta.setInit(trackIdx, extradata);
+    meta.markUpdated(trackIdx);
+    lastOutWidth.store(outWidth, std::memory_order_relaxed);
+    lastOutHeight.store(outHeight, std::memory_order_relaxed);
+    INFO_MSG("Sink: %s track index is %zu", codecOut.c_str(), trackIdx);
+
+    if (trackIdx != INVALID_TRACK_ID && !userSelect.count(trackIdx)) {
+      userSelect[trackIdx].reload(streamName, trackIdx, COMM_STATUS_ACTIVE | COMM_STATUS_SOURCE | COMM_STATUS_DONOTTRACK);
+    }
+  }
+
+  /// \brief Sets init data based on the last loaded SPS and PPS data
+  void ProcessSink::setRawVideoInit(size_t & trackIdx, std::string codecOut, uint64_t outWidth, uint64_t outHeight, uint64_t outFpks) {
+    // Create a new track
+    meta.reInit(streamName, false);
+    size_t staticSize = Util::pixfmtToSize(codecOut, outWidth, outHeight);
+    if (staticSize) {
+      // Known static frame sizes: raw track mode
+      trackIdx = meta.addTrack(0, 0, 0, 0, true, staticSize);
+    } else {
+      // Other cases: standard track mode
+      trackIdx = meta.addTrack();
+    }
+
+    // Mark track as updated - this is critical for MistServer to recognize the track
+    meta.markUpdated(trackIdx);
+
+    meta.setCodec(trackIdx, codecOut);
+    meta.setType(trackIdx, "video");
+    meta.setID(trackIdx, trackIdx);
+    meta.setWidth(trackIdx, outWidth);
+    meta.setHeight(trackIdx, outHeight);
+    meta.setFpks(trackIdx, outFpks);
+    if (trackIdx != INVALID_TRACK_ID && !userSelect.count(trackIdx)) {
+      userSelect[trackIdx].reload(streamName, trackIdx, COMM_STATUS_ACTIVE | COMM_STATUS_SOURCE | COMM_STATUS_DONOTTRACK);
+    }
+    INFO_MSG("Sink: Created new %s track with index %zu", codecOut.c_str(), trackIdx);
+  }
+
+  void ProcessSink::setAudioInit(size_t & trackIdx, std::string codecOut, uint64_t outSampleRate, uint64_t outChannels,
+                                 uint64_t outBitDepth, const std::string & extraData) {
+    // For AAC, OPUS, FLAC and Vorbis, we need to set the init data
+    // PCM and MP3 don't need it.
+    if ((codecOut != "PCM" && codecOut != "MP3") && !extraData.size()) {
+      INFO_MSG("Sink: No audio extradata provided for codec %s", codecOut.c_str());
+      trackIdx = INVALID_TRACK_ID;
+      return;
+    }
+
+    // Create a new track
+    meta.reInit(streamName, false);
+    trackIdx = meta.addTrack();
+
+    // Mark track as updated - this is critical for MistServer to recognize the track
+    meta.markUpdated(trackIdx);
+
+    meta.setType(trackIdx, "audio");
+    meta.setCodec(trackIdx, codecOut);
+    meta.setID(trackIdx, 1);
+    meta.setRate(trackIdx, outSampleRate);
+    meta.setChannels(trackIdx, outChannels);
+    meta.setSize(trackIdx, outBitDepth);
+    meta.setInit(trackIdx, extraData);
+
+    if (trackIdx != INVALID_TRACK_ID && !userSelect.count(trackIdx)) {
+      userSelect[trackIdx].reload(streamName, trackIdx, COMM_STATUS_ACTIVE | COMM_STATUS_SOURCE | COMM_STATUS_DONOTTRACK);
+    }
+    INFO_MSG("Sink: Created new %s track with index %zu", codecOut.c_str(), trackIdx);
+  }
+
+  void ProcessSink::connStats(Comms::Connections & statComm) {
+    for (std::map<size_t, Comms::Users>::iterator it = userSelect.begin(); it != userSelect.end(); it++) {
+      if (it->second) { it->second.setStatus(COMM_STATUS_DONOTTRACK | it->second.getStatus()); }
+    }
+  }
+
+  // ProcAV implementation
+  ProcAV::ProcAV() : isActive(false) {
+    // Empty constructor - all initialization moved to Run()
+  }
+
+  ProcAV::~ProcAV() {
+    Stop();
+  }
+
+  void ProcAV::Run() {
+    // Configure pipeline type based on output codec
+    std::string codecOut = opt["codec"].asString();
+    pipeline.setIsVideo(codecOut == "H264" || codecOut == "AV1" || codecOut == "HEVC" || codecOut == "H265" || codecOut == "VP9" ||
+                        codecOut == "JPEG" || codecOut == "YUYV" || codecOut == "UYVY" || codecOut == "NV12");
+
+    // Set raw video flag for raw formats
+    if (codecOut == "YUYV" || codecOut == "UYVY" || codecOut == "NV12") {
+      Mist::isRawVideo = true;
+      INFO_MSG("Main: Raw video mode enabled for codec: %s", codecOut.c_str());
+    }
+
+    // Initialize ProcessSource static configuration first
+    JSON::Value capa;
+    Mist::ProcessSource::init(&conf, capa);
+    pipeline.setIsActive(true);
+    MEDIUM_MSG("Main: Pipeline activated");
+
+    // Start sink thread first
+    MEDIUM_MSG("Main: Starting sink thread...");
+    sinkThread = std::thread(&ProcAV::runSinkThread, this);
+
+    // Wait for sink to initialize
+    {
+      std::unique_lock<std::mutex> lock(threadMutex);
+      threadCV.wait(lock, [this]() { return sink != nullptr; });
+    }
+    MEDIUM_MSG("Main: Sink thread initialized");
+
+    pipeline.addCallback([](void *d) { sinkClass->onData(d); });
+
+    // Start source thread
+    MEDIUM_MSG("Main: Starting source thread...");
+    sourceThread = std::thread(&ProcAV::runSourceThread, this);
+
+    // Wait for source to initialize
+    {
+      std::unique_lock<std::mutex> lock(threadMutex);
+      threadCV.wait(lock, [this]() { return source != nullptr; });
+    }
+    MEDIUM_MSG("Main: Source thread initialized");
+
+    isActive = true;
+
+    // Initialize stats
     {
       std::lock_guard<std::mutex> guard(statsMutex);
       pStat["proc_status_update"]["id"] = getpid();
       pStat["proc_status_update"]["proc"] = "AV";
     }
-    // Init per-process stats shm page for rate control
+
+    // Initialize process timing stats SHM for rate control
     {
       char statsName[NAME_BUFFER_SIZE];
       snprintf(statsName, NAME_BUFFER_SIZE, SHM_PROC_STATS, getpid());
       procStatsPage.init(statsName, sizeof(ProcTimingStats), true, false);
     }
+
+    // Monitor and update stats
     uint64_t startTime = Util::bootSecs();
     processStartTime = startTime;
-    uint64_t encPrevTime = 0;
-    uint64_t encPrevCount = 0;
-    while (conf.is_active && co.is_active){
+
+    // Main monitoring loop - keep running while threads are active
+    while (isActive && conf.is_active && co.is_active) {
       Util::sleep(200);
-      if (lastProcUpdate + 5 <= Util::bootSecs()){
-        std::lock_guard<std::mutex> guard(statsMutex);
-        pData["active_seconds"] = (Util::bootSecs() - startTime);
-        pData["ainfo"]["sourceTime"] = statSourceMs;
-        pData["ainfo"]["sinkTime"] = statSinkMs;
-        pData["ainfo"]["inFrames"] = (uint64_t)inputFrameCount;
-        pData["ainfo"]["outFrames"] = (uint64_t)outputFrameCount;
-        if ((uint64_t)inputFrameCount){
-          pData["ainfo"]["decodeTime"] = totalDecode / (uint64_t)inputFrameCount / 1000;
-          pData["ainfo"]["transformTime"] = totalTransform / (uint64_t)inputFrameCount / 1000;
-          pData["ainfo"]["sinkSleepTime"] = totalSinkSleep / (uint64_t)inputFrameCount / 1000;
-          pData["ainfo"]["sourceSleepTime"] = totalSourceSleep / (uint64_t)inputFrameCount / 1000;
+      updateStats(startTime);
+    }
+
+    // Wait for threads to finish
+    if (sinkThread.joinable()) { sinkThread.join(); }
+    if (sourceThread.joinable()) { sourceThread.join(); }
+
+    // Wait for pipeline to finish
+    pipeline.waitForInactive();
+    MEDIUM_MSG("Main: Pipeline finished");
+
+    // Fire final trigger after all frames are drained
+    fireVirtualSegmentTrigger(true);
+  }
+
+  void ProcAV::Stop() {
+    // Stop processing
+    isActive = false;
+    conf.is_active = false;
+    co.is_active = false;
+    pipeline.setIsActive(false);
+
+    // Clean up source/sink
+    source.reset();
+    sink.reset();
+
+    // Wait for threads
+    if (sinkThread.joinable()) { sinkThread.join(); }
+    if (sourceThread.joinable()) { sourceThread.join(); }
+  }
+
+  // Member thread functions
+  void ProcAV::runSourceThread() {
+
+    Util::nameThread("sourceThread");
+    MEDIUM_MSG("Main: Running source thread...");
+
+    // First initialize the ProcessSource static configuration
+    JSON::Value capa;
+    ProcessSource::init(&conf, capa);
+    conf.is_active = true;
+
+    // Now set the streamname option
+    conf.getOption("streamname", true).append(opt["source"].c_str());
+
+    // Add and configure target option
+    JSON::Value trackOpt;
+    trackOpt["arg"] = "string";
+    trackOpt["default"] = "";
+    trackOpt["arg_num"] = 1;
+    conf.addOption("target", trackOpt);
+    conf.getOption("target", true).append("-");
+
+    // Configure track selection
+    std::string video_select = "maxbps";
+    if (opt.isMember("source_track") && opt["source_track"].isString() && opt["source_track"]) {
+      video_select = opt["source_track"].asStringRef();
+    }
+    if (opt.isMember("track_select")) { conf.getOption("target", true).append("-?" + opt["track_select"].asString()); }
+
+    // Create and run source with persistent connection
+    Socket::Connection conn;
+    {
+      std::lock_guard<std::mutex> lock(threadMutex);
+      source = std::unique_ptr<ProcessSource>(new ProcessSource(conn, conf, capa));
+      threadCV.notify_all();
+    }
+
+    if (source) {
+      MEDIUM_MSG("Main: Starting source thread...");
+      source->run();
+      MEDIUM_MSG("Main: Source thread finished");
+    }
+
+    INFO_MSG("Main: Stop source thread: %s", Util::exitReason);
+    co.is_active = false;
+    pipeline.setIsActive(false);
+    isActive = false;
+  }
+
+  void ProcAV::runSinkThread() {
+    Util::nameThread("sinkThread");
+    MEDIUM_MSG("Main: Running sink thread...");
+
+    // Initialize Output base class and sink config first
+    JSON::Value capa;
+    Output::init(&co, capa);
+    co.is_active = true;
+
+    // Add required options before creating sink
+    JSON::Value opt;
+    opt["arg"] = "string";
+    opt["default"] = "";
+    opt["arg_num"] = 1;
+    co.addOption("output", opt);
+    co.getOption("output", true).append("-");
+
+    // Create and configure sink
+    {
+      std::lock_guard<std::mutex> lock(threadMutex);
+      sink = std::unique_ptr<ProcessSink>(new ProcessSink(&co));
+      sinkClass = sink.get();
+      threadCV.notify_all();
+    }
+
+    // Run sink loop
+    if (sink) { sink->run(); }
+
+    INFO_MSG("Main: Stop sink thread...");
+    conf.is_active = false;
+    pipeline.setIsActive(false);
+    isActive = false;
+  }
+
+  void ProcessSource::init(Util::Config *cfg, JSON::Value & capa) {
+    // Initialize Output base class first
+    Output::init(cfg, capa);
+
+    // Set capabilities
+    capa["name"] = "AV";
+
+    // Add codec capabilities based on pipeline type
+    if (pipeline.getIsVideo()) {
+      capa["codecs"][0u][0u].append("YUYV");
+      capa["codecs"][0u][0u].append("UYVY");
+      capa["codecs"][0u][0u].append("NV12");
+      capa["codecs"][0u][0u].append("H264");
+      capa["codecs"][0u][0u].append("AV1");
+      capa["codecs"][0u][0u].append("HEVC");
+      capa["codecs"][0u][0u].append("VP9");
+      capa["codecs"][0u][0u].append("JPEG");
+    } else {
+      capa["codecs"][0u][0u].append("PCM");
+      capa["codecs"][0u][0u].append("opus");
+      capa["codecs"][0u][0u].append("AAC");
+      capa["codecs"][0u][0u].append("MP3");
+      capa["codecs"][0u][0u].append("FLAC");
+      capa["codecs"][0u][0u].append("vorbis");
+    }
+
+    // Add streamname option
+    cfg->addOption("streamname",
+                   JSON::fromString("{\"arg\":\"string\",\"short\":\"s\",\"long\":"
+                                    "\"stream\",\"help\":\"The name of the stream "
+                                    "that this connector will transmit.\"}"));
+
+    // Add basic connector options
+    cfg->addBasicConnectorOptions(capa);
+  }
+
+  ProcessSource::ProcessSource(Socket::Connection &c, Util::Config & _cfg, JSON::Value & _capa) : Output(c, _cfg, _capa){
+    meta.ignorePid(getpid());
+    // Initialize source-specific variables
+    streamName = opt["source"].asString();
+
+    // Initialize base class parameters
+    targetParams["keeptimes"] = true;
+    realTime = 0;
+    initialize();
+    wantRequest = false;
+    parseData = true;
+    sendFirst = false; // Reset first packet flag
+  }
+
+  bool ProcessSource::isRecording() {
+    return false;
+  }
+
+  bool ProcessSource::onFinish() {
+    if (opt.isMember("exit_unmask") && opt["exit_unmask"].asBool()) {
+      if (userSelect.size()) {
+        for (std::map<size_t, Comms::Users>::iterator it = userSelect.begin(); it != userSelect.end(); it++) {
+          INFO_MSG("Main: Unmasking source track %zu" PRIu64, it->first);
+          meta.validateTrack(it->first, TRACK_VALID_ALL);
         }
-        if ((uint64_t)outputFrameCount > encPrevCount){
-          pData["ainfo"]["encodeTime"] = (totalEncode - encPrevTime) / (((uint64_t)outputFrameCount)-encPrevCount) / 1000;
-          encPrevTime = totalEncode;
-          encPrevCount = (uint64_t)outputFrameCount;
-        }
-        if (codec_out){
-          pData["ainfo"]["encoder"] = codec_out->long_name;
-        }else{
-          pData["ainfo"]["encoder"] = "None (raw)";
-        }
-        if (codec_in){
-          pData["ainfo"]["decoder"] = codec_in->long_name;
-        }else{
-          pData["ainfo"]["decoder"] = "None (raw)";
-        }
-        pData["ainfo"]["scaler"] = scaler;
-        Util::sendUDPApi(pStat);
-        // Write timing stats to shm for InputBuffer rate control
-        if (procStatsPage.mapped){
-          ProcTimingStats *s = (ProcTimingStats *)procStatsPage.mapped;
-          s->totalWork = totalDecode + totalEncode + totalTransform;
-          s->totalSourceSleep = totalSourceSleep;
-          s->totalSinkSleep = totalSinkSleep;
-          s->frameCount = (uint64_t)outputFrameCount;
-          s->lastUpdateMs = Util::bootMS();
-        }
-        lastProcUpdate = Util::bootSecs();
-        fireVirtualSegmentTrigger(false);
       }
     }
-  }
-}// namespace Mist
-
-/// Fires PROCESS_AV_VIRTUAL_SEGMENT_COMPLETE trigger
-void fireVirtualSegmentTrigger(bool isFinal){
-  std::string sinkName = pStat["proc_status_update"]["sink"].asString();
-  if (!Triggers::shouldTrigger("PROCESS_AV_VIRTUAL_SEGMENT_COMPLETE", sinkName)){return;}
-
-  uint64_t deltaSecs = lastTriggerTime ? (Util::bootSecs() - lastTriggerTime) : (Util::bootSecs() - processStartTime);
-  uint64_t decodeAvg = (uint64_t)inputFrameCount ? (totalDecode / (uint64_t)inputFrameCount) : 0;
-  uint64_t transformAvg = (uint64_t)inputFrameCount ? (totalTransform / (uint64_t)inputFrameCount) : 0;
-  uint64_t encodeAvg = (uint64_t)outputFrameCount ? (totalEncode / (uint64_t)outputFrameCount) : 0;
-
-  // Calculate deltas for this trigger window
-  uint64_t inFramesDelta = (uint64_t)inputFrameCount - prevInputFrameCount;
-  uint64_t outFramesDelta = (uint64_t)outputFrameCount - prevOutputFrameCount;
-  uint64_t inBytesDelta = totalInputBytes - prevInputBytes;
-  uint64_t outBytesDelta = totalOutputBytes - prevOutputBytes;
-  uint64_t sourceAdvancedMs = statSourceMs - prevSourceMs;
-  uint64_t sinkAdvancedMs = statSinkMs - prevSinkMs;
-
-  // Real-time factors (1.0 = real-time, 2.0 = 2x faster than real-time)
-  double rtfIn = deltaSecs > 0 ? (double)sourceAdvancedMs / (deltaSecs * 1000.0) : 0;
-  double rtfOut = deltaSecs > 0 ? (double)sinkAdvancedMs / (deltaSecs * 1000.0) : 0;
-  int64_t pipelineLagMs = (int64_t)statSourceMs - (int64_t)statSinkMs;
-
-  // Determine track type (audio vs video)
-  bool audioTrack = context_out && context_out->sample_rate > 0;
-  const char* trackType = audioTrack ? "audio" : "video";
-
-  // Resolution (0 if not applicable)
-  int inWidth = context_in ? context_in->width : 0;
-  int inHeight = context_in ? context_in->height : 0;
-  int outWidth = context_out ? context_out->width : 0;
-  int outHeight = context_out ? context_out->height : 0;
-
-  // FPS
-  double outFpsMeasured = (deltaSecs > 0 && outFramesDelta > 0) ? (double)outFramesDelta / deltaSecs : 0;
-
-  // Audio info (0 if not audio)
-  int sampleRate = (context_out && context_out->sample_rate > 0) ? context_out->sample_rate : 0;
-  int channels = 0;
-  if (context_out && context_out->sample_rate > 0){
-#if (LIBAVUTIL_VERSION_MAJOR < 57 || (LIBAVUTIL_VERSION_MAJOR == 57 && LIBAVUTIL_VERSION_MINOR < 24))
-    channels = context_out->channels;
-#else
-    channels = context_out->ch_layout.nb_channels;
-#endif
+    return Output::onFinish();
   }
 
-  // Measured output bitrate
-  uint64_t outBitrateBps = deltaSecs > 0 ? (outBytesDelta * 8) / deltaSecs : 0;
-
-  std::string payload = sinkName + "\n" +                                      // 1. stream name
-    std::string(trackType) + "\n" +                                            // 2. track type (audio/video)
-    JSON::Value(deltaSecs).asString() + "\n" +                                 // 3. seconds since last trigger
-    JSON::Value((uint64_t)inputFrameCount).asString() + "\n" +                 // 4. input frame count (cumulative)
-    JSON::Value((uint64_t)outputFrameCount).asString() + "\n" +                // 5. output frame count (cumulative)
-    JSON::Value(inFramesDelta).asString() + "\n" +                             // 6. input frames this window
-    JSON::Value(outFramesDelta).asString() + "\n" +                            // 7. output frames this window
-    JSON::Value(inBytesDelta).asString() + "\n" +                              // 8. input bytes this window
-    JSON::Value(outBytesDelta).asString() + "\n" +                             // 9. output bytes this window
-    JSON::Value(decodeAvg).asString() + "\n" +                                 // 10. decode µs/frame
-    JSON::Value(transformAvg).asString() + "\n" +                              // 11. transform µs/frame
-    JSON::Value(encodeAvg).asString() + "\n" +                                 // 12. encode µs/frame
-    std::string(codec_in ? codec_in->name : "none") + "\n" +                   // 13. input codec (short)
-    std::string(codec_out ? codec_out->name : "none") + "\n" +                 // 14. output codec (short)
-    JSON::Value(inWidth).asString() + "\n" +                                   // 15. input width
-    JSON::Value(inHeight).asString() + "\n" +                                  // 16. input height
-    JSON::Value(outWidth).asString() + "\n" +                                  // 17. output width
-    JSON::Value(outHeight).asString() + "\n" +                                 // 18. output height
-    JSON::Value(inFpks).asString() + "\n" +                                    // 19. input fpks (frames per 1000s)
-    JSON::Value(outFpsMeasured).asString() + "\n" +                            // 20. output fps measured
-    JSON::Value(sampleRate).asString() + "\n" +                                // 21. sample rate (audio)
-    JSON::Value(channels).asString() + "\n" +                                  // 22. channels (audio)
-    JSON::Value(statSourceMs).asString() + "\n" +                              // 23. source timestamp ms
-    JSON::Value(statSinkMs).asString() + "\n" +                                // 24. sink timestamp ms
-    JSON::Value(sourceAdvancedMs).asString() + "\n" +                          // 25. source advanced ms
-    JSON::Value(sinkAdvancedMs).asString() + "\n" +                            // 26. sink advanced ms
-    JSON::Value(rtfIn).asString() + "\n" +                                     // 27. real-time factor in
-    JSON::Value(rtfOut).asString() + "\n" +                                    // 28. real-time factor out
-    JSON::Value(pipelineLagMs).asString() + "\n" +                             // 29. pipeline lag ms
-    JSON::Value(outBitrateBps).asString() + "\n" +                             // 30. output bitrate bps
-    (isFinal ? "1" : "0");                                                     // 31. is_final
-
-  Triggers::doTrigger("PROCESS_AV_VIRTUAL_SEGMENT_COMPLETE", payload, sinkName);
-
-  // Store current values for next delta calculation
-  prevInputFrameCount = (uint64_t)inputFrameCount;
-  prevOutputFrameCount = (uint64_t)outputFrameCount;
-  prevInputBytes = totalInputBytes;
-  prevOutputBytes = totalOutputBytes;
-  prevSourceMs = statSourceMs;
-  prevSinkMs = statSinkMs;
-  lastTriggerTime = Util::bootSecs();
-}
-
-void sinkThread(){
-  Util::nameThread("sinkThread");
-  Mist::ProcessSink in(&co);
-  Mist::sinkClass = &in;
-  co.getOption("output", true).append("-");
-  MEDIUM_MSG("Running sink thread...");
-  in.run();
-  INFO_MSG("Stop sink thread...");
-  conf.is_active = false;
-  avCV.notify_all();
-}
-
-void sourceThread(){
-  Util::nameThread("sourceThread");
-  JSON::Value capa;
-  Mist::ProcessSource::init(&conf, capa);
-  conf.getOption("streamname", true).append(Mist::opt["source"].c_str());
-  JSON::Value opt;
-  opt["arg"] = "string";
-  opt["default"] = "";
-  opt["arg_num"] = 1;
-  conf.addOption("target", opt);
-  conf.getOption("target", true).append("-");
-  if (Mist::opt.isMember("track_select")) {
-    conf.getOption("target", true).append("-?" + Mist::opt["track_select"].asString());
+  void ProcessSource::dropTrack(size_t trackId, const std::string & reason, bool probablyBad) {
+    if (opt.isMember("exit_unmask") && opt["exit_unmask"].asBool()) {
+      INFO_MSG("Main: Unmasking source track %zu" PRIu64, trackId);
+      meta.validateTrack(trackId, TRACK_VALID_ALL);
+    }
+    Output::dropTrack(trackId, reason, probablyBad);
   }
-  Socket::Connection S;
-  Mist::ProcessSource out(S, conf, capa);
-  MEDIUM_MSG("Running source thread...");
-  out.run();
-  INFO_MSG("Stop source thread...");
-  co.is_active = false;
-  avCV.notify_all();
-}
 
-/// \brief Custom log function for LibAV-related messages
-/// \param level: Log level according to LibAV. Does not print if higher than global `av_logLevel`
-void logcallback(void *ptr, int level, const char *fmt, va_list vl){
-  if (level > av_logLevel){return;}
-  static int print_prefix = 1;
-  char line[1024];
-  av_log_format_line(ptr, level, fmt, vl, line, sizeof(line), &print_prefix);
-  std::string ll(line);
-  if (ll.find("specified frame type") != std::string::npos || ll.find("rc buffer underflow") != std::string::npos){
-    HIGH_MSG("LibAV: %s", line);
-  }else{
-    INFO_MSG("LibAV: %s", line);
+  void ProcessSource::sendHeader() {
+    if (opt.isMember("source_mask") && opt["source_mask"]) {
+      uint32_t mask = opt["source_mask"].asInt();
+      for (std::map<size_t, Comms::Users>::iterator ti = userSelect.begin(); ti != userSelect.end(); ++ti) {
+        if (ti->first == INVALID_TRACK_ID) { continue; }
+        INFO_MSG("Main: Masking source track %zu to %u", ti->first, mask);
+        meta.validateTrack(ti->first, mask);
+      }
+    }
+    realTime = 0;
+    Output::sendHeader();
   }
-}
 
-int main(int argc, char *argv[]){
+  void ProcessSource::connStats(uint64_t now, Comms::Connections & statComm) {
+    for (std::map<size_t, Comms::Users>::iterator it = userSelect.begin(); it != userSelect.end(); it++) {
+      if (it->second) { it->second.setStatus(COMM_STATUS_DONOTTRACK | it->second.getStatus()); }
+    }
+  }
+
+  void ProcessSource::sendNext() {
+    {
+      std::lock_guard<std::mutex> guard(statsMutex);
+      if (pData["source_tracks"].size() != userSelect.size()) {
+        pData["source_tracks"].null();
+        for (std::map<size_t, Comms::Users>::iterator it = userSelect.begin(); it != userSelect.end(); it++) {
+          pData["source_tracks"].append((uint64_t)it->first);
+        }
+      }
+      const char *codecIn = pipeline.getCodecIn();
+      if (codecIn && pData["source_codec"].asStringRef() != codecIn) { pData["source_codec"] = codecIn; }
+    }
+
+    if (thisTime > statSourceMs) { statSourceMs = thisTime; }
+
+    // Keyframe only mode for MJPEG output
+    std::string codecOut = Mist::opt["codec"].asString();
+    if (codecOut == "JPEG") {
+      if (!thisPacket.getFlag("keyframe") ||
+          (pipelineConfig.gopSize && lastJPEGSent && pipelineConfig.gopSize > thisTime - lastJPEGSent)) {
+        VERYHIGH_MSG("Source: Skipping non-keyframe in keyframe-only mode (skipped=%" PRIu64 ")", thisTime - lastJPEGSent);
+        sinkClass->setNowMS(thisTime);
+        return;
+      }
+      HIGH_MSG("Source: Processing keyframe after %" PRIu64 " skipped frames", thisTime - lastJPEGSent);
+      lastJPEGSent = thisTime;
+    }
+
+    needsLookAhead = 0;
+    maxSkipAhead = 0;
+    realTime = 0;
+    if (!sendFirst) {
+      sendPacketTime = thisTime;
+      bootMsOffset = M.getBootMsOffset();
+      sendFirst = true;
+      INFO_MSG("Source: First packet: time=%" PRIu64 ", bootOffset=%" PRIu64 "", thisTime, bootMsOffset);
+    }
+
+    // Retrieve packet buffer pointers
+    if (!thisData || !thisDataLen) {
+      ERROR_MSG("Source: Invalid packet data: ptr=%p, size=%zu", thisData, thisDataLen);
+      return;
+    }
+    VERYHIGH_MSG("Source: Ingest %zu bytes @ %" PRIu64 "ms", thisDataLen, thisTime);
+
+    std::string inCodec = M.getCodec(thisIdx);
+    if (inCodec.empty()) {
+      ERROR_MSG("Source: Empty codec for track %zu", thisIdx);
+      return;
+    }
+
+    const std::string & init = M.getInit(thisIdx);
+
+    // Send packet and notify processing thread
+    if (pipeline.getIsVideo()) {
+      uint64_t inWidth = M.getWidth(thisIdx);
+      uint64_t inHeight = M.getHeight(thisIdx);
+      if (!inWidth || !inHeight) {
+        ERROR_MSG("Source: Invalid dimensions: %" PRIu64 "x%" PRIu64 "", inWidth, inHeight);
+        return;
+      }
+      uint64_t inFpks = M.getFpks(thisIdx);
+      if (!inFpks) { inFpks = M.getEfpks(thisIdx); }
+      lastInWidth.store(inWidth, std::memory_order_relaxed);
+      lastInHeight.store(inHeight, std::memory_order_relaxed);
+      lastInFpks.store(inFpks, std::memory_order_relaxed);
+      inFrames.fetch_add(1);
+      totalInputBytes.fetch_add(thisDataLen);
+      pipeline.receiveVideo(sendPacketTime, thisTime, thisData, thisDataLen, inWidth, inHeight, init, inFpks,
+                            inCodec.c_str(), thisPacket.getFlag("keyframe"));
+    } else {
+      uint64_t inDepth = M.getSize(thisIdx);
+      uint64_t inChannels = M.getChannels(thisIdx);
+      uint64_t inRate = M.getRate(thisIdx);
+      if (!inChannels || !inRate) {
+        ERROR_MSG("Source: Invalid audio parameters: channels=%" PRIu64 ", rate=%" PRIu64 "", inChannels, inRate);
+        return;
+      }
+      lastSampleRate.store(inRate, std::memory_order_relaxed);
+      lastChannels.store(inChannels, std::memory_order_relaxed);
+      inFrames.fetch_add(1);
+      totalInputBytes.fetch_add(thisDataLen);
+      pipeline.receiveAudio(sendPacketTime, thisTime, thisData, thisDataLen, inDepth, inChannels, inRate, init, inCodec.c_str());
+    }
+  }
+
+  ProcessSource::~ProcessSource() = default;
+
+  /// cconfig pipeline and verify config params
+  bool ProcAV::CheckConfig() {
+    // Check generic configuration variables
+    if (!opt.isMember("source") || !opt["source"] || !opt["source"].isString()) {
+      FAIL_MSG("Main: invalid source in config!");
+      return false;
+    }
+
+    if (!opt.isMember("sink") || !opt["sink"] || !opt["sink"].isString()) {
+      INFO_MSG("Main: No sink explicitly set, using source as sink");
+    }
+
+    return true;
+  }
+
+  void ProcAV::updateStats(uint64_t startTime) {
+    static uint64_t lastProcUpdate = Util::bootSecs();
+    static uint64_t encPrevTime = 0;
+
+    if (lastProcUpdate + 5 <= Util::bootSecs()) {
+      std::lock_guard<std::mutex> guard(statsMutex);
+
+      uint64_t inFr = inFrames;
+      uint64_t outFr = outFrames;
+
+      pData["active_seconds"] = (Util::bootSecs() - startTime);
+      pData["ainfo"]["sourceTime"] = statSourceMs;
+      pData["ainfo"]["sinkTime"] = statSinkMs;
+      pData["ainfo"]["inFrames"] = inFr;
+      pData["ainfo"]["outFrames"] = outFr;
+      pData["ainfo"]["droppedFrames"] = pipeline.getDroppedFrameCount();
+
+      // Calculate per-frame timing averages (convert from microseconds to milliseconds)
+      if (inFr) {
+        pData["ainfo"]["decodeTime"] = pipeline.getDecodeTime() / inFr / 1000;
+        pData["ainfo"]["transformTime"] = pipeline.getTransformTime() / inFr / 1000;
+      }
+
+      // Calculate incremental encode time for new frames only
+      if (outFr > encPrevCount) {
+        uint64_t encTime = pipeline.getEncodeTime();
+        pData["ainfo"]["encodeTime"] = (encTime - encPrevTime) / (outFr - encPrevCount) / 1000;
+        encPrevTime = encTime;
+        encPrevCount = outFr;
+      }
+
+      // Update node info using pipeline's getters
+      pData["ainfo"]["decoder"] = pipeline.getDecoderName();
+      pData["ainfo"]["encoder"] = pipeline.getEncoderName();
+      pData["ainfo"]["scaler"] = pipeline.getTransformerName();
+
+      // Sleep telemetry
+      {
+        uint64_t sinkSleep, sourceSleep;
+        pipeline.getSleepTimes(sinkSleep, sourceSleep);
+        pData["ainfo"]["sourceSleepTime"] = sourceSleep;
+        pData["ainfo"]["sinkSleepTime"] = sinkSleep;
+      }
+
+      Util::sendUDPApi(pStat);
+
+      // Write process timing stats to SHM for rate control
+      if (procStatsPage.mapped) {
+        ProcTimingStats *s = (ProcTimingStats *)procStatsPage.mapped;
+        s->totalWork = pipeline.getDecodeTime() + pipeline.getEncodeTime() + pipeline.getTransformTime();
+        uint64_t sinkSleep, sourceSleep;
+        pipeline.getSleepTimes(sinkSleep, sourceSleep);
+        s->totalSourceSleep = sourceSleep;
+        s->totalSinkSleep = sinkSleep;
+        s->frameCount = outFr;
+        s->lastUpdateMs = Util::bootMS();
+      }
+
+      // Fire virtual segment trigger
+      fireVirtualSegmentTrigger(false);
+
+      lastProcUpdate = Util::bootSecs();
+    }
+  }
+  void fireVirtualSegmentTrigger(bool isFinal) {
+    std::string sinkName = pStat["proc_status_update"]["sink"].asString();
+    if (!Triggers::shouldTrigger("PROCESS_AV_VIRTUAL_SEGMENT_COMPLETE", sinkName)) { return; }
+
+    uint64_t now = Util::bootSecs();
+    uint64_t deltaSecs = lastTriggerTime ? (now - lastTriggerTime) : (now - processStartTime);
+    if (!deltaSecs && !isFinal) { return; }
+
+    uint64_t inFr = inFrames;
+    uint64_t outFr = outFrames;
+    uint64_t outBytes = totalOutputBytes;
+    uint64_t inBytes = totalInputBytes;
+
+    uint64_t decodeAvg = inFr ? (pipeline.getDecodeTime() / inFr) : 0;
+    uint64_t transformAvg = inFr ? (pipeline.getTransformTime() / inFr) : 0;
+    uint64_t encodeAvg = outFr ? (pipeline.getEncodeTime() / outFr) : 0;
+
+    uint64_t windowInFrames = inFr - prevInFrames;
+    uint64_t windowOutFrames = outFr - prevOutFrames;
+    uint64_t windowInBytes = inBytes - prevInputBytes;
+    uint64_t windowOutBytes = outBytes - prevOutputBytes;
+    uint64_t sourceAdvancedMs = statSourceMs - prevSourceMs;
+    uint64_t sinkAdvancedMs = statSinkMs - prevSinkMs;
+
+    double rtFactorIn = (deltaSecs && sourceAdvancedMs) ? ((double)sourceAdvancedMs / (deltaSecs * 1000.0)) : 0.0;
+    double rtFactorOut = (deltaSecs && sinkAdvancedMs) ? ((double)sinkAdvancedMs / (deltaSecs * 1000.0)) : 0.0;
+    int64_t lagMs = (int64_t)statSourceMs - (int64_t)statSinkMs;
+    uint64_t outBitrate = deltaSecs ? (windowOutBytes * 8 / deltaSecs) : 0;
+
+    const char *codecIn = pipeline.getCodecIn();
+
+    std::string payload =
+      sinkName + "\n" +
+      std::string(isVideo ? "video" : "audio") + "\n" +
+      std::to_string(deltaSecs) + "\n" +
+      std::to_string(inFr) + "\n" +
+      std::to_string(outFr) + "\n" +
+      std::to_string(windowInFrames) + "\n" +
+      std::to_string(windowOutFrames) + "\n" +
+      std::to_string(windowInBytes) + "\n" +
+      std::to_string(windowOutBytes) + "\n" +
+      std::to_string(decodeAvg) + "\n" +
+      std::to_string(transformAvg) + "\n" +
+      std::to_string(encodeAvg) + "\n" +
+      std::string(codecIn ? codecIn : "unknown") + "\n" +
+      codecOut + "\n" +
+      std::to_string(lastInWidth.load(std::memory_order_relaxed)) + "\n" +
+      std::to_string(lastInHeight.load(std::memory_order_relaxed)) + "\n" +
+      std::to_string(lastOutWidth.load(std::memory_order_relaxed)) + "\n" +
+      std::to_string(lastOutHeight.load(std::memory_order_relaxed)) + "\n" +
+      std::to_string(lastInFpks.load(std::memory_order_relaxed)) + "\n" +
+      std::to_string(deltaSecs ? ((double)windowOutFrames / deltaSecs) : 0.0) + "\n" +
+      std::to_string(lastSampleRate.load(std::memory_order_relaxed)) + "\n" +
+      std::to_string(lastChannels.load(std::memory_order_relaxed)) + "\n" +
+      std::to_string(statSourceMs) + "\n" +
+      std::to_string(statSinkMs) + "\n" +
+      std::to_string(sourceAdvancedMs) + "\n" +
+      std::to_string(sinkAdvancedMs) + "\n" +
+      std::to_string(rtFactorIn) + "\n" +
+      std::to_string(rtFactorOut) + "\n" +
+      std::to_string(lagMs) + "\n" +
+      std::to_string(outBitrate) + "\n" +
+      (isFinal ? "1" : "0");
+
+    Triggers::doTrigger("PROCESS_AV_VIRTUAL_SEGMENT_COMPLETE", payload, sinkName);
+
+    lastTriggerTime = now;
+    prevInFrames = inFr;
+    prevOutFrames = outFr;
+    prevOutputBytes = outBytes;
+    prevInputBytes = inBytes;
+    prevSourceMs = statSourceMs;
+    prevSinkMs = statSinkMs;
+  }
+} // namespace Mist
+
+int main(int argc, char *argv[]) {
   DTSC::trackValidMask = TRACK_VALID_INT_PROCESS;
   Util::Config config(argv[0]);
   Util::Config::binaryType = Util::PROCESS;
   JSON::Value capa;
-  context_out = NULL;
-  av_log_set_callback(logcallback);
 
   {
     JSON::Value opt;
@@ -2133,10 +904,15 @@ int main(int argc, char *argv[]){
   capa["codecs"][0u][0u].append("UYVY");
   capa["codecs"][0u][0u].append("H264");
   capa["codecs"][0u][0u].append("AV1");
+  capa["codecs"][0u][0u].append("HEVC");
+  capa["codecs"][0u][0u].append("VP9");
   capa["codecs"][0u][0u].append("JPEG");
   capa["codecs"][0u][0u].append("PCM");
   capa["codecs"][0u][0u].append("opus");
   capa["codecs"][0u][0u].append("AAC");
+  capa["codecs"][0u][0u].append("MP3");
+  capa["codecs"][0u][0u].append("FLAC");
+  capa["codecs"][0u][0u].append("vorbis");
 
   capa["ainfo"]["sinkTime"]["name"] = "Sink timestamp";
   capa["ainfo"]["sourceTime"]["name"] = "Source timestamp";
@@ -2144,292 +920,448 @@ int main(int argc, char *argv[]){
   capa["ainfo"]["cmd"]["name"] = "Child process command";
   capa["ainfo"]["inFrames"]["name"] = "Frames ingested";
   capa["ainfo"]["outFrames"]["name"] = "Frames outputted";
+  capa["ainfo"]["droppedFrames"]["name"] = "Frames dropped";
   capa["ainfo"]["decodeTime"]["name"] = "Decode time";
-  capa["ainfo"]["sinkSleepTime"]["name"] = "Sink sleep time";
-  capa["ainfo"]["sourceSleepTime"]["name"] = "Source sleep time";
-  capa["ainfo"]["transformTime"]["name"] = "Transform time";
-  capa["ainfo"]["encodeTime"]["name"] = "Encode time";
   capa["ainfo"]["decodeTime"]["unit"] = "ms / frame";
+  capa["ainfo"]["transformTime"]["name"] = "Transform time";
   capa["ainfo"]["transformTime"]["unit"] = "ms / frame";
+  capa["ainfo"]["encodeTime"]["name"] = "Encode time";
   capa["ainfo"]["encodeTime"]["unit"] = "ms / frame";
-  capa["ainfo"]["sourceSleepTime"]["unit"] = "ms / frame";
-  capa["ainfo"]["sinkSleepTime"]["unit"] = "ms / frame";
   capa["ainfo"]["decoder"]["name"] = "Decoder";
   capa["ainfo"]["encoder"]["name"] = "Encoder";
-  capa["ainfo"]["scaler"]["name"] = "Scaler";
+  capa["ainfo"]["scaler"]["name"] = "Transformer";
+  capa["ainfo"]["sourceSleepTime"]["name"] = "Source sleep time";
+  capa["ainfo"]["sourceSleepTime"]["unit"] = "us";
+  capa["ainfo"]["sinkSleepTime"]["name"] = "Sink sleep time";
+  capa["ainfo"]["sinkSleepTime"]["unit"] = "us";
 
-  if (!(config.parseArgs(argc, argv))){return 1;}
-  if (config.getBool("json")){
-
+  if (!(config.parseArgs(argc, argv))) { return 1; }
+  if (config.getBool("json")) {
     capa["name"] = "AV";
     capa["hrn"] = "Encoder: libav (ffmpeg library)";
-    capa["desc"] = "Generic video encoder that directly integrates with the ffmpeg library rather than calling a binary and transmuxing twice";
+    capa["desc"] = "Generic video encoder that directly integrates with the "
+                   "ffmpeg library rather "
+                   "than calling a binary and transmuxing twice";
+    capa["sort"] = "sort"; // sort the parameters by this key
     addGenericProcessOptions(capa);
-    {
-      JSON::Value & genopts = capa["optional"]["general_process_options"]["options"];
 
-      genopts["track_select"]["name"] = "Source selector(s)";
-      genopts["track_select"]["help"] = "What tracks to select for the input. Defaults to audio=all&video=all.";
-      genopts["track_select"]["type"] = "string";
-      genopts["track_select"]["validate"][0u] = "track_selector";
-      genopts["track_select"]["default"] = "audio=all&video=all";
-      genopts["track_select"]["sort"] = "a";
+    { 
+      //////////////////////
+      // required options //
+      //////////////////////
 
-      genopts["sink"]["name"] = "Target stream";
-      genopts["sink"]["help"] =
-        "What stream the encoded track should be added to. Defaults to source stream. May contain variables.";
-      genopts["sink"]["type"] = "string";
-      genopts["sink"]["validate"][0u] = "streamname_with_wildcard_and_variables";
-      genopts["sink"]["sort"] = "b";
+      JSON::Value &required = capa["required"];
 
-      genopts["source_mask"]["name"] = "Source track mask";
-      genopts["source_mask"]["help"] = "What internal processes should have access to the source track(s)";
-      genopts["source_mask"]["type"] = "select";
-      genopts["source_mask"]["select"][0u][0u] = 255;
-      genopts["source_mask"]["select"][0u][1u] = "Everything";
-      genopts["source_mask"]["select"][1u][0u] = 4;
-      genopts["source_mask"]["select"][1u][1u] = "Processing tasks (not viewers, not pushes)";
-      genopts["source_mask"]["select"][2u][0u] = 6;
-      genopts["source_mask"]["select"][2u][1u] = "Processing and pushing tasks (not viewers)";
-      genopts["source_mask"]["select"][3u][0u] = 5;
-      genopts["source_mask"]["select"][3u][1u] = "Processing and viewer tasks (not pushes)";
-      genopts["source_mask"]["default"] = "Keep original value";
-      genopts["source_mask"]["sort"] = "c";
+      {
+        JSON::Value &o = required["x-LSP-kind"];
 
-      genopts["target_mask"]["name"] = "Output track mask";
-      genopts["target_mask"]["help"] = "What internal processes should have access to the output track(s)";
-      genopts["target_mask"]["type"] = "select";
-      genopts["target_mask"]["select"][0u][0u] = 255;
-      genopts["target_mask"]["select"][0u][1u] = "Everything";
-      genopts["target_mask"]["select"][1u][0u] = 1;
-      genopts["target_mask"]["select"][1u][1u] = "Viewer tasks (not processing, not pushes)";
-      genopts["target_mask"]["select"][2u][0u] = 2;
-      genopts["target_mask"]["select"][2u][1u] = "Pushing tasks (not processing, not viewers)";
-      genopts["target_mask"]["select"][3u][0u] = 4;
-      genopts["target_mask"]["select"][3u][1u] = "Processing tasks (not pushes, not viewers)";
-      genopts["target_mask"]["select"][4u][0u] = 3;
-      genopts["target_mask"]["select"][4u][1u] = "Viewer and pushing tasks (not processing)";
-      genopts["target_mask"]["select"][5u][0u] = 5;
-      genopts["target_mask"]["select"][5u][1u] = "Viewer and processing tasks (not pushes)";
-      genopts["target_mask"]["select"][6u][0u] = 6;
-      genopts["target_mask"]["select"][6u][1u] = "Pushing and processing tasks (not viewers)";
-      genopts["target_mask"]["select"][7u][0u] = 0;
-      genopts["target_mask"]["select"][7u][1u] = "Nothing";
-      genopts["target_mask"]["default"] = "Keep original value";
-      genopts["target_mask"]["sort"] = "d";
+        o["name"] = "Input type"; // human readable name of option
+        o["help"] = "The type of input to use"; // extra information
+        o["type"] = "select";          // type of input field to use
+        o["select"][0u][0u] = "video"; // value of first select field
+        o["select"][0u][1u] = "Video"; // label of first select field
+        o["select"][1u][0u] = "audio";
+        o["select"][1u][1u] = "Audio";
+        o["sort"] = "aaaa"; // sorting index
+        o["influences"].append("codec");
+        o["influences"].append("accel");
+        o["influences"].append("resolution");
+        o["influences"].append("gopsize");
+        o["influences"].append("bitrate");
+        o["influences"].append("split_audio");
+        o["influences"].append("rate_control");
+        o["influences"].append("preset");
+        o["influences"].append("tune");
+        o["influences"].append("max_bitrate");
+        o["influences"].append("quality");
+        o["value"] = "video"; // preselect this value
+      }
+      {
+        JSON::Value &o = required["codec"][0u];
 
-      genopts["exit_unmask"]["name"] = "Undo masks on process exit/fail";
-      genopts["exit_unmask"]["help"] = "If/when the process exits or fails, the masks for input tracks will be reset "
-                                       "to defaults. (NOT to previous value, but to defaults!)";
-      genopts["exit_unmask"]["default"] = false;
-      genopts["exit_unmask"]["sort"] = "e";
+        o["name"] = "Target codec";
+        o["help"] = "Wanted output codec";
+        o["type"] = "select";
+        o["select"].append("H264");
+
+        JSON::Value entry;
+        entry[0u] = "HEVC";
+        entry[1u] = "HEVC (H.265)";
+        o["select"].append(entry);
+
+        o["select"].append("AV1");
+        o["select"].append("VP9");
+        o["select"].append("JPEG");
+
+        entry[0u] = "UYVY";
+        entry[1u] = "UYVY: Raw YUV 4:2:2 pixels";
+        o["select"].append(entry);
+
+        entry[0u] = "YUYV";
+        entry[1u] = "YUYV: Raw YUV 4:2:2 pixels";
+        o["select"].append(entry);
+
+        o["dependent"]["x-LSP-kind"] = "video"; // this field is only shown if x-LSP-kind is set to "video"
+        o["influences"].append("gopsize");
+      }
+      {
+        JSON::Value &o = required["codec"][1u];
+        o = required["codec"][0u];
+        o.removeMember("select");
+        o["select"].append("AAC");
+        o["select"].append("opus");
+        o["select"].append("PCM");
+        o["select"].append("MP3");
+        o["select"].append("FLAC");
+        o["select"].append("vorbis");
+        o["dependent"]["x-LSP-kind"] = "audio"; // this field is only shown if x-LSP-kind is set to "audio"
+      }
+
     }
 
-    capa["required"]["x-LSP-kind"]["name"] = "Input type"; // human readable name of option
-    capa["required"]["x-LSP-kind"]["help"] = "The type of input to use"; // extra information
-    capa["required"]["x-LSP-kind"]["type"] = "select"; // type of input field to use
-    capa["required"]["x-LSP-kind"]["select"][0u][0u] = "video"; // value of first select field
-    capa["required"]["x-LSP-kind"]["select"][0u][1u] = "Video"; // label of first select field
-    capa["required"]["x-LSP-kind"]["select"][1u][0u] = "audio";
-    capa["required"]["x-LSP-kind"]["select"][1u][1u] = "Audio";
-    capa["required"]["x-LSP-kind"]["sort"] = "a"; // sorting index
-    capa["required"]["x-LSP-kind"]["influences"].append("codec"); // if this field changes, also update this field
-    capa["required"]["x-LSP-kind"]["influences"].append("accel");
-    capa["required"]["x-LSP-kind"]["influences"].append("quality");
-    capa["required"]["x-LSP-kind"]["value"] = "video"; // preselect this value
+    {
+      //////////////////////
+      // optional options //
+      //////////////////////
 
-    // use an array for this parameter, because there are two input field variations
-    capa["required"]["codec"][0u]["name"] = "Target codec";
-    capa["required"]["codec"][0u]["help"] = "Which codec to encode to";
-    capa["required"]["codec"][0u]["type"] = "select";
-    capa["required"]["codec"][0u]["select"][0u] = "AV1";
-    capa["required"]["codec"][0u]["select"][1u] = "H264";
-    capa["required"]["codec"][0u]["select"][2u] = "JPEG";
-    capa["required"]["codec"][0u]["select"][3u][0u] = "UYVY";
-    capa["required"]["codec"][0u]["select"][3u][1u] = "UYVY: Raw YUV 4:2:2 pixels";
-    capa["required"]["codec"][0u]["sort"] = "b";
-    capa["required"]["codec"][0u]["value"] = "H264";
-    capa["required"]["codec"][0u]["dependent"]["x-LSP-kind"] = "video"; // this field is only shown if x-LSP-kind is set to "video"
-    capa["required"]["codec"][0u]["influences"].append("profile");
-    capa["required"]["codec"][0u]["influences"].append("gopsize");
+      JSON::Value &optional = capa["optional"];
 
-    capa["required"]["codec"][1u] = capa["required"]["codec"][0u];
-    capa["required"]["codec"][1u]["select"].shrink(0); // empty the array
-    capa["required"]["codec"][1u]["select"][0u] = "AAC";
-    capa["required"]["codec"][1u]["select"][1u][0u] = "opus";
-    capa["required"]["codec"][1u]["select"][1u][1u] = "Opus";
-    capa["required"]["codec"][1u]["select"][2u] = "PCM";
-    capa["required"]["codec"][1u]["value"] = "opus";
-    capa["required"]["codec"][1u]["dependent"]["x-LSP-kind"] = "audio";
-    capa["required"]["codec"][1u]["influences"].append("tune");
+      //group for options that we consider common
+      optional["common"]["name"] = "Commonly used options";
+      optional["common"]["type"] = "group";
+      optional["common"]["expand"] = true;
+      optional["common"]["sort"] = "aaa";
+      JSON::Value &common = optional["common"]["options"]; 
 
-    capa["optional"]["accel"]["name"] = "Hardware acceleration";
-    capa["optional"]["accel"]["help"] = "Control whether hardware acceleration is used or not";
-    capa["optional"]["accel"]["type"] = "select";
-    capa["optional"]["accel"]["select"][0u][0u] = "hw";
-    capa["optional"]["accel"]["select"][0u][1u] = "Force enabled: abort if acceleration fails";
-    capa["optional"]["accel"]["select"][1u][0u] = "sw";
-    capa["optional"]["accel"]["select"][1u][1u] = "Software-only: do not attempt acceleration";
-    capa["optional"]["accel"]["default"] = "Automatic: attempt acceleration, fallback to software";
-    capa["optional"]["accel"]["sort"] = "a";
-    capa["optional"]["accel"]["dependent"]["x-LSP-kind"] = "video"; // this field is only shown if x-LSP-kind is set to "video"
+      //group for options that we consider advanced
+      optional["advanced"]["name"] = "Advanced options";
+      optional["advanced"]["type"] = "group";
+      optional["advanced"]["expand"] = false;
+      optional["advanced"]["sort"] = "xxx";
+      JSON::Value &advanced = optional["advanced"]["options"];
 
-    capa["optional"]["bitrate"][0u]["name"] = "Bitrate";
-    capa["optional"]["bitrate"][0u]["help"] = "Set the target bitrate in bits per second";
-    capa["optional"]["bitrate"][0u]["type"] = "uint";
-    capa["optional"]["bitrate"][0u]["default"] = 2000000;
-    capa["optional"]["bitrate"][0u]["value"] = 8000000; // for EFG
-    capa["optional"]["bitrate"][0u]["unit"][0u][0u] = "1";
-    capa["optional"]["bitrate"][0u]["unit"][0u][1u] = "bit/s";
-    capa["optional"]["bitrate"][0u]["unit"][1u][0u] = "1000";
-    capa["optional"]["bitrate"][0u]["unit"][1u][1u] = "kbit/s";
-    capa["optional"]["bitrate"][0u]["unit"][2u][0u] = "1000000";
-    capa["optional"]["bitrate"][0u]["unit"][2u][1u] = "Mbit/s";
-    capa["optional"]["bitrate"][0u]["unit"][3u][0u] = "1000000000";
-    capa["optional"]["bitrate"][0u]["unit"][3u][1u] = "Gbit/s";
-    capa["optional"]["bitrate"][0u]["sort"] = "b";
-    capa["optional"]["bitrate"][0u]["dependent"]["x-LSP-kind"] = "video"; // this field is only shown if x-LSP-kind is set to "video"
-    capa["optional"]["bitrate"][0u]["dependent_not"]["codec"].append("JPEG"); // this field should not be shown if codec is set to "JPEG"
-    capa["optional"]["bitrate"][0u]["dependent_not"]["codec"].append("UYVY"); // this field should not be shown if codec is set to "UYVY"
+      // video options
+      {
+        JSON::Value &o = common["resolution"];
+        o["name"] = "resolution";
+        o["help"] = "Resolution of the output stream, e.g. 1920x1080";
+        o["type"] = "str";
+        o["name"] = "resolution";
+        o["help"] = "Resolution of the output stream, e.g. 1920x1080";
+        o["type"] = "str";
+        o["default"] = "keep source resolution";
+        o["dependent"]["x-LSP-kind"] = "video";
+        o["sort"] = "b";
+      }
+      {
+        //TODO for backend: when gopsize is 0, add keyframe when the source has a keyframe. Otherwise, obey time interval
+        JSON::Value &o = common["gopsize"][0u];
+        o["name"] = "Keyframe interval";
+        o["help"] = "Amount of time before a new keyframe is sent. Defaults to whenever there is a keyframe in the source.";
+        o["type"] = "selectinput";
+        o["default"] = 0;
 
-    capa["optional"]["bitrate"][1u] = capa["optional"]["bitrate"][0u];
-    capa["optional"]["bitrate"][1u]["value"] = 128000;
-    capa["optional"]["bitrate"][1u]["unit"].truncate(2); // keep only bit/s and kbit/s
-    capa["optional"]["bitrate"][1u]["dependent"]["x-LSP-kind"] = "audio"; // this field is only shown if x-LSP-kind is set to "audio"
-    capa["optional"]["bitrate"][1u]["dependent_not"]["codec"] = "PCM"; // do not show this field if the codec is PCM
+        JSON::Value entry;
+        entry[0u] = "0";
+        entry[1u] = "Match source";
+        o["selectinput"].append(entry);
+        
+        JSON::Value &i = entry[0u];
+        i["name"] = "Interval";
+        i["type"] = "uint";
+        i["value"] = 2000;
+        i["unit"][0u][0u] = "1";
+        i["unit"][0u][1u] = "ms";
+        i["unit"][1u][0u] = "1000";
+        i["unit"][1u][1u] = "s";
+        entry[1u] = "Specify";
+        o["selectinput"].append(entry);
 
-    capa["optional"]["resolution"]["name"] = "resolution";
-    capa["optional"]["resolution"]["help"] = "Resolution of the output stream, e.g. 1920x1080";
-    capa["optional"]["resolution"]["type"] = "str";
-    capa["optional"]["resolution"]["default"] = "keep source resolution";
-    capa["optional"]["resolution"]["sort"] = "c";
-    capa["optional"]["resolution"]["dependent"]["x-LSP-kind"] = "video";
+        o["dependent"]["x-LSP-kind"] = "video";
+        o["dependent_not"]["codec"].append("JPEG"); //do not show this field if the codec is JPEG
+        o["dependent_not"]["codec"].append("UYVY"); //do not show this field if the codec is raw
+        o["dependent_not"]["codec"].append("YUYV"); //do not show this field if the codec is raw
+        o["sort"] = "c";
+      }
+      {
+        JSON::Value &o = common["gopsize"][1u];
+        o = common["gopsize"][0u];
+        o["name"] = "Time between images";
+        o["help"] = "Amount of milliseconds between images. Defaults to whenever there is a keyframe in the source.";
+        o["dependent_not"]["codec"].shrink(2); //throw out all but the last 2 elements
+        o["dependent"]["codec"] = "JPEG"; //*do* show this field if the codec is jpeg
+      }
+      {
+        JSON::Value &o = common["bitrate"][0u];
+        o["name"] = "Target bitrate";
+        o["help"] = "Set the target bitrate in bits per second. When set to 0, the bitrate will be automatically determined based on the codec.";
+        o["type"] = "uint";
+        o["default"] = 0;
+        o["unit"][0u][0u] = "1";
+        o["unit"][0u][1u] = "bit/s";
+        o["unit"][1u][0u] = "1000";
+        o["unit"][1u][1u] = "kbit/s";
+        o["unit"][2u][0u] = "1000000";
+        o["unit"][2u][1u] = "Mbit/s";
+        o["unit"][3u][0u] = "1000000000";
+        o["unit"][3u][1u] = "Gbit/s";
+        o["value"] = 7000000;
+        o["dependent"]["x-LSP-kind"] = "video";
+        o["dependent_not"]["codec"].append("PCM");
+        o["dependent_not"]["codec"].append("UYVY");
+        o["dependent_not"]["codec"].append("YUYV");
+        o["sort"] = "d";
+      }
 
-    capa["optional"]["framerate"]["name"] = "Frame rate";
-    capa["optional"]["framerate"]["help"] = "Declared frame rate of target stream, copy input frame rate if unset";
-    capa["optional"]["framerate"]["type"] = "str";
-    capa["optional"]["framerate"]["default"] = "";
-    capa["optional"]["framerate"]["sort"] = "ca";
-    capa["optional"]["framerate"]["dependent"]["x-LSP-kind"] = "video";
+      // audio options
+      {
+        JSON::Value &o = common["bitrate"][1u];
+        o = common["bitrate"][0u];
+        o["value"] = 128000;
+        o["dependent"]["x-LSP-kind"] = "audio";
+        o["sort"] = "a";
+      }
+      {
+        JSON::Value &o = advanced["split_audio"];
+        o["name"] = "Split audio channels";
+        o["help"] = "List of channels to split the audio into. Defaults to all channels. IE: \"4, 2, 2, 4\"";
+        o["type"] = "inputlist";
+        o["input"]["type"] = "uint";
+        o["input"]["min"] = 1;
+        o["default"] = "";
+        o["sort"] = "b";
+        o["dependent"]["x-LSP-kind"] = "audio";
+      }
 
-    /* gopsize field for any video codec: */
-    capa["optional"]["gopsize"][0u]["name"] = "GOP Size";
-    capa["optional"]["gopsize"][0u]["help"] = "Amount of frames before a new keyframe is sent.";
-    capa["optional"]["gopsize"][0u]["type"] = "uint";
-    capa["optional"]["gopsize"][0u]["default"] = 40;
-    capa["optional"]["gopsize"][0u]["value"] = 30; // for EFG
-    capa["optional"]["gopsize"][0u]["sort"] = "d";
-    capa["optional"]["gopsize"][0u]["dependent"]["x-LSP-kind"] = "video"; // show this field when the input type is video
-    capa["optional"]["gopsize"][0u]["dependent_not"]["codec"] = "JPEG"; // do not show this field if the codec is JPEG
-    /* gopsize for jpeg */
-    capa["optional"]["gopsize"][1u] = capa["optional"]["gopsize"][0u];
-    capa["optional"]["gopsize"][1u]["help"] = "The minimum amount of frames between images.";
-    capa["optional"]["gopsize"][1u].removeMember("dependent_not");
-    capa["optional"]["gopsize"][1u]["dependent"]["codec"] = "JPEG"; //*do* show this field if the codec is jpeg
+      // selection options (secretly part of generic options)
+      {
+        JSON::Value &opts = capa["optional"]["general_process_options"]["options"];
 
-    capa["optional"]["preset"]["name"] = "Encode preset";
-    capa["optional"]["preset"]["help"] = "Preset for encoding speed and compression ratio";
-    capa["optional"]["preset"]["type"] = "select";
-    capa["optional"]["preset"]["select"][0u][0u] = "ultrafast";
-    capa["optional"]["preset"]["select"][0u][1u] = "ultrafast";
-    capa["optional"]["preset"]["select"][1u][0u] = "superfast";
-    capa["optional"]["preset"]["select"][1u][1u] = "superfast";
-    capa["optional"]["preset"]["select"][2u][0u] = "veryfast";
-    capa["optional"]["preset"]["select"][2u][1u] = "veryfast";
-    capa["optional"]["preset"]["select"][3u][0u] = "faster";
-    capa["optional"]["preset"]["select"][3u][1u] = "faster";
-    capa["optional"]["preset"]["select"][4u][0u] = "fast";
-    capa["optional"]["preset"]["select"][4u][1u] = "fast";
-    capa["optional"]["preset"]["select"][5u][0u] = "medium";
-    capa["optional"]["preset"]["select"][5u][1u] = "medium";
-    capa["optional"]["preset"]["select"][6u][0u] = "slow";
-    capa["optional"]["preset"]["select"][6u][1u] = "slow";
-    capa["optional"]["preset"]["select"][7u][0u] = "slower";
-    capa["optional"]["preset"]["select"][7u][1u] = "slower";
-    capa["optional"]["preset"]["select"][8u][0u] = "veryslow";
-    capa["optional"]["preset"]["select"][8u][1u] = "veryslow";
-    capa["optional"]["preset"]["default"] = "faster";
-    capa["optional"]["preset"]["sort"] = "e";
-    capa["optional"]["preset"]["dependent"]["codec"] = "H264";
+        JSON::Value &g = opts["selection"];
+        g["name"] = "Selection";
+        g["desc"] = "Choose what tracks to insert into the process, and where process output should go.";
+        g["type"] = "group";
+        g["expand"] = true;
+        g["sort"] = "aaa";
+        {
+          JSON::Value &opts = g["options"];
+          {
+            JSON::Value &o = opts["track_select"];
+            o["name"] = "Source selector(s)";
+            o["help"] = "What tracks to select for the input. Defaults to audio=all&video=all.";
+            o["type"] = "string";
+            o["validate"][0u] = "track_selector";
+            o["default"] = "audio=all&video=all";
+            o["sort"] = "a";
+          }
+          {
+            JSON::Value &o = opts["exit_unmask"];
+            o["name"] = "Undo masks on process exit/fail";
+            o["help"] = "If/when the process exits or fails, the masks for input tracks will be reset to defaults. (NOT to previous value, but to defaults!)";
+            o["default"] = false;
+            o["sort"] = "b";
+          }
+          {
+            JSON::Value &o = opts["source_mask"];
+            o["name"] = "Source track mask";
+            o["help"] = "What internal processes should have access to the source track(s)";
+            o["type"] = "select";
+            o["select"][0u][0u] = 255;
+            o["select"][0u][1u] = "Everything";
+            o["select"][1u][0u] = 4;
+            o["select"][1u][1u] = "Processing tasks (not viewers, not pushes)";
+            o["select"][2u][0u] = 6;
+            o["select"][2u][1u] = "Processing and pushing tasks (not viewers)";
+            o["select"][3u][0u] = 5;
+            o["select"][3u][1u] = "Processing and viewer tasks (not pushes)";
+            o["default"] = "Keep original value";
+            o["sort"] = "c";
+          }
+          {
+            JSON::Value &o = opts["target_mask"];
+            o["name"] = "Output track mask";
+            o["help"] = "What internal processes should have access to the ouput track(s)";
+            o["type"] = "select";
+            o["select"][0u][0u] = "";
+            o["select"][0u][1u] = "Keep original value";
+            o["select"][1u][0u] = 255;
+            o["select"][1u][1u] = "Everything";
+            o["select"][2u][0u] = 1;
+            o["select"][2u][1u] = "Viewer tasks (not processing, not pushes)";
+            o["select"][3u][0u] = 2;
+            o["select"][3u][1u] = "Pushing tasks (not processing, not viewers)";
+            o["select"][4u][0u] = 4;
+            o["select"][4u][1u] = "Processing tasks (not pushes, not viewers)";
+            o["select"][5u][0u] = 3;
+            o["select"][5u][1u] = "Viewer and pushing tasks (not processing)";
+            o["select"][6u][0u] = 5;
+            o["select"][6u][1u] = "Viewer and processing tasks (not pushes)";
+            o["select"][7u][0u] = 6;
+            o["select"][7u][1u] = "Pushing and processing tasks (not viewers)";
+            o["select"][8u][0u] = 0;
+            o["select"][8u][1u] = "Nothing";
+            o["default"] = "";
+            o["sort"] = "d";
+          }
+          {
+            JSON::Value &o = opts["sink"];
+            o["name"] = "Target stream";
+            o["help"] = "What stream the encoded track should be added to. Defaults to source stream. May contain variables.";
+            o["type"] = "string";
+            o["validate"][0u] = "streamname_with_wildcard_and_variables";
+            o["sort"] = "e";
+          }
+        }
+      }
 
-    capa["optional"]["profile"][0u]["name"] = "Encode profile";
-    capa["optional"]["profile"][0u]["help"] = "Select encoding profile";
-    capa["optional"]["profile"][0u]["type"] = "select";
-    capa["optional"]["profile"][0u]["select"][0u][0u] = "main";
-    capa["optional"]["profile"][0u]["select"][0u][1u] = "Main";
-    capa["optional"]["profile"][0u]["select"][1u][0u] = "baseline";
-    capa["optional"]["profile"][0u]["select"][1u][1u] = "Baseline";
-    capa["optional"]["profile"][0u]["select"][2u][0u] = "high";
-    capa["optional"]["profile"][0u]["select"][2u][1u] = "High";
-    capa["optional"]["profile"][0u]["default"] = "high";
-    capa["optional"]["profile"][0u]["sort"] = "f";
-    capa["optional"]["profile"][0u]["dependent"]["codec"] = "H264";
+      {
+        JSON::Value &opts = advanced;
+        {
+          JSON::Value &o = opts["accel"];
+          o["name"] = "Acceleration";
+          o["help"] = "Control whether hardware acceleration is used or not.";
+          o["type"] = "bitmask";
+          JSON::Value entry;
+          entry[0u] = 1;
+          entry[1u] = "Software";
+          o["bitmask"].append(entry);
+          entry[0u] = 2;
+          entry[1u] = "NVidia";
+          o["bitmask"].append(entry);
+          entry[0u] = 4;
+          entry[1u] = "Intel";
+          o["bitmask"].append(entry);
+          entry[0u] = 8;
+          entry[1u] = "VAAPI";
+          o["bitmask"].append(entry);
+          entry[0u] = 16;
+          entry[1u] = "Videotoolbox";
+          o["bitmask"].append(entry);
+          o["default"] = 0xff;  // when calculating the field value, we start with this value, then check or uncheck the bits for the displayed fields
+          o["value"] = 0xff;    // these fields are checked when configuring a new process
+          o["dependent"]["x-LSP-kind"] = "video";
+          o["sort"] = "a";
+        }
+        {
+          JSON::Value &o = opts["preset"];
+          o["name"] = "Transcode preset";
+          o["help"] = "Preset for encoding speed and compression ratio";
+          o["type"] = "select";
+          o["select"][0u][0u] = "ultrafast";
+          o["select"][0u][1u] = "ultrafast";
+          o["select"][1u][0u] = "superfast";
+          o["select"][1u][1u] = "superfast";
+          o["select"][2u][0u] = "veryfast";
+          o["select"][2u][1u] = "veryfast";
+          o["select"][3u][0u] = "faster";
+          o["select"][3u][1u] = "faster";
+          o["select"][4u][0u] = "fast";
+          o["select"][4u][1u] = "fast";
+          o["select"][5u][0u] = "medium";
+          o["select"][5u][1u] = "medium";
+          o["select"][6u][0u] = "slow";
+          o["select"][6u][1u] = "slow";
+          o["select"][7u][0u] = "slower";
+          o["select"][7u][1u] = "slower";
+          o["select"][8u][0u] = "veryslow";
+          o["select"][8u][1u] = "veryslow";
+          o["default"] = "faster";
+          o["sort"] = "a";
+          o["dependent"]["x-LSP-kind"] = "video";
+        }
+        {
+          JSON::Value &o = opts["tune"];
+          o["name"] = "Encode tuning";
+          o["help"] = "Set the encode tuning";
+          o["type"] = "select";
+          o["select"][0u][0u] = "zerolatency";
+          o["select"][0u][1u] = "Low latency";
+          o["select"][1u][0u] = "zerolatency-lq";
+          o["select"][1u][1u] = "Low latency (high speed / low quality)";
+          o["select"][2u][0u] = "zerolatency-hq";
+          o["select"][2u][1u] = "Low latency (low speed / high quality)";
+          o["select"][3u][0u] = "animation";
+          o["select"][3u][1u] = "Cartoon-like content";
+          o["select"][4u][0u] = "film";
+          o["select"][4u][1u] = "Movie-like content";
+          o["select"][5u][0u] = "";
+          o["select"][5u][1u] = "No tuning (generic)";
+          o["default"] = "zerolatency";
+          o["dependent"]["x-LSP-kind"] = "video";
+          o["sort"] = "b";
+        }
+        {
+          JSON::Value &o = opts["rate_control"];
+          o["name"] = "Rate control";
+          o["help"] = "Select the encoder rate control strategy";
+          o["type"] = "select";
 
-    capa["optional"]["profile"][1u] = capa["optional"]["profile"][0u];
-    capa["optional"]["profile"][1u]["select"].shrink(0);
-    capa["optional"]["profile"][1u]["select"][0u][0u] = "low";
-    capa["optional"]["profile"][1u]["select"][0u][1u] = "Low complexity";
-    capa["optional"]["profile"][1u]["select"][1u][0u] = "main";
-    capa["optional"]["profile"][1u]["select"][1u][1u] = "Main";
-    capa["optional"]["profile"][1u]["select"][2u][0u] = "he";
-    capa["optional"]["profile"][1u]["select"][2u][1u] = "High efficiency";
-    capa["optional"]["profile"][1u]["default"] = "low";
-    capa["optional"]["profile"][1u]["dependent"]["codec"] = "AAC";
+          JSON::Value entry;
+          entry[0u] = "cbr";
+          entry[1u] = "Constant bitrate";
+          o["select"].append(entry);
+          entry[0u] = "vbr";
+          entry[1u] = "Variable bitrate";
+          o["select"].append(entry);
+          entry[0u] = "cq";
+          entry[1u] = "Constant quality";
+          o["select"].append(entry);
 
-    capa["optional"]["tune"]["name"] = "Encode tuning";
-    capa["optional"]["tune"]["help"] = "Set the encode tuning";
-    capa["optional"]["tune"]["type"] = "select";
-    capa["optional"]["tune"]["select"][0u][0u] = "zerolatency";
-    capa["optional"]["tune"]["select"][0u][1u] = "Low latency (balanced performance/quality)";
-    capa["optional"]["tune"]["select"][1u][0u] = "zerolatency-lq";
-    capa["optional"]["tune"]["select"][1u][1u] = "Low latency (focus on performance)";
-    capa["optional"]["tune"]["select"][2u][0u] = "zerolatency-hq";
-    capa["optional"]["tune"]["select"][2u][1u] = "Low latency (focus on quality)";
-    capa["optional"]["tune"]["select"][3u][0u] = "animation";
-    capa["optional"]["tune"]["select"][3u][1u] = "Cartoon-like content";
-    capa["optional"]["tune"]["select"][4u][0u] = "film";
-    capa["optional"]["tune"]["select"][4u][1u] = "Movie-like content";
-    capa["optional"]["tune"]["default"] = "No tuning (generic)";
-    capa["optional"]["tune"]["value"] = "zerolatency-lq"; // for EFG
-    capa["optional"]["tune"]["sort"] = "g";
-    capa["optional"]["tune"]["dependent"]["codec"] = "H264";
+          o["default"] = "cbr";
+          o["sort"] = "y";
+          o["influences"].append("max_bitrate");
+          o["influences"].append("quality");
+          o["dependent"]["x-LSP-kind"] = "video";
+        }
+        {
+          JSON::Value &o = opts["max_bitrate"];
+          o["name"] = "Maximum bitrate";
+          o["help"] = "Optional maximum bitrate cap when operating in bitrate/VBR modes (bits per second).";
+          o["type"] = "uint";
+          o["default"] = 0;
+          o["unit"][0u][0u] = "1";
+          o["unit"][0u][1u] = "bit/s";
+          o["unit"][1u][0u] = "1000";
+          o["unit"][1u][1u] = "kbit/s";
+          o["unit"][2u][0u] = "1000000";
+          o["unit"][2u][1u] = "Mbit/s";
+          o["unit"][3u][0u] = "1000000000";
+          o["unit"][3u][1u] = "Gbit/s";
+          o["sort"] = "z";
+          o["value"] = 7000000;
+          o["dependent"]["x-LSP-kind"] = "video";
+          o["dependent"]["rate_control"] = "vbr";
+        }
+        { //TODO for backend: convert this general "quality" to the value required for encoders (cq, vbr, qscale etc)
+          JSON::Value &o = opts["quality"];
+          o["name"] = "Quality";
+          o["help"] = "Select the desired quality";
+          o["type"] = "select";
 
-    capa["optional"]["sample_rate"][0u]["name"] = "Sample rate";
-    capa["optional"]["sample_rate"][0u]["help"] = "Output sample rate in Hz (by default copies input rate if possible)";
-    capa["optional"]["sample_rate"][0u]["type"] = "uint";
+          JSON::Value entry;
+          entry[0u] = 1;
+          entry[1u] = "very low"; 
+          o["select"].append(entry);
+          entry[0u] = 6;
+          entry[1u] = "low"; 
+          o["select"].append(entry);
+          entry[0u] = 11;
+          entry[1u] = "medium"; 
+          o["select"].append(entry);
+          entry[0u] = 21;
+          entry[1u] = "high"; 
+          o["select"].append(entry);
+          entry[0u] = 31;
+          entry[1u] = "very high"; 
+          o["select"].append(entry);
 
-    capa["optional"]["sample_rate"][0u]["min"] = 0;
-    capa["optional"]["sample_rate"][0u]["unit"][0u][0u] = "1";
-    capa["optional"]["sample_rate"][0u]["unit"][0u][1u] = "Hz";
-    capa["optional"]["sample_rate"][0u]["unit"][1u][0u] = "1000";
-    capa["optional"]["sample_rate"][0u]["unit"][1u][1u] = "kHz";
-    capa["optional"]["sample_rate"][0u]["dependent"]["codec"] = "AAC";
-
-    capa["optional"]["sample_rate"][1u] = capa["optional"]["sample_rate"][0u];
-    capa["optional"]["sample_rate"][1u]["value"] = 48000;
-    capa["optional"]["sample_rate"][1u]["dependent"]["codec"] = "PCM";
-    capa["optional"]["sample_rate"][0u]["placeholder"] = "Keep sample rate of source track"; // AAC only
-    capa["optional"]["sample_rate"][0u]["max"] = 96000; // AAC only
-
-    capa["optional"]["quality"]["name"] = "Quality";
-    capa["optional"]["quality"]["help"] = "Similar to the `qscale` option in FFMPEG. Must be a value between 1 and 31. "
-                                          "A lower value provides a better quality output.";
-    capa["optional"]["quality"]["type"] = "int";
-    capa["optional"]["quality"]["default"] = 20;
-    capa["optional"]["quality"]["min"] = 1;
-    capa["optional"]["quality"]["max"] = 31;
-    capa["optional"]["quality"]["dependent"]["codec"] = "JPEG";
-
-    capa["optional"]["crf"]["name"] = "Constant Rate Factor (software only)";
-    capa["optional"]["crf"]["help"] =
-      "Similar to the `crf` option in FFMPEG. Must be a value between 0 and 51. You will want to use a value between "
-      "17 and 28. A lower value provides a better quality output, 17 should be visually lossless.<br>This only applies "
-      "to software encoding. If set, the 'Bitrate'-setting will be used as a maximum allowed bitrate.";
-    capa["optional"]["crf"]["type"] = "int";
-    capa["optional"]["crf"]["default"] = 23;
-    capa["optional"]["crf"]["min"] = 1;
-    capa["optional"]["crf"]["max"] = 51;
-    capa["optional"]["crf"]["dependent"]["codec"] = "H264";
+          o["default"] = 21;
+          o["dependent"]["x-LSP-kind"] = "video";
+          o["dependent"]["rate_control"] = "cq";
+          o["sort"] = "z";
+        }
+      }
+    }
 
     std::cout << capa.toString() << std::endl;
     return -1;
@@ -2437,107 +1369,232 @@ int main(int argc, char *argv[]){
 
   Util::redirectLogsIfNeeded();
 
-  // read configuration
-  if (config.getString("configuration") != "-"){
-    Mist::opt.fromString(config.getString("configuration"));
+  // Read configuration
+  if (config.getString("configuration") != "-") {
+    Mist::opt = JSON::fromString(config.getString("configuration"));
   } else {
-    INFO_MSG("Reading configuration from standard input");
-    Mist::opt.fromStream(std::cin);
+    std::string json, line;
+    INFO_MSG("Main: Reading configuration from standard input");
+    while (std::getline(std::cin, line)) { json.append(line); }
+    Mist::opt = JSON::fromString(json.c_str());
   }
 
-  if (!Mist::opt.isMember("gopsize") || !Mist::opt["gopsize"].asInt()){
-    Mist::opt["gopsize"] = 40;
+  // Configure pipeline
+
+  // Set pipeline type based on output codec
+  std::string codecOut = Mist::opt["codec"].asString();
+  Mist::isVideo = (codecOut == "H264" || codecOut == "AV1" || codecOut == "HEVC" || codecOut == "H265" || codecOut == "VP9" ||
+                   codecOut == "JPEG" || codecOut == "YUYV" || codecOut == "UYVY" || codecOut == "NV12");
+  pipelineConfig.isVideo = Mist::isVideo;
+  pipelineConfig.codecOut = codecOut;
+
+  // Set raw video flag for raw formats
+  if (codecOut == "YUYV" || codecOut == "UYVY" || codecOut == "NV12") {
+    Mist::isRawVideo = true;
+    INFO_MSG("Main: Raw video mode enabled for codec: %s", codecOut.c_str());
   }
 
-  if (!Mist::opt.isMember("bitrate") || !Mist::opt["bitrate"].asInt()){
-    Mist::opt["bitrate"] = 2000000;
+  // Set quality
+  if (Mist::opt.isMember("quality")) {
+    pipelineConfig.quality = Mist::opt["quality"].asInt();
+  } else {
+    pipelineConfig.quality = 0; // Default quality
   }
 
-  if (!Mist::opt.isMember("quality") || !Mist::opt["quality"].asInt()){
-    Mist::opt["quality"] = 20;
-  }
+  // Set hardware acceleration preferences
+  uint8_t hwAccel = 0xFF;
+  if (Mist::opt.isMember("accel")) { hwAccel = Mist::opt["accel"].asInt(); }
 
-  if (Mist::opt.isMember("accel") && Mist::opt["accel"].isString()){
-    if (Mist::opt["accel"].asStringRef() == "hw"){
-      allowSW = false;
+#if defined(__APPLE__)
+  pipelineConfig.allowMediaToolbox = hwAccel & 16;
+#else
+  pipelineConfig.allowNvidia = hwAccel & 2;
+  pipelineConfig.allowQsv = hwAccel & 4;
+#endif
+  pipelineConfig.allowVaapi = hwAccel & 8;
+  pipelineConfig.allowSW = hwAccel & 1;
+
+  if (Mist::opt.isMember("device") && Mist::opt["device"].isString()) {
+    std::string requestedDevice = Mist::opt["device"].asString();
+    if (!requestedDevice.empty() && requestedDevice != "auto") {
+      pipelineConfig.hwDevicePath = requestedDevice;
+      INFO_MSG("Main: Using hardware device path %s", pipelineConfig.hwDevicePath.c_str());
     }
-    if (Mist::opt["accel"].asStringRef() == "sw"){
-      allowHW = false;
+  }
+
+  // Set bitrate with codec-specific defaults
+  std::string bitrateStr = Mist::opt["bitrate"].asString();
+  if (!bitrateStr.empty()) {
+    pipelineConfig.bitrate = std::stoul(bitrateStr);
+  } else {
+    // Set sane default bitrates based on codec type
+    if (pipelineConfig.isVideo) {
+      // Video codec defaults
+      if (codecOut == "H264" || codecOut == "HEVC" || codecOut == "H265") {
+        pipelineConfig.bitrate = 2000000; // 2 Mbps for H.264/HEVC
+      } else if (codecOut == "AV1") {
+        pipelineConfig.bitrate = 1500000; // 1.5 Mbps for AV1 (more efficient)
+      } else if (codecOut == "VP9") {
+        pipelineConfig.bitrate = 1800000; // 1.8 Mbps for VP9
+      } else if (codecOut == "JPEG") {
+        pipelineConfig.bitrate = 5000000; // 5 Mbps for MJPEG (higher for quality)
+      } else {
+        // Raw formats (YUYV, UYVY, NV12) don't use bitrate
+        pipelineConfig.bitrate = 0;
+      }
+    } else {
+      // Audio codec defaults
+      if (codecOut == "AAC") {
+        pipelineConfig.bitrate = 128000; // 128 kbps for AAC
+      } else if (codecOut == "opus") {
+        pipelineConfig.bitrate = 96000; // 96 kbps for Opus
+      } else if (codecOut == "MP3") {
+        pipelineConfig.bitrate = 192000; // 192 kbps for MP3
+      } else if (codecOut == "FLAC") {
+        pipelineConfig.bitrate = 0; // FLAC is lossless, no bitrate limit
+      } else if (codecOut == "vorbis") {
+        pipelineConfig.bitrate = 160000; // 160 kbps for Vorbis
+      } else if (codecOut == "PCM") {
+        pipelineConfig.bitrate = 0; // PCM is uncompressed, no bitrate limit
+      } else {
+        pipelineConfig.bitrate = 128000; // Default audio bitrate
+      }
+    }
+
+    if (pipelineConfig.bitrate > 0) {
+      INFO_MSG("Main: Using default bitrate for %s: %d bps", codecOut.c_str(), pipelineConfig.bitrate);
     }
   }
 
-  if (!Mist::opt.isMember("codec") || !Mist::opt["codec"] || !Mist::opt["codec"].isString() || Mist::opt["codec"].asStringRef() == "H264"){
-    isVideo = true;
-    codecOut = "H264";
-    codec_out = 0;
-  }else if (Mist::opt["codec"].asStringRef() == "AV1"){
-    isVideo = true;
-    codecOut = "AV1";
-    codec_out = 0;
-  }else if (Mist::opt["codec"].asStringRef() == "JPEG"){
-    isVideo = true;
-    codecOut = "JPEG";
-    codec_out = 0;
-  }else if (Mist::opt["codec"].asStringRef() == "YUYV"){
-    isVideo = true;
-    codecOut = "YUYV";
-    codec_out = 0;
-  }else if (Mist::opt["codec"].asStringRef() == "UYVY"){
-    isVideo = true;
-    codecOut = "UYVY";
-    codec_out = 0;
-  }else if (Mist::opt["codec"].asStringRef() == "PCM"){
-    isVideo = false;
-    codecOut = "PCM";
-    codec_out = avcodec_find_encoder(AV_CODEC_ID_PCM_S32BE);
-  }else if (Mist::opt["codec"].asStringRef() == "opus"){
-    isVideo = false;
-    codecOut = "opus";
-    codec_out = avcodec_find_encoder(AV_CODEC_ID_OPUS);
-  }else if (Mist::opt["codec"].asStringRef() == "AAC"){
-    isVideo = false;
-    codecOut = "AAC";
-    codec_out = avcodec_find_encoder(AV_CODEC_ID_AAC);
-  }else{
-    FAIL_MSG("Unknown codec: %s", Mist::opt["codec"].asStringRef().c_str());
+  auto toLower = [](std::string value) {
+    std::transform(value.begin(), value.end(), value.begin(),
+                   [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    return value;
+  };
+
+  std::string rcMode = "cbr";
+  if (Mist::opt.isMember("rate_control") && Mist::opt["rate_control"].isString()) {
+    std::string rawMode = Mist::opt["rate_control"].asString();
+    if (!rawMode.empty()) { rcMode = toLower(rawMode); }
+  }
+  pipelineConfig.rateControlMode = rcMode;
+
+  if (Mist::opt.isMember("max_bitrate")) {
+    std::string maxRateStr = Mist::opt["max_bitrate"].asString();
+    if (!maxRateStr.empty()) {
+      try {
+        pipelineConfig.maxBitrate = std::stoull(maxRateStr);
+      } catch (const std::exception &e) {
+        WARN_MSG("Main: Invalid max_bitrate value '%s': %s", maxRateStr.c_str(), e.what());
+      }
+    }
+  }
+
+  if (Mist::opt.isMember("vbv_buffer")) {
+    std::string vbvStr = Mist::opt["vbv_buffer"].asString();
+    if (!vbvStr.empty()) {
+      try {
+        pipelineConfig.vbvBufferSize = std::stoull(vbvStr);
+      } catch (const std::exception &e) {
+        WARN_MSG("Main: Invalid vbv_buffer value '%s': %s", vbvStr.c_str(), e.what());
+      }
+    }
+  }
+
+  std::string rcOptionSuffix;
+  if (!pipelineConfig.rateControlRcOption.empty()) {
+    rcOptionSuffix = " (" + pipelineConfig.rateControlRcOption + ")";
+  }
+  INFO_MSG("Main: Rate control mode: %s%s", pipelineConfig.rateControlMode.c_str(), rcOptionSuffix.c_str());
+
+  // Set GOP size
+  if (Mist::opt.isMember("gopsize")) {
+    pipelineConfig.gopSize = Mist::opt["gopsize"].asInt();
+  } else {
+    pipelineConfig.gopSize = 0;
+  }
+
+  // Set tune and preset
+  if (Mist::opt.isMember("tune")) {
+    pipelineConfig.tune = Mist::opt["tune"].asString();
+  } else {
+    pipelineConfig.tune = "zerolatency"; // Default to match capabilities
+  }
+  if (Mist::opt.isMember("preset")) {
+    pipelineConfig.preset = Mist::opt["preset"].asString();
+  } else {
+    pipelineConfig.preset = "faster"; // Default to match capabilities
+  }
+
+  // Set resolution for video
+  if (pipelineConfig.isVideo && Mist::opt.isMember("resolution")) {
+    std::string resolution = Mist::opt["resolution"].asString();
+    if (!resolution.empty() && resolution != "keep source resolution") {
+      pipelineConfig.resolution = resolution;
+      size_t xPos = resolution.find('x');
+      if (xPos != std::string::npos) {
+        pipelineConfig.targetWidth = std::stoul(resolution.substr(0, xPos));
+        pipelineConfig.targetHeight = std::stoul(resolution.substr(xPos + 1));
+      }
+    }
+  }
+
+  // Set audio parameters
+  if (!pipelineConfig.isVideo) {
+
+    // Channel configuration
+    if (Mist::opt.isMember("split_audio")) {
+      std::vector<int> channelCounts;
+
+      if (Mist::opt["split_audio"].isString() && Mist::opt["split_audio"]) {
+        if (Mist::opt["split_audio"].asStringRef()[0] == '[') {
+          Mist::opt["split_audio"] = JSON::fromString(Mist::opt["split_audio"].asStringRef());
+        } else {
+          std::string splitAudio = Mist::opt["split_audio"].asStringRef();
+          size_t pos = 0;
+          while ((pos = splitAudio.find(',')) != std::string::npos) {
+            std::string token = splitAudio.substr(0, pos);
+            while (token.length() > 0 && std::isspace(token.front())) token.erase(0, 1);
+            while (token.length() > 0 && std::isspace(token.back())) token.pop_back();
+            channelCounts.push_back(std::stoi(token));
+            splitAudio.erase(0, pos + 1);
+          }
+          channelCounts.push_back(std::stoi(splitAudio));
+        }
+      }
+
+      if (Mist::opt["split_audio"].isArray()) {
+        jsonForEachConst (Mist::opt["split_audio"], it) { channelCounts.push_back(it->asInt()); }
+      }
+
+      // Set split channels configuration
+      pipelineConfig.splitChannels = channelCounts;
+
+      // Set total output channels
+      uint32_t totalChannels = 0;
+      for (int count : channelCounts) { totalChannels += count; }
+      INFO_MSG("Main: Split audio configuration: %zu groups, total %u channels", channelCounts.size(), totalChannels);
+    }
+  }
+
+  // Apply configuration to pipeline
+  if (!pipeline.configure(pipelineConfig)) {
+    FAIL_MSG("Main: Failed to configure pipeline");
     return 1;
   }
 
-  // check config for generic options
-  Mist::ProcAV Enc;
-  if (!Enc.CheckConfig()){
-    FAIL_MSG("Error config syntax error!");
+  // Create and run ProcAV
+  Mist::ProcAV procAV;
+  if (!procAV.CheckConfig()) {
+    FAIL_MSG("Main: Error config syntax error!");
     return 1;
   }
 
-  // Allocate packet
-  packet_out = av_packet_alloc();
+  Mist::co.is_active = true;
+  Mist::conf.is_active = true;
 
-  co.is_active = true;
-  conf.is_active = true;
+  procAV.Run();
 
-  // stream which connects to input
-  std::thread source(sourceThread);
-
-  // needs to pass through encoder to outputEBML
-  std::thread sink(sinkThread);
-
-  // run process
-  Enc.Run();
-
-  co.is_active = false;
-  conf.is_active = false;
-  avCV.notify_all();
-  fireVirtualSegmentTrigger(true);
-
-  source.join();
-  HIGH_MSG("source thread joined");
-
-  sink.join();
-  HIGH_MSG("sink thread joined");
-
-  if (context_out){avcodec_free_context(&context_out);}
-  av_packet_free(&packet_out);
-
-  return 0;
+  // Wait for pipeline to finish
+  pipeline.waitForInactive();
 }

@@ -148,8 +148,8 @@ namespace JWT {
     size_t pos1 = pkg.find('.'), pos2 = pkg.find('.', pos1 + 1);
     std::string b64_hdr = pkg.substr(0, pos1);
     std::string b64_pld = pkg.substr(pos1 + 1, pos2 - pos1 - 1);
-    hdr.fromString(Encodings::Base64::decode(b64_hdr));
-    pld.fromString(Encodings::Base64::decode(b64_pld));
+    hdr = JSON::fromString(Encodings::Base64::decode(b64_hdr));
+    pld = JSON::fromString(Encodings::Base64::decode(b64_pld));
     sig = pkg.substr(pos2 + 1);
     sin = b64_hdr + '.' + b64_pld;
   }

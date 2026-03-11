@@ -11,6 +11,7 @@ namespace Mist{
     InputBuffer(Util::Config *cfg);
     ~InputBuffer();
     void onCrash();
+    void onDebug();
 
   private:
     void fillBufferDetails(JSON::Value &details) const;

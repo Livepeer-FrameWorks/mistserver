@@ -257,103 +257,6 @@ stopParsing:
   return out;
 }
 
-static size_t read_string(const char *ptr, size_t len, std::string & out) {
-  out.clear();
-  if (!len || !ptr) { return 0; }
-  char separator = ptr[0];
-  size_t offset = 1;
-  bool escaped = false;
-  uint32_t fullChar = 0;
-  while (offset < len) {
-    if (!escaped && ptr[offset] == '\\') {
-      escaped = true;
-      ++offset;
-      continue;
-    }
-    if (escaped) {
-      if (fullChar && ptr[offset] != 'u') {
-        out += UTF8(fullChar >> 16);
-        fullChar = 0;
-      }
-      switch (ptr[offset]) {
-        case 'b': out += '\b'; break;
-        case '\\': out += '\\'; break;
-        case 'f': out += '\f'; break;
-        case 'n': out += '\n'; break;
-        case 'r': out += '\r'; break;
-        case 't': out += '\t'; break;
-        case 'x':
-          if (offset + 2 >= len) {
-            offset = len;
-            goto stopParsing;
-          }
-          if (ptr[offset + 1] == separator) {
-            offset += 2;
-            goto stopParsing;
-          }
-          if (ptr[offset + 2] == separator) {
-            offset += 3;
-            goto stopParsing;
-          }
-          out.append(1, c2hex(ptr[offset + 2]) + (c2hex(ptr[offset + 1]) << 4));
-          offset += 2;
-          break;
-        case 'u': {
-          if (ptr[offset + 1] == separator) {
-            offset += 2;
-            goto stopParsing;
-          }
-          if (ptr[offset + 2] == separator) {
-            offset += 3;
-            goto stopParsing;
-          }
-          if (ptr[offset + 3] == separator) {
-            offset += 4;
-            goto stopParsing;
-          }
-          if (ptr[offset + 4] == separator) {
-            offset += 5;
-            goto stopParsing;
-          }
-          uint32_t tmpChar = (c2hex(ptr[offset + 4]) + (c2hex(ptr[offset + 3]) << 4) + (c2hex(ptr[offset + 2]) << 8) +
-                              (c2hex(ptr[offset + 1]) << 12));
-          offset += 4;
-          if (fullChar && (tmpChar < 0xDC00 || tmpChar > 0xDFFF)) {
-            // not a low surrogate - handle high surrogate separately!
-            out += UTF8(fullChar >> 16);
-            fullChar = 0;
-          }
-          fullChar |= tmpChar;
-          if (fullChar >= 0xD800 && fullChar <= 0xDBFF) {
-            // possibly high surrogate! Read next characters before handling...
-            fullChar <<= 16; // save as high surrogate
-          } else {
-            out += UTF8(fullChar);
-            fullChar = 0;
-          }
-          break;
-        }
-        default: out.append(1, ptr[offset]); break;
-      }
-      escaped = false;
-    } else {
-      if (fullChar) {
-        out += UTF8(fullChar >> 16);
-        fullChar = 0;
-      }
-      if (ptr[offset] == separator) { return offset + 1; }
-      out.append(1, ptr[offset]);
-    }
-    ++offset;
-  }
-stopParsing:
-  if (fullChar) {
-    out += UTF8(fullChar >> 16);
-    fullChar = 0;
-  }
-  return offset;
-}
-
 static std::string UTF16(uint32_t c){
   if (c > 0xFFFF){
     c -= 0x010000;
@@ -436,18 +339,6 @@ static void skipToEnd(std::istream &fromstream){
   }
 }
 
-/// Skips a char array forward until any of the following characters is seen: ,]}
-static size_t skipToEnd(const char *ptr, size_t len) {
-  size_t offset = 0;
-  while (offset < len) {
-    if (ptr[offset] == ',') { return offset; }
-    if (ptr[offset] == ']') { return offset; }
-    if (ptr[offset] == '}') { return offset; }
-    ++offset;
-  }
-  return offset;
-}
-
 /// Sets this JSON::Value to "unset"
 JSON::Value::Value(){
   unset();
@@ -465,10 +356,6 @@ JSON::Value::Value(const Value &rhs){
 
 /// Sets this JSON::Value to read from this position in the std::istream
 JSON::Value::Value(std::istream &fromstream){
-  fromStream(fromstream);
-}
-
-void JSON::Value::fromStream(std::istream & fromstream) {
   unset();
   bool reading_object = false;
   bool reading_array = false;
@@ -580,116 +467,6 @@ void JSON::Value::fromStream(std::istream & fromstream) {
     }
   }
   if (negative){intVal *= -1;}
-}
-
-size_t JSON::Value::fromString(const std::string & str) {
-  return fromString(str.data(), str.size());
-}
-
-size_t JSON::Value::fromString(const char *ptr, size_t len) {
-  unset();
-  if (!ptr) { return 0; }
-  bool reading_object = false;
-  bool reading_array = false;
-  bool negative = false;
-  size_t offset = 0;
-  while (offset < len) {
-    switch (ptr[offset]) {
-      case '{':
-        reading_object = true;
-        myType = OBJECT;
-        ++offset;
-        break;
-      case '[': {
-        reading_array = true;
-        myType = ARRAY;
-        ++offset;
-        JSON::Value & child = append();
-        offset += child.fromString(ptr + offset, len - offset);
-        if (child.myType == UNSET) {
-          delete arrVal.back();
-          arrVal.pop_back();
-        }
-        break;
-      }
-      case '\'':
-      case '"':
-        if (!reading_object) {
-          myType = STRING;
-          return offset + read_string(ptr + offset, len - offset, strVal);
-        } else {
-          std::string tmpstr;
-          offset += read_string(ptr + offset, len - offset, tmpstr);
-          offset += (*this)[tmpstr].fromString(ptr + offset, len - offset);
-        }
-        break;
-      case '-':
-        ++offset;
-        negative = true;
-        break;
-      case '0':
-      case '1':
-      case '2':
-      case '3':
-      case '4':
-      case '5':
-      case '6':
-      case '7':
-      case '8':
-      case '9':
-        if (myType != INTEGER && myType != DOUBLE) { myType = INTEGER; }
-        if (myType == INTEGER) {
-          intVal *= 10;
-          intVal += ptr[offset] - '0';
-        } else {
-          dblDivider *= 10;
-          dblVal += ((double)(ptr[offset] - '0') / dblDivider);
-        }
-        ++offset;
-        break;
-      case '.':
-        myType = DOUBLE;
-        if (negative) {
-          dblVal = -intVal;
-          dblDivider = -1;
-        } else {
-          dblVal = intVal;
-          dblDivider = 1;
-        }
-        ++offset;
-        break;
-      case ',':
-        if (!reading_object && !reading_array) { return offset; }
-        ++offset;
-        if (reading_array) {
-          JSON::Value & child = append();
-          offset += child.fromString(ptr + offset, len - offset);
-        }
-        break;
-      case '}':
-        if (reading_object) { ++offset; }
-        return offset;
-      case ']':
-        if (reading_array) { ++offset; }
-        return offset;
-      case 't':
-      case 'T':
-        myType = BOOL;
-        intVal = 1;
-        return offset + skipToEnd(ptr + offset, len - offset);
-      case 'f':
-      case 'F':
-        myType = BOOL;
-        intVal = 0;
-        return offset + skipToEnd(ptr + offset, len - offset);
-      case 'n':
-      case 'N': myType = EMPTY; return offset + skipToEnd(ptr + offset, len - offset);
-      default: // ignore this character
-        ++offset;
-    }
-  }
-  if (negative) { intVal *= -1; }
-  return offset;
 }
 
 /// Sets this JSON::Value to the given string.
@@ -1608,16 +1385,14 @@ unsigned int JSON::Value::size() const{
 
 /// Converts a std::string to a JSON::Value.
 JSON::Value JSON::fromString(const char *data, uint32_t data_len){
-  JSON::Value R;
-  R.fromString(data, data_len);
-  return R;
+  std::string str(data, data_len);
+  return JSON::fromString(str);
 }
 
 /// Converts a std::string to a JSON::Value.
 JSON::Value JSON::fromString(const std::string &json){
-  JSON::Value R;
-  R.fromString(json);
-  return R;
+  std::istringstream is(json);
+  return JSON::Value(is);
 }
 
 /// Converts a file to a JSON::Value.

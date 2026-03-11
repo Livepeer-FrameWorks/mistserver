@@ -42,8 +42,20 @@ if have_srt
   outputs += {'name' : 'TSSRT', 'format' : 'tssrt', 'extra': ['ts', 'with_srt']}
 endif
 
+if get_option('WITH_AV')
+  outputs += {'name' : 'JPEGReceiver', 'format' : 'jpegreceiver', 'extra': ['http','avlibs']}
+endif
+
 if get_option('WITH_SANITY')
   outputs += {'name' : 'SanityCheck', 'format' : 'sanitycheck'}
+endif
+
+if have_quic
+  outputs += {'name': 'DTSCQuic', 'format': 'dtscquic', 'extra': ['quic', 'debased']}
+endif
+
+if get_option('WITH_DECKLINK')
+  outputs += {'name' : 'DeckLink', 'format' : 'decklink', 'extra': 'with_decklink'}
 endif
 
 #Referenced by targets in process
@@ -87,9 +99,15 @@ foreach output : outputs
     if extra.contains('with_rist')
       deps += librist
     endif
+    if extra.contains('quic')
+      deps += quic_deps
+    endif
     if extra.contains('with_srt')
       deps += libmist_srt_dep
       deps += libsrt
+    endif
+    if extra.contains('with_decklink')
+      deps += decklink_dep
     endif
     if extra.contains('srtp')
       sources += files('output_webrtc_srtp.cpp', 'output_webrtc_srtp.h')

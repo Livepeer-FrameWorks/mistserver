@@ -1366,7 +1366,8 @@ namespace TS{
   ///\param selectedTracks tracks to include in PMT creation
   ///\param myMeta
   ///\returns character pointer to a static 188B TS packet
-  const char *createPMT(std::set<size_t> &selectedTracks, const DTSC::Meta &M, int contCounter){
+  const char *createPMT(std::set<size_t> & selectedTracks, const DTSC::Meta & M, int contCounter,
+                        const std::function<size_t(const DTSC::Meta &, size_t)> & pidMapper) {
     static ProgramMappingTable PMT;
     PMT.setPID(4096);
     PMT.setTableId(2);
@@ -1385,6 +1386,7 @@ namespace TS{
         hasSCTE = true;
         sectionLen += 6 + 3 + 6;
       } // 2x6 bytes registration desc, 3 bytes 000100 desc
+      if (codec == "PCM"){sectionLen += 10;} // 5 bytes registration desc
       std::string lang = M.getLang(*it);
       if (lang.size() == 3 && lang != "und"){
         sectionLen += 6; // language descriptor
@@ -1405,7 +1407,7 @@ namespace TS{
       }
     }
     if (vidTrack == -1){vidTrack = *(selectedTracks.begin());}
-    PMT.setPCRPID(getUniqTrackID(M, vidTrack));
+    PMT.setPCRPID(pidMapper(M, vidTrack));
     if (hasSCTE) {
       std::string progInfo("\005\004CUEI", 6);
       PMT.setProgramInfo(progInfo);
@@ -1415,7 +1417,7 @@ namespace TS{
     ProgramMappingEntry entry = PMT.getEntry(0);
     for (std::set<size_t>::iterator it = selectedTracks.begin(); it != selectedTracks.end(); it++){
       std::string codec = M.getCodec(*it);
-      entry.setElementaryPid(getUniqTrackID(M, *it));
+      entry.setElementaryPid(pidMapper(M, *it));
       std::string es_info;
       if (codec == "H264"){
         entry.setStreamType(0x1B);
@@ -1449,6 +1451,14 @@ namespace TS{
         entry.setStreamType(0x86);
         es_info.append("\000\001\000", 3); // unknown descriptor
         es_info.append("\005\004CUEI", 6); // registration descriptor
+      }else if (codec == "PCM"){
+        entry.setStreamType(0x06);
+        es_info.append("\005\010PCM", 5);//registration descriptor
+        es_info.append(1, (char)M.getChannels(*it));
+        es_info.append(1, (char)M.getSize(*it));
+        char freq[4];
+        Bit::htob24(freq, M.getRate(*it));
+        es_info.append(freq, 3);
       } else if (codec == "AC3") {
         entry.setStreamType(0x81);
       } else if (codec == "ID3") {

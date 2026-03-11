@@ -394,6 +394,38 @@ namespace Util{
               uri.c_str(), target.protocol.c_str());
     return false;
   }
+
+  /// Writes the goven contents to the given filename atomically.
+  /// Does so by creating a temporary file, writing to it, then renaming to the target filename.
+  /// Creates any needed subdirectories, if needed.
+  /// Returns true on success, false on failure.
+  bool atomicWriteFile(const std::string & filename, const std::string & contents){
+    char tmpFileName[] = "/tmp/XXXXXX";
+    int outFile = mkstemp(tmpFileName);
+    if (outFile == -1){
+      WARN_MSG("Unable to open a file handle to %s", tmpFileName);
+      return false;
+    }
+    size_t i = 0;
+    while (i < contents.size()){
+      int ret = write(outFile, contents.data() + i, contents.size() - i);
+      if (ret == -1){
+        WARN_MSG("Could not write data to temp file %s", tmpFileName);
+        close(outFile);
+        return false;
+      }
+      i += ret;
+    }
+    close(outFile);
+    if (chmod(tmpFileName, S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH)){
+      WARN_MSG("Could not set permissions of %s: %s", tmpFileName, strerror(errno));
+    }
+    createPathFor(filename);
+    if (!rename(tmpFileName, filename.c_str())) { return true; }
+    FAIL_MSG("Could not overwrite %s: %s", filename.c_str(), strerror(errno));
+    return false;
+  }
+
   //Returns the time to wait in milliseconds for exponential back-off waiting.
   //If currIter > maxIter, always returns 5ms to prevent tight eternal loops when mistakes are made
   //Otherwise, exponentially increases wait time for a total of maxWait milliseconds after maxIter calls.
@@ -1471,6 +1503,19 @@ namespace Util{
       if ((i % 4) == 3) { o << " "; }
     }
     o << std::dec;
+  }
+
+  void hexLog(const char *ptr, size_t len, uint8_t level) {
+    std::stringstream o;
+    for (size_t i = 0; i < len; ++i) {
+      if (!(i % 32)) {
+        DEBUG_MSG(level, "%s", o.str().c_str());
+        std::stringstream().swap(o); // Reset the stringstream to empty
+      }
+      o << std::hex << std::setw(2) << std::setfill('0') << (size_t)ptr[i] << " ";
+      if ((i % 4) == 3) { o << " "; }
+    }
+    DEBUG_MSG(level, "%s", o.str().c_str());
   }
 
   bool parseResolutionString(const std::string & resStr, uint32_t & width, uint32_t & height) {

@@ -33,6 +33,10 @@
 #define FRAG_BOOT 3
 /*LTS-END*/
 
+//For USR2 signal handling
+Mist::InputBuffer* myBuf = 0;
+void usr2sig_handler(int signum){myBuf->onDebug();}
+
 namespace Mist{
   InputBuffer::InputBuffer(Util::Config *cfg) : Input(cfg){
     lastBPS = 0;
@@ -190,6 +194,56 @@ namespace Mist{
       DTSC::Meta cleanMeta(streamName, false);
       cleanMeta.setMaster(true);
     }
+  }
+
+  /// Intended to be triggered by USR2 signals, this function prints internal state information as log messages.
+  void InputBuffer::onDebug(){
+    //Temporarily reset debug level to INFO so the messages are visible no matter what
+    int32_t dbgOld = Util::printDebugLevel;
+    Util::printDebugLevel = DLVL_INFO;
+    //Print some helpful debugging messages
+   
+    //Process info
+    std::set<size_t> gPids;
+    INFO_MSG("There are %zu running processes:", runningProcs.size());
+    for (std::map<std::string, pid_t>::iterator it = runningProcs.begin(); it != runningProcs.end(); it++){
+      INFO_MSG("Process PID %d: %s", it->second, it->first.c_str());
+      gPids.insert(it->second);
+    }
+
+    size_t cUsers = 0;
+    bool hPush = false;
+    size_t lastUser = users.recordCount();
+    for (size_t i = 0; i < lastUser; ++i){
+      if (users.getStatus(i) == COMM_STATUS_INVALID){continue;}
+
+      if (!(users.getStatus(i) & COMM_STATUS_DISCONNECT) && (users.getStatus(i) & COMM_STATUS_SOURCE)){
+        INFO_MSG("Connection %zu (PID %" PRIu32 ") is a source for track %" PRIu32, i, users.getPid(i), users.getTrack(i));
+        if (M && M.trackValid(users.getTrack(i)) && !gPids.count(users.getPid(i))){hPush = true;}
+      }
+
+      if (!(users.getStatus(i) & COMM_STATUS_DONOTTRACK) && !gPids.count(users.getPid(i))){++cUsers;}
+    }
+    INFO_MSG("%zu active connections to tracks", cUsers);
+    INFO_MSG("Push active (non-process): %s", hPush?"Yes":"No");
+    if (M){
+      uint64_t time = Util::bootSecs();
+      std::set<size_t> aTrks = M.getValidTracks();
+      INFO_MSG("There are %zu active tracks:", aTrks.size());
+      for (std::set<size_t>::iterator it = aTrks.begin(); it != aTrks.end(); it++){
+        INFO_MSG("Track %zu: %s", *it, M.getTrackIdentifier(*it).c_str());
+        INFO_MSG("  Contains timestamps %" PRIu64 " - %" PRIu64, M.getFirstms(*it), M.getLastms(*it));
+        INFO_MSG("  Last updated %" PRId64 "s ago", (int64_t)(time-M.getLastUpdated(*it)));
+      }
+      JSON::Value stream_details;
+      M.getHealthJSON(stream_details);
+      INFO_MSG("Health: %s", stream_details.toString().c_str());
+    }else{
+      INFO_MSG("The buffer's metadata is disconnected or uninitialized!");
+    }
+
+    //Change debug level back to what it was
+    Util::printDebugLevel = dbgOld;
   }
 
   /// \triggers
@@ -770,6 +824,17 @@ namespace Mist{
   bool InputBuffer::preRun(){
     // This function gets run periodically to make sure runtime updates of the config get parsed.
     Util::Procs::kill_timeout = 5;
+    static bool firstRun = true;
+    if (firstRun){
+      firstRun = false;
+      //Setup USR2 signal handler for debugging purposes
+      myBuf = this;
+      struct sigaction new_action;
+      new_action.sa_handler = usr2sig_handler;
+      sigemptyset(&new_action.sa_mask);
+      new_action.sa_flags = 0;
+      sigaction(SIGUSR2, &new_action, NULL);
+    }
     std::string strName = config->getString("streamname");
     Util::sanitizeName(strName);
     strName = strName.substr(0, (strName.find_first_of("+ ")));
@@ -978,8 +1043,7 @@ namespace Mist{
     // start up new/changed connectors
     while (newProcs.size() && config->is_active){
       const std::string & config = (*newProcs.begin());
-      JSON::Value args;
-      args.fromString(config);
+      JSON::Value args = JSON::fromString(config);
       if (!runningProcs.count(config) || !Util::Procs::isActive(runningProcs[config])){
         // Check restart behaviour - default to instant (re)starts
         std::string restartType = "fixed";
@@ -1016,7 +1080,8 @@ namespace Mist{
           continue;
         }
 
-        std::string procname = Util::getMyPath() + "MistProc" + args["process"].asString();
+        std::string procname =
+            Util::getMyPath() + "MistProc" + JSON::fromString(config)["process"].asString();
         argarr[0] = (char *)procname.c_str();
         argarr[1] = (char *)config.c_str();
         argarr[2] = 0;
@@ -1024,7 +1089,7 @@ namespace Mist{
           if (args.isMember("debug")){
             debugLvl = args["debug"].asString();
           }else{
-            debugLvl = std::to_string(Util::printDebugLevel);
+            debugLvl = JSON::Value(Util::printDebugLevel).asString();
           }
           argarr[2] = (char*)"--debug";
           argarr[3] = (char*)debugLvl.c_str();;

@@ -39,8 +39,6 @@ size_t insertTurn = 0;
 bool isStuck = false;
 size_t sourceIndex = INVALID_TRACK_ID;
 
-uint8_t sinkCommState = COMM_STATUS_ACTSOURCEDNT;
-
 namespace Mist{
 
   void pickRandomBroadcaster(){
@@ -205,7 +203,6 @@ namespace Mist{
         std::lock_guard<std::mutex> guard(statsMutex);
         pStat["proc_status_update"]["sink"] = streamName;
         pStat["proc_status_update"]["source"] = opt["source"];
-        if (streamName != opt["source"].asStringRef()) { sinkCommState = COMM_STATUS_ACTIVE | COMM_STATUS_SOURCE; }
       }
       Util::setStreamName(opt["source"].asString() + "→" + streamName);
       if (opt.isMember("target_mask") && !opt["target_mask"].isNull() && opt["target_mask"].asString() != ""){
@@ -215,12 +212,6 @@ namespace Mist{
       }
       preRun();
     };
-    void connStats(Comms::Connections & statComm) {
-      for (std::map<size_t, Comms::Users>::iterator it = userSelect.begin(); it != userSelect.end(); it++) {
-        if (it->second) { it->second.setStatus(sinkCommState | it->second.getStatus()); }
-      }
-      Input::connStats(statComm);
-    }
     virtual bool needsLock(){return false;}
     bool isSingular(){return false;}
   private:
@@ -332,12 +323,9 @@ void sinkThread(){
 }
 
 void sourceThread(){
-  conf.addOption("streamname", R"-({
-    "arg":"string",
-    "short":"s",
-    "long":"stream",
-    "help":"The name of the stream that this connector will transmit."
-  })-");
+  conf.addOption("streamname", JSON::fromString("{\"arg\":\"string\",\"short\":\"s\",\"long\":"
+                                                  "\"stream\",\"help\":\"The name of the stream "
+                                                  "that this connector will transmit.\"}"));
   JSON::Value opt;
   opt["arg"] = "string";
   opt["default"] = "";
@@ -750,17 +738,17 @@ int main(int argc, char *argv[]){
     capa["required"]["target_profiles"]["type"] = "sublist";
     capa["required"]["target_profiles"]["itemLabel"] = "profile";
     capa["required"]["target_profiles"]["help"] = "Tracks to transcode the source into";
-    capa["required"]["target_profiles"]["sort"] = "n";
+    capa["required"]["target_profiles"]["sort"] = "f";
     {
       JSON::Value &grp = capa["required"]["target_profiles"]["required"];
       grp["name"]["name"] = "Name";
       grp["name"]["help"] = "Name for the profile. Must be unique within this transcode.";
       grp["name"]["type"] = "str";
-      grp["name"]["n"] = 0;
+      grp["name"]["sort"] = 0;
       grp["bitrate"]["name"] = "Bitrate";
       grp["bitrate"]["help"] = "Target bit rate of the output";
       grp["bitrate"]["type"] = "int";
-      grp["bitrate"]["n"] = 1;
+      grp["bitrate"]["sort"] = 1;
       grp["bitrate"]["unit"][0u][0u] = "1";
       grp["bitrate"]["unit"][0u][1u] = "bit/s";
       grp["bitrate"]["unit"][1u][0u] = "1000";
@@ -768,29 +756,29 @@ int main(int argc, char *argv[]){
       grp["bitrate"]["unit"][2u][0u] = "1000000";
       grp["bitrate"]["unit"][2u][1u] = "Mbit/s";
     }{
-      JSON::Value &grp = capa["required"]["target_profiles"]["optional"];
+      JSON::Value &grp = capa["required"]["target_profiles"]["sublist"];
       grp["width"]["name"] = "Width";
       grp["width"]["help"] = "Width in pixels of the output. Defaults to match aspect with height, or source width if both are default.";
       grp["width"]["unit"] = "px";
       grp["width"]["type"] = "int";
-      grp["width"]["n"] = 2;
+      grp["width"]["sort"] = 2;
       grp["height"]["name"] = "Height";
       grp["height"]["help"] = "Height in pixels of the output. Defaults to match aspect with width, or source height if both are default. If only height is given and the source height is greater than the source width, width and height will swap and do what you most likely wanted to do (e.g. follow your config in portrait mode instead of landscape mode).";
       grp["height"]["unit"] = "px";
       grp["height"]["type"] = "int";
-      grp["height"]["n"] = 3;
+      grp["height"]["sort"] = 3;
       grp["fps"]["name"] = "Framerate";
       grp["fps"]["help"] = "Framerate of the output. Zero means to match the input (= the default).";
       grp["fps"]["unit"] = "frames per second";
       grp["fps"]["default"] = 0;
       grp["fps"]["type"] = "int";
-      grp["fps"]["n"] = 4;
+      grp["fps"]["sort"] = 4;
       grp["gop"]["name"] = "Keyframe interval / GOP size";
       grp["gop"]["help"] = "Interval of keyframes / duration of GOPs for the transcode. \"0.0\" means to match input (= the default), 'intra' means to send only key frames. Otherwise, fractional seconds between keyframes.";
       grp["gop"]["unit"] = "seconds";
       grp["gop"]["default"] = "0.0";
       grp["gop"]["type"] = "str";
-      grp["gop"]["n"] = 5;
+      grp["gop"]["sort"] = 5;
 
       grp["profile"]["name"] = "H264 Profile";
       grp["profile"]["help"] = "Profile to use. Defaults to \"High\".";
@@ -854,10 +842,12 @@ int main(int argc, char *argv[]){
 
   // read configuration
   if (config.getString("configuration") != "-"){
-    Mist::opt.fromString(config.getString("configuration"));
-  } else {
+    Mist::opt = JSON::fromString(config.getString("configuration"));
+  }else{
+    std::string json, line;
     INFO_MSG("Reading configuration from standard input");
-    Mist::opt.fromStream(std::cin);
+    while (std::getline(std::cin, line)){json.append(line);}
+    Mist::opt = JSON::fromString(json.c_str());
   }
 
   // check config for generic options
@@ -1009,7 +999,7 @@ int main(int argc, char *argv[]){
     const std::string & hcbc = Mist::opt["hardcoded_broadcasters"].asStringRef();
     // Detect array
     if (hcbc.size() && hcbc[0] == '[') {
-      Mist::lpBroad.fromString(hcbc);
+      Mist::lpBroad = JSON::fromString(hcbc);
       // If an array element is a string, assume it's the address field only
       jsonForEach (Mist::lpBroad, it) {
         if (it->isString()) {
@@ -1029,7 +1019,7 @@ int main(int argc, char *argv[]){
       FAIL_MSG("Livepeer API responded negatively to request for broadcaster list");
       return 1;
     }
-    Mist::lpBroad.fromString(dl.data());
+    Mist::lpBroad = JSON::fromString(dl.data());
   }
   if (!Mist::lpBroad || !Mist::lpBroad.isArray()){
     FAIL_MSG("No Livepeer broadcasters available");
@@ -1049,7 +1039,7 @@ int main(int argc, char *argv[]){
       FAIL_MSG("Livepeer API responded negatively to encode request");
       return 1;
     }
-    Mist::lpEnc.fromString(dl.data());
+    Mist::lpEnc = JSON::fromString(dl.data());
     if (!Mist::lpEnc) {
       FAIL_MSG("Livepeer API did not respond with JSON");
       return 1;

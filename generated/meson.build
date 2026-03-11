@@ -40,5 +40,9 @@ foreach e : embed_files
   embed_tgts += custom_target('embed_'+e.get('outfile'), output: e.get('outfile'), input: e.get('infile'), command: [sourcery, '@INPUT@', e.get('variable'), '@OUTPUT@'])
 endforeach
 
+if get_option('EFG_UI')
+  server_html = custom_target('embed_server.html', output: 'server.html.h', input: files(['../interface.html']), command: [sourcery, '@INPUT@', 'server_html', '@OUTPUT@'])
+else
+  server_html = custom_target('embed_server.html', output: 'server.html.h', input: gen_html, command: [sourcery, '@INPUT@', 'server_html', '@OUTPUT@'])
+endif
 
-server_html = custom_target('embed_server.html', output: 'server.html.h', input: gen_html, command: [sourcery, '@INPUT@', 'server_html', '@OUTPUT@'])

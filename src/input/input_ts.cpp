@@ -542,11 +542,7 @@ namespace Mist{
     while (!tsStream.hasPacketOnEachTrack()){
       uint64_t prePos = readPos;
       reader.readSome(188, *this);
-      if (reader.isEOF()) {
-        tsStream.finish();
-      } else if (readPos == prePos) {
-        Util::sleep(50);
-      }
+      if (readPos == prePos){Util::sleep(50);}
     }
   }
 

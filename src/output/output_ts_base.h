@@ -16,14 +16,16 @@ namespace Mist{
     virtual ~TSOutput(){};
     virtual void sendNext();
     virtual void sendTS(const char *tsData, size_t len = 188){};
-    void fillPacket(char const *data, size_t dataLen, bool &firstPack, bool video, bool keyframe,
+    size_t fillPacket(char const *data, size_t dataLen, bool &firstPack, bool video, bool keyframe,
                     size_t pkgPid, uint16_t &contPkg);
     virtual void sendHeader(){
       sentHeader = true;
       packCounter = 0;
     }
+    size_t pidMapper(const DTSC::Meta & M, size_t idx);
 
   protected:
+    std::map<size_t, size_t> pidMap;
     virtual bool inlineRestartCapable() const{return true;}
     std::map<size_t, bool> first;
     std::map<size_t, uint16_t> contCounters;

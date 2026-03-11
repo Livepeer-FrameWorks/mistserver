@@ -21,7 +21,7 @@ namespace TS{
     META = 0x06,
   };
 
-  enum rawDataType { NONE = 0x060000, OPUS, JSON, AV1 };
+  enum rawDataType { NONE = 0x060000, OPUS, JSON, AV1, PCM };
 
   class ADTSRemainder{
   private:

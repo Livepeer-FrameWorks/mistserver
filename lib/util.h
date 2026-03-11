@@ -24,6 +24,8 @@ namespace Util{
   void shellSplit(const std::string & val, std::deque<std::string> & result);
   bool externalWriter(const std::string & file, Socket::Connection & conn, bool append = false);
 
+  bool atomicWriteFile(const std::string & filename, const std::string & contents);
+
   int64_t expBackoffMs(const size_t currIter, const size_t maxIter, const int64_t maxWait);
 
   void getRandomBytes(void * dest, size_t len);
@@ -40,6 +42,7 @@ namespace Util{
   void nameThread(const std::string & name);
 
   void hexDump(std::ostream & ostrm, const char *ptr, size_t len, size_t indent = 0);
+  void hexLog(const char *ptr, size_t len, uint8_t level = DLVL_INFO);
 
   /// Parses a resolution string to integers by reference, returning true if parsing succeeded.
   bool parseResolutionString(const std::string & resStr, uint32_t & width, uint32_t & height);

@@ -1002,9 +1002,13 @@ namespace Mist{
   void Input::stream(){
     std::map<std::string, std::string> overrides;
     overrides["throughboot"] = "";
-    if (config->getBool("realtime") ||
-        (capa.isMember("hardcoded") && capa["hardcoded"].isMember("resume") && capa["hardcoded"]["resume"])){
+    if (config->getBool("realtime")){
       overrides["resume"] = "1";
+    }
+    if (capa.isMember("hardcoded")){
+      jsonForEach(capa["hardcoded"], it){
+        overrides[it.key()] = it->asString();
+      }
     }
     if (isSingular()){
       if (!config->getBool("realtime") && Util::streamAlive(streamName)){
