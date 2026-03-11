@@ -720,6 +720,7 @@ p.prototype.build = function (MistVideo,callback) {
 
                         player.msinit().then(function(){
                           player.sbinit(msg.data.codecs);
+                          if (!player.sb) MistVideo.log("Failed to reinitialize source buffer","error"); return;
                           player.sb.do_on_updateend = remaining_do_on_updateend;
 
                           var e = MistUtil.event.addListener(video,"loadedmetadata",function(){
@@ -1046,14 +1047,16 @@ p.prototype.build = function (MistVideo,callback) {
     },
     unload: function(){
       player.api.pause();
-      player.sb._do(function(){
-        player.sb.remove(0,Infinity);
-        try {
-          player.ms.endOfStream();
-          
-          //it's okay if it fails
-        } catch (e) {  }
-      });
+      if (player.sb) {
+        player.sb._do(function(){
+          player.sb.remove(0,Infinity);
+          try {
+            player.ms.endOfStream();
+
+            //it's okay if it fails
+          } catch (e) {  }
+        });
+      }
       player.ws.close();
     },
     setSubtitle: function(trackmeta) {

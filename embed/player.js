@@ -1743,6 +1743,17 @@ function MistVideo(streamName,options) {
             onStreamInfo(data);
             return;
           }
+
+          //if the last value of redirected has changed, re-init the player but keep the info websocket
+          function getCurrentStream(info) {
+            if (!info.redirected) return MistVideo.stream;
+            return info.redirected[info.redirected.length-1];
+          }
+          if (getCurrentStream(data) != getCurrentStream(MistVideo.info)) {
+            MistVideo.log("Redirecting to "+getCurrentStream(data)+"..");
+            onStreamInfo(data);
+            return;
+          }
           
           //figure out what changed
           
@@ -1834,7 +1845,7 @@ function MistVideo(streamName,options) {
               }
             }
             
-            if (resized) {
+            if (resized && MistVideo.player.resize) {
               //call resize function
               MistVideo.player.resize();
             }
