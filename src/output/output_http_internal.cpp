@@ -1190,6 +1190,16 @@ namespace Mist{
         if (streamStatus.len > 1){newStatePerc = streamStatus.mapped[1];}
       }
 
+      if (origStreamName.size() && origStreamName != streamName) {
+        uint8_t streamOrigStatus = Util::getStreamStatus(origStreamName);
+        if (streamOrigStatus == STRMSTAT_READY) {
+          streamName = origStreamName;
+          Util::setStreamName(streamName);
+          newState = streamOrigStatus;
+          prevState = 0;
+        }
+      }
+
       if (meta){meta.reloadReplacedPagesIfNeeded();}
       if (newState != prevState || (newState == STRMSTAT_READY && M.getValidTracks() != prevTracks) || (newState != STRMSTAT_READY && newStatePerc != prevStatePerc)){
         if (newState == STRMSTAT_READY){

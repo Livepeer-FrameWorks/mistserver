@@ -83,6 +83,12 @@ namespace Mist{
     capa["optional"]["segmentsize"]["option"] = "--segment-size";
     capa["optional"]["segmentsize"]["type"] = "uint";
     capa["optional"]["segmentsize"]["default"] = 5000;
+
+    capa["optional"]["fallback_stream"]["name"] = "Fallback stream";
+    capa["optional"]["fallback_stream"]["help"] =
+      "Alternative stream to load for playback when there is no active broadcast";
+    capa["optional"]["fallback_stream"]["type"] = "str";
+    capa["optional"]["fallback_stream"]["default"] = "";
   }
 
   int InputBalancer::boot(int argc, char *argv[]){
