@@ -116,15 +116,8 @@ AlignConsecutiveShortCaseStatements:
   Enabled: false
   AcrossEmptyLines: false
   AcrossComments: false
-  AlignCaseArrows: false
   AlignCaseColons: false
-AlignConsecutiveTableGenBreakingDAGArgColons:
-  Enabled: false
-AlignConsecutiveTableGenCondOperatorColons:
-  Enabled: false
-AlignConsecutiveTableGenDefinitionColons:
-  Enabled: false
-AlignEscapedNewlines: LeftWithLastLine
+AlignEscapedNewlines: Left
 BitFieldColonSpacing: None
 CompactNamespaces: false
 EmptyLineAfterAccessModifier: Never
@@ -139,7 +132,6 @@ IndentPPDirectives: None
 InsertNewlineAtEOF: true
 LambdaBodyIndentation: OuterScope
 LineEnding: LF
-MainIncludeChar: Quote
 PackConstructorInitializers: BinPack
 QualifierAlignment: Left
 ReferenceAlignment: Middle
