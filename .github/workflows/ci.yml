@@ -11,7 +11,7 @@ jobs:
     name: Test & Coverage
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Install dependencies
         run: |
@@ -61,7 +61,7 @@ jobs:
     name: AddressSanitizer
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Install dependencies
         run: |
@@ -93,6 +93,14 @@ jobs:
 
       - name: Run tests with ASan
         run: |
-          export ASAN_OPTIONS=detect_leaks=1:halt_on_error=0
+          export ASAN_OPTIONS=detect_leaks=1:halt_on_error=1:strict_string_checks=1:detect_stack_use_after_return=1:check_initialization_order=1:strict_init_order=1
           meson test -C build-asan --print-errorlogs --timeout-multiplier 3
         continue-on-error: true
+
+      - name: Upload ASan logs
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: asan-logs
+          path: build-asan/meson-logs/testlog.txt
+          if-no-files-found: ignore
