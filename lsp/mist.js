@@ -11874,7 +11874,7 @@ context_menu: function(){
                                   return {
                                     header: 'Track '+track.idx,
                                     body: [
-                                      track.codec,
+                                      track.codec+(track.codecstring ? " ("+track.codecstring+")" : ""),
                                       displayDuration(track),
                                       UI.format.addUnit(UI.format.number(track.jitter),"ms"),
                                       peakoravg(track,"bps"),
@@ -11891,7 +11891,7 @@ context_menu: function(){
                                   return {
                                     header: 'Track '+track.idx,
                                     body: [
-                                      track.codec,
+                                      track.codec+(track.codecstring ? " ("+track.codecstring+")" : ""),
                                       displayDuration(track),
                                       UI.format.addUnit(UI.format.number(track.jitter),"ms"),
                                       peakoravg(track,"bps"),

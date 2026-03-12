@@ -135,7 +135,7 @@ std::string Util::codecString(const std::string &codec, const std::string &initD
   if (codec == "VP8") { return "vp8"; }
   if (codec == "ULAW") { return "ulaw"; }
   if (codec == "ALAW") { return "alaw"; }
-  if (codec == "VP9") { return "vp9.00.00.08"; }
+  if (codec == "VP9") { return "vp09.00.10.08"; }
   return "";
 }
 

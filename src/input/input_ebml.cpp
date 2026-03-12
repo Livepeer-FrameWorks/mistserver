@@ -4,9 +4,9 @@
 #include <mist/defines.h>
 #include <mist/procs.h>
 
-namespace Mist{
+namespace Mist {
 
-  InputEBML::InputEBML(Util::Config *cfg) : Input(cfg){
+  InputEBML::InputEBML(Util::Config *cfg) : Input(cfg) {
     timeScale = 1.0;
     liveOffsetSet = false;
     capa["name"] = "EBML";
@@ -54,7 +54,8 @@ namespace Mist{
     capa["source_syntax"].append("s3+https://[address]");
     capa["source_syntax"].append("mkv-exec:[COMMAND]");
     capa["source_help"]["default"] = "Location where MistServer can find the input file.";
-    capa["source_help"]["mkv-exec:[COMMAND]"] = "MistServer will execute the command as if it's ran in the terminal and will expect to receive matroska data from the command.";
+    capa["source_help"]["mkv-exec:[COMMAND]"] = "MistServer will execute the command as if it's ran in the terminal "
+                                                "and will expect to receive matroska data from the command.";
     capa["source_match"].append("mkv-exec:*");
     capa["always_match"].append("mkv-exec:*");
     capa["source_file"] = "$source";
@@ -92,27 +93,27 @@ namespace Mist{
     firstRead = true;
   }
 
-  std::string ASStoSRT(const char *ptr, uint32_t len){
+  std::string ASStoSRT(const char *ptr, uint32_t len) {
     uint16_t commas = 0;
     uint16_t brackets = 0;
     std::string tmpStr;
     tmpStr.reserve(len);
-    for (uint32_t i = 0; i < len; ++i){
+    for (uint32_t i = 0; i < len; ++i) {
       // Skip everything until the 8th comma
-      if (commas < 8){
-        if (ptr[i] == ','){commas++;}
+      if (commas < 8) {
+        if (ptr[i] == ',') { commas++; }
         continue;
       }
-      if (ptr[i] == '{'){
+      if (ptr[i] == '{') {
         brackets++;
         continue;
       }
-      if (ptr[i] == '}'){
+      if (ptr[i] == '}') {
         brackets--;
         continue;
       }
-      if (!brackets){
-        if (ptr[i] == '\\' && i < len - 1 && (ptr[i + 1] == 'N' || ptr[i + 1] == 'n')){
+      if (!brackets) {
+        if (ptr[i] == '\\' && i < len - 1 && (ptr[i + 1] == 'N' || ptr[i + 1] == 'n')) {
           tmpStr += '\n';
           ++i;
           continue;
@@ -123,14 +124,14 @@ namespace Mist{
     return tmpStr;
   }
 
-  bool InputEBML::checkArguments(){
-    if (!config->getString("streamname").size()){
-      if (config->getString("output") == "-"){
+  bool InputEBML::checkArguments() {
+    if (!config->getString("streamname").size()) {
+      if (config->getString("output") == "-") {
         Util::logExitReason(ER_FORMAT_SPECIFIC, "Output to stdout not yet supported");
         return false;
       }
-    }else{
-      if (config->getString("output") != "-"){
+    } else {
+      if (config->getString("output") != "-") {
         Util::logExitReason(ER_FORMAT_SPECIFIC, "File output in player mode not supported");
         return false;
       }
@@ -138,22 +139,22 @@ namespace Mist{
     return true;
   }
 
-  bool InputEBML::needsLock(){
+  bool InputEBML::needsLock() {
     // Streamed input requires no lock, non-streamed does
-    if (!standAlone){return false;}
-    if (config->getString("input") == "-" || config->getString("input").substr(0, 9) == "mkv-exec:"){return false;}
+    if (!standAlone) { return false; }
+    if (config->getString("input") == "-" || config->getString("input").substr(0, 9) == "mkv-exec:") { return false; }
     return Input::needsLock();
   }
 
-  bool InputEBML::preRun(){
-    if (config->getString("input").substr(0, 9) == "mkv-exec:"){
+  bool InputEBML::preRun() {
+    if (config->getString("input").substr(0, 9) == "mkv-exec:") {
       standAlone = false;
       std::deque<std::string> args;
       Util::shellSplit(config->getString("input").substr(9), args);
 
       int fin = -1, fout = -1;
       pid_t inProc = Util::Procs::StartPiped(args, &fin, &fout, 0);
-      if (fout == -1){
+      if (fout == -1) {
         Util::logExitReason(ER_EXEC_FAILURE, "Unable to start mkv-exec process `%s`",
                             config->getString("input").substr(9).c_str());
         return false;
@@ -164,13 +165,13 @@ namespace Mist{
       INFO_MSG("Reading from process %d: %s", inProc, config->getString("input").substr(9).c_str());
       return true;
     }
-    if (config->getString("input") == "-"){
+    if (config->getString("input") == "-") {
       standAlone = false;
       inFile.open(0);
-    }else{
+    } else {
       // open File
       inFile.open(config->getString("input"));
-      if (!inFile){
+      if (!inFile) {
         Util::logExitReason(ER_READ_START_FAILURE, "Opening input '%s' failed", config->getString("input").c_str());
         return false;
       }
@@ -180,43 +181,45 @@ namespace Mist{
     return true;
   }
 
-  void InputEBML::dataCallback(const char *ptr, size_t size){
+  void InputEBML::dataCallback(const char *ptr, size_t size) {
     readBuffer.append(ptr, size);
     totalBytes += size;
   }
-  size_t InputEBML::getDataCallbackPos() const{return readPos + readBuffer.size();}
+  size_t InputEBML::getDataCallbackPos() const {
+    return readPos + readBuffer.size();
+  }
 
-  bool InputEBML::readElement(){
+  bool InputEBML::readElement() {
     uint32_t needed = EBML::Element::needBytes(readBuffer + readBufferOffset, readBuffer.size() - readBufferOffset, readingMinimal);
-    if (!firstRead && readBuffer.size() >= needed + readBufferOffset){
+    if (!firstRead && readBuffer.size() >= needed + readBufferOffset) {
       readBufferOffset += needed;
       needed = EBML::Element::needBytes(readBuffer + readBufferOffset, readBuffer.size() - readBufferOffset, readingMinimal);
       readingMinimal = true;
-      if (readBuffer.size() >= needed + readBufferOffset){
+      if (readBuffer.size() >= needed + readBufferOffset) {
         // Make sure TrackEntry types are read whole
-        if (readingMinimal && EBML::Element(readBuffer + readBufferOffset).getID() == EBML::EID_TRACKENTRY){
+        if (readingMinimal && EBML::Element(readBuffer + readBufferOffset).getID() == EBML::EID_TRACKENTRY) {
           readingMinimal = false;
           needed = EBML::Element::needBytes(readBuffer + readBufferOffset, readBuffer.size() - readBufferOffset, readingMinimal);
         }
       }
     }
 
-    while (readBuffer.size() < needed + readBufferOffset && config->is_active){
-      if (!readBuffer.allocate(needed + readBufferOffset)){return false;}
-      if (!inFile){return false;}
+    while (readBuffer.size() < needed + readBufferOffset && config->is_active) {
+      if (!readBuffer.allocate(needed + readBufferOffset)) { return false; }
+      if (!inFile) { return false; }
       int64_t toRead = needed - readBuffer.size() + readBufferOffset;
 
-      if (standAlone){
-        //If we have more than 10MiB buffered and are more than 10MiB into the buffer, shift the first 4MiB off the buffer.
-        //This prevents infinite growth of the read buffer for large files, but allows for some re-use of data.
-        if (readBuffer.size() >= 10*1024*1024 && readBufferOffset > 10*1024*1024){
-          readBuffer.shift(4*1024*1024);
-          readBufferOffset -= 4*1024*1024;
-          readPos += 4*1024*1024;
+      if (standAlone) {
+        // If we have more than 10MiB buffered and are more than 10MiB into the buffer, shift the first 4MiB off the
+        // buffer. This prevents infinite growth of the read buffer for large files, but allows for some re-use of data.
+        if (readBuffer.size() >= 10 * 1024 * 1024 && readBufferOffset > 10 * 1024 * 1024) {
+          readBuffer.shift(4 * 1024 * 1024);
+          readBufferOffset -= 4 * 1024 * 1024;
+          readPos += 4 * 1024 * 1024;
         }
-      }else{
-        //For non-standalone mode, we know we're always live streaming, and can always cut off what we've shifted
-        if (readBufferOffset){
+      } else {
+        // For non-standalone mode, we know we're always live streaming, and can always cut off what we've shifted
+        if (readBufferOffset) {
           readBuffer.shift(readBufferOffset);
           readPos += readBufferOffset;
           readBufferOffset = 0;
@@ -225,35 +228,35 @@ namespace Mist{
 
       size_t preSize = readBuffer.size();
       inFile.readSome(toRead, *this);
-      if (readBuffer.size() == preSize){
+      if (readBuffer.size() == preSize) {
         Util::sleep(5);
         continue;
       }
 
       needed = EBML::Element::needBytes(readBuffer + readBufferOffset, readBuffer.size() - readBufferOffset, readingMinimal);
-      if (readBuffer.size() >= needed + readBufferOffset){
+      if (readBuffer.size() >= needed + readBufferOffset) {
         // Make sure TrackEntry types are read whole
-        if (readingMinimal && EBML::Element(readBuffer + readBufferOffset).getID() == EBML::EID_TRACKENTRY){
+        if (readingMinimal && EBML::Element(readBuffer + readBufferOffset).getID() == EBML::EID_TRACKENTRY) {
           readingMinimal = false;
           needed = EBML::Element::needBytes(readBuffer + readBufferOffset, readBuffer.size() - readBufferOffset, readingMinimal);
         }
       }
     }
     EBML::Element E(readBuffer + readBufferOffset);
-    if (E.getID() == EBML::EID_CLUSTER){
-      if (!inFile.isSeekable()){
+    if (E.getID() == EBML::EID_CLUSTER) {
+      if (!inFile.isSeekable()) {
         lastClusterBPos = 0;
-      }else{
+      } else {
         int64_t bp = readPos + readBufferOffset;
-        if (bp == -1 && errno == ESPIPE){
+        if (bp == -1 && errno == ESPIPE) {
           lastClusterBPos = 0;
-        }else{
+        } else {
           lastClusterBPos = bp;
         }
       }
       DONTEVEN_MSG("Found a cluster at position %" PRIu64, lastClusterBPos);
     }
-    if (E.getID() == EBML::EID_TIMECODE){
+    if (E.getID() == EBML::EID_TIMECODE) {
       lastClusterTime = E.getValUInt();
       DONTEVEN_MSG("Cluster time %" PRIu64 " ms", lastClusterTime);
     }
@@ -261,63 +264,62 @@ namespace Mist{
     return true;
   }
 
-  bool InputEBML::readExistingHeader(){
-    if (!Input::readExistingHeader()){return false;}
-    if (M.inputLocalVars.isMember("timescale")){
+  bool InputEBML::readExistingHeader() {
+    if (!Input::readExistingHeader()) { return false; }
+    if (M.inputLocalVars.isMember("timescale")) {
       timeScale = ((double)M.inputLocalVars["timescale"].asInt()) / 1000000.0;
     }
-    if (!M.inputLocalVars.isMember("version") || M.inputLocalVars["version"].asInt() < 2){
+    if (!M.inputLocalVars.isMember("version") || M.inputLocalVars["version"].asInt() < 2) {
       INFO_MSG("Header needs update, regenerating");
       return false;
     }
     return true;
   }
 
-  bool InputEBML::readHeader(){
-    if (!inFile){
-      Util::logExitReason(ER_READ_START_FAILURE, "Reading header for '%s' failed: Could not open input stream", config->getString("input").c_str());
+  bool InputEBML::readHeader() {
+    if (!inFile) {
+      Util::logExitReason(ER_READ_START_FAILURE, "Reading header for '%s' failed: Could not open input stream",
+                          config->getString("input").c_str());
       return false;
     }
-    if (!meta || (needsLock() && isSingular())){
-      meta.reInit(isSingular() ? streamName : "");
-    }
-    int64_t dateVal = 0; 
-    while (readElement()){
-      if (!config->is_active){
+    if (!meta || (needsLock() && isSingular())) { meta.reInit(isSingular() ? streamName : ""); }
+    int64_t dateVal = 0;
+    while (readElement()) {
+      if (!config->is_active) {
         WARN_MSG("Aborting header generation due to shutdown: %s", Util::exitReason);
         return false;
       }
       EBML::Element E(readBuffer + readBufferOffset, readingMinimal);
       if (E.getID() == EBML::EID_TRACKENTRY) { readTrack(E); }
-      if (E.getID() == EBML::EID_TIMECODESCALE){
+      if (E.getID() == EBML::EID_TIMECODESCALE) {
         uint64_t timeScaleVal = E.getValUInt();
         meta.inputLocalVars["timescale"] = timeScaleVal;
         timeScale = ((double)timeScaleVal) / 1000000.0;
       }
-      if (E.getID() == EBML::EID_DATEUTC){dateVal = E.getValDate();}
+      if (E.getID() == EBML::EID_DATEUTC) { dateVal = E.getValDate(); }
       // Live streams stop parsing the header as soon as the first Cluster is encountered
-      if (E.getID() == EBML::EID_CLUSTER){
-        if (!needsLock()){return true;}
-        //Set progress counter for non-live inputs
-        if (streamStatus && streamStatus.len > 1 && inFile.getSize()){
+      if (E.getID() == EBML::EID_CLUSTER) {
+        if (!needsLock()) { return true; }
+        // Set progress counter for non-live inputs
+        if (streamStatus && streamStatus.len > 1 && inFile.getSize()) {
           streamStatus.mapped[1] = (255 * (readPos + readBufferOffset)) / inFile.getSize();
         }
       }
-      if (E.getType() == EBML::ELEM_BLOCK){
+      if (E.getType() == EBML::ELEM_BLOCK) {
         EBML::Block B(readBuffer + readBufferOffset);
         uint64_t tNum = B.getTrackNum();
         uint64_t newTime = lastClusterTime + B.getTimecode();
-        trackPredictor &TP = packBuf[tNum];
+        trackPredictor & TP = packBuf[tNum];
         size_t idx = meta.trackIDToIndex(tNum, getpid());
         bool isVideo = (M.getType(idx) == "video");
         bool isAudio = (M.getType(idx) == "audio");
         bool isASS = (M.getCodec(idx) == "subtitle" && M.getInit(idx).size());
         // If this is a new video keyframe, flush the corresponding trackPredictor
-        if (isVideo && B.isKeyframe()){
-          while (TP.hasPackets(true)){
-            packetData &C = TP.getPacketData(true);
+        if (isVideo && B.isKeyframe()) {
+          while (TP.hasPackets(true)) {
+            packetData & C = TP.getPacketData(true);
             meta.update(C.time, C.offset, idx, C.dsize, C.bpos, C.key);
-            if (dateVal){
+            if (dateVal) {
               meta.setUTCOffset(dateVal - C.time, UTCSRC_PROTOCOL);
               if (!meta.getUTCOffset()) { meta.setUTCOffset(1, UTCSRC_PROTOCOL); }
               dateVal = 0;
@@ -326,38 +328,37 @@ namespace Mist{
           }
           TP.flush();
         }
-        for (uint64_t frameNo = 0; frameNo < B.getFrameCount(); ++frameNo){
-          if (frameNo){
-            if (M.getCodec(idx) == "AAC"){
+        for (uint64_t frameNo = 0; frameNo < B.getFrameCount(); ++frameNo) {
+          if (frameNo) {
+            if (M.getCodec(idx) == "AAC") {
               newTime += (uint64_t)(1000000 / M.getRate(idx)) / timeScale; // assume ~1000 samples per frame
-            }else if (M.getCodec(idx) == "MP3"){
+            } else if (M.getCodec(idx) == "MP3") {
               newTime += (uint64_t)(1152000 / M.getRate(idx)) / timeScale; // 1152 samples per frame
-            }else if (M.getCodec(idx) == "DTS"){
+            } else if (M.getCodec(idx) == "DTS") {
               // Assume 512 samples per frame (DVD default)
               // actual amount can be calculated from data, but data
               // is not available during header generation...
               // See: http://www.stnsoft.com/DVD/dtshdr.html
               newTime += (uint64_t)(512000 / M.getRate(idx)) / timeScale;
-            }else{
+            } else {
               newTime += 1 / timeScale;
-              ERROR_MSG("Unknown frame duration for codec %s - timestamps WILL be wrong!",
-                        M.getCodec(idx).c_str());
+              ERROR_MSG("Unknown frame duration for codec %s - timestamps WILL be wrong!", M.getCodec(idx).c_str());
             }
           }
           uint32_t frameSize = B.getFrameSize(frameNo);
-          if (isASS){
+          if (isASS) {
             char *ptr = (char *)B.getFrameData(frameNo);
             std::string assStr = ASStoSRT(ptr, frameSize);
             frameSize = assStr.size();
           }
-          if (frameSize){
+          if (frameSize) {
             TP.add(newTime * timeScale, tNum, frameSize, lastClusterBPos, B.isKeyframe() && !isAudio, isVideo);
           }
         }
-        while (TP.hasPackets()){
-          packetData &C = TP.getPacketData(isVideo);
+        while (TP.hasPackets()) {
+          packetData & C = TP.getPacketData(isVideo);
           meta.update(C.time, C.offset, idx, C.dsize, C.bpos, C.key);
-          if (dateVal){
+          if (dateVal) {
             meta.setUTCOffset(dateVal - C.time, UTCSRC_PROTOCOL);
             if (!meta.getUTCOffset()) { meta.setUTCOffset(1, UTCSRC_PROTOCOL); }
             dateVal = 0;
@@ -367,14 +368,13 @@ namespace Mist{
       }
     }
 
-    if (packBuf.size()){
-      for (std::map<uint64_t, trackPredictor>::iterator it = packBuf.begin(); it != packBuf.end(); ++it){
-        trackPredictor &TP = it->second;
-        while (TP.hasPackets(true)){
-          packetData &C =
-              TP.getPacketData(M.getType(M.trackIDToIndex(it->first, getpid())) == "video");
+    if (packBuf.size()) {
+      for (std::map<uint64_t, trackPredictor>::iterator it = packBuf.begin(); it != packBuf.end(); ++it) {
+        trackPredictor & TP = it->second;
+        while (TP.hasPackets(true)) {
+          packetData & C = TP.getPacketData(M.getType(M.trackIDToIndex(it->first, getpid())) == "video");
           meta.update(C.time, C.offset, M.trackIDToIndex(C.track, getpid()), C.dsize, C.bpos, C.key);
-          if (dateVal){
+          if (dateVal) {
             meta.setUTCOffset(dateVal - C.time, UTCSRC_PROTOCOL);
             if (!meta.getUTCOffset()) { meta.setUTCOffset(1, UTCSRC_PROTOCOL); }
             dateVal = 0;
@@ -418,6 +418,8 @@ namespace Mist{
     if (codec == "V_AV1") {
       trueCodec = "AV1";
       trueType = "video";
+      tmpElem = E.findChild(EBML::EID_CODECPRIVATE);
+      if (tmpElem) { init = tmpElem.getValStringUntrimmed(); }
     }
     if (codec == "V_VP9") {
       trueCodec = "VP9";
@@ -584,73 +586,72 @@ namespace Mist{
     INFO_MSG("Detected track: %s", M.getTrackIdentifier(idx).c_str());
   }
 
-  void InputEBML::postHeader(){
-    //Record PCMLE tracks as being PCM with swapped endianness
+  void InputEBML::postHeader() {
+    // Record PCMLE tracks as being PCM with swapped endianness
     std::set<size_t> validTracks = M.getValidTracks();
-    for (std::set<size_t>::iterator it = validTracks.begin(); it != validTracks.end(); it++){
-      if (M.getCodec(*it) == "PCMLE"){
+    for (std::set<size_t>::iterator it = validTracks.begin(); it != validTracks.end(); it++) {
+      if (M.getCodec(*it) == "PCMLE") {
         meta.setCodec(*it, "PCM");
         swapEndianness.insert(*it);
       }
     }
   }
 
-  void InputEBML::fillPacket(packetData &C){
+  void InputEBML::fillPacket(packetData & C) {
     thisIdx = M.trackIDToIndex(C.track, getpid());
-    if (swapEndianness.count(C.track)){
-      switch (M.getSize(thisIdx)){
-      case 16:{
-        char *ptr = C.ptr;
-        uint32_t ptrSize = C.dsize;
-        for (uint32_t i = 0; i < ptrSize; i += 2){
-          char tmpchar = ptr[i];
-          ptr[i] = ptr[i + 1];
-          ptr[i + 1] = tmpchar;
-        }
-      }break;
-      case 24:{
-        char *ptr = C.ptr;
-        uint32_t ptrSize = C.dsize;
-        for (uint32_t i = 0; i < ptrSize; i += 3){
-          char tmpchar = ptr[i];
-          ptr[i] = ptr[i + 2];
-          ptr[i + 2] = tmpchar;
-        }
-      }break;
-      case 32:{
-        char *ptr = C.ptr;
-        uint32_t ptrSize = C.dsize;
-        for (uint32_t i = 0; i < ptrSize; i += 4){
-          char tmpchar = ptr[i];
-          ptr[i] = ptr[i + 3];
-          ptr[i + 3] = tmpchar;
-          tmpchar = ptr[i + 1];
-          ptr[i + 1] = ptr[i + 2];
-          ptr[i + 2] = tmpchar;
-        }
-      }break;
+    if (swapEndianness.count(C.track)) {
+      switch (M.getSize(thisIdx)) {
+        case 16: {
+          char *ptr = C.ptr;
+          uint32_t ptrSize = C.dsize;
+          for (uint32_t i = 0; i < ptrSize; i += 2) {
+            char tmpchar = ptr[i];
+            ptr[i] = ptr[i + 1];
+            ptr[i + 1] = tmpchar;
+          }
+        } break;
+        case 24: {
+          char *ptr = C.ptr;
+          uint32_t ptrSize = C.dsize;
+          for (uint32_t i = 0; i < ptrSize; i += 3) {
+            char tmpchar = ptr[i];
+            ptr[i] = ptr[i + 2];
+            ptr[i + 2] = tmpchar;
+          }
+        } break;
+        case 32: {
+          char *ptr = C.ptr;
+          uint32_t ptrSize = C.dsize;
+          for (uint32_t i = 0; i < ptrSize; i += 4) {
+            char tmpchar = ptr[i];
+            ptr[i] = ptr[i + 3];
+            ptr[i + 3] = tmpchar;
+            tmpchar = ptr[i + 1];
+            ptr[i + 1] = ptr[i + 2];
+            ptr[i + 2] = tmpchar;
+          }
+        } break;
       }
     }
-    if (M.getLive()){
-      if (!liveOffsetSet){
+    if (M.getLive()) {
+      if (!liveOffsetSet) {
         liveOffset = Util::bootMS() - M.getBootMsOffset() - C.time;
         liveOffsetSet = true;
       }
       C.time += liveOffset;
     }
-    thisPacket.genericFill(C.time, C.offset, C.track, C.ptr, C.dsize,
-                           C.bpos, C.key);
+    thisPacket.genericFill(C.time, C.offset, C.track, C.ptr, C.dsize, C.bpos, C.key);
     thisTime = C.time;
   }
 
-  void InputEBML::getNext(size_t idx){
+  void InputEBML::getNext(size_t idx) {
     bool singleTrack = (idx != INVALID_TRACK_ID);
-    size_t wantedID = singleTrack?M.getID(idx):0;
+    size_t wantedID = singleTrack ? M.getID(idx) : 0;
     // Make sure we empty our buffer first
-    if (bufferedPacks && packBuf.size()){
-      for (std::map<uint64_t, trackPredictor>::iterator it = packBuf.begin(); it != packBuf.end(); ++it){
-        trackPredictor &TP = it->second;
-        if (TP.hasPackets()){
+    if (bufferedPacks && packBuf.size()) {
+      for (std::map<uint64_t, trackPredictor>::iterator it = packBuf.begin(); it != packBuf.end(); ++it) {
+        trackPredictor & TP = it->second;
+        if (TP.hasPackets()) {
           size_t tIdx = M.trackIDToIndex(it->first, getpid());
           if (tIdx != INVALID_TRACK_ID) {
             packetData & C = TP.getPacketData(M.getType(tIdx) == "video");
@@ -658,21 +659,21 @@ namespace Mist{
           }
           TP.remove();
           --bufferedPacks;
-          if (singleTrack && it->first != wantedID){getNext(idx);}
+          if (singleTrack && it->first != wantedID) { getNext(idx); }
           return;
         }
       }
     }
     EBML::Block B;
-    if (wantBlocks){
-      do{
-        if (!config->is_active){return;}
-        if (!readElement()){
+    if (wantBlocks) {
+      do {
+        if (!config->is_active) { return; }
+        if (!readElement()) {
           // Make sure we empty our buffer first
-          if (bufferedPacks && packBuf.size()){
-            for (std::map<uint64_t, trackPredictor>::iterator it = packBuf.begin(); it != packBuf.end(); ++it){
-              trackPredictor &TP = it->second;
-              if (TP.hasPackets(true)){
+          if (bufferedPacks && packBuf.size()) {
+            for (std::map<uint64_t, trackPredictor>::iterator it = packBuf.begin(); it != packBuf.end(); ++it) {
+              trackPredictor & TP = it->second;
+              if (TP.hasPackets(true)) {
                 size_t tIdx = M.trackIDToIndex(it->first, getpid());
                 if (tIdx != INVALID_TRACK_ID) {
                   packetData & C = TP.getPacketData(M.getType(tIdx) == "video");
@@ -680,7 +681,7 @@ namespace Mist{
                 }
                 TP.remove();
                 --bufferedPacks;
-                if (singleTrack && it->first != wantedID){getNext(idx);}
+                if (singleTrack && it->first != wantedID) { getNext(idx); }
                 return;
               }
             }
@@ -690,37 +691,36 @@ namespace Mist{
           return;
         }
         B = EBML::Block(readBuffer + readBufferOffset);
-      }while (!B || B.getType() != EBML::ELEM_BLOCK ||
-               (singleTrack && wantedID != B.getTrackNum()));
-    }else{
+      } while (!B || B.getType() != EBML::ELEM_BLOCK || (singleTrack && wantedID != B.getTrackNum()));
+    } else {
       B = EBML::Block(readBuffer + readBufferOffset);
     }
 
     uint64_t tNum = B.getTrackNum();
     uint64_t newTime = lastClusterTime + B.getTimecode();
-    trackPredictor &TP = packBuf[tNum];
+    trackPredictor & TP = packBuf[tNum];
     thisIdx = M.trackIDToIndex(tNum, getpid());
     bool isVideo = (thisIdx != INVALID_TRACK_ID) && (M.getType(thisIdx) == "video");
     bool isAudio = (thisIdx != INVALID_TRACK_ID) && (M.getType(thisIdx) == "audio");
     bool isASS = (thisIdx != INVALID_TRACK_ID) && (M.getCodec(thisIdx) == "subtitle" && M.getInit(thisIdx).size());
 
     // If this is a new video keyframe, flush the corresponding trackPredictor
-    if (isVideo && B.isKeyframe() && bufferedPacks){
-      if (TP.hasPackets(true)){
+    if (isVideo && B.isKeyframe() && bufferedPacks) {
+      if (TP.hasPackets(true)) {
         wantBlocks = false;
-        packetData &C = TP.getPacketData(true);
+        packetData & C = TP.getPacketData(true);
         fillPacket(C);
         TP.remove();
         --bufferedPacks;
-        if (singleTrack && thisIdx != idx){getNext(idx);}
+        if (singleTrack && thisIdx != idx) { getNext(idx); }
         return;
       }
     }
-    if (isVideo && B.isKeyframe()){TP.flush();}
+    if (isVideo && B.isKeyframe()) { TP.flush(); }
     wantBlocks = true;
 
-    for (uint64_t frameNo = 0; frameNo < B.getFrameCount(); ++frameNo){
-      if (frameNo){
+    for (uint64_t frameNo = 0; frameNo < B.getFrameCount(); ++frameNo) {
+      if (frameNo) {
         if ((thisIdx != INVALID_TRACK_ID) && M.getCodec(thisIdx) == "AAC") {
           newTime += (uint64_t)(1000000 / M.getRate(thisIdx)) / timeScale; // assume ~1000 samples per frame
         } else if ((thisIdx != INVALID_TRACK_ID) && M.getCodec(thisIdx) == "MP3") {
@@ -737,34 +737,33 @@ namespace Mist{
         }
       }
       uint32_t frameSize = B.getFrameSize(frameNo);
-      if (frameSize){
+      if (frameSize) {
         char *ptr = (char *)B.getFrameData(frameNo);
-        if (isASS){
+        if (isASS) {
           std::string assStr = ASStoSRT(ptr, frameSize);
           frameSize = assStr.size();
           memcpy(ptr, assStr.data(), frameSize);
         }
-        if (frameSize){
-          TP.add(newTime * timeScale, tNum, frameSize, lastClusterBPos,
-                 B.isKeyframe() && !isAudio, isVideo, (void *)ptr);
+        if (frameSize) {
+          TP.add(newTime * timeScale, tNum, frameSize, lastClusterBPos, B.isKeyframe() && !isAudio, isVideo, (void *)ptr);
           ++bufferedPacks;
         }
       }
     }
-    if (TP.hasPackets()){
-      packetData &C = TP.getPacketData(isVideo);
+    if (TP.hasPackets()) {
+      packetData & C = TP.getPacketData(isVideo);
       if (thisIdx != INVALID_TRACK_ID) { fillPacket(C); }
       TP.remove();
       --bufferedPacks;
       if ((thisIdx == INVALID_TRACK_ID) || (singleTrack && thisIdx != idx)) { getNext(idx); }
-    }else{
+    } else {
       // We didn't set thisPacket yet. Read another.
       // Recursing is fine, this can only happen a few times in a row.
       getNext(idx);
     }
   }
 
-  void InputEBML::seek(uint64_t seekTime, size_t idx){
+  void InputEBML::seek(uint64_t seekTime, size_t idx) {
     wantBlocks = true;
     clearPredictors();
     bufferedPacks = 0;
@@ -774,30 +773,25 @@ namespace Mist{
     DTSC::Parts parts(M.parts(mainTrack));
     uint64_t seekPos = keys.getBpos(0);
     // Replay the parts of the previous keyframe, so the timestaps match up
-    for (size_t i = 0; i < keys.getEndValid(); i++){
-      if (keys.getTime(i) > seekTime){break;}
+    for (size_t i = 0; i < keys.getEndValid(); i++) {
+      if (keys.getTime(i) > seekTime) { break; }
       DONTEVEN_MSG("Seeking to %" PRIu64 ", found %" PRIu64 "...", seekTime, keys.getTime(i));
       seekPos = keys.getBpos(i);
     }
 
-
     firstRead = true;
-    if (readPos > seekPos || seekPos > readPos + readBuffer.size() + 4*1024*1024){
+    if (readPos > seekPos || seekPos > readPos + readBuffer.size() + 4 * 1024 * 1024) {
       readBuffer.truncate(0);
       readBufferOffset = 0;
-      if (!inFile.seek(seekPos)){
-        FAIL_MSG("Seek to %" PRIu64 " failed! Aborting load", seekPos);
-      }
+      if (!inFile.seek(seekPos)) { FAIL_MSG("Seek to %" PRIu64 " failed! Aborting load", seekPos); }
       readPos = inFile.getPos();
-    }else{
-      while (seekPos > readPos + readBuffer.size() && config->is_active){
+    } else {
+      while (seekPos > readPos + readBuffer.size() && config->is_active) {
         size_t preSize = readBuffer.size();
         inFile.readSome(seekPos - (readPos + readBuffer.size()), *this);
-        if (readBuffer.size() == preSize){
-          Util::sleep(5);
-        }
+        if (readBuffer.size() == preSize) { Util::sleep(5); }
       }
-      if (seekPos > readPos + readBuffer.size()){
+      if (seekPos > readPos + readBuffer.size()) {
         Util::logExitReason(ER_READ_START_FAILURE, "Input file seek abort");
         config->is_active = false;
         readBufferOffset = 0;
@@ -805,16 +799,14 @@ namespace Mist{
       }
       readBufferOffset = seekPos - readPos;
     }
-
-
   }
 
   /// Flushes all trackPredictors without deleting permanent data from them.
-  void InputEBML::clearPredictors(){
-    if (!packBuf.size()){return;}
-    for (std::map<uint64_t, trackPredictor>::iterator it = packBuf.begin(); it != packBuf.end(); ++it){
+  void InputEBML::clearPredictors() {
+    if (!packBuf.size()) { return; }
+    for (std::map<uint64_t, trackPredictor>::iterator it = packBuf.begin(); it != packBuf.end(); ++it) {
       it->second.flush();
     }
   }
 
-}// namespace Mist
+} // namespace Mist
