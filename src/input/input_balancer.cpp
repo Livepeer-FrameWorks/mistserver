@@ -96,6 +96,7 @@ namespace Mist{
     if (config->getBool("json")){return Input::boot(argc, argv);}
 
     streamName = config->getString("streamname");
+    Util::setStreamName(streamName);
 
     std::string blncr = config->getString("input");
     if (blncr.substr(0, 8) != "balance:"){
