@@ -45,9 +45,10 @@ namespace Controller{
   class statStorage{
   public:
     void update(Comms::Sessions &statComm, size_t index);
-    bool hasDataFor(unsigned long long);
-    statLog &getDataFor(unsigned long long);
-    std::map<unsigned long long, statLog> log;
+    statLog & getDataFor(uint64_t);
+    std::map<uint64_t, statLog> log;
+    uint64_t lowerBound{0};
+    uint64_t upperBound{0};
   };
 
   /// A session class that keeps track of both current and archived connections.

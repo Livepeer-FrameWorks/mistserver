@@ -859,8 +859,7 @@ uint64_t Controller::statSession::getEnd(){
 
 /// Returns true if there is data for this session at timestamp t.
 bool Controller::statSession::hasDataFor(uint64_t t){
-  if (curData.hasDataFor(t)){return true;}
-  return false;
+  return t >= curData.lowerBound && t <= curData.upperBound + STAT_CUTOFF && curData.log.size();
 }
 
 const std::string& Controller::statSession::getSessId(){
@@ -875,9 +874,7 @@ uint64_t Controller::statSession::getFirstActive(){
 }
 
 const std::string& Controller::statSession::getStreamName(uint64_t t){
-  if (curData.hasDataFor(t)){
-    return curData.getDataFor(t).streamName;
-  }
+  if (hasDataFor(t)) { return curData.getDataFor(t).streamName; }
   return emptyLogEntry.streamName;
 }
 
@@ -901,9 +898,7 @@ std::string Controller::statSession::getStrHost(){
 }
 
 const std::string& Controller::statSession::getHost(uint64_t t){
-  if (curData.hasDataFor(t)){
-    return curData.getDataFor(t).host;
-  }
+  if (hasDataFor(t)) { return curData.getDataFor(t).host; }
   return emptyLogEntry.host;
 }
 
@@ -915,9 +910,7 @@ const std::string& Controller::statSession::getHost(){
 }
 
 const std::string& Controller::statSession::getConnectors(uint64_t t){
-  if (curData.hasDataFor(t)){
-    return curData.getDataFor(t).connectors;
-  }
+  if (hasDataFor(t)) { return curData.getDataFor(t).connectors; }
   return emptyLogEntry.connectors;
 }
 
@@ -930,9 +923,7 @@ const std::string& Controller::statSession::getConnectors(){
 
 /// Returns the cumulative connected time for this session at timestamp t.
 uint64_t Controller::statSession::getConnTime(uint64_t t){
-  if (curData.hasDataFor(t)){
-    return curData.getDataFor(t).time;
-  }
+  if (hasDataFor(t)) { return curData.getDataFor(t).time; }
   return 0;
 }
 
@@ -946,25 +937,19 @@ uint64_t Controller::statSession::getConnTime(){
 
 /// Returns the last requested media timestamp for this session at timestamp t.
 uint64_t Controller::statSession::getLastSecond(uint64_t t){
-  if (curData.hasDataFor(t)){
-    return curData.getDataFor(t).lastSecond;
-  }
+  if (hasDataFor(t)) { return curData.getDataFor(t).lastSecond; }
   return 0;
 }
 
 /// Returns the cumulative downloaded bytes for this session at timestamp t.
 uint64_t Controller::statSession::getDown(uint64_t t){
-  if (curData.hasDataFor(t)){
-    return curData.getDataFor(t).down;
-  }
+  if (hasDataFor(t)) { return curData.getDataFor(t).down; }
   return 0;
 }
 
 /// Returns the cumulative uploaded bytes for this session at timestamp t.
 uint64_t Controller::statSession::getUp(uint64_t t){
-  if (curData.hasDataFor(t)){
-    return curData.getDataFor(t).up;
-  }
+  if (hasDataFor(t)) { return curData.getDataFor(t).up; }
   return 0;
 }
 
@@ -985,9 +970,7 @@ uint64_t Controller::statSession::getUp(){
 }
 
 uint64_t Controller::statSession::getPktCount(uint64_t t){
-  if (curData.hasDataFor(t)){
-    return curData.getDataFor(t).pktCount;
-  }
+  if (hasDataFor(t)) { return curData.getDataFor(t).pktCount; }
   return 0;
 }
 
@@ -1000,9 +983,7 @@ uint64_t Controller::statSession::getPktCount(){
 }
 
 uint64_t Controller::statSession::getPktLost(uint64_t t){
-  if (curData.hasDataFor(t)){
-    return curData.getDataFor(t).pktLost;
-  }
+  if (hasDataFor(t)) { return curData.getDataFor(t).pktLost; }
   return 0;
 }
 
@@ -1015,9 +996,7 @@ uint64_t Controller::statSession::getPktLost(){
 }
 
 uint64_t Controller::statSession::getPktRetransmit(uint64_t t){
-  if (curData.hasDataFor(t)){
-    return curData.getDataFor(t).pktRetransmit;
-  }
+  if (hasDataFor(t)) { return curData.getDataFor(t).pktRetransmit; }
   return 0;
 }
 
@@ -1049,18 +1028,12 @@ uint64_t Controller::statSession::getBpsUp(uint64_t t){
   return (valB - valA) / (t - aTime);
 }
 
-/// Returns true if there is data available for timestamp t.
-bool Controller::statStorage::hasDataFor(unsigned long long t){
-  if (!log.size()){return false;}
-  return (t >= log.begin()->first);
-}
-
 /// Returns a reference to the most current data available at timestamp t.
-Controller::statLog &Controller::statStorage::getDataFor(unsigned long long t){
+Controller::statLog & Controller::statStorage::getDataFor(uint64_t t) {
   if (!log.size()){
     return emptyLogEntry;
   }
-  std::map<unsigned long long, statLog>::iterator it = log.upper_bound(t);
+  std::map<uint64_t, statLog>::iterator it = log.upper_bound(t);
   if (it != log.begin()){it--;}
   return it->second;
 }
@@ -1070,8 +1043,10 @@ Controller::statLog &Controller::statStorage::getDataFor(unsigned long long t){
 void Controller::statStorage::update(Comms::Sessions &statComm, size_t index){
   statLog tmp;
   tmp.time = statComm.getTime(index);
+  upperBound = statComm.getNow(index);
   if (!log.size() || !log.rbegin()->second.firstActive){
-    tmp.firstActive = statComm.getNow(index);
+    tmp.firstActive = upperBound;
+    lowerBound = upperBound;
   } else{
     tmp.firstActive = log.rbegin()->second.firstActive;
   }
@@ -1084,7 +1059,7 @@ void Controller::statStorage::update(Comms::Sessions &statComm, size_t index){
   tmp.connectors = statComm.getConnector(index);
   tmp.streamName = statComm.getStream(index);
   tmp.host = statComm.getHost(index);
-  log[statComm.getNow(index)] = tmp;
+  log[upperBound] = tmp;
   // wipe data older than STAT_CUTOFF seconds
   // Ensure cutOffPoint is either time of boot or 10 minutes ago, whichever is closer.
   // Prevents wrapping around to high values close to system boot time.
@@ -1094,7 +1069,10 @@ void Controller::statStorage::update(Comms::Sessions &statComm, size_t index){
   }else{
     cutOffPoint = 0;
   }
-  while (log.size() && log.begin()->first < cutOffPoint){log.erase(log.begin());}
+  while (log.size() && lowerBound < cutOffPoint) {
+    log.erase(log.begin());
+    if (log.size()) { lowerBound = log.begin()->first; }
+  }
 }
 
 void Controller::statLeadIn(){
