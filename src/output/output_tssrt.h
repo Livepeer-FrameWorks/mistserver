@@ -30,6 +30,9 @@ namespace Mist{
     uint64_t lastTimeStamp;
     uint64_t lastWorked;
     bool pushOut;
+    bool rawMode{false};
+    uint64_t lastRawPacket{0};
+    uint64_t rawIdx{INVALID_TRACK_ID};
     Util::ResizeablePointer packetBuffer;
     TS::Stream tsIn;
     TS::Assembler assembler;

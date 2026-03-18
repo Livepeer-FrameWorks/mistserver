@@ -113,6 +113,7 @@ namespace Mist {
     pushOut = false;
     bootMSOffsetCalculated = false;
     assembler.setLive();
+    rawMode = config->getBool("raw");
     udpInit = 0;
 
     // Behaviour if this process is the child
@@ -239,7 +240,11 @@ namespace Mist {
               accTypes = 2;
               INFO_MSG("Connection put into ingest mode");
               config->getOption("target", true).append("");
-              assembler.assemble(tsIn, srtConn->recvbuf, recvSize, true);
+              if (rawMode) {
+                packetBuffer.append(srtConn->recvbuf, recvSize);
+              } else {
+                assembler.assemble(tsIn, srtConn->recvbuf, recvSize, true);
+              }
             }
           }else{
             Util::sleep(50);
@@ -410,6 +415,12 @@ namespace Mist {
     capa["optional"]["acceptable"]["select"][1u][1u] = "Allow only outgoing connections";
     capa["optional"]["acceptable"]["select"][2u][0u] = 2;
     capa["optional"]["acceptable"]["select"][2u][1u] = "Allow only incoming connections";
+
+    capa["optional"]["raw"]["name"] = "Raw input mode";
+    capa["optional"]["raw"]["help"] = "Enable raw MPEG-TS passthrough mode";
+    capa["optional"]["raw"]["option"] = "--raw";
+    capa["optional"]["raw"]["short"] = "R";
+    capa["optional"]["raw"]["default"] = false;
 
     capa["codecs"][0u][0u].append("+HEVC");
     capa["codecs"][0u][0u].append("+H264");
@@ -690,7 +701,31 @@ namespace Mist {
     while (srtConn->readable()){
       size_t recvSize = srtConn->Recv();
       if (!recvSize){break;}
-      newData |= assembler.assemble(tsIn, srtConn->recvbuf, recvSize, true);
+      if (rawMode) {
+        // Reconnect to meta if needed, restart push if needed
+        meta.reloadReplacedPagesIfNeeded();
+        if (!meta && !allowPush("")) {
+          onFinish();
+          return;
+        }
+        packetBuffer.append(srtConn->recvbuf, recvSize);
+        if (packetBuffer.size() >= 1316 && (lastRawPacket == 0 || lastRawPacket != Util::bootMS())) {
+          if (rawIdx == INVALID_TRACK_ID) {
+            rawIdx = meta.addTrack();
+            meta.setType(rawIdx, "meta");
+            meta.setCodec(rawIdx, "rawts");
+            meta.setID(rawIdx, 1);
+            userSelect[rawIdx].reload(streamName, rawIdx, COMM_STATUS_ACTSOURCEDNT);
+          }
+          uint64_t packetTime = Util::bootMS();
+          bufferLivePacket(packetTime, 0, rawIdx, packetBuffer, packetBuffer.size(), 0, true);
+          packetBuffer.truncate(0);
+          lastRawPacket = packetTime;
+        }
+        continue;
+      } else {
+        newData |= assembler.assemble(tsIn, srtConn->recvbuf, recvSize, true);
+      }
     }
     if (!*srtConn){
       Util::logExitReason(ER_CLEAN_REMOTE_CLOSE, "SRT connection %s (in request handler)", srtConn->getStateStr());
