@@ -1,16 +1,16 @@
-/// \file stats_analyser.cpp
-/// Will emulate a given amount of clients in the statistics.
-
-#include <stdlib.h>
-
+#include <mist/comms.h>
 #include <mist/config.h>
 #include <mist/defines.h>
 #include <mist/dtsc.h>
 #include <mist/json.h>
-#include <mist/shared_memory.h>
 #include <mist/socket.h>
+#include <mist/timing.h>
 #include <mist/util.h>
 
+#include <iostream>
+#include <stdlib.h>
+
+/*
 void printStatistics(char *data, size_t len, unsigned int id){
   std::cout << "#" << id << ": (state: " << (unsigned int)(data[-1] & 0x7F) << ")" << std::endl;
   IPC::statExchange tmpEx(data);
@@ -28,9 +28,10 @@ void printStatistics(char *data, size_t len, unsigned int id){
   std::cout << "  sync:       " << (int)tmpEx.getSync() << std::endl;
   std::cout << "  PID:        " << tmpEx.getPID() << std::endl;
 }
+*/
 
 /// Will emulate a given amount of clients in the statistics.
-int main(int argc, char **argv){
+int main(int argc, char **argv) {
   Util::redirectLogsIfNeeded();
   Util::Config conf = Util::Config(argv[0]);
   conf.addOption("clients", R"-({
@@ -40,56 +41,62 @@ int main(int argc, char **argv){
     "default":1000,
     "help":"Amount of clients to emulate."
   })-");
-  "
-    conf.addOption("stream", R"-({
+
+  conf.addOption("stream", R"-({
     "arg":"string",
     "short":"s",
     "long":"stream",
     "default":"test",
     "help":"Streamname to pretend to request."
   })-");
-  "
-    conf.addOption("up", R"-({
+
+  conf.addOption("up", R"-({
     "arg":"string",
     "short":"u",
     "long":"up",
     "default":131072,
     "help":"Bytes per second upstream."
   })-");
-  "
-    conf.addOption("down", R"-({
+
+  conf.addOption("down", R"-({
     "arg":"string",
     "short":"d",
     "long":"down",
     "default":13000,
     "help":"Bytes per second downstream."
   })-");
-  "
-    conf.addOption("sine", R"-({
+
+  conf.addOption("sine", R"-({
     "arg":"string",
     "short":"S",
     "long":"sine",
     "default":0,
     "help":"Bytes per second variance in a sine pattern."
   })-");
-  "
-    conf.addOption("userscale", R"-({
+
+  conf.addOption("userscale", R"-({
     "arg":"string",
     "short":"U",
     "long":"userscale",
     "default":0,
     "help":"If != 0, scales users from 0% to 100% bandwidth."
   })-");
-  "
-    conf.addOption("read", R"-({
-    "arg":"num",
+
+  conf.addOption("read", R"-({
     "short":"r",
     "long":"read",
-    "default":0,
-    "help":"If != 0, does not simulate, just reads existing data."
+    "default":false,
+    "help":"If set, does not simulate, just reads existing data."
   })-");
-  "
-    conf.parseArgs(argc, argv);
+
+  conf.addOption("reject", R"-({
+    "short":"R",
+    "long":"reject",
+    "default":false,
+    "help":"If set, inserts rejected sessions into the table."
+  })-");
+
+  conf.parseArgs(argc, argv);
 
   std::string streamName = conf.getString("stream");
   long long clientCount = conf.getInteger("clients");
@@ -99,61 +106,73 @@ int main(int argc, char **argv){
   long long scale = conf.getInteger("userscale");
   long long currsine = sine;
   long long goingUp = 0;
+  bool reject = conf.getBool("reject");
 
-  if (conf.getInteger("read")){
-    IPC::sharedServer statServer(SHM_STATISTICS, STAT_EX_SIZE, true);
-    statServer.abandon();
-    statServer.parseEach(printStatistics);
+  if (conf.getBool("read")) {
+    // IPC::sharedServer statServer(SHM_STATISTICS, STAT_EX_SIZE, true);
+    // statServer.abandon();
+    // statServer.parseEach(printStatistics);
+    // return 0;
+  }
+
+  Comms::Sessions **clients = (Comms::Sessions **)malloc(sizeof(Comms::Sessions *) * clientCount);
+  std::string thisHost = Socket::getBinForms("::42");
+  uint64_t myPid = getpid();
+  for (long long i = 0; i < clientCount; i++) {
+    clients[i] = new Comms::Sessions;
+    clients[i]->reload();
+    clients[i]->setHost(thisHost);
+    clients[i]->setStream(streamName);
+    if (reject) {
+      clients[i]->setSessId("StatUtilReject_" + std::to_string(myPid) + "_" + std::to_string(i));
+      clients[i]->setStatus(COMM_STATUS_REJECTED);
+      delete clients[i];
+      clients[i] = 0;
+    } else {
+      clients[i]->setSessId("StatUtil_" + std::to_string(myPid) + "_" + std::to_string(i));
+    }
+  }
+
+  if (reject) {
+    std::cout << "Inserted " << clientCount << " rejected sessions into session table; exiting" << std::endl;
     return 0;
   }
-
-  IPC::sharedClient **clients = (IPC::sharedClient **)malloc(sizeof(IPC::sharedClient *) * clientCount);
-  for (long long i = 0; i < clientCount; i++){
-    clients[i] = new IPC::sharedClient(SHM_STATISTICS, STAT_EX_SIZE, true);
-  }
+  std::cout << "Inserted " << clientCount
+            << " sessions into session table - keeping them active with stats until stopped..." << std::endl;
 
   unsigned long long int counter = 0;
   conf.activate();
 
-  while (conf.is_active){
-    unsigned long long int now = Util::epoch();
+  while (conf.is_active) {
+    uint64_t now = Util::bootSecs();
     counter++;
-    if (sine){
+    if (sine) {
       currsine += goingUp;
-      if (currsine < -down || currsine < -up){currsine = std::max(-down, -up);}
-      if (currsine > 0){
+      if (currsine < -down || currsine < -up) { currsine = std::max(-down, -up); }
+      if (currsine > 0) {
         goingUp -= sine / 100 + 1;
-      }else{
+      } else {
         goingUp += sine / 100 + 1;
       }
     }
-    for (long long i = 0; i < clientCount; i++){
-      if (clients[i]->getData()){
-        IPC::statExchange tmpEx(clients[i]->getData());
-        tmpEx.now(now);
-        tmpEx.host("::42");
-        tmpEx.crc(i);
-        tmpEx.streamName(streamName);
-        tmpEx.connector("TEST");
-        if (scale){
-          tmpEx.up(tmpEx.up() + (up + currsine) * i / clientCount);
-          tmpEx.down(tmpEx.down() + (down + currsine) * i / clientCount);
-        }else{
-          tmpEx.up(tmpEx.up() + up + currsine);
-          tmpEx.down(tmpEx.down() + down + currsine);
-        }
-        tmpEx.time(counter);
-        tmpEx.lastSecond(counter * 1000);
-        clients[i]->keepAlive();
+
+    for (long long i = 0; i < clientCount; i++) {
+      Comms::Sessions & s = *clients[i];
+      s.setTime(counter);
+      if (scale) {
+        s.setUp(s.getUp() + (up + currsine) * i / clientCount);
+        s.setDown(s.getDown() + (down + currsine) * i / clientCount);
+      } else {
+        s.setUp(s.getUp() + up + currsine);
+        s.setDown(s.getDown() + down + currsine);
       }
+      s.setLastSecond(counter * 1000);
+      s.setNow(now);
     }
     Util::wait(1000);
   }
 
-  for (long long i = 0; i < clientCount; i++){
-    clients[i]->finish();
-    delete clients[i];
-  }
+  for (long long i = 0; i < clientCount; i++) { delete clients[i]; }
 
   free(clients);
   return 0;

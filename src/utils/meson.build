@@ -1,6 +1,6 @@
 
 utils = [
-#    {'name': 'Stats',   'file': 'stats'},
+    {'name': 'Stats',   'file': 'stats'},
     {'name': 'META',    'file': 'meta'},
     {'name': 'RAX',     'file': 'rax'},
     {'name': 'AMF',     'file': 'amf'},
