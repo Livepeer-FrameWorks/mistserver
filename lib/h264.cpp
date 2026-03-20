@@ -564,15 +564,27 @@ namespace h264{
     if (levelIdc == 13){return "1.3";}
     if (levelIdc == 20){return "2";}
     if (levelIdc == 21){return "2.1";}
-    if (levelIdc == 21){return "2.2";}
+    if (levelIdc == 22) { return "2.2"; }
     if (levelIdc == 30){return "3";}
     if (levelIdc == 31){return "3.1";}
-    if (levelIdc == 31){return "3.2";}
+    if (levelIdc == 32) { return "3.2"; }
     if (levelIdc == 40){return "4";}
     if (levelIdc == 41){return "4.1";}
-    if (levelIdc == 41){return "4.2";}
+    if (levelIdc == 42) { return "4.2"; }
     if (levelIdc == 50){return "5";}
     if (levelIdc == 51){return "5.1";}
+    if (levelIdc == 52) { return "5.2"; }
+    if (levelIdc == 60) { return "6"; }
+    if (levelIdc == 61) { return "6.1"; }
+    if (levelIdc == 62) { return "6.2"; }
+    return "Unknown";
+  }
+
+  const char *spsUnit::chroma() {
+    if (chromaFormatIdc == 0) { return "4:0:0 (Monochrome)"; }
+    if (chromaFormatIdc == 1) { return "4:2:0 (Quarter chroma)"; }
+    if (chromaFormatIdc == 2) { return "4:2:2 (Half chroma)"; }
+    if (chromaFormatIdc == 3) { return "4:4:4 (Full chroma)"; }
     return "Unknown";
   }
 
@@ -598,8 +610,7 @@ namespace h264{
     case 86:
     case 118:
     case 128:
-      out << "  chroma_format_idc: " << chromaFormatIdc << (chromaFormatIdc >= 4 ? " INVALID" : "")
-          << std::endl;
+      out << "  chroma_format_idc: " << chromaFormatIdc << " = " << chroma() << std::endl;
       if (chromaFormatIdc == 3){
         out << "  separate_colour_plane_flag: " << (separateColourPlaneFlag ? 1 : 0) << std::endl;
       }

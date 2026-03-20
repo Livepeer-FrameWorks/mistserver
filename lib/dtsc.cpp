@@ -3562,6 +3562,7 @@ namespace DTSC{
           h264::spsUnit sps(avccbox.getSPS(), avccbox.getSPSLen());
           trackJSON["h264_level"] = sps.level();
           trackJSON["h264_profile"] = sps.profile();
+          trackJSON["h264_chroma"] = sps.chroma();
         }
       }
     }

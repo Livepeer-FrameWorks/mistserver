@@ -170,6 +170,7 @@ namespace h264{
     }
     const char* profile();
     const char* level();
+    const char *chroma();
     std::string generate();
     void toPrettyString(std::ostream &out);
     void scalingList(uint64_t *scalingList, size_t sizeOfScalingList,
