@@ -4,6 +4,7 @@
 #include "defines.h"
 #include "encode.h"
 #include "shared_memory.h"
+#include "stream.h"
 #include "timing.h"
 
 #include <cstdint>
@@ -184,15 +185,31 @@ namespace JWT {
     // For tokens in which 'sub' is not used to derive the streamname directly there may be a single wildcard character
     uint64_t now = Util::epoch();
 
-    std::string target;
-    Socket::hostBytesToStr(hostIP.c_str(), hostIP.size(), target);
-    if ((!*this) || (pld.isMember("sub") && streamName.size() && !equalsWithWildcard(streamName, pld["sub"])) ||
-        (pld.isMember("ipa") && !Socket::isBinAddress(hostIP, pld["ipa"])) ||
-        (pld.isMember("nbf") && now < (uint64_t)pld["nbf"].asInt()) ||
-        (pld.isMember("exp") && now > (uint64_t)pld["exp"].asInt())) {
+    if (!*this) {
+      INFO_MSG("JWT invalid");
       return false;
     }
+
+    if ((pld.isMember("nbf") && now < (uint64_t)pld["nbf"].asInt()) ||
+        (pld.isMember("exp") && now > (uint64_t)pld["exp"].asInt())) {
+      INFO_MSG("JWT mismatch on time: %" PRIu64 " < %" PRIu64 " < %" PRIu64, pld["nbf"].asInt(), now, pld["exp"].asInt());
+      return false;
+    }
+
+    if (pld.isMember("sub") && streamName.size() && !Util::streamMatches(streamName, pld["sub"])) {
+      INFO_MSG("JWT mismatch on subject: %s doesn't match %s", streamName.c_str(), pld["sub"].toString().c_str());
+      return false;
+    }
+
+    if (pld.isMember("ipa") && !Socket::isBinAddress(hostIP, pld["ipa"])) {
+      std::string target;
+      Socket::hostBytesToStr(hostIP.c_str(), hostIP.size(), target);
+      INFO_MSG("JWT mismatch on IP: %s doesn't match %s", target.c_str(), pld["ipa"].toString().c_str());
+      return false;
+    }
+
     /// \todo support geo claim using maxmind (or similar) ip database
+
     return true;
   }
 
@@ -310,9 +327,8 @@ namespace JWT {
     // Call internal function for getting the base64-encoded SHA HMAC digest
     std::string digest = Secure::digest_hmac(msg, key, getSHA(hashMode));
 
-    HIGH_MSG("Trying to match digest [%s] to signature [%s]", digest.c_str(), sig.c_str());
     if (digest != sig) {
-      WARN_MSG("Signature did not match HMAC: expected %s but got %s", sig.c_str(), digest.c_str());
+      INFO_MSG("Signature did not match HMAC: expected %s but got %s", sig.c_str(), digest.c_str());
       return false;
     }
     HIGH_MSG("Signature verification was successful");

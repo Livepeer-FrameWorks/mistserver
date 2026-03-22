@@ -543,6 +543,36 @@ std::set<std::string> Util::streamTags(const std::string &streamname){
   return ret;
 }
 
+/// Checks if the given stream is matched by the given matchString.
+/// Currently checks:
+/// - exact matches
+/// - wildcard matching when ending in '+'
+/// - wildcard matching when containing a single '*'
+/// - tag matches (when starting with '#')
+bool Util::streamMatches(const std::string & stream, const std::string & matchString) {
+  // Exact match check
+  if (stream == matchString) { return true; }
+
+  // Wildcard match, when ending in '+'
+  if (*matchString.rbegin() == '+' && stream.substr(0, matchString.size()) == matchString) { return true; }
+
+  // Tag match, when starting with #
+  if (matchString[0] == '#') { return streamTags(stream).count(matchString.substr(1)); }
+
+  // Wildcard match, when containing a single '*' (further appearances are taken verbatim and thus can't match)
+  size_t aster = matchString.find_first_of('*');
+  if (aster == std::string::npos) { return false; }
+  const std::string front = matchString.substr(0, aster);
+  const std::string back = matchString.substr(matchString.find('*') + 1);
+  if (stream.size() >= front.size() + back.size() && stream.substr(0, front.size()) == front &&
+      stream.substr(stream.size() - back.size()) == back) {
+    return true;
+  }
+
+  // fallback response
+  return false;
+}
+
 bool Util::checkStreamKey(std::string & streamName) {
   IPC::sharedPage shmKeys(SHM_STREAMKEYS, 0, false, false);
   // Abort silently if page cannot be loaded

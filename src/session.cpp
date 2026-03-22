@@ -271,10 +271,8 @@ int main(int argc, char **argv){
     if (!thisType) {
       jws = JWT::JWS(thisToken, JWK_PERM_OUTPUT, false);
 
-      if (jws && jws.checkClaims(thisStreamName, thisHost)) {
-        // The JWS is compact and by the spec contains only one signature
-        validToken = jws.validateSignature();
-      }
+      // The JWS is compact and by the spec contains only one signature
+      validToken = jws && jws.checkClaims(thisStreamName, thisHost) && jws.validateSignature();
 
       // Do a USER_NEW trigger if it is defined for this stream and the JWT is not present or invalid
       if (!validToken && Triggers::shouldTrigger("USER_NEW", thisStreamName)) {
@@ -372,10 +370,7 @@ int main(int argc, char **argv){
         forceTrigger = false;
 
         // Change validity of token upon a re-sync (e.g. token expired or is now past 'nbf' time)
-        if (jws.checkClaims(thisStreamName, thisHost)) {
-          // The JWS is compact and by the spec contains only one signature
-          validToken = jws.validateSignature();
-        }
+        validToken = jws.checkClaims(thisStreamName, thisHost) && jws.validateSignature();
         std::string host;
         Socket::hostBytesToStr(thisHost.data(), 16, host);
         if (!validToken && Triggers::shouldTrigger("USER_NEW", thisStreamName)) {
@@ -395,9 +390,6 @@ int main(int argc, char **argv){
         }
       }
 
-      // Remember latest activity so we know when this session ends
-      if (currentConnections){
-      }
       evLp.await(1000);
     }
     shouldSleep = connections.getExit();

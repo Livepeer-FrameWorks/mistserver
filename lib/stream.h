@@ -5,10 +5,10 @@
 #include "dtsc.h"
 #include "json.h"
 #include "shared_memory.h"
-#include "socket.h"
 #include "util.h"
-#include <string>
+
 #include <list>
+#include <string>
 
 const JSON::Value empty;
 
@@ -33,6 +33,7 @@ namespace Util{
   void sendUDPApi(JSON::Value & cmd);
   uint8_t getStreamStatus(const std::string &streamname);
   uint8_t getStreamStatusPercentage(const std::string &streamname);
+  bool streamMatches(const std::string & stream, const std::string & matchString);
   bool checkException(const JSON::Value &ex, const std::string &useragent);
   std::string codecString(const std::string &codec, const std::string &initData = "");
 
