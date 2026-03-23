@@ -653,16 +653,16 @@ namespace Mist{
       if (cpuTimeUs > 0){procCpuPrev[pid] = cpuTimeUs;}
 
       char statsName[NAME_BUFFER_SIZE];
-      snprintf(statsName, NAME_BUFFER_SIZE, SHM_PROC_STATS, pid);
+      snprintf(statsName, NAME_BUFFER_SIZE, SHM_PROC_STATE, pid);
       IPC::sharedPage sp;
       sp.init(statsName, 0, false, false);
-      if (sp && sp.mapped && sp.len >= sizeof(ProcTimingStats)){
-        ProcTimingStats cur;
-        memcpy(&cur, sp.mapped, sizeof(ProcTimingStats));
+      if (sp && sp.mapped && sp.len >= sizeof(ProcState)) {
+        ProcState cur;
+        memcpy(&cur, sp.mapped, sizeof(ProcState));
         sp.master = false;
         if (cur.lastUpdateMs && now - cur.lastUpdateMs < 10000){
           if (procStatsPrev.count(pid)){
-            ProcTimingStats &prev = procStatsPrev[pid];
+            ProcState & prev = procStatsPrev[pid];
             uint64_t dWork = cur.totalWork - prev.totalWork;
             uint64_t dSrcSleep = cur.totalSourceSleep - prev.totalSourceSleep;
             uint64_t dSnkSleep = cur.totalSinkSleep - prev.totalSinkSleep;
@@ -1027,15 +1027,38 @@ namespace Mist{
         if (!newProcs.count(it->first)){
           if (Util::Procs::isActive(it->second)){
             INFO_MSG("Stopping process %d: %s", it->second, it->first.c_str());
+            Util::Procs::ignoreExitCode(it->second);
             Util::Procs::Stop(it->second);
+          } else {
+            int exitCode = 0;
+            Util::Procs::getExitCode(it->second, exitCode);
+          }
+          // Clean up SHM state page for this process
+          {
+            char shmName[NAME_BUFFER_SIZE];
+            snprintf(shmName, NAME_BUFFER_SIZE, SHM_PROC_STATE, it->second);
+            IPC::sharedPage sp;
+            sp.init(shmName, 0, false, false);
+            if (sp) { sp.master = true; }
           }
           runningProcs.erase(it);
           // If we stop a process this way, reset it's counter and delayed start time
           procBoots.erase(it->first);
           procNextBoot.erase(it->first);
+          procHardFailed.erase(it->first);
           if (!runningProcs.size()){break;}
           it = runningProcs.begin();
         }
+      }
+    }
+
+    // Clean up procHardFailed entries for configs no longer in the process list
+    // (prevents sticky suppression when a config is removed and re-added)
+    for (auto hfIt = procHardFailed.begin(); hfIt != procHardFailed.end();) {
+      if (!newProcs.count(*hfIt)) {
+        hfIt = procHardFailed.erase(hfIt);
+      } else {
+        ++hfIt;
       }
     }
 
@@ -1045,6 +1068,81 @@ namespace Mist{
       const std::string & config = (*newProcs.begin());
       JSON::Value args = JSON::fromString(config);
       if (!runningProcs.count(config) || !Util::Procs::isActive(runningProcs[config])){
+
+        // Skip if this process previously hard-failed (config change clears this)
+        if (procHardFailed.count(config)) {
+          newProcs.erase(newProcs.begin());
+          continue;
+        }
+
+        // If process was running but is now dead, check exit code
+        if (runningProcs.count(config)) {
+          pid_t deadPid = runningProcs[config];
+          int exitCode = 0;
+
+          // Not yet reaped — skip this tick, retry next cycle
+          if (!Util::Procs::getExitCode(deadPid, exitCode)) {
+            newProcs.erase(newProcs.begin());
+            continue;
+          }
+
+          // Read exit reason from SHM (best-effort: empty for crashes)
+          std::string shortReason;
+          std::string longReason;
+          {
+            char shmName[NAME_BUFFER_SIZE];
+            snprintf(shmName, NAME_BUFFER_SIZE, SHM_PROC_STATE, deadPid);
+            IPC::sharedPage sp;
+            sp.init(shmName, 0, false, false);
+            if (sp && sp.mapped && sp.len >= sizeof(ProcState)) {
+              ProcState *state = (ProcState *)sp.mapped;
+              if (state->shortReason[0]) { shortReason = state->shortReason; }
+              if (state->longReason[0]) { longReason = state->longReason; }
+            }
+            // Clean up the SHM page
+            if (sp) {
+              sp.master = true;
+              // sp destructor will unlink
+            }
+          }
+
+          // Determine status based on exit code AND restart config
+          std::string restartType = "fixed";
+          if (args.isMember("restart_type")) { restartType = args["restart_type"].asString(); }
+          std::string status;
+          if (exitCode == 2) {
+            status = "unrecoverable";
+          } else if (exitCode == 0) {
+            status = "clean";
+          } else if (restartType == "disabled" && procBoots[config]) {
+            status = "disabled";
+          } else {
+            status = "retrying";
+          }
+
+          // Fire PROCESS_EXIT trigger
+          std::string procType = args["process"].asString();
+          if (Triggers::shouldTrigger("PROCESS_EXIT", streamName)) {
+            std::string payload = std::string(streamName) + "\n" + procType + "\n" + config + "\n" +
+              JSON::Value((uint64_t)deadPid).asString() + "\n" + JSON::Value((int64_t)exitCode).asString() + "\n" +
+              JSON::Value((uint64_t)procBoots[config]).asString() + "\n" + status + "\n" + shortReason + "\n" + longReason;
+            Triggers::doTrigger("PROCESS_EXIT", payload, streamName);
+          }
+
+          // Hard error — stop retrying this process
+          if (status == "unrecoverable") {
+            WARN_MSG("Process `%s` (PID %d) exited with unrecoverable error (code %d: %s), disabling restart",
+                     procType.c_str(), deadPid, exitCode, longReason.c_str());
+            procHardFailed.insert(config);
+            runningProcs.erase(config);
+            newProcs.erase(newProcs.begin());
+            continue;
+          }
+
+          // Clean or retryable — clear the old PID entry and fall through to restart logic
+          runningProcs.erase(config);
+        }
+
         // Check restart behaviour - default to instant (re)starts
         std::string restartType = "fixed";
         uint64_t restartDelay = 0;

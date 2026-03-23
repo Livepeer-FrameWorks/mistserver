@@ -454,6 +454,17 @@ namespace Controller{
     trgs["INPUT_ABORT"]["response"] = "ignored";
     trgs["INPUT_ABORT"]["response_action"] = "None.";
 
+    trgs["PROCESS_EXIT"]["when"] =
+      "When a process exits on its own (clean finish, error, or crash). Does not fire for config-driven stops.";
+    trgs["PROCESS_EXIT"]["stream_specific"] = true;
+    trgs["PROCESS_EXIT"]["payload"] =
+      "stream name (string)\nprocess type (string)\nprocess config (JSON string)\npid (integer)\nexit code "
+      "(integer)\nboot count (integer)\nstatus (string: clean, retrying, disabled, unrecoverable; exit classification "
+      "only, not guaranteed restart action)\nmachine-readable exit reason (string)\nhuman-readable exit reason "
+      "(string)";
+    trgs["PROCESS_EXIT"]["response"] = "ignored";
+    trgs["PROCESS_EXIT"]["response_action"] = "None.";
+
     trgs["RTMP_PUSH_REWRITE"]["when"] =
         "On incoming RTMP pushes, allows rewriting the RTMP URL to/from custom formatting";
     trgs["RTMP_PUSH_REWRITE"]["stream_specific"] = false;

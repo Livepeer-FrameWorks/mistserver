@@ -85,6 +85,7 @@ JSON::Value pStat;
 JSON::Value &pData = pStat["proc_status_update"]["status"];
 std::mutex statsMutex;
 IPC::sharedPage procStatsPage;
+ProcExitState procExit;
 std::atomic<uint64_t> thumbTotalWork{0};
 std::atomic<uint64_t> thumbTotalSourceSleep{0};
 std::atomic<uint64_t> thumbFrameCount{0};
@@ -438,11 +439,11 @@ namespace Mist{
         }
         if (spriteIdx != INVALID_TRACK_ID && userSelect.count(spriteIdx) &&
             (userSelect[spriteIdx].getStatus() & COMM_STATUS_REQDISCONNECT)){
-          Util::logExitReason(ER_CLEAN_LIVE_BUFFER_REQ, "buffer requested shutdown");
+          procExit.log(ER_CLEAN_LIVE_BUFFER_REQ, 0, "buffer requested shutdown");
           return;
         }
         if (isSingular() && !bufferActive()){
-          Util::logExitReason(ER_SHM_LOST, "Buffer shut down");
+          procExit.log(ER_SHM_LOST, 0, "Buffer shut down");
           return;
         }
 
@@ -716,7 +717,7 @@ namespace Mist{
         Util::sendUDPApi(pStat);
         // Write timing stats to shm for InputBuffer rate control
         if (procStatsPage.mapped){
-          ProcTimingStats *s = (ProcTimingStats *)procStatsPage.mapped;
+          ProcState *s = (ProcState *)procStatsPage.mapped;
           s->totalWork = thumbTotalWork.load(std::memory_order_relaxed);
           s->totalSourceSleep = thumbTotalSourceSleep.load(std::memory_order_relaxed);
           s->totalSinkSleep = 0;
@@ -736,8 +737,14 @@ void sinkThread(){
   Mist::sinkClass = &in;
   co.getOption("output", true).append("-");
   MEDIUM_MSG("Running thumbnail sink thread...");
-  in.run();
-  INFO_MSG("Stop thumbnail sink thread...");
+  int rc = in.run();
+  if (rc == 0) {
+    procExit.log(ER_CLEAN_EOF, 0, "Thumbnail sink thread finished");
+  } else {
+    procExit.log(Util::mRExitReason ? Util::mRExitReason : ER_UNKNOWN, rc, "%s",
+                 Util::exitReason[0] ? Util::exitReason : "Thumbnail sink thread failed");
+  }
+  INFO_MSG("Stop thumbnail sink thread");
   conf.is_active = false;
 }
 
@@ -758,8 +765,14 @@ void sourceThread(){
   Socket::Connection S;
   Mist::ProcessSource out(S, conf, capa);
   MEDIUM_MSG("Running thumbnail source thread...");
-  out.run();
-  INFO_MSG("Stop thumbnail source thread...");
+  int rc = out.run();
+  if (rc == 0) {
+    procExit.log(ER_CLEAN_EOF, 0, "Thumbnail source thread finished");
+  } else {
+    procExit.log(Util::mRExitReason ? Util::mRExitReason : ER_UNKNOWN, rc, "%s",
+                 Util::exitReason[0] ? Util::exitReason : "Thumbnail source thread failed");
+  }
+  INFO_MSG("Stop thumbnail source thread");
   co.is_active = false;
   thumbCV.notify_all();
 }
@@ -776,6 +789,15 @@ int main(int argc, char *argv[]){
   DTSC::trackValidMask = TRACK_VALID_INT_PROCESS;
   Util::Config config(argv[0]);
   Util::Config::binaryType = Util::PROCESS;
+
+  // Initialize SHM early so exit reasons are available even for config errors
+  {
+    char shmName[NAME_BUFFER_SIZE];
+    snprintf(shmName, NAME_BUFFER_SIZE, SHM_PROC_STATE, getpid());
+    procStatsPage.init(shmName, sizeof(ProcState), true, false);
+    if (procStatsPage.mapped) { memset(procStatsPage.mapped, 0, sizeof(ProcState)); }
+  }
+
   JSON::Value capa;
   av_log_set_callback(logcallback);
 
@@ -798,7 +820,10 @@ int main(int argc, char *argv[]){
   capa["codecs"][0u][0u].append("AV1");
   capa["codecs"][0u][0u].append("JPEG");
 
-  if (!(config.parseArgs(argc, argv))){return 1;}
+  if (!(config.parseArgs(argc, argv))) {
+    procExit.log(ER_FORMAT_SPECIFIC, 2, "Failed to parse command-line arguments");
+    return procExit.flush(procStatsPage);
+  }
   if (config.getBool("json")){
     capa["name"] = "Thumbs";
     capa["hrn"] = "Thumbnail sprite sheet generator";
@@ -927,8 +952,8 @@ int main(int argc, char *argv[]){
   // Validate
   Mist::ProcThumbs proc;
   if (!proc.CheckConfig()){
-    FAIL_MSG("Configuration error!");
-    return 1;
+    procExit.log(ER_FORMAT_SPECIFIC, 2, "Invalid process configuration");
+    return procExit.flush(procStatsPage);
   }
 
   INFO_MSG("Thumbnail generator: %ux%u grid, %ux%u per thumb, quality=%u, interval=%ums",
@@ -952,5 +977,5 @@ int main(int argc, char *argv[]){
   sink.join();
   HIGH_MSG("Sink thread joined");
 
-  return 0;
+  return procExit.flush(procStatsPage);
 }

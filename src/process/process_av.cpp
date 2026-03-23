@@ -64,6 +64,7 @@ namespace Mist {
 
   // Process timing stats SHM for rate control (read by input_buffer.cpp)
   IPC::sharedPage procStatsPage;
+  ProcExitState procExit;
 
   // Virtual segment trigger state
   uint64_t lastTriggerTime = 0;
@@ -414,13 +415,6 @@ namespace Mist {
       pStat["proc_status_update"]["proc"] = "AV";
     }
 
-    // Initialize process timing stats SHM for rate control
-    {
-      char statsName[NAME_BUFFER_SIZE];
-      snprintf(statsName, NAME_BUFFER_SIZE, SHM_PROC_STATS, getpid());
-      procStatsPage.init(statsName, sizeof(ProcTimingStats), true, false);
-    }
-
     // Monitor and update stats
     uint64_t startTime = Util::bootSecs();
     processStartTime = startTime;
@@ -498,11 +492,16 @@ namespace Mist {
 
     if (source) {
       MEDIUM_MSG("Main: Starting source thread...");
-      source->run();
+      int rc = source->run();
+      if (rc == 0) {
+        procExit.log(ER_CLEAN_EOF, 0, "Source thread finished");
+      } else {
+        procExit.log(Util::mRExitReason ? Util::mRExitReason : ER_UNKNOWN, rc, "%s",
+                     Util::exitReason[0] ? Util::exitReason : "Source thread failed");
+      }
       MEDIUM_MSG("Main: Source thread finished");
     }
-
-    INFO_MSG("Main: Stop source thread: %s", Util::exitReason);
+    INFO_MSG("Main: Stop source thread");
     co.is_active = false;
     pipeline.setIsActive(false);
     isActive = false;
@@ -534,9 +533,16 @@ namespace Mist {
     }
 
     // Run sink loop
-    if (sink) { sink->run(); }
-
-    INFO_MSG("Main: Stop sink thread...");
+    if (sink) {
+      int rc = sink->run();
+      if (rc == 0) {
+        procExit.log(ER_CLEAN_EOF, 0, "Sink thread finished");
+      } else {
+        procExit.log(Util::mRExitReason ? Util::mRExitReason : ER_UNKNOWN, rc, "%s",
+                     Util::exitReason[0] ? Util::exitReason : "Sink thread failed");
+      }
+    }
+    INFO_MSG("Main: Stop sink thread");
     conf.is_active = false;
     pipeline.setIsActive(false);
     isActive = false;
@@ -791,7 +797,7 @@ namespace Mist {
 
       // Write process timing stats to SHM for rate control
       if (procStatsPage.mapped) {
-        ProcTimingStats *s = (ProcTimingStats *)procStatsPage.mapped;
+        ProcState *s = (ProcState *)procStatsPage.mapped;
         s->totalWork = pipeline.getDecodeTime() + pipeline.getEncodeTime() + pipeline.getTransformTime();
         uint64_t sinkSleep, sourceSleep;
         pipeline.getSleepTimes(sinkSleep, sourceSleep);
@@ -887,6 +893,15 @@ int main(int argc, char *argv[]) {
   DTSC::trackValidMask = TRACK_VALID_INT_PROCESS;
   Util::Config config(argv[0]);
   Util::Config::binaryType = Util::PROCESS;
+
+  // Initialize SHM early so exit reasons are available even for config errors
+  {
+    char shmName[NAME_BUFFER_SIZE];
+    snprintf(shmName, NAME_BUFFER_SIZE, SHM_PROC_STATE, getpid());
+    Mist::procStatsPage.init(shmName, sizeof(ProcState), true, false);
+    if (Mist::procStatsPage.mapped) { memset(Mist::procStatsPage.mapped, 0, sizeof(ProcState)); }
+  }
+
   JSON::Value capa;
 
   {
@@ -940,7 +955,10 @@ int main(int argc, char *argv[]) {
   capa["ainfo"]["sinkSleepTime"]["name"] = "Sink sleep time";
   capa["ainfo"]["sinkSleepTime"]["unit"] = "us";
 
-  if (!(config.parseArgs(argc, argv))) { return 1; }
+  if (!(config.parseArgs(argc, argv))) {
+    Mist::procExit.log(ER_FORMAT_SPECIFIC, 2, "Failed to parse command-line arguments");
+    return Mist::procExit.flush(Mist::procStatsPage);
+  }
   if (config.getBool("json")) {
     capa["name"] = "AV";
     capa["hrn"] = "Encoder: libav (ffmpeg library)";
@@ -1584,15 +1602,15 @@ int main(int argc, char *argv[]) {
 
   // Apply configuration to pipeline
   if (!pipeline.configure(pipelineConfig)) {
-    FAIL_MSG("Main: Failed to configure pipeline");
-    return 1;
+    Mist::procExit.log(ER_PROCESS_SPECIFIC, 2, "Failed to configure pipeline");
+    return Mist::procExit.flush(Mist::procStatsPage);
   }
 
   // Create and run ProcAV
   Mist::ProcAV procAV;
   if (!procAV.CheckConfig()) {
-    FAIL_MSG("Main: Error config syntax error!");
-    return 1;
+    Mist::procExit.log(ER_FORMAT_SPECIFIC, 2, "Invalid process configuration");
+    return Mist::procExit.flush(Mist::procStatsPage);
   }
 
   Mist::co.is_active = true;
@@ -1602,4 +1620,6 @@ int main(int argc, char *argv[]) {
 
   // Wait for pipeline to finish
   pipeline.waitForInactive();
+
+  return Mist::procExit.flush(Mist::procStatsPage);
 }

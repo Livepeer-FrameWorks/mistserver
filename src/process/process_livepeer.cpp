@@ -1,18 +1,23 @@
 #include "process_livepeer.h"
-#include "process.hpp"
-#include <mist/timing.h>
-#include <mist/procs.h>
-#include <mist/util.h>
-#include <mist/downloader.h>
-#include <mist/triggers.h>
-#include <mist/encode.h>
+
 #include "../input/input.h"
-#include <ostream>
-#include <thread>
+#include "process.hpp"
+
+#include <mist/downloader.h>
+#include <mist/encode.h>
+#include <mist/proc_stats.h>
+#include <mist/procs.h>
+#include <mist/shared_memory.h>
+#include <mist/timing.h>
+#include <mist/triggers.h>
+#include <mist/util.h>
+
 #include <mutex>
-#include <sys/stat.h>  //for stat
+#include <ostream>
+#include <sys/stat.h> //for stat
 #include <sys/types.h> //for stat
-#include <unistd.h>    //for stat
+#include <thread>
+#include <unistd.h> //for stat
 
 std::mutex segMutex;
 std::mutex broadcasterMutex;
@@ -34,6 +39,9 @@ std::string api_url;
 
 Util::Config co;
 Util::Config conf;
+
+IPC::sharedPage procStatePage;
+ProcExitState procExit;
 
 size_t insertTurn = 0;
 bool isStuck = false;
@@ -283,7 +291,7 @@ namespace Mist{
         if (!thisPacket){
           Util::sleep(25);
           if (userSelect.size() && userSelect.begin()->second.getStatus() == COMM_STATUS_REQDISCONNECT){
-            Util::logExitReason(ER_CLEAN_LIVE_BUFFER_REQ, "buffer requested shutdown");
+            procExit.log(ER_CLEAN_LIVE_BUFFER_REQ, 0, "buffer requested shutdown");
             return;
           }
         }
@@ -316,7 +324,13 @@ void sinkThread(){
   co.activate();
   co.is_active = true;
   INFO_MSG("Running sink thread...");
-  in.run();
+  int rc = in.run();
+  if (rc == 0) {
+    procExit.log(ER_CLEAN_EOF, 0, "Sink thread finished");
+  } else {
+    procExit.log(Util::mRExitReason ? Util::mRExitReason : ER_UNKNOWN, rc, "%s",
+                 Util::exitReason[0] ? Util::exitReason : "Sink thread failed");
+  }
   INFO_MSG("Sink thread shutting down");
   conf.is_active = false;
   co.is_active = false;
@@ -351,10 +365,16 @@ void sourceThread(){
   Mist::ProcessSource out(c, conf, capa);
   if (conf.is_active){
     INFO_MSG("Running source thread...");
-    out.run();
-    INFO_MSG("Stopping source thread...");
+    int rc = out.run();
+    if (rc == 0) {
+      procExit.log(ER_CLEAN_EOF, 0, "Source thread finished");
+    } else {
+      procExit.log(Util::mRExitReason ? Util::mRExitReason : ER_UNKNOWN, rc, "%s",
+                   Util::exitReason[0] ? Util::exitReason : "Source thread failed");
+    }
+    INFO_MSG("Stopping source thread");
   }else{
-    INFO_MSG("Aborting source thread...");
+    procExit.log(ER_READ_START_FAILURE, 2, "Source thread failed to initialize");
   }
   conf.is_active = false;
   co.is_active = false;
@@ -593,7 +613,7 @@ void uploadThread(size_t myNum){
       attempts++;
       Util::sleep(100);//Rate-limit retries
       if (attempts > 4){
-        Util::logExitReason(ER_FORMAT_SPECIFIC, "too many upload failures");
+        procExit.log(ER_FORMAT_SPECIFIC, 2, "too many upload failures");
         conf.is_active = false;
         return;
       }
@@ -605,7 +625,7 @@ void uploadThread(size_t myNum){
         Mist::pickRandomBroadcaster();
         if (!Mist::currBroadAddr.size()){
           FAIL_MSG("Cannot switch to new broadcaster: none available");
-          Util::logExitReason(ER_FORMAT_SPECIFIC, "no Livepeer broadcasters available");
+          procExit.log(ER_FORMAT_SPECIFIC, 2, "no Livepeer broadcasters available");
           conf.is_active = false;
           return;
         }
@@ -632,6 +652,15 @@ int main(int argc, char *argv[]){
   DTSC::trackValidMask = TRACK_VALID_INT_PROCESS;
   Util::Config config(argv[0]);
   Util::Config::binaryType = Util::PROCESS;
+
+  // Initialize SHM early so exit reasons are available even for config errors
+  {
+    char shmName[NAME_BUFFER_SIZE];
+    snprintf(shmName, NAME_BUFFER_SIZE, SHM_PROC_STATE, getpid());
+    procStatePage.init(shmName, sizeof(ProcState), true, false);
+    if (procStatePage.mapped) { memset(procStatePage.mapped, 0, sizeof(ProcState)); }
+  }
+
   JSON::Value capa;
 
   {
@@ -657,7 +686,10 @@ int main(int argc, char *argv[]){
 
   capa["codecs"][0u][0u].append("H264");
 
-  if (!(config.parseArgs(argc, argv))){return 1;}
+  if (!(config.parseArgs(argc, argv))) {
+    procExit.log(ER_FORMAT_SPECIFIC, 2, "Failed to parse command-line arguments");
+    return procExit.flush(procStatePage);
+  }
   if (config.getBool("json")){
 
     capa["name"] = "Livepeer";
@@ -854,8 +886,8 @@ int main(int argc, char *argv[]){
   srand(getpid());
   // Check generic configuration variables
   if (!Mist::opt.isMember("source") || !Mist::opt["source"] || !Mist::opt["source"].isString()){
-    FAIL_MSG("Missing or blank source in config!");
-    return 1;
+    procExit.log(ER_FORMAT_SPECIFIC, 2, "Missing or blank source in config");
+    return procExit.flush(procStatePage);
   }
 
   if (!Mist::opt.isMember("sink") || !Mist::opt["sink"] || !Mist::opt["sink"].isString()){
@@ -880,8 +912,8 @@ int main(int argc, char *argv[]){
   const std::string & srcStrm = Mist::opt["source"].asStringRef();
   if (config.getBool("kickoff")){
     if (!Util::startInput(srcStrm, "")){
-      FAIL_MSG("Could not connector and/or start source stream!");
-      return 1;
+      procExit.log(ER_READ_START_FAILURE, 1, "Could not start source stream");
+      return procExit.flush(procStatePage);
     }
     uint8_t streamStat = Util::getStreamStatus(srcStrm);
     size_t sleeps = 0;
@@ -893,8 +925,8 @@ int main(int argc, char *argv[]){
       streamStat = Util::getStreamStatus(srcStrm);
     }
     if (streamStat != STRMSTAT_READY){
-      FAIL_MSG("Stream not available!");
-      return 1;
+      procExit.log(ER_READ_START_FAILURE, 1, "Source stream not available after kickoff");
+      return procExit.flush(procStatePage);
     }
   }
 
@@ -923,8 +955,8 @@ int main(int argc, char *argv[]){
     }
   }
   if (sourceIdx == INVALID_TRACK_ID || !M.getWidth(sourceIdx) || !M.getHeight(sourceIdx)){
-    FAIL_MSG("No valid source track!");
-    return 1;
+    procExit.log(ER_FORMAT_SPECIFIC, 2, "No valid source video track found");
+    return procExit.flush(procStatePage);
   }
 
   //build transcode request
@@ -1016,19 +1048,19 @@ int main(int argc, char *argv[]){
   } else {
     // Get broadcaster list, pick first valid address
     if (!dl.get(HTTP::URL(api_url + "/broadcaster"))) {
-      FAIL_MSG("Livepeer API responded negatively to request for broadcaster list");
-      return 1;
+      procExit.log(ER_FORMAT_SPECIFIC, 2, "Livepeer API rejected broadcaster list request");
+      return procExit.flush(procStatePage);
     }
     Mist::lpBroad = JSON::fromString(dl.data());
   }
   if (!Mist::lpBroad || !Mist::lpBroad.isArray()){
-    FAIL_MSG("No Livepeer broadcasters available");
-    return 1;
+    procExit.log(ER_FORMAT_SPECIFIC, 2, "No Livepeer broadcasters available (invalid response)");
+    return procExit.flush(procStatePage);
   }
   Mist::pickRandomBroadcaster();
   if (!Mist::currBroadAddr.size()){
-  FAIL_MSG("No Livepeer broadcasters available");
-    return 1;
+    procExit.log(ER_FORMAT_SPECIFIC, 2, "No Livepeer broadcasters available (empty list)");
+    return procExit.flush(procStatePage);
   }
   INFO_MSG("Using broadcaster: %s", Mist::currBroadAddr.c_str());
   if (Mist::opt.isMember("access_token") && Mist::opt["access_token"] && Mist::opt["access_token"].isString()) {
@@ -1036,17 +1068,17 @@ int main(int argc, char *argv[]){
     dl.setHeader("Content-Type", "application/json");
     dl.setHeader("Authorization", "Bearer " + Mist::opt["access_token"].asStringRef());
     if (!dl.post(HTTP::URL(api_url + "/stream"), pl.toString())) {
-      FAIL_MSG("Livepeer API responded negatively to encode request");
-      return 1;
+      procExit.log(ER_FORMAT_SPECIFIC, 2, "Livepeer API rejected encode request");
+      return procExit.flush(procStatePage);
     }
     Mist::lpEnc = JSON::fromString(dl.data());
     if (!Mist::lpEnc) {
-      FAIL_MSG("Livepeer API did not respond with JSON");
-      return 1;
+      procExit.log(ER_FORMAT_SPECIFIC, 2, "Livepeer API did not respond with JSON");
+      return procExit.flush(procStatePage);
     }
     if (!Mist::lpEnc.isMember("id")) {
-      FAIL_MSG("Livepeer API did not respond with a valid ID: %s", dl.data().data());
-      return 1;
+      procExit.log(ER_FORMAT_SPECIFIC, 2, "Livepeer API response missing stream ID");
+      return procExit.flush(procStatePage);
     }
     Mist::lpID = Mist::lpEnc["id"].asStringRef();
   } else {
@@ -1117,6 +1149,6 @@ int main(int argc, char *argv[]){
   uploader1.join();
 
   INFO_MSG("Shutdown reason: %s", Util::exitReason);
-  return 0;
-}
 
+  return procExit.flush(procStatePage);
+}
