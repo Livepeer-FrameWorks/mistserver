@@ -47,6 +47,7 @@ bool autoUpdateFps = false;
 Util::Config co;
 Util::Config conf;
 const AVCodec *codec_out = 0, *codec_in = 0;      ///< Decoding/encoding codecs for libav
+bool skipPacket = false;
 AVPacket* packet_out;                             ///< Buffer for encoded audio/video packets
 AVFrame *frameConverted = 0;                      ///< Buffer for encoded audio/video frames
 AVFrame *frameInHW = 0;                           ///< Buffer for frames when encoding hardware accelerated
@@ -118,11 +119,6 @@ namespace Mist{
         }
       }
     };
-
-    void setNowMS(uint64_t t){
-      if (!userSelect.size()){return;}
-      meta.setNowms(userSelect.begin()->first, t);
-    }
 
     ~ProcessSink(){ }
 
@@ -259,12 +255,17 @@ namespace Mist{
           if (thisTime >= statSinkMs){statSinkMs = thisTime;}
           if (meta && meta.getBootMsOffset() != bootMsOffset){meta.setBootMsOffset(bootMsOffset);}
 
-          // Output current video/audio buffers
-          if (isVideo){
-            bufferVideo();
-          }else{
-            bufferAudio();
+          if (!skipPacket) {
+            // Output current video/audio buffers
+            if (isVideo) {
+              bufferVideo();
+            } else {
+              bufferAudio();
+            }
+          } else {
+            if (trkIdx != INVALID_TRACK_ID) { meta.setNowms(trkIdx, thisTime); }
           }
+
           // Notify input that we require another frame
           frameReady = false;
         }
@@ -1807,10 +1808,21 @@ namespace Mist{
       if (codecOut == "JPEG"){
         ++skippedFrames;
         if(!thisPacket.getFlag("keyframe") || skippedFrames < Mist::opt["gopsize"].asInt()){
-          sinkClass->setNowMS(thisTime);
+          {
+            uint64_t sleepTime = Util::getMicros();
+            std::unique_lock<std::mutex> lk(avMutex);
+            avCV.wait(lk, [this]() { return !frameReady || !config->is_active; });
+            totalSourceSleep += Util::getMicros(sleepTime);
+            frameTimes.push_back(thisTime);
+            skipPacket = true;
+            ++outputFrameCount;
+            frameReady = true;
+          }
+          avCV.notify_all();
           return;
         }
         skippedFrames = 0;
+        skipPacket = false;
       }
 
       needsLookAhead = 0;
