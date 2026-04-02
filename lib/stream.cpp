@@ -6,6 +6,7 @@
 #include "config.h"
 #include "defines.h"
 #include "dtsc.h"
+#include "h264.h"
 #include "h265.h"
 #include "http_parser.h"
 #include "json.h"
@@ -1383,6 +1384,22 @@ std::set<size_t> Util::pickTracks(const DTSC::Meta &M, const std::set<size_t> tr
       }
       return result;
     }
+
+    // Monochrome (H264 only, for now) tracks
+    if (trackLow == "mono") {
+      for (std::set<size_t>::iterator it = trackList.begin(); it != trackList.end(); it++) {
+        if (!trackType.size() || M.getType(*it) == trackType || M.getCodec(*it) == trackType) {
+          if (M.getCodec(*it) == "H264") {
+            MP4::AVCC avccbox;
+            avccbox.setPayload(M.getInit(*it));
+            h264::spsUnit sps(avccbox.getSPS(), avccbox.getSPSLen());
+            if (!sps.chromaFormatIdc) { result.insert(*it); }
+          }
+        }
+      }
+      return result;
+    }
+
     //Highest resolution
     if (trackLow == "highres" || trackLow == "bestres" || trackLow == "maxres"){
       //Select highest resolution track of this type
