@@ -1255,6 +1255,11 @@ namespace Mist{
         return false;
       }
 
+      if (!context_out) {
+        INFO_MSG("No output context yet!");
+        return false;
+      }
+
       // RAW input, we have to allocate and config the RAW frame manually
       if (!frame_RAW){
         if (!(frame_RAW = av_frame_alloc())){
