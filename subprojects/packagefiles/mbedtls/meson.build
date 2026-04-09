@@ -1,4 +1,4 @@
-project('mbedtls', 'c', default_options: ['optimization=2', 'warning_level=0', 'c_std=c99'])
+project('mbedtls', 'c', version: '3.6.6', default_options: ['optimization=2', 'warning_level=0', 'c_std=c99'])
 add_project_arguments(['-Wno-stringop-overflow'], language: 'c')
 
 incl = include_directories('include')
@@ -171,6 +171,7 @@ libmbedcrypto = library('mbedcrypto',
   'library/psa_crypto_mac.c',
   'library/psa_crypto_pake.c',
   'library/psa_crypto_rsa.c',
+  'library/psa_crypto_random.c',
   'library/psa_crypto_se.c',
   'library/psa_crypto_slot_management.c',
   'library/psa_crypto_storage.c',
@@ -189,6 +190,7 @@ libmbedcrypto = library('mbedcrypto',
   'library/version_features.c',
   include_directories: incl,
   install: true,
+  soversion: 16,
 )
 
 mbedcrypto_dep = declare_dependency(
@@ -209,6 +211,7 @@ libmbedx509 = library('mbedx509',
   include_directories: incl,
   dependencies: mbedcrypto_dep,
   install: true,
+  soversion: 7,
 )
 
 mbedx509_dep = declare_dependency(
@@ -238,6 +241,7 @@ libmbedtls = library('mbedtls',
   include_directories: incl,
   dependencies: [mbedx509_dep, mbedcrypto_dep],
   install: true,
+  soversion: 21,
 )
 
 mbedtls_dep = declare_dependency(
@@ -246,4 +250,4 @@ mbedtls_dep = declare_dependency(
 )
 
 pkg = import('pkgconfig')
-pkg.generate(libmbedtls,libraries:[libmbedtls, libmbedx509, libmbedcrypto])
+pkg.generate(libmbedtls, version: '3.6.6', libraries:[libmbedtls, libmbedx509, libmbedcrypto])
