@@ -1054,6 +1054,13 @@ namespace Mist{
 
     streamMainLoop();
     closeStreamSource();
+
+    // Ensure pushed tracks are unclaimed on (clean) shutdown
+    {
+      std::set<size_t> validTracks = M.getMySourceTracks(getpid());
+      for (const size_t & T : validTracks) { meta.abandonTrack(T); }
+    }
+
     userSelect.clear();
     finish();
     return;

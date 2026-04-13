@@ -508,23 +508,43 @@ namespace Mist{
     ///\todo Add tracing of earliest watched keys, to prevent data going out of memory for
     /// still-watching viewers
     if (!(users.getStatus(id) & COMM_STATUS_DISCONNECT) && (users.getStatus(id) & COMM_STATUS_SOURCE)){
-      sourcePids[id] = users.getTrack(id);
+      bool isProcess = generatePids.count(users.getPid(id));
+      if (isProcess) {
+        processUsers[id] = users.getTrack(id);
+      } else {
+        sourceUsers[id] = users.getTrack(id);
+      }
       // GeneratePids holds the pids of the process that generate data, so ignore those for determining if a push is ingested.
-      if (M.trackValid(users.getTrack(id)) && !generatePids.count(users.getPid(id))){hasPush = true;}
+      if (!isProcess && M.trackValid(users.getTrack(id))) { hasPush = true; }
     }
 
     if (!(users.getStatus(id) & COMM_STATUS_DONOTTRACK)){++connectedUsers;}
   }
   void InputBuffer::userOnDisconnect(size_t id){
-    if (sourcePids.count(id)){
-      if (!resumeMode){
-        INFO_MSG("Disconnected track %zu", sourcePids[id]);
-        meta.reloadReplacedPagesIfNeeded();
-        removeTrack(sourcePids[id]);
-      }else{
-        INFO_MSG("Track %zu lost its source, keeping it around for resume", sourcePids[id]);
+    if (processUsers.count(id)) {
+      if (meta.isClaimed(processUsers[id])) {
+        INFO_MSG("Track %zu lost its process, but is still claimed! Reclaiming for resume...", processUsers[id]);
+        meta.breakClaim(processUsers[id]);
+      } else {
+        INFO_MSG("Track %zu lost its process and is now unclaimed, keeping it around for resume", processUsers[id]);
       }
-      sourcePids.erase(id);
+      processUsers.erase(id);
+      return;
+    }
+    if (sourceUsers.count(id)) {
+      if (!resumeMode){
+        INFO_MSG("Disconnected track %zu", sourceUsers[id]);
+        meta.reloadReplacedPagesIfNeeded();
+        removeTrack(sourceUsers[id]);
+      }else{
+        if (meta.isClaimed(sourceUsers[id])) {
+          INFO_MSG("Track %zu lost its source, but is still claimed! Reclaiming for resume...", sourceUsers[id]);
+          meta.breakClaim(sourceUsers[id]);
+        } else {
+          INFO_MSG("Track %zu lost its source and is now unclaimed, keeping it around for resume", sourceUsers[id]);
+        }
+      }
+      sourceUsers.erase(id);
     }
   }
   void InputBuffer::userLeadOut(){

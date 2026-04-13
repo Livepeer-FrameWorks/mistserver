@@ -108,13 +108,11 @@ namespace Mist{
     virtual void initialSeek(bool dryRun = false){
       if (!meta){return;}
       if (!dryRun){
-        if (opt.isMember("source_mask") && !opt["source_mask"].isNull() && opt["source_mask"].asString() != ""){
-          uint64_t sourceMask = opt["source_mask"].asInt();
-          if (userSelect.size()){
-            for (std::map<size_t, Comms::Users>::iterator it = userSelect.begin(); it != userSelect.end(); it++){
-              INFO_MSG("Masking source track %zu to %" PRIu64, it->first, sourceMask);
-              meta.validateTrack(it->first, sourceMask);
-            }
+        if (opt.isMember("source_mask")) {
+          for (std::map<size_t, Comms::Users>::iterator ti = userSelect.begin(); ti != userSelect.end(); ++ti) {
+            if (ti->first == INVALID_TRACK_ID) { continue; }
+            INFO_MSG("Masking source track %zu with %zu", ti->first, (size_t)opt["source_mask"].asInt());
+            meta.validateTrack(ti->first, meta.trackValid(ti->first) & opt["source_mask"].asInt());
           }
         }
         if (!meta.getLive() || opt["leastlive"].asBool()){

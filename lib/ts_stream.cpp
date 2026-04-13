@@ -1085,8 +1085,7 @@ namespace TS{
 
       // We now know we have to add a new track, OR the current track still needs it metadata set
       bool addNewTrack = false;
-      std::string type, codec, init;
-      uint64_t width = 0, height = 0, fpks = 0, size = 0, rate = 0, channels = 0;
+      DTSC::TrackMetadata trkDta;
 
       switch (it->second){
       case H264:{
@@ -1110,14 +1109,14 @@ namespace TS{
 
         // Then set all data for track
         addNewTrack = true;
-        type = "video";
-        codec = "H264";
+        trkDta.type = "video";
+        trkDta.codec = "H264";
         if (sps) {
-          width = sps.chars.width;
-          height = sps.chars.height;
-          fpks = sps.chars.fps * 1000;
+          trkDta.width = sps.chars.width;
+          trkDta.height = sps.chars.height;
+          trkDta.fpks = sps.chars.fps * 1000;
         }
-        init.assign(avccBox.payload(), avccBox.payloadSize());
+        trkDta.init.assign(avccBox.payload(), avccBox.payloadSize());
       }break;
       case H265:{
         if (!hevcInfo.count(it->first) || !hevcInfo[it->first].haveRequired()){
@@ -1125,99 +1124,99 @@ namespace TS{
           continue;
         }
         addNewTrack = true;
-        type = "video";
-        codec = "HEVC";
-        init = hevcInfo[it->first].generateHVCC();
+        trkDta.type = "video";
+        trkDta.codec = "HEVC";
+        trkDta.init = hevcInfo[it->first].generateHVCC();
         h265::metaInfo metaInfo = hevcInfo[it->first].getMeta();
-        width = metaInfo.width;
-        height = metaInfo.height;
-        fpks = metaInfo.fps * 1000;
+        trkDta.width = metaInfo.width;
+        trkDta.height = metaInfo.height;
+        trkDta.fpks = metaInfo.fps * 1000;
       }break;
       case MPEG2:{
         addNewTrack = true;
-        type = "video";
-        codec = "MPEG2";
-        init = std::string("\000\000\001", 3) + mpeg2SeqHdr[it->first] +
-               std::string("\000\000\001", 3) + mpeg2SeqExt[it->first];
-        Mpeg::MPEG2Info info = Mpeg::parseMPEG2Header(init);
-        width = info.width;
-        height = info.height;
-        fpks = info.fps * 1000;
+        trkDta.type = "video";
+        trkDta.codec = "MPEG2";
+        trkDta.init =
+          std::string("\000\000\001", 3) + mpeg2SeqHdr[it->first] + std::string("\000\000\001", 3) + mpeg2SeqExt[it->first];
+        Mpeg::MPEG2Info info = Mpeg::parseMPEG2Header(trkDta.init);
+        trkDta.width = info.width;
+        trkDta.height = info.height;
+        trkDta.fpks = info.fps * 1000;
       }break;
       case ID3:{
         addNewTrack = true;
-        type = "meta";
-        codec = "ID3";
-        init = metaInit[it->first];
+        trkDta.type = "meta";
+        trkDta.codec = "ID3";
+        trkDta.init = metaInit[it->first];
       }break;
       case META:{
         addNewTrack = true;
-        type = "meta";
-        codec = "RAW";
-        init = metaInit[it->first];
+        trkDta.type = "meta";
+        trkDta.codec = "RAW";
+        trkDta.init = metaInit[it->first];
       }break;
       case AC3:{
         addNewTrack = true;
-        type = "audio";
-        codec = "AC3";
-        size = 16;
+        trkDta.type = "audio";
+        trkDta.codec = "AC3";
+        trkDta.size = 16;
       }break;
       case JSON:{
         addNewTrack = true;
-        type = "meta";
-        codec = "JSON";
+        trkDta.type = "meta";
+        trkDta.codec = "JSON";
       }break;
       case AV1: {
         addNewTrack = true;
-        type = "video";
-        codec = "AV1";
-        init = TS::ProgramDescriptors(metaInit[it->first].data(), metaInit[it->first].size()).getTag(0x80);
-        if (init.size() >= 8) {
-          uint16_t div = Bit::btohs(init.data() + 6);
+        trkDta.type = "video";
+        trkDta.codec = "AV1";
+        trkDta.init = TS::ProgramDescriptors(metaInit[it->first].data(), metaInit[it->first].size()).getTag(0x80);
+        if (trkDta.init.size() >= 8) {
+          uint16_t div = Bit::btohs(trkDta.init.data() + 6);
           if (!div) { div = 1; }
-          fpks = Bit::btohs(init.data() + 4) * 1000 / div;
-          init.erase(4);
+          trkDta.fpks = Bit::btohs(trkDta.init.data() + 4) * 1000 / div;
+          trkDta.init.erase(4);
         }
       } break;
       case SCTE35: {
         addNewTrack = true;
-        type = "meta";
-        codec = "SCTE35";
+        trkDta.type = "meta";
+        trkDta.codec = "SCTE35";
       } break;
       case PCM: {
         addNewTrack = true;
-        type = "audio";
-        codec = "PCM";
+        trkDta.type = "audio";
+        trkDta.codec = "PCM";
         std::string reg = TS::ProgramDescriptors(metaInit[it->first].data(), metaInit[it->first].size()).getRegistration();
-        channels = reg[3];
-        size = reg[4];
-        rate = Bit::btoh24(reg.data() + 5);
+        trkDta.channels = reg[3];
+        trkDta.size = reg[4];
+        trkDta.rate = Bit::btoh24(reg.data() + 5);
       } break;
       case OPUS:{
         addNewTrack = true;
-        type = "audio";
-        codec = "opus";
-        size = 16;
-        init = std::string("OpusHead\001\002\170\000\200\273\000\000\000\000\001", 19);
-        channels = 2;
+        trkDta.type = "audio";
+        trkDta.codec = "opus";
+        trkDta.size = 16;
+        trkDta.init = std::string("OpusHead\001\002\170\000\200\273\000\000\000\000\001", 19);
+        trkDta.channels = 2;
         std::string extData = TS::ProgramDescriptors(metaInit[it->first].data(), metaInit[it->first].size()).getExtension();
         if (extData.size() > 1){
-          channels = extData[1];
+          trkDta.channels = extData[1];
           uint8_t channel_map = extData[2];
-          if (channels > 8){
-            FAIL_MSG("Channel count %u not implemented", (int)channels);
+          if (trkDta.channels > 8) {
+            FAIL_MSG("Channel count %u not implemented", (int)trkDta.channels);
             if (channel_map == 1){channel_map = 255;}
           }
           if (channel_map > 1){
-            FAIL_MSG("Channel mapping table %u not implemented", (int)init[18]);
+            FAIL_MSG("Channel mapping table %u not implemented", (int)trkDta.init[18]);
             channel_map = 255;
           }
-          if (channels > 2 && channels <= 8 && channel_map == 0){
+          if (trkDta.channels > 2 && trkDta.channels <= 8 && channel_map == 0) {
             WARN_MSG("Overriding channel mapping table from 0 to 1");
             channel_map = 1;
           }
-          init[9] = channels;
-          init[18] = channel_map;
+          trkDta.init[9] = trkDta.channels;
+          trkDta.init[18] = channel_map;
           if (channel_map == 1){
             static const uint8_t opus_coupled_stream_cnt[9] = {1,0,1,1,2,2,2,3,3};
             static const uint8_t opus_stream_cnt[9] = {1,1,1,2,2,3,4,4,5};
@@ -1231,54 +1230,45 @@ namespace TS{
                 {0,4,1,2,3,5,6},
                 {0,6,1,2,3,4,5,7},
             };
-            init += (char)opus_stream_cnt[channels];
-            init += (char)opus_coupled_stream_cnt[channels];
-            init += std::string("\000\000\000\000\000\000\000\000", channels);
-            memcpy((char*)init.data()+21, opus_channel_map[channels - 1], channels);
+            trkDta.init += (char)opus_stream_cnt[trkDta.channels];
+            trkDta.init += (char)opus_coupled_stream_cnt[trkDta.channels];
+            trkDta.init += std::string("\000\000\000\000\000\000\000\000", trkDta.channels);
+            memcpy((char *)trkDta.init.data() + 21, opus_channel_map[trkDta.channels - 1], trkDta.channels);
           }
         }
-        rate = 48000;
+        trkDta.rate = 48000;
       }break;
       case MP2:{
         addNewTrack = true;
         Mpeg::MP2Info info = Mpeg::parseMP2Header(mp2Hdr[it->first]);
-        type = "audio";
-        codec = (info.layer == 3 ? "MP3" : "MP2");
-        rate = info.sampleRate;
-        channels = info.channels;
+        trkDta.type = "audio";
+        trkDta.codec = (info.layer == 3 ? "MP3" : "MP2");
+        trkDta.rate = info.sampleRate;
+        trkDta.channels = info.channels;
       }break;
       case AAC:{
         addNewTrack = true;
-        init.resize(2);
-        init[0] = ((adtsInfo[it->first].getAACProfile() & 0x1F) << 3) |
-                  ((adtsInfo[it->first].getFrequencyIndex() & 0x0E) >> 1);
-        init[1] = ((adtsInfo[it->first].getFrequencyIndex() & 0x01) << 7) |
-                  ((adtsInfo[it->first].getChannelConfig() & 0x0F) << 3);
+        trkDta.init.resize(2);
+        trkDta.init[0] =
+          ((adtsInfo[it->first].getAACProfile() & 0x1F) << 3) | ((adtsInfo[it->first].getFrequencyIndex() & 0x0E) >> 1);
+        trkDta.init[1] = ((adtsInfo[it->first].getFrequencyIndex() & 0x01) << 7) |
+          ((adtsInfo[it->first].getChannelConfig() & 0x0F) << 3);
         // Wait with adding the track until we have init data
-        if (init[0] == 0 && init[1] == 0){addNewTrack = false;}
-        type = "audio";
-        codec = "AAC";
-        size = 16;
-        rate = adtsInfo[it->first].getFrequency();
-        channels = adtsInfo[it->first].getChannelCount();
+        if (trkDta.init[0] == 0 && trkDta.init[1] == 0) { addNewTrack = false; }
+        trkDta.type = "audio";
+        trkDta.codec = "AAC";
+        trkDta.size = 16;
+        trkDta.rate = adtsInfo[it->first].getFrequency();
+        trkDta.channels = adtsInfo[it->first].getChannelCount();
       }break;
       }
 
       // Add track to meta here, if newTrack is set. Otherwise only re-initialize values
       if (idx == INVALID_TRACK_ID){
         if (!addNewTrack){return;}
-        idx = meta.addDelayedTrack();
+        trkDta.id = mId;
+        idx = meta.addOrResumeDelayedTrack(trkDta);
       }
-      meta.setType(idx, type);
-      meta.setCodec(idx, codec);
-      meta.setID(idx, mId);
-      if (init.size()){meta.setInit(idx, init);}
-      meta.setWidth(idx, width);
-      meta.setHeight(idx, height);
-      meta.setFpks(idx, fpks);
-      meta.setSize(idx, size);
-      meta.setRate(idx, rate);
-      meta.setChannels(idx, channels);
 
       size_t pmtCount = associationTable.getProgramCount();
       for (size_t i = 0; i < pmtCount; i++){
@@ -1291,7 +1281,7 @@ namespace TS{
           entry.advance();
         }
       }
-      MEDIUM_MSG("Initialized PID %zu (%s %s) as track %zu", it->first, codec.c_str(), type.c_str(), idx);
+      MEDIUM_MSG("Initialized PID %zu (%s %s) as track %zu", it->first, trkDta.codec.c_str(), trkDta.type.c_str(), idx);
       if (!delayTracks) { meta.validateTrack(idx, DTSC::trackValidDefault); }
       if (tid != INVALID_TRACK_ID){return;}
     }

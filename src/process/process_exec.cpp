@@ -125,11 +125,11 @@ namespace Mist{
       OutEBML::dropTrack(trackId, reason, probablyBad);
     }
     void sendHeader(){
-      if (opt["source_mask"].asBool()){
+      if (opt.isMember("source_mask")) {
         for (std::map<size_t, Comms::Users>::iterator ti = userSelect.begin(); ti != userSelect.end(); ++ti){
           if (ti->first == INVALID_TRACK_ID){continue;}
-          INFO_MSG("Masking source track %zu", ti->first);
-          meta.validateTrack(ti->first, meta.trackValid(ti->first) & ~(TRACK_VALID_EXT_HUMAN | TRACK_VALID_EXT_PUSH));
+          INFO_MSG("Masking source track %zu with %zu", ti->first, (size_t)opt["source_mask"].asInt());
+          meta.validateTrack(ti->first, meta.trackValid(ti->first) & opt["source_mask"].asInt());
         }
       }
       realTime = 0;
@@ -156,7 +156,6 @@ namespace Mist{
       maxSkipAhead = 0;
       if (!sendFirst){
         sendPacketTime = thisPacket.getTime();
-        bootMsOffset = M.getBootMsOffset();
         sendFirst = true;
         /*
         uint64_t maxJitter = 1;
@@ -170,6 +169,7 @@ namespace Mist{
         DTSC::veryUglyJitterOverride = maxJitter;
         */
       }
+      bootMsOffset = M.getBootMsOffset();
       OutEBML::sendNext();
     }
   };

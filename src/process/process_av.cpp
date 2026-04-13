@@ -60,6 +60,8 @@ std::mutex avMutex;                       ///< Lock for reading/writing frameTim
 std::condition_variable avCV; ///< Condition variable for reading/writing frameTimes/frameReady
 int av_logLevel = AV_LOG_WARNING;
 char * scaler = (char*)"None";
+uint64_t resumeFrom = 0;
+size_t sourceTrackIdx = INVALID_TRACK_ID;
 
 //Stat related stuff
 JSON::Value pStat;
@@ -119,8 +121,6 @@ namespace Mist{
         }
       }
     };
-
-    ~ProcessSink(){ }
 
     void parseH264(bool isKey){
       // Get buffer pointers
@@ -201,6 +201,7 @@ namespace Mist{
         // Now that we have SPS and PPS info, init the video track
         setVideoInit();
         if (trkIdx == INVALID_TRACK_ID){return;}
+        if (thisTime <= resumeFrom) { return; }
         thisIdx = trkIdx;
         bufferLivePacket(thisPacket);
       }else{
@@ -210,6 +211,7 @@ namespace Mist{
           // Init video track
           setVideoInit();
           if (trkIdx == INVALID_TRACK_ID){return;}
+          if (thisTime <= resumeFrom) { return; }
           thisIdx = trkIdx;
           bufferLivePacket(thisTime, 0, thisIdx, ptr, ptr.size(), 0, true);
         }
@@ -233,6 +235,7 @@ namespace Mist{
       uint64_t ptrSize = packet_out->size;
       // Buffer packet
       if (trkIdx == INVALID_TRACK_ID){return;}
+      if (thisTime <= resumeFrom) { return; }
       thisIdx = trkIdx;
       bufferLivePacket(thisTime, 0, thisIdx, ptr, ptrSize, 0, true);
     }
@@ -319,49 +322,27 @@ namespace Mist{
     void setVideoInit(){
       if (trkIdx != INVALID_TRACK_ID){return;}
       // We're encoding to a target codec
+      DTSC::TrackMetadata trkDta;
+      trkDta.type = "video";
+      trkDta.codec = codecOut;
+      trkDta.id = 1;
+      trkDta.width = frameConverted->width;
+      trkDta.height = frameConverted->height;
+      if (context_out && context_out->extradata && context_out->extradata_size) {
+        trkDta.init.assign((char *)context_out->extradata, context_out->extradata_size);
+      }
+      if (opt.isMember("framerate") && opt["framerate"].asDouble()) {
+        trkDta.fpks = opt["framerate"].asDouble() * 1000;
+      } else {
+        trkDta.fpks = inFpks;
+        autoUpdateFps = true;
+      }
       if (codec_out){
-        if (codecOut == "AV1"){
-          // Add a single track and init some metadata
-          meta.reInit(streamName, false);
-          trkIdx = meta.addTrack();
-          if (trkIdx == INVALID_TRACK_ID) {
-            FAIL_MSG("Could not add track to metadata");
-            return;
-          }
-          meta.setType(trkIdx, "video");
-          meta.setCodec(trkIdx, codecOut);
-          meta.setID(trkIdx, 1);
-          meta.setWidth(trkIdx, frameConverted->width);
-          meta.setHeight(trkIdx,  frameConverted->height);
-          if (opt.isMember("framerate") && opt["framerate"].asDouble()) {
-            meta.setFpks(trkIdx, opt["framerate"].asDouble() * 1000);
-          } else {
-            meta.setFpks(trkIdx, inFpks);
-            autoUpdateFps = true;
-          }
-          meta.setInit(trkIdx, (char*)context_out->extradata, context_out->extradata_size);
-          if (trkIdx != INVALID_TRACK_ID && !userSelect.count(trkIdx)){
-            userSelect[trkIdx].reload(streamName, trkIdx, sinkCommState);
-          }
-          INFO_MSG("AV1 track index is %zu", trkIdx);
-        } else if (codecOut == "JPEG"){
-          meta.reInit(streamName, false);
-          trkIdx = meta.addTrack();
-          if (trkIdx == INVALID_TRACK_ID) {
-            FAIL_MSG("Could not add track to metadata");
-            return;
-          }
-          meta.setType(trkIdx, "video");
-          meta.setCodec(trkIdx, codecOut);
-          meta.setID(trkIdx, 1);
-          meta.setWidth(trkIdx, frameConverted->width);
-          meta.setHeight(trkIdx,  frameConverted->height);
-          meta.setFpks(trkIdx, 0);
-          if (trkIdx != INVALID_TRACK_ID && !userSelect.count(trkIdx)){
-            userSelect[trkIdx].reload(streamName, trkIdx, sinkCommState);
-          }
-          INFO_MSG("MJPEG track index is %zu", trkIdx);
-        }else if (codecOut == "H264"){
+        if (codecOut == "JPEG") {
+          trkDta.fpks = 0;
+          autoUpdateFps = false;
+          trkDta.init.clear();
+        } else if (codecOut == "H264") {
           if (!spsInfo.size() || !ppsInfo.size()){return;}
           // First generate needed data
           h264::sequenceParameterSet sps(spsInfo, spsInfo.size());
@@ -376,81 +357,57 @@ namespace Mist{
           avccBox.setPPSCount(1);
           avccBox.setPPS(ppsInfo, ppsInfo.size());
 
-          // Add a single track and init some metadata
-          meta.reInit(streamName, false);
-          trkIdx = meta.addTrack();
-          if (trkIdx == INVALID_TRACK_ID) {
-            FAIL_MSG("Could not add track to metadata");
-            return;
-          }
-          meta.setType(trkIdx, "video");
-          meta.setCodec(trkIdx, "H264");
-          meta.setID(trkIdx, 1);
-          if (avccBox.payloadSize()){meta.setInit(trkIdx, avccBox.payload(), avccBox.payloadSize());}
-          meta.setWidth(trkIdx, sps.chars.width);
-          meta.setHeight(trkIdx, sps.chars.height);
-          if (opt.isMember("framerate") && opt["framerate"].asDouble()) {
-            meta.setFpks(trkIdx, opt["framerate"].asDouble() * 1000);
-          } else {
-            autoUpdateFps = true;
-            meta.setFpks(trkIdx, inFpks);
-          }
-          if (trkIdx != INVALID_TRACK_ID && !userSelect.count(trkIdx)){
-            userSelect[trkIdx].reload(streamName, trkIdx, sinkCommState);
-          }
-          INFO_MSG("H264 track index is %zu", trkIdx);
+          if (avccBox.payloadSize()) { trkDta.init.assign(avccBox.payload(), avccBox.payloadSize()); }
+          trkDta.width = sps.chars.width;
+          trkDta.height = sps.chars.height;
         }
-      }else{
-        // Add a single track and init some metadata
-        meta.reInit(streamName, false);
-        size_t staticSize = Util::pixfmtToSize(codecOut, frameConverted->width, frameConverted->height);
-        if (staticSize){
-          //Known static frame sizes: raw track mode
-          trkIdx = meta.addTrack(0, 0, 0, 0, true, staticSize);
-        }else{
-          // Other cases: standard track mode
-          trkIdx = meta.addTrack();
-        }
-        if (trkIdx == INVALID_TRACK_ID) {
-          FAIL_MSG("Could not add track to metadata");
-          return;
-        }
-        meta.markUpdated(trkIdx);
-        meta.setType(trkIdx, "video");
-        meta.setCodec(trkIdx, codecOut);
-        meta.setID(trkIdx, 1);
-        meta.setWidth(trkIdx, frameConverted->width);
-        meta.setHeight(trkIdx,  frameConverted->height);
-        if (opt.isMember("framerate") && opt["framerate"].asDouble()) {
-          meta.setFpks(trkIdx, opt["framerate"].asDouble() * 1000);
-        } else {
-          autoUpdateFps = true;
-          meta.setFpks(trkIdx, inFpks);
-        }
-        if (trkIdx != INVALID_TRACK_ID && !userSelect.count(trkIdx)){
-          userSelect[trkIdx].reload(streamName, trkIdx, sinkCommState);
-        }
-        INFO_MSG("%s track index is %zu", codecOut.c_str(), trkIdx);
       }
+
+      // Add a single track and init some metadata
+      meta.reInit(streamName, false);
+      trkIdx = meta.addOrResumeTrack(trkDta);
+      if (trkIdx == INVALID_TRACK_ID) {
+        FAIL_MSG("Could not add track to metadata");
+        return;
+      }
+      {
+        std::lock_guard<std::mutex> guard(statsMutex);
+        if (pStat["proc_status_update"]["sink"] == pStat["proc_status_update"]["source"]) {
+          meta.setSourceTrack(trkIdx, sourceTrackIdx);
+        }
+      }
+      if (!userSelect.count(trkIdx)) { userSelect[trkIdx].reload(streamName, trkIdx, sinkCommState); }
+      INFO_MSG("%s track index is %zu", trkDta.codec.c_str(), trkIdx);
+      resumeFrom = M.getLastms(trkIdx);
     }
 
     void setAudioInit(){
       if (trkIdx != INVALID_TRACK_ID){return;}
 
+      DTSC::TrackMetadata trkDta;
+      trkDta.type = "audio";
+      trkDta.codec = codecOut;
+      trkDta.id = 1;
+      trkDta.rate = outAudioRate;
+      trkDta.channels = outAudioChannels;
+      trkDta.size = outAudioDepth;
+
       // Add a single track and init some metadata
       meta.reInit(streamName, false);
-      trkIdx = meta.addTrack();
-      meta.setType(trkIdx, "audio");
-      meta.setCodec(trkIdx, codecOut);
-      meta.setID(trkIdx, 1);
-      meta.setRate(trkIdx, outAudioRate);
-      meta.setChannels(trkIdx, outAudioChannels);
-      meta.setSize(trkIdx, outAudioDepth);
-
-      if (trkIdx != INVALID_TRACK_ID && !userSelect.count(trkIdx)){
-        userSelect[trkIdx].reload(streamName, trkIdx, sinkCommState);
+      trkIdx = meta.addOrResumeTrack(trkDta);
+      if (trkIdx == INVALID_TRACK_ID) {
+        FAIL_MSG("Could not add track to metadata");
+        return;
       }
+      {
+        std::lock_guard<std::mutex> guard(statsMutex);
+        if (pStat["proc_status_update"]["sink"] == pStat["proc_status_update"]["source"]) {
+          meta.setSourceTrack(trkIdx, sourceTrackIdx);
+        }
+      }
+      if (!userSelect.count(trkIdx)) { userSelect[trkIdx].reload(streamName, trkIdx, sinkCommState); }
       INFO_MSG("%s track index is %zu", codecOut.c_str(), trkIdx);
+      resumeFrom = M.getLastms(trkIdx);
     }
 
     bool checkArguments(){return true;}
@@ -566,11 +523,11 @@ namespace Mist{
     }
 
     void sendHeader(){
-      if (opt["source_mask"].asBool()){
+      if (opt.isMember("source_mask")) {
         for (std::map<size_t, Comms::Users>::iterator ti = userSelect.begin(); ti != userSelect.end(); ++ti){
           if (ti->first == INVALID_TRACK_ID){continue;}
-          INFO_MSG("Masking source track %zu", ti->first);
-          meta.validateTrack(ti->first, meta.trackValid(ti->first) & ~(TRACK_VALID_EXT_HUMAN | TRACK_VALID_EXT_PUSH));
+          INFO_MSG("Masking source track %zu with %zu", ti->first, (size_t)opt["source_mask"].asInt());
+          meta.validateTrack(ti->first, meta.trackValid(ti->first) & opt["source_mask"].asInt());
         }
       }
       realTime = 0;
@@ -1800,6 +1757,7 @@ namespace Mist{
           }
         }
         if (codecIn.size() && pData["source_codec"].asStringRef() != codecIn){pData["source_codec"] = codecIn;}
+        sourceTrackIdx = thisIdx;
       }
 
       if (thisTime > statSourceMs){statSourceMs = thisTime;}
@@ -1830,9 +1788,10 @@ namespace Mist{
       realTime = 0;
       if (!sendFirst){
         sendPacketTime = thisTime;
-        bootMsOffset = M.getBootMsOffset();
         sendFirst = true;
       }
+      // bootMsOffset may change; we should pull in those changes, too
+      bootMsOffset = M.getBootMsOffset();
 
       // Allocate encoding/decoding contexts and decode the input if not RAW
       if (isVideo) {
@@ -1997,6 +1956,7 @@ int main(int argc, char *argv[]){
   JSON::Value capa;
   context_out = NULL;
   av_log_set_callback(logcallback);
+  config.activate();
 
   {
     JSON::Value opt;

@@ -555,6 +555,9 @@ namespace Mist {
         // Calculate byte size of buffer
         outputBufferSize = outputWidth * outputHeight * 2;
 
+        uint32_t targetFPS = 0;
+        uint64_t frameIntervalMs = 0;
+
         // Allocate output buffer if needed
         if (outPtr.size() != outputBufferSize) {
           outPtr.truncate(0);
@@ -573,25 +576,25 @@ namespace Mist {
             return;
           }
 
-          thisIdx = vidIdx = meta.addTrack(0, 0, 0, 0, true, outputBufferSize);
-          meta.setType(thisIdx, "video");
-          meta.setCodec(thisIdx, "UYVY");
-          meta.setWidth(thisIdx, outputWidth);
-          meta.setHeight(thisIdx, outputHeight);
-          meta.setID(thisIdx, thisIdx);
-          meta.markUpdated(thisIdx);
-        }
-
-        // Parse target framerate from config
-        uint32_t targetFPS = 0;
-        uint64_t frameIntervalMs = 0;
-        if (Mist::opt.isMember("target_fps") && Mist::opt["target_fps"].isInt()) {
-          targetFPS = Mist::opt["target_fps"].asInt();
-          frameIntervalMs = 1000 / targetFPS;
-          INFO_MSG("Target framerate: %u fps (%.1f ms per frame)", targetFPS, (float)frameIntervalMs);
-          meta.setFpks(thisIdx, targetFPS * 1000);
-        } else {
-          INFO_MSG("No target framerate set - will wait for all sources to have fresh frames");
+          {
+            DTSC::TrackMetadata trkDta;
+            trkDta.type = "video";
+            trkDta.codec = "UYVY";
+            trkDta.width = outputWidth;
+            trkDta.height = outputHeight;
+            trkDta.fpks = 0;
+            // Parse target framerate from config
+            if (Mist::opt.isMember("target_fps") && Mist::opt["target_fps"].isInt()) {
+              targetFPS = Mist::opt["target_fps"].asInt();
+              frameIntervalMs = 1000 / targetFPS;
+              INFO_MSG("Target framerate: %u fps (%.1f ms per frame)", targetFPS, (float)frameIntervalMs);
+              trkDta.fpks = targetFPS * 1000;
+            } else {
+              INFO_MSG("No target framerate set - will wait for all sources to have fresh frames");
+            }
+            thisIdx = vidIdx = meta.addOrResumeTrack(trkDta);
+            meta.setID(thisIdx, thisIdx);
+          }
         }
 
         PixFmt::scaleMode scaling = PixFmt::INTEGER;

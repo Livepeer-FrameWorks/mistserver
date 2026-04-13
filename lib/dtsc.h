@@ -214,6 +214,25 @@ namespace DTSC{
       bool precise;
   };
 
+  class TrackMetadata {
+    public:
+      std::string type; ///< Type (audio, video, meta)
+      std::string codec; ///< Codec
+      std::string lang; ///< Language code
+      std::string init; ///< Init data (AKA CodecPrivateData)
+      size_t id; ///< track id
+
+      // Audio specific
+      size_t rate; ///< sample rate
+      size_t size; ///< sample size
+      uint8_t channels; ///< channel count
+
+      // Video specific
+      size_t width; ///< Video width
+      size_t height; ///< Video height
+      size_t fpks; ///< Frames per 1000 seconds (fps * 1000)
+  };
+
   class Track{
   public:
     Util::RelAccX track;
@@ -374,6 +393,8 @@ namespace DTSC{
     size_t addTrack(size_t fragCount = DEFAULT_FRAGMENT_COUNT, size_t keyCount = DEFAULT_KEY_COUNT,
                     size_t partCount = DEFAULT_PART_COUNT, size_t pageCount = DEFAULT_PAGE_COUNT,
                     bool setValid = true, size_t frameSize = 0);
+    size_t addOrResumeTrack(const TrackMetadata & trkDta);
+    size_t addOrResumeDelayedTrack(const TrackMetadata & trkDta);
     void resizeTrack(size_t source, size_t fragCount = DEFAULT_FRAGMENT_COUNT, size_t keyCount = DEFAULT_KEY_COUNT,
                      size_t partCount = DEFAULT_PART_COUNT, size_t pageCount = DEFAULT_PAGE_COUNT, const char * reason = "",
                      size_t frameSize = 0);
@@ -464,6 +485,7 @@ namespace DTSC{
     void setMaxKeepAway(uint64_t maxKeepAway);
     uint64_t getMaxKeepAway() const;
 
+    void breakClaim(size_t trackIdx);
     bool claimTrack(size_t trackIdx);
     bool isClaimed(size_t trackIdx) const;
     uint64_t isClaimedBy(size_t trackIdx) const;

@@ -711,9 +711,10 @@ namespace Mist {
         packetBuffer.append(srtConn->recvbuf, recvSize);
         if (packetBuffer.size() >= 1316 && (lastRawPacket == 0 || lastRawPacket != Util::bootMS())) {
           if (rawIdx == INVALID_TRACK_ID) {
-            rawIdx = meta.addTrack();
-            meta.setType(rawIdx, "meta");
-            meta.setCodec(rawIdx, "rawts");
+            DTSC::TrackMetadata trkDta;
+            trkDta.type = "meta";
+            trkDta.codec = "rawts";
+            rawIdx = meta.addOrResumeTrack(trkDta);
             meta.setID(rawIdx, 1);
             userSelect[rawIdx].reload(streamName, rawIdx, COMM_STATUS_ACTSOURCEDNT);
           }
@@ -760,8 +761,12 @@ namespace Mist {
       }
 
       uint64_t pktTimeWithOffset = thisPacket.getTime() + timeStampOffset;
-      if (lastTimeStamp || timeStampOffset){
+      if (lastTimeStamp || timeStampOffset || M.getBootMsOffset()) {
         uint64_t targetTime = Util::bootMS() - M.getBootMsOffset();
+        if (!lastTimeStamp && !timeStampOffset) {
+          timeStampOffset += (targetTime - pktTimeWithOffset);
+          pktTimeWithOffset = thisPacket.getTime() + timeStampOffset;
+        }
         if (targetTime + 5000 < pktTimeWithOffset || targetTime > pktTimeWithOffset + 5000){
           INFO_MSG("Timestamp jump " PRETTY_PRINT_MSTIME " -> " PRETTY_PRINT_MSTIME ", compensating.",
                   PRETTY_ARG_MSTIME(targetTime), PRETTY_ARG_MSTIME(pktTimeWithOffset));

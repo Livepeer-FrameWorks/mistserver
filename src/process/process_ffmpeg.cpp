@@ -49,6 +49,7 @@ uint64_t statSourceMs = 0;
 int64_t bootMsOffset = 0;
 
 uint8_t sinkCommState = COMM_STATUS_ACTSOURCEDNT;
+size_t sourceTrackIdx = INVALID_TRACK_ID;
 
 namespace Mist{
   class ProcessSink : public InputEBML{
@@ -63,6 +64,10 @@ namespace Mist{
           pData["sink_tracks"].null();
           for (std::map<size_t, Comms::Users>::iterator it = userSelect.begin(); it != userSelect.end(); it++){
             pData["sink_tracks"].append((uint64_t)it->first);
+            if (meta.getSourceTrack(it->first) == INVALID_TRACK_ID &&
+                pStat["proc_status_update"]["sink"] == pStat["proc_status_update"]["source"]) {
+              meta.setSourceTrack(it->first, sourceTrackIdx);
+            }
           }
         }
       }
@@ -141,11 +146,11 @@ namespace Mist{
       OutEBML::dropTrack(trackId, reason, probablyBad);
     }
     void sendHeader(){
-      if (opt["source_mask"].asBool()){
+      if (opt.isMember("source_mask")) {
         for (std::map<size_t, Comms::Users>::iterator ti = userSelect.begin(); ti != userSelect.end(); ++ti){
           if (ti->first == INVALID_TRACK_ID){continue;}
-          INFO_MSG("Masking source track %zu", ti->first);
-          meta.validateTrack(ti->first, meta.trackValid(ti->first) & ~(TRACK_VALID_EXT_HUMAN | TRACK_VALID_EXT_PUSH));
+          INFO_MSG("Masking source track %zu with %zu", ti->first, (size_t)opt["source_mask"].asInt());
+          meta.validateTrack(ti->first, meta.trackValid(ti->first) & opt["source_mask"].asInt());
         }
       }
       realTime = 0;
@@ -166,15 +171,16 @@ namespace Mist{
             pData["source_tracks"].append((uint64_t)it->first);
           }
         }
+        sourceTrackIdx = thisIdx;
       }
       if (thisTime > statSourceMs){statSourceMs = thisTime;}
       needsLookAhead = 0;
       maxSkipAhead = 0;
       if (!sendFirst){
         sendPacketTime = thisPacket.getTime();
-        bootMsOffset = M.getBootMsOffset();
         sendFirst = true;
       }
+      bootMsOffset = M.getBootMsOffset();
       OutEBML::sendNext();
     }
   };

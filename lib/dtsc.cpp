@@ -1969,6 +1969,155 @@ namespace DTSC{
     return addTrack(fragCount, keyCount, partCount, pageCount, false);
   }
 
+  /// Either adds a track or resumes an existing track, if it can match track metadata to an unclaimed track.
+  size_t Meta::addOrResumeTrack(const TrackMetadata & trkDta) {
+    // Attempt to find an existing unclaimed track to resume
+    uint8_t oldMask = trackValidMask;
+    trackValidMask = TRACK_VALID_ALL;
+    reloadReplacedPagesIfNeeded();
+    std::set<size_t> V = getValidTracks();
+    trackValidMask = oldMask;
+    for (const size_t & T : V) {
+      INFO_MSG("Checking track %zu...", T);
+      if (isClaimed(T)) {
+        INFO_MSG("T%zu: Still claimed", T);
+        continue;
+      }
+      if (getType(T) != trkDta.type) {
+        INFO_MSG("T%zu: Type mismatch", T);
+        continue;
+      }
+      if (getCodec(T) != trkDta.codec) {
+        INFO_MSG("T%zu: Codec mismatch", T);
+        continue;
+      }
+      if (getInit(T) != trkDta.init) {
+        INFO_MSG("T%zu: Init mismatch", T);
+        continue;
+      }
+      if (trkDta.type == "audio") {
+        if (getRate(T) != trkDta.rate) { continue; }
+        if (getSize(T) != trkDta.size) { continue; }
+        if (getChannels(T) != trkDta.channels) { continue; }
+      }
+      if (trkDta.type == "video") {
+        if (getWidth(T) != trkDta.width) {
+          INFO_MSG("T%zu: Width mismatch", T);
+          continue;
+        }
+        if (getHeight(T) != trkDta.height) {
+          INFO_MSG("T%zu: Height mismatch", T);
+          continue;
+        }
+        // We don't care about fpks since it can vary sometimes, as long as the init data is the same we're fine with it
+      }
+      if (!claimTrack(T)) {
+        WARN_MSG("Failed to claim track %zu (%s %s) for resuming! Creating instead...", T, trkDta.codec.c_str(),
+                 trkDta.type.c_str());
+        continue;
+      }
+      INFO_MSG("Resuming track %zu: %s %s", T, trkDta.codec.c_str(), trkDta.type.c_str());
+      if (trkDta.type == "video" && trkDta.fpks) {
+        setFpks(T, trkDta.fpks); // Set the fpks, in case it differs
+      }
+      // If we had a track ID, set it (it's never checked)
+      if (trkDta.id) { setID(T, trkDta.id); }
+      markUpdated(T);
+      return T;
+    }
+
+    {
+      // Create a new track and set the metadata
+      size_t T = INVALID_TRACK_ID;
+      size_t staticSize = Util::pixfmtToSize(trkDta.codec, trkDta.width, trkDta.height);
+      if (staticSize) {
+        // Known static frame sizes: raw track mode
+        T = addTrack(0, 0, 0, 0, true, staticSize);
+      } else {
+        // Other cases: standard track mode
+        T = addTrack();
+      }
+      if (T == INVALID_TRACK_ID) {
+        FAIL_MSG("Could not create new track %zu: %s %s", T, trkDta.codec.c_str(), trkDta.type.c_str());
+        return T;
+      }
+      INFO_MSG("Creating new track %zu: %s %s", T, trkDta.codec.c_str(), trkDta.type.c_str());
+      markUpdated(T);
+      setType(T, trkDta.type);
+      setCodec(T, trkDta.codec);
+      setLang(T, trkDta.lang);
+      setInit(T, trkDta.init);
+      if (trkDta.id) { setID(T, trkDta.id); }
+      if (trkDta.type == "audio") {
+        setRate(T, trkDta.rate);
+        setSize(T, trkDta.size);
+        setChannels(T, trkDta.channels);
+      }
+      if (trkDta.type == "video") {
+        setWidth(T, trkDta.width);
+        setHeight(T, trkDta.height);
+        setFpks(T, trkDta.fpks);
+      }
+      return T;
+    }
+  }
+
+  /// Either adds a track or resumes an existing track, if it can match track metadata to an unclaimed track.
+  size_t Meta::addOrResumeDelayedTrack(const TrackMetadata & trkDta) {
+    // Attempt to find an existing unclaimed track to resume
+    std::set<size_t> V = getValidTracks();
+    for (const auto & T : V) {
+      if (isClaimed(T)) { continue; }
+      if (getType(T) != trkDta.type) { continue; }
+      if (getCodec(T) != trkDta.codec) { continue; }
+      if (getInit(T) != trkDta.init) { continue; }
+      if (trkDta.type == "audio") {
+        if (getRate(T) != trkDta.rate) { continue; }
+        if (getSize(T) != trkDta.size) { continue; }
+        if (getChannels(T) != trkDta.channels) { continue; }
+      }
+      if (trkDta.type == "video") {
+        if (getWidth(T) != trkDta.width) { continue; }
+        if (getHeight(T) != trkDta.height) { continue; }
+        // We don't care about fpks since it can vary sometimes, as long as the init data is the same we're fine with it
+      }
+      if (!claimTrack(T)) {
+        WARN_MSG("Failed to claim track %zu (%s %s) for resuming! Creating instead...", T, trkDta.codec.c_str(),
+                 trkDta.type.c_str());
+        continue;
+      }
+      INFO_MSG("Resuming track %zu: %s %s", T, trkDta.codec.c_str(), trkDta.type.c_str());
+      if (trkDta.type == "video" && trkDta.fpks) {
+        setFpks(T, trkDta.fpks); // Set the fpks, in case it differs
+      }
+      // If we had a track ID, set it (it's never checked)
+      if (trkDta.id) { setID(T, trkDta.id); }
+      return T;
+    }
+
+    {
+      // Create a new track and set the metadata
+      size_t T = addDelayedTrack();
+      INFO_MSG("Creating new (delayed) track %zu: %s %s", T, trkDta.codec.c_str(), trkDta.type.c_str());
+      setType(T, trkDta.type);
+      setCodec(T, trkDta.codec);
+      setLang(T, trkDta.lang);
+      setInit(T, trkDta.init);
+      if (trkDta.id) { setID(T, trkDta.id); }
+      if (trkDta.type == "audio") {
+        setRate(T, trkDta.rate);
+        setSize(T, trkDta.size);
+        setChannels(T, trkDta.channels);
+      }
+      if (trkDta.type == "video") {
+        setWidth(T, trkDta.width);
+        setHeight(T, trkDta.height);
+        setFpks(T, trkDta.fpks);
+      }
+      return T;
+    }
+  }
+
   /// Adds a track to the metadata structure.
   /// To be called from the various inputs/outputs whenever they want to add a track.
   size_t Meta::addTrack(size_t fragCount, size_t keyCount, size_t partCount, size_t pageCount, bool setValid, size_t frameSize){
@@ -2038,7 +2187,11 @@ namespace DTSC{
   bool Meta::isClaimed(size_t trackIdx) const{
     return (trackList.getInt(trackPidField, trackIdx) != 0);
   }
-  
+
+  void Meta::breakClaim(size_t trackIdx) {
+    trackList.setInt(trackPidField, 0, trackIdx);
+  }
+
   uint64_t Meta::isClaimedBy(size_t trackIdx) const{
     return trackList.getInt(trackPidField, trackIdx);
   }

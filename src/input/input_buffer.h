@@ -55,7 +55,8 @@ namespace Mist{
     std::map<std::string, uint64_t> procNextBoot;
 
     std::set<size_t> generatePids;
-    std::map<size_t, size_t> sourcePids;
+    std::map<size_t, size_t> sourceUsers;
+    std::map<size_t, size_t> processUsers;
     size_t lastBPS; ///< Used for STREAM_BANDWIDTH trigger
   };
 }// namespace Mist
