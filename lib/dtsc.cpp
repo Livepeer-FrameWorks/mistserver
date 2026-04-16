@@ -1152,7 +1152,11 @@ namespace DTSC{
     }
     setBps(tIdx, trak.getMember("bps").asInt());
     setMaxBps(tIdx, trak.getMember("maxbps").asInt());
-    setSourceTrack(tIdx, INVALID_TRACK_ID);
+    if (trak.hasMember("source")) {
+      setSourceTrack(tIdx, trak.getMember("source").asInt() - 1);
+    } else {
+      setSourceTrack(tIdx, INVALID_TRACK_ID);
+    }
     if (trak.getMember("type").asString() == "video"){
       setWidth(tIdx, trak.getMember("width").asInt());
       setHeight(tIdx, trak.getMember("height").asInt());
@@ -1677,7 +1681,11 @@ namespace DTSC{
       setEfpks(newIdx, M.getEfpks(*it));
       setMissedFragments(newIdx, M.getMissedFragments(*it));
       setMinKeepAway(newIdx, M.getMinKeepAway(*it));
-      setSourceTrack(newIdx, M.getSourceTrack(*it));
+      if (M.getSourceTrack(*it) != INVALID_TRACK_ID) {
+        setSourceTrack(newIdx, trackIDToIndex(M.getID(M.getSourceTrack(*it)), getpid()));
+      } else {
+        setSourceTrack(newIdx, INVALID_TRACK_ID);
+      }
       setEncryption(newIdx, M.getEncryption(*it));
       setPlayReady(newIdx, M.getPlayReady(*it));
       setWidevine(newIdx, M.getWidevine(*it));
@@ -3435,29 +3443,30 @@ namespace DTSC{
   }
 
   ///\brief Determines the "packed" size of a Meta object
-  uint64_t Meta::getSendLen(bool skipDynamic, std::set<size_t> selectedTracks) const{
+  uint64_t Meta::getSendLen(bool skipDynamic, std::set<size_t> selectedTracks, bool reID) const {
     uint64_t dataLen = 34; // + (merged ? 17 : 0) + (bufferWindow ? 24 : 0) + 21;
     if (getVod()){dataLen += 14;}
     if (getLive()){dataLen += 15;}
     if (getLive() || getUTCOffset()){dataLen += 19;} // unixzero field
-    for (std::map<size_t, Track>::const_iterator it = tracks.begin(); it != tracks.end(); it++){
-      if (!it->second.parts.getPresent()){continue;}
-      if (!selectedTracks.size() || selectedTracks.count(it->first)){
-        dataLen += (124 + getInit(it->first).size() + getCodec(it->first).size() +
-                    getType(it->first).size() + getTrackIdentifier(it->first, true).size());
+    for (const auto & it : tracks) {
+      if (!it.second.parts.getPresent()) { continue; }
+      if (!selectedTracks.size() || selectedTracks.count(it.first)) {
+        dataLen += (124 + getInit(it.first).size() + getCodec(it.first).size() + getType(it.first).size() +
+                    getTrackIdentifier(it.first, true).size());
         if (!skipDynamic){
-          dataLen += ((it->second.fragments.getPresent() * DTSH_FRAGMENT_SIZE) + 16);
-          dataLen += ((it->second.keys.getPresent() * DTSH_KEY_SIZE) + 11);
-          dataLen += ((it->second.keys.getPresent() * 4) + 15);
-          dataLen += ((it->second.parts.getPresent() * DTSH_PART_SIZE) + 12);
+          dataLen += ((it.second.fragments.getPresent() * DTSH_FRAGMENT_SIZE) + 16);
+          dataLen += ((it.second.keys.getPresent() * DTSH_KEY_SIZE) + 11);
+          dataLen += ((it.second.keys.getPresent() * 4) + 15);
+          dataLen += ((it.second.parts.getPresent() * DTSH_PART_SIZE) + 12);
           //          dataLen += ivecs.size() * 8 + 12; /*LTS*/
-          if (it->second.track.getInt("missedFrags")){dataLen += 23;}
+          if (it.second.track.getInt("missedFrags")) { dataLen += 23; }
         }
-        std::string lang = getLang(it->first);
+        if (reID && getSourceTrack(it.first) != INVALID_TRACK_ID) { dataLen += 17; }
+        std::string lang = getLang(it.first);
         if (lang.size() && lang != "und"){dataLen += 11 + lang.size();}
-        if (getType(it->first) == "audio"){
+        if (getType(it.first) == "audio") {
           dataLen += 49;
-        }else if (getType(it->first) == "video"){
+        } else if (getType(it.first) == "video") {
           dataLen += 64;
         }
       }
@@ -3595,7 +3604,7 @@ namespace DTSC{
     }
 
     conn.SendNow(DTSC::Magic_Header, 4);
-    conn.SendNow(c32(lVarSize + getSendLen(skipDynamic, selectedTracks) - 8), 4);
+    conn.SendNow(c32(lVarSize + getSendLen(skipDynamic, selectedTracks, reID) - 8), 4);
     conn.SendNow("\340", 1);
     if (getVod()){conn.SendNow("\000\003vod\001\000\000\000\000\000\000\000\001", 14);}
     if (getLive()){conn.SendNow("\000\004live\001\000\000\000\000\000\000\000\001", 15);}
@@ -3671,6 +3680,10 @@ namespace DTSC{
       conn.SendNow("\000\007trackid\001", 10);
       if (reID){
         conn.SendNow(c64((*it) + 1), 8);
+        if (getSourceTrack(*it) != INVALID_TRACK_ID) {
+          conn.SendNow("\000\006source\001", 9);
+          conn.SendNow(c64(getSourceTrack(*it) + 1), 8);
+        }
       }else{
         conn.SendNow(c64(track.getInt("id")), 8);
       }
