@@ -451,6 +451,17 @@ namespace Mist{
     ProcessSource(Socket::Connection & c, Util::Config & _cfg, JSON::Value & _capa) : Output(c, _cfg, _capa) {
       meta.ignorePid(getpid());
       closeMyConn();
+
+      if (isVideo) {
+        targetParams["audio"] = "none";
+        if (targetParams.count("video") && targetParams["video"].size()) { targetParams["video"] += ",|first"; }
+      } else {
+        targetParams["video"] = "none";
+        if (targetParams.count("audio") && targetParams["audio"].size()) { targetParams["audio"] += ",|first"; }
+      }
+      targetParams["meta"] = "none";
+      targetParams["subtitle"] = "none";
+
       targetParams["keeptimes"] = true;
       realTime = 0;
       convertCtx = NULL;
@@ -483,15 +494,15 @@ namespace Mist{
       // Track selection
       if (isVideo){
         capa["codecs"][0u][0u].append("YUYV");
-        capa["codecs"][0u][0u].append("UYVY");
-        capa["codecs"][0u][0u].append("NV12");
-        capa["codecs"][0u][0u].append("H264");
-        capa["codecs"][0u][0u].append("AV1");
-        capa["codecs"][0u][0u].append("JPEG");
+        capa["codecs"][1u][0u].append("UYVY");
+        capa["codecs"][2u][0u].append("NV12");
+        capa["codecs"][3u][0u].append("H264");
+        capa["codecs"][4u][0u].append("AV1");
+        capa["codecs"][5u][0u].append("JPEG");
       }else{
         capa["codecs"][0u][0u].append("PCM");
-        capa["codecs"][0u][0u].append("opus");
-        capa["codecs"][0u][0u].append("AAC");
+        capa["codecs"][1u][0u].append("opus");
+        capa["codecs"][2u][0u].append("AAC");
       }
       cfg->addOption("streamname", R"-({
         "arg":"string",
