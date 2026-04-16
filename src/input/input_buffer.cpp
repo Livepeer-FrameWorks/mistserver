@@ -840,9 +840,9 @@ namespace Mist{
           argarr[4] = 0;
         }
         // Only count process as not-running if it's not inconsequential
-        if (!args.isMember("inconsequential") || !args["inconsequential"].asBool()){allProcsRunning = false;}
-        INFO_MSG("Starting process: %s %s", argarr[0], argarr[1]);
+        if (!args.isMember("inconsequential") || !args["inconsequential"].asBool()) { allProcsRunning = false; }
         runningProcs[*newProcs.begin()] = Util::Procs::StartPiped(argarr, 0, 0, &err);
+        INFO_MSG("Started process %zu: %s %s", (size_t)runningProcs[*newProcs.begin()], argarr[0], argarr[1]);
         // Increment per-process boot counter
         procBoots[*newProcs.begin()]++;
         // Remove the delayed start counter
