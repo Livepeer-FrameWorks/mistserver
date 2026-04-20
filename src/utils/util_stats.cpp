@@ -89,12 +89,12 @@ int main(int argc, char **argv) {
     "help":"If set, does not simulate, just reads existing data."
   })-");
 
-  conf.addOption("reject", R"-({
-    "short":"R",
-    "long":"reject",
-    "default":false,
-    "help":"If set, inserts rejected sessions into the table."
-  })-");
+//  conf.addOption("reject", R"-({
+//    "short":"R",
+//    "long":"reject",
+//    "default":false,
+//    "help":"If set, inserts rejected sessions into the table."
+//  })-");
 
   conf.parseArgs(argc, argv);
 
@@ -106,7 +106,7 @@ int main(int argc, char **argv) {
   long long scale = conf.getInteger("userscale");
   long long currsine = sine;
   long long goingUp = 0;
-  bool reject = conf.getBool("reject");
+//  bool reject = conf.getBool("reject");
 
   if (conf.getBool("read")) {
     // IPC::sharedServer statServer(SHM_STATISTICS, STAT_EX_SIZE, true);
@@ -123,20 +123,20 @@ int main(int argc, char **argv) {
     clients[i]->reload();
     clients[i]->setHost(thisHost);
     clients[i]->setStream(streamName);
-    if (reject) {
-      clients[i]->setSessId("StatUtilReject_" + std::to_string(myPid) + "_" + std::to_string(i));
-      clients[i]->setStatus(COMM_STATUS_REJECTED);
-      delete clients[i];
-      clients[i] = 0;
-    } else {
+//    if (reject) {
+//      clients[i]->setSessId("StatUtilReject_" + std::to_string(myPid) + "_" + std::to_string(i));
+//      clients[i]->setStatus(COMM_STATUS_REJECTED);
+//      delete clients[i];
+//      clients[i] = 0;
+//    } else {
       clients[i]->setSessId("StatUtil_" + std::to_string(myPid) + "_" + std::to_string(i));
-    }
+//    }
   }
 
-  if (reject) {
-    std::cout << "Inserted " << clientCount << " rejected sessions into session table; exiting" << std::endl;
-    return 0;
-  }
+//  if (reject) {
+//    std::cout << "Inserted " << clientCount << " rejected sessions into session table; exiting" << std::endl;
+//    return 0;
+//  }
   std::cout << "Inserted " << clientCount
             << " sessions into session table - keeping them active with stats until stopped..." << std::endl;
 
