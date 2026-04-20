@@ -1953,9 +1953,10 @@ void logcallback(void *ptr, int level, const char *fmt, va_list vl){
   char line[1024];
   av_log_format_line(ptr, level, fmt, vl, line, sizeof(line), &print_prefix);
   std::string ll(line);
-  if (ll.find("specified frame type") != std::string::npos || ll.find("rc buffer underflow") != std::string::npos){
+  if (ll.find("specified frame type") != std::string::npos || ll.find("rc buffer underflow") != std::string::npos ||
+      ll.find("Loaded sym:") != std::string::npos || ll.find("Loaded lib:") != std::string::npos) {
     HIGH_MSG("LibAV: %s", line);
-  }else{
+  } else {
     INFO_MSG("LibAV: %s", line);
   }
 }
