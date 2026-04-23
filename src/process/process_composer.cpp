@@ -584,7 +584,7 @@ namespace Mist {
             trkDta.height = outputHeight;
             trkDta.fpks = 0;
             // Parse target framerate from config
-            if (Mist::opt.isMember("target_fps") && Mist::opt["target_fps"].isInt()) {
+            if (Mist::opt.isMember("target_fps") && Mist::opt["target_fps"].isInt() && Mist::opt["target_fps"].asInt()) {
               targetFPS = Mist::opt["target_fps"].asInt();
               frameIntervalMs = 1000 / targetFPS;
               INFO_MSG("Target framerate: %u fps (%.1f ms per frame)", targetFPS, (float)frameIntervalMs);
@@ -845,7 +845,7 @@ namespace Mist {
                 }
               }
               // Update target frame rate
-              if (streamCfg.getMember("target_fps")) {
+              if (streamCfg.getMember("target_fps") && streamCfg.getMember("target_fps").asInt()) {
                 targetFPS = streamCfg.getMember("target_fps").asInt();
                 frameIntervalMs = 1000 / targetFPS;
                 meta.setFpks(vidIdx, targetFPS * 1000);
