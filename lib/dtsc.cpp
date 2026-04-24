@@ -3388,10 +3388,10 @@ namespace DTSC{
     stream = Util::RelAccX();
     trackList = Util::RelAccX();
     streamPage.close();
-    tM.clear();
     if (trackInvalidateCallback) {
       for (auto & t : tracks) { trackInvalidateCallback(t.first); }
     }
+    tM.clear();
     tracks.clear();
     isMaster = true;
     streamName = "";
