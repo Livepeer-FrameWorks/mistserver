@@ -403,8 +403,11 @@ jobs:
           mkdir -p sign/darwin-arm64
           tar xzf dist/mistserver-darwin-arm64-*.tar.gz -C sign/darwin-arm64
 
-      - name: Unlock keychain
-        run: security unlock-keychain -p "${{ secrets.LOGIN_KEYCHAIN_PASSWORD }}" login.keychain
+      - name: Setup signing keychain
+        env:
+          APPLE_CERTIFICATE_P12: ${{ secrets.APPLE_CERTIFICATE_P12 }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+        run: ./scripts/ci/setup-signing-keychain.sh
 
       - name: Sign darwin binaries
         run: |
@@ -449,6 +452,10 @@ jobs:
         with:
           name: mistserver-darwin-arm64-signed
           path: mistserver-darwin-arm64-*.tar.gz
+
+      - name: Clean up signing keychain
+        if: always()
+        run: ./scripts/ci/cleanup-signing-keychain.sh
 
   # ---------------------------------------------------------------------------
   # GitHub Release — assemble all artifacts
