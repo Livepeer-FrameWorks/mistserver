@@ -8,6 +8,7 @@
 #include "defines.h"
 #include "encode.h"
 #include "h264.h"
+#include "langcodes.h"
 #include "mp4_generic.h"
 #include "shared_memory.h"
 #include "stream.h"
@@ -2621,6 +2622,50 @@ namespace DTSC{
     return t.track.getInt(t.trackBpsField);
   }
 
+  uint64_t Meta::getQuality(size_t trackIdx) const {
+    const std::string type = trackList.getPointer(trackTypeField, trackIdx);
+    const std::string codec = trackList.getPointer(trackCodecField, trackIdx);
+    const DTSC::Track & t = tracks.at(trackIdx);
+    if (type == "video") {
+      uint64_t w = t.track.getInt(t.trackWidthField);
+      if (!w) { w = 1920; }
+      uint64_t h = t.track.getInt(t.trackHeightField);
+      if (!h) { h = 1080; }
+      uint64_t fpks = t.track.getInt(t.trackEfpksField);
+      if (!fpks) { fpks = t.track.getInt(t.trackFpksField); }
+      if (!fpks) { fpks = 1000; }
+      uint64_t pxPerSec = w * h * fpks / 1000;
+      if (codec == "UYVY") { pxPerSec = pxPerSec * 3 / 2; }
+      if (codec == "YUYV") { pxPerSec = pxPerSec * 3 / 2; }
+      if (codec == "JPEG") { pxPerSec *= 8; }
+      if (codec == "VP8") { pxPerSec *= 85; }
+      if (codec == "H264") { pxPerSec *= 100; }
+      if (codec == "VP9") { pxPerSec *= 166; }
+      if (codec == "HEVC") { pxPerSec *= 200; }
+      if (codec == "AV1") { pxPerSec *= 250; }
+      return pxPerSec;
+    }
+    if (type == "audio") {
+      uint64_t s = t.track.getInt(t.trackSizeField);
+      if (!s) { s = 32; }
+      uint64_t c = t.track.getInt(t.trackChannelsField);
+      if (!c) { c = 2; }
+      uint64_t r = t.track.getInt(t.trackRateField);
+      if (!r) { r = 48000; }
+      uint64_t smpPerSec = s * c * r;
+      if (codec == "FLAC") { smpPerSec *= 2; }
+      if (codec == "ULAW") { smpPerSec = smpPerSec * 7 / 4; }
+      if (codec == "ALAW") { smpPerSec = smpPerSec * 7 / 4; }
+      if (codec == "MP2") { smpPerSec *= 7; }
+      if (codec == "MP3") { smpPerSec *= 10; }
+      if (codec == "Vorbis") { smpPerSec *= 14; }
+      if (codec == "AAC") { smpPerSec *= 16; }
+      if (codec == "Opus") { smpPerSec *= 40; }
+      return smpPerSec;
+    }
+    return 0;
+  }
+
   void Meta::setMaxBps(size_t trackIdx, uint64_t bps){
     DTSC::Track &t = tracks.at(trackIdx);
     t.track.setInt(t.trackMaxbpsField, bps);
@@ -3523,14 +3568,17 @@ namespace DTSC{
   }
 
   /// Converts the current Meta object to JSON format
-  void Meta::toJSON(JSON::Value &res, bool skipDynamic, bool tracksOnly) const{
+  void Meta::toJSON(JSON::Value & res, bool skipDynamic, bool tracksOnly, bool privateData) const {
     res.null();
     if (!skipDynamic){
       WARN_MSG("Skipping dynamic stuff even though skipDynamic is set to false");
     }
     uint64_t jitter = 0;
     bool bframes = false;
+    uint8_t oldMask = trackValidMask;
+    if (privateData) { trackValidMask = TRACK_VALID_ALL; }
     std::set<size_t> validTracks = getValidTracks();
+    trackValidMask = oldMask;
     for (std::set<size_t>::iterator it = validTracks.begin(); it != validTracks.end(); it++){
       JSON::Value &trackJSON = res["tracks"][getTrackIdentifier(*it, true)];
       std::string type = getType(*it);
@@ -3547,6 +3595,12 @@ namespace DTSC{
       trackJSON["nowms"] = getNowms(*it);
       trackJSON["bps"] = getBps(*it);
       trackJSON["maxbps"] = getMaxBps(*it);
+      if (privateData) {
+        size_t src = getSourceTrack(*it);
+        if (src != INVALID_TRACK_ID) { trackJSON["source"] = src; }
+        trackJSON["pid"] = trackList.getInt(trackPidField, *it);
+        trackJSON["mask"] = trackList.getInt(trackValidField, *it);
+      }
       if (!skipDynamic && getLive()){
         if (getMissedFragments(*it)){trackJSON["missed_frags"] = getMissedFragments(*it);}
       }
@@ -3556,7 +3610,10 @@ namespace DTSC{
         if (trkJitter > jitter){jitter = trkJitter;}
       }
 
-      if (getLang(*it) != "" && getLang(*it) != "und"){trackJSON["lang"] = getLang(*it);}
+      if (getLang(*it) != "" && getLang(*it) != "und") {
+        trackJSON["lang"] = getLang(*it);
+        trackJSON["language"] = Encodings::ISO639::decode(trackJSON["lang"].asStringRef());
+      }
       if (type == "audio"){
         trackJSON["rate"] = getRate(*it);
         trackJSON["size"] = getSize(*it);
@@ -3580,6 +3637,63 @@ namespace DTSC{
           trackJSON["h264_profile"] = sps.profile();
           trackJSON["h264_chroma"] = sps.chroma();
         }
+        if (privateData) {
+          uint32_t shortestKey = 0xFFFFFFFFul;
+          uint32_t longestKey = 0;
+          uint32_t shortestFrame = 0xFFFFFFFFul;
+          uint32_t longestFrame = 0;
+          uint32_t shortestFrameCount = 0xFFFFFFFFul;
+          uint32_t longestFrameCount = 0;
+          DTSC::Keys metaKeys(getKeys(*it));
+          uint32_t firstKey = metaKeys.getFirstValid();
+          uint32_t endKey = metaKeys.getEndValid();
+
+          if (hasEmbeddedFrames(*it)) {
+            uint64_t prevTime = 0;
+            for (uint32_t k = firstKey; k + 1 < endKey; k++) {
+              uint64_t kTime = metaKeys.getTime(k);
+              if (k != firstKey) {
+                uint32_t dur = kTime - prevTime;
+                if (dur > longestFrame) { longestFrame = dur; }
+                if (dur < shortestFrame) { shortestFrame = dur; }
+              }
+              prevTime = kTime;
+            }
+            shortestKey = shortestFrame;
+            longestKey = longestFrame;
+            shortestFrameCount = 1;
+            longestFrameCount = 1;
+          } else {
+            for (uint32_t k = firstKey; k + 1 < endKey; k++) {
+              uint64_t keyDur = metaKeys.getDuration(k);
+              uint64_t keyParts = metaKeys.getParts(k);
+              if (!keyDur || !keyParts) { continue; }
+              if (keyDur > longestKey) { longestKey = keyDur; }
+              if (keyDur < shortestKey) { shortestKey = keyDur; }
+              if (keyParts > longestFrameCount) { longestFrameCount = keyParts; }
+              if (keyParts < shortestFrameCount) { shortestFrameCount = keyParts; }
+              uint32_t frameDur = keyDur / keyParts;
+              if (frameDur > longestFrame) { longestFrame = frameDur; }
+              if (frameDur < shortestFrame) { shortestFrame = frameDur; }
+            }
+          }
+
+          trackJSON["keys"]["ms_min"] = shortestKey;
+          trackJSON["keys"]["ms_max"] = longestKey;
+          trackJSON["keys"]["frame_ms_min"] = shortestFrame;
+          trackJSON["keys"]["frame_ms_max"] = longestFrame;
+          trackJSON["keys"]["frames_min"] = shortestFrameCount;
+          trackJSON["keys"]["frames_max"] = longestFrameCount;
+          if (longestFrame > 500) {
+            trackJSON["issues"].append("unstable connection (" + std::to_string(longestFrame) + "ms frame)!");
+          }
+          if (shortestFrameCount < 6) {
+            trackJSON["issues"].append("unstable connection (" + std::to_string(shortestFrameCount) + " frame(s) in key)!");
+          }
+          if (shortestKey && longestKey > shortestKey * 1.30) {
+            trackJSON["issues"].append("unstable key interval (" + std::to_string(((longestKey / shortestKey) - 1) * 100) + "% variance)!");
+          }
+        }
       }
     }
     if (tracksOnly){
@@ -3592,8 +3706,24 @@ namespace DTSC{
     if (getMaxKeepAway()){res["maxkeepaway"] = getMaxKeepAway();}
     if (getLive()){
       res["live"] = 1u;
+      if (getVod()) {
+        res["type"] = "live+vod";
+        res["vod"] = 1u;
+      } else {
+        res["type"] = "live";
+      }
     }else{
       res["vod"] = 1u;
+      res["type"] = "vod";
+    }
+    if (getLive()) {
+      if (getUTCOffset()) {
+        res["unixoffset"] = getUTCOffset();
+      } else {
+        res["unixoffset"] = getBootMsOffset() + (Util::unixMS() - Util::bootMS());
+      }
+    } else if (getUTCOffset()) {
+      res["unixoffset"] = getUTCOffset();
     }
     res["version"] = DTSH_VERSION;
     if (getBufferWindow()){res["buffer_window"] = getBufferWindow();}

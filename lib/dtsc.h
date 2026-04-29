@@ -467,6 +467,8 @@ namespace DTSC{
     void setBps(size_t trackIdx, uint64_t bps);
     uint64_t getBps(size_t trackIdx) const;
 
+    uint64_t getQuality(size_t trackIdx) const;
+
     void setMaxBps(size_t trackIdx, uint64_t bps);
     uint64_t getMaxBps(size_t trackIdx) const;
 
@@ -581,7 +583,7 @@ namespace DTSC{
     void toFile(const std::string &uri) const;
     void send(Socket::Connection &conn, bool skypDynamic = false,
               std::set<size_t> selectedTracks = std::set<size_t>(), bool reID = false) const;
-    void toJSON(JSON::Value &res, bool skipDynamic = true, bool tracksOnly = false) const;
+    void toJSON(JSON::Value & res, bool skipDynamic = true, bool tracksOnly = false, bool privateData = false) const;
 
     std::string getStreamName() const{return streamName;}
 

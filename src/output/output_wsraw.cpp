@@ -118,6 +118,8 @@ namespace Mist{
     capa["url_rel"] = "/$.raw";
     capa["url_match"] = "/$.raw";
     capa["codecs"][0u][0u].append("+*");
+    capa["codecs"][0u][1u].append("+*");
+    capa["codecs"][0u][2u].append("+*");
 
     capa["methods"][0u]["handler"] = "ws";
     capa["methods"][0u]["type"] = "ws/video/raw";

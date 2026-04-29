@@ -520,10 +520,9 @@ namespace Mist{
         }
         r["data"]["play_rate_curr"] = "auto";
 
-        uint64_t prevTargetTime = targetTime();
         target_rate = 0.0; // Auto playback rate
         realTime = 1000;//set playback speed to default
-        resetTiming(prevTargetTime);
+        resetTiming(thisTime);
         maxSkipAhead = 0;//enabled automatic rate control
         stayLive = true;
 
@@ -708,6 +707,18 @@ namespace Mist{
           // On resume, restore the timing to be where it was when pausing
           // We don't know? Guess.
           resetTiming(lastPacketTime ? lastPacketTime : currentTime());
+        }
+        if (command.isMember("ff_add")) {
+          if (!forwardTo) { forwardTo = currentTime(); }
+          forwardTo += command["ff_add"].asInt();
+        }
+        if (forwardTo) {
+          if (forwardTo < currentTime()) {
+            resetTiming(forwardTo);
+            forwardTo = 0;
+          } else {
+            realTime = 0;
+          }
         }
       }
       return true;
