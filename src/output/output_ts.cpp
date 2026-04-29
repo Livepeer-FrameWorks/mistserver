@@ -289,7 +289,7 @@ namespace Mist{
           return;
         }
         size_t idx = M.trackIDToIndex(thisPacket.getTrackId(), getpid());
-        if (idx == INVALID_TRACK_ID || !M.getCodec(idx).size()) {
+        if (M.trackIDToIndex(idx == INVALID_TRACK_ID) || !M.getCodec(idx).size()){
           tsIn.initializeMetadata(meta, thisPacket.getTrackId());
         }
         bufferLivePacket(thisPacket);
