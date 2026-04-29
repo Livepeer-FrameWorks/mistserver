@@ -891,7 +891,7 @@ bool FLV::Tag::DTSCMetaInit(const DTSC::Meta &M, std::set<size_t> &selTracks){
     }
   }
   if (M.getVod()){
-    mArr->addContent(AMF::Object("duration", mediaLen / 1000.0, AMF::AMF0_NUMBER));
+    //mArr->addContent(AMF::Object("duration", mediaLen / 1000.0, AMF::AMF0_NUMBER));
   }
   //amfdata.getContentP(2)->addContent(trinfo);
 
