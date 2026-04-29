@@ -1080,7 +1080,9 @@ namespace DTSC{
 
     version = src.getMember("version").asInt();
 
-    if (src.hasMember("inputLocalVars")) { inputLocalVars.fromString(src.getMember("inputLocalVars").asString()); }
+    if (src.hasMember("inputLocalVars")){
+      inputLocalVars = JSON::fromString(src.getMember("inputLocalVars").asString());
+    }
 
     for (int i = 0; i < tNum; i++){
       addTrackFrom(src.getMember("tracks").getIndice(i));
@@ -1104,7 +1106,7 @@ namespace DTSC{
     trackList.setReady();
   }
 
-  void Meta::addTrackFrom(const DTSC::Scan &trak){
+  void Meta::addTrackFrom(const DTSC::Scan &trak, bool noLastMs){
     char *fragStor = 0;
     char *keyStor = 0;
     char *partStor = 0;
@@ -1146,9 +1148,14 @@ namespace DTSC{
     setLang(tIdx, trak.getMember("lang").asString());
     setID(tIdx, trak.getMember("trackid").asInt());
     setFirstms(tIdx, trak.getMember("firstms").asInt());
-    setLastms(tIdx, trak.getMember("lastms").asInt());
-    if (trak.hasMember("nowms")){
-      setNowms(tIdx, trak.getMember("nowms").asInt());
+    if (noLastMs){
+      setLastms(tIdx, 0);
+      setNowms(tIdx, 0);
+    }else{
+      setLastms(tIdx, trak.getMember("lastms").asInt());
+      if (trak.hasMember("nowms")){
+        setNowms(tIdx, trak.getMember("nowms").asInt());
+      }
     }
     setBps(tIdx, trak.getMember("bps").asInt());
     setMaxBps(tIdx, trak.getMember("maxbps").asInt());
@@ -2402,9 +2409,14 @@ namespace DTSC{
     DTSC::Track &t = tracks.at(trackIdx);
     std::string codec = t.track.getPointer(t.trackCodecField);
     if (codec == "H264") {
+      if (initLen >= 4 && !init[0] && !init[1] && !init[2] && init[3] == 1){
+        // Annex B style init data, should be converted
+        return Meta::setInit(trackIdx, h264::initFromAnnexB(init, initLen));
+      }
       h264::initData iData(init, initLen);
       if (!iData) {
         WARN_MSG("Invalid H264 init data received!");
+        Util::hexLog(init, initLen, DLVL_WARN);
       } else {
         if (!t.track.getInt(t.trackWidthField) || !t.track.getInt(t.trackHeightField)) {
           t.track.setInt(t.trackWidthField, iData.width);
@@ -2943,7 +2955,7 @@ namespace DTSC{
       lastTime = t;
       curJitter = 0;
     }
-    if (t >= lastTime + 2500) {
+    if (t > lastTime + 1000) {
       ++x;
       trueTime[x % 8] = curMs;
       packTime[x % 8] = t;
@@ -3076,9 +3088,9 @@ namespace DTSC{
         // Update duration of previous key too
         uint64_t prevKeyDuration = packTime - t.keys.getInt(t.keyTimeField, newKeyNum - 1);
         t.keys.setInt(t.keyDurationField, prevKeyDuration, newKeyNum - 1);
-        // if (prevKeyDuration) {
-        //   setEfpks(tNumber, (t.keys.getInt(t.keyPartsField, newKeyNum - 1) * 1000000) / prevKeyDuration);
-        // }
+        if (prevKeyDuration) {
+          setEfpks(tNumber, (t.keys.getInt(t.keyPartsField, newKeyNum - 1) * 1000000) / prevKeyDuration);
+        }
       }else{
         t.keys.setInt(t.keyFirstPartField, 0, newKeyNum);
       }
@@ -3333,6 +3345,7 @@ namespace DTSC{
       t.frames.deleteRecords(1);
       setFirstms(trackIdx, t.frames.getInt(t.framesTimeField, t.frames.getDeleted()));
     }
+    uint64_t begPos = t.frames.getDeleted();
     t.frames.setInt(t.framesTimeField, time, endPos);
     if (t.framesDataField.size < dataSize){dataSize = t.framesDataField.size;}
     memcpy(t.frames.getPointer(t.framesDataField, endPos), data, dataSize);
@@ -3341,7 +3354,9 @@ namespace DTSC{
     setMinKeepAway(trackIdx, theJitters[trackIdx].addPack(time));
     t.track.setInt(t.trackLastmsField, time);
     t.track.setInt(t.trackNowmsField, time);
-    if (t.fpsCalc.addTime(time)) { t.track.setInt(t.trackEfpksField, t.fpsCalc.fpks); }
+    if (begPos != endPos) {
+      t.track.setInt(t.trackEfpksField, 1000000 * (endPos - begPos) / (time - t.frames.getInt(t.framesTimeField, begPos)));
+    }
     markUpdated(trackIdx);
   }
 
@@ -3526,6 +3541,7 @@ namespace DTSC{
       trackJSON["idx"] = (uint64_t)*it;
       trackJSON["trackid"] = (uint64_t)getID(*it);
       trackJSON["init"] = getInit(*it);
+      trackJSON["init"].raw();
       trackJSON["firstms"] = getFirstms(*it);
       trackJSON["lastms"] = getLastms(*it);
       trackJSON["nowms"] = getNowms(*it);
@@ -3952,8 +3968,6 @@ namespace DTSC{
       if (!pages.getInt(t.pageAvailField, i)) { continue; }
       if (pages.getInt(t.pageFirstTimeField, i) > time) {
         nextPage = pages.getInt(t.pageFirstKeyField, i);
-        INFO_MSG("next page %" PRId64 ": %" PRIu64 " <-> %" PRIu64, pages.getInt(t.pageFirstKeyField, i),
-                 pages.getInt(t.pageFirstTimeField, i), time);
         break;
       }
       res = i;
