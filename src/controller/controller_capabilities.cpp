@@ -8,6 +8,13 @@
 #include <stdio.h>
 #include <string.h>
 #include <sys/statvfs.h> //for shm space check
+#ifdef __APPLE__
+#include <sys/sysctl.h>
+#include <mach/mach.h>
+#include <mach/host_info.h>
+#include <mach/mach_host.h>
+#include <mach/processor_info.h>
+#endif
 
 
 uint64_t memTotal = 0, memFree = 0;
@@ -62,9 +69,34 @@ namespace Controller{
 
   /// Thread that updates system load information once per second
   size_t updateLoad() {
+#ifndef __APPLE__
     char line[300];
+#endif
     // Get CPU info just once
     if (!cpuInfo){
+#ifdef __APPLE__
+      char brand[256] = "Unknown";
+      size_t len = sizeof(brand);
+      sysctlbyname("machdep.cpu.brand_string", brand, &len, NULL, 0);
+      int physCores = 1, logCores = 1;
+      len = sizeof(int);
+      sysctlbyname("hw.physicalcpu", &physCores, &len, NULL, 0);
+      len = sizeof(int);
+      sysctlbyname("hw.logicalcpu", &logCores, &len, NULL, 0);
+      uint64_t cpuFreq = 0;
+      len = sizeof(cpuFreq);
+      // hw.cpufrequency may not be available on Apple Silicon
+      sysctlbyname("hw.cpufrequency", &cpuFreq, &len, NULL, 0);
+      int mhz = cpuFreq / 1000000;
+      JSON::Value thiscpu;
+      thiscpu["model"] = std::string(brand);
+      thiscpu["cores"] = physCores;
+      thiscpu["threads"] = logCores;
+      thiscpu["mhz"] = mhz;
+      cpuInfo["cpu"].append(thiscpu);
+      cpuInfo["speed"] = physCores * mhz;
+      cpuInfo["threads"] = logCores;
+#else
       std::ifstream cpuinfo("/proc/cpuinfo");
       if (cpuinfo){
         std::map<int, cpudata> cpus;
@@ -111,9 +143,33 @@ namespace Controller{
         cpuInfo["speed"] = total_speed;
         cpuInfo["threads"] = total_threads;
       }
+#endif
     }
     // Get RAM/swap usage stats
     {
+#ifdef __APPLE__
+      int64_t physMem = 0;
+      size_t len = sizeof(physMem);
+      sysctlbyname("hw.memsize", &physMem, &len, NULL, 0);
+      memTotal = physMem / (1024 * 1024);
+      vm_size_t pageSize;
+      mach_port_t machPort = mach_host_self();
+      host_page_size(machPort, &pageSize);
+      vm_statistics64_data_t vmStats;
+      mach_msg_type_number_t count = HOST_VM_INFO64_COUNT;
+      if (host_statistics64(machPort, HOST_VM_INFO64, (host_info64_t)&vmStats, &count) == KERN_SUCCESS){
+        memFree = ((uint64_t)vmStats.free_count * pageSize) / (1024 * 1024);
+        bufcache = ((uint64_t)(vmStats.external_page_count + vmStats.purgeable_count) * pageSize) / (1024 * 1024);
+        memUsed = memTotal - memFree - bufcache;
+        if (memTotal > 0){memK = (memUsed * 1000) / memTotal;}
+      }
+      struct xsw_usage swapUsage;
+      len = sizeof(swapUsage);
+      if (sysctlbyname("vm.swapusage", &swapUsage, &len, NULL, 0) == 0){
+        swapTotal = swapUsage.xsu_total / (1024 * 1024);
+        swapFree = swapUsage.xsu_avail / (1024 * 1024);
+      }
+#else
       std::ifstream meminfo("/proc/meminfo");
       if (meminfo) {
         bufcache = 0;
@@ -138,6 +194,7 @@ namespace Controller{
         memUsed = memTotal - memFree - bufcache;
         memK = (memUsed * 1000) / memTotal;
       }
+#endif
     }
     // Get shared memory stats
     {
@@ -154,6 +211,14 @@ namespace Controller{
     }
     // Get load averages
     {
+#ifdef __APPLE__
+      double lavg[3];
+      if (getloadavg(lavg, 3) == 3){
+        load_1 = lavg[0];
+        load_5 = lavg[1];
+        load_15 = lavg[2];
+      }
+#else
       std::ifstream loadavg("/proc/loadavg");
       if (loadavg) {
         loadavg.getline(line, 300);
@@ -164,9 +229,35 @@ namespace Controller{
           load_15 = 0;
         }
       }
+#endif
     }
     // Get CPU usage
     {
+#ifdef __APPLE__
+      natural_t numCPUs = 0;
+      processor_info_array_t cpuLoadInfo;
+      mach_msg_type_number_t infoCount;
+      if (host_processor_info(mach_host_self(), PROCESSOR_CPU_LOAD_INFO, &numCPUs, &cpuLoadInfo, &infoCount) == KERN_SUCCESS){
+        uint64_t totalUser = 0, totalSystem = 0, totalIdle = 0, totalNice = 0;
+        for (natural_t i = 0; i < numCPUs; i++){
+          totalUser += cpuLoadInfo[CPU_STATE_MAX * i + CPU_STATE_USER];
+          totalSystem += cpuLoadInfo[CPU_STATE_MAX * i + CPU_STATE_SYSTEM];
+          totalIdle += cpuLoadInfo[CPU_STATE_MAX * i + CPU_STATE_IDLE];
+          totalNice += cpuLoadInfo[CPU_STATE_MAX * i + CPU_STATE_NICE];
+        }
+        c_user = totalUser;
+        c_nice = totalNice;
+        c_syst = totalSystem;
+        c_idle = totalIdle;
+        c_total = c_user + c_nice + c_syst + c_idle;
+        if (cl_total && cl_idle <= c_idle && cl_total < c_total){
+          cpuK = 1000 - ((c_idle - cl_idle) * 1000) / (c_total - cl_total);
+        }
+        cl_total = c_total;
+        cl_idle = c_idle;
+        vm_deallocate(mach_task_self(), (vm_address_t)cpuLoadInfo, infoCount * sizeof(integer_t));
+      }
+#else
       std::ifstream cpustat("/proc/stat");
       if (cpustat) {
         while (cpustat.getline(line, 300)) {
@@ -181,6 +272,7 @@ namespace Controller{
           }
         }
       }
+#endif
     }
     return 1000;
   }
@@ -302,6 +394,14 @@ namespace Controller{
         "will cause the stream source to not be changed from the normally configured stream "
         "source.";
 
+    trgs["STREAM_PROCESS"]["when"] = "When a stream's process list is first loaded, before processes start";
+    trgs["STREAM_PROCESS"]["stream_specific"] = true;
+    trgs["STREAM_PROCESS"]["payload"] = "stream name (string)";
+    trgs["STREAM_PROCESS"]["response"] = "when-blocking";
+    trgs["STREAM_PROCESS"]["response_action"] =
+        "A non-empty response (JSON array of process objects) will override the configured "
+        "processes for this stream instance. An empty response uses the default configured processes.";
+
     trgs["STREAM_LOAD"]["when"] = "Before a stream input is loaded";
     trgs["STREAM_LOAD"]["stream_specific"] = true;
     trgs["STREAM_LOAD"]["payload"] = "stream name (string)";
@@ -363,6 +463,17 @@ namespace Controller{
     trgs["PUSH_INPUT_CLOSE"]["response"] = "ignored";
     trgs["PUSH_INPUT_CLOSE"]["response_action"] = "None.";
 
+    trgs["PROCESS_EXIT"]["when"] =
+      "When a process exits on its own (clean finish, error, or crash). Does not fire for config-driven stops.";
+    trgs["PROCESS_EXIT"]["stream_specific"] = true;
+    trgs["PROCESS_EXIT"]["payload"] =
+      "stream name (string)\nprocess type (string)\nprocess config (JSON string)\npid (integer)\nexit code "
+      "(integer)\nboot count (integer)\nstatus (string: clean, retrying, disabled, unrecoverable; exit classification "
+      "only, not guaranteed restart action)\nmachine-readable exit reason (string)\nhuman-readable exit reason "
+      "(string)";
+    trgs["PROCESS_EXIT"]["response"] = "ignored";
+    trgs["PROCESS_EXIT"]["response_action"] = "None.";
+
     trgs["RTMP_PUSH_REWRITE"]["when"] =
         "On incoming RTMP pushes, allows rewriting the RTMP URL to/from custom formatting";
     trgs["RTMP_PUSH_REWRITE"]["stream_specific"] = false;
@@ -401,6 +512,13 @@ namespace Controller{
         "of last media packet (integer)\nmachine-readable reason for exit (string, enum)\nhuman-readable reason for exit (string)";
     trgs["RECORDING_END"]["response"] = "ignored";
     trgs["RECORDING_END"]["response_action"] = "None.";
+
+    trgs["RECORDING_SEGMENT"]["when"] = "When a segment is recorded to disk as part of a DVR workflow";
+    trgs["RECORDING_SEGMENT"]["stream_specific"] = true;
+    trgs["RECORDING_SEGMENT"]["payload"] =
+        "stream name (string)\npath to segment (string)\nstart time (integer)\nend time (integer)";
+    trgs["RECORDING_SEGMENT"]["response"] = "ignored";
+    trgs["RECORDING_SEGMENT"]["response_action"] = "None.";
 
     trgs["OUTPUT_END"]["when"] = "When an output finishes";
     trgs["OUTPUT_END"]["stream_specific"] = true;
@@ -494,6 +612,24 @@ namespace Controller{
     trgs["LIVEPEER_SEGMENT_REJECTED"]["payload"] = "transcode options (json string)\nraw segment that was rejected (base64 encoded)\ninformation about the source track (json string)\nfirst attempted broadcaster URL\nsecond attempted broadcaster URL or the text \"N/A\" if no secondary was available";
     trgs["LIVEPEER_SEGMENT_REJECTED"]["response"] = "ignored";
     trgs["LIVEPEER_SEGMENT_REJECTED"]["response_action"] = "None.";
+
+    trgs["LIVEPEER_SEGMENT_COMPLETE"]["when"] = "After a source segment has been successfully transcoded by Livepeer and all renditions have been received.";
+    trgs["LIVEPEER_SEGMENT_COMPLETE"]["stream_specific"] = true;
+    trgs["LIVEPEER_SEGMENT_COMPLETE"]["payload"] = "stream name (string)\nlivepeer session ID (string)\nsegment number (integer)\nsegment start ms (integer)\nsegment duration ms (integer)\nsource width (integer)\nsource height (integer)\ninput bytes (integer)\noutput bytes total (integer)\nrendition count (integer)\nattempt count (integer)\nbroadcaster URL (string)\nturnaround ms (integer)\nspeed factor (float)\nrenditions (JSON array with name and bytes per rendition)";
+    trgs["LIVEPEER_SEGMENT_COMPLETE"]["response"] = "ignored";
+    trgs["LIVEPEER_SEGMENT_COMPLETE"]["response_action"] = "None.";
+
+    trgs["PROCESS_AV_VIRTUAL_SEGMENT_COMPLETE"]["when"] = "Every 5 seconds during MistProcAV operation and once on exit.";
+    trgs["PROCESS_AV_VIRTUAL_SEGMENT_COMPLETE"]["stream_specific"] = true;
+    trgs["PROCESS_AV_VIRTUAL_SEGMENT_COMPLETE"]["payload"] = "stream name (string)\ntrack type (audio or video)\nseconds since last trigger (integer)\ninput frame count cumulative (integer)\noutput frame count cumulative (integer)\ninput frames this window (integer)\noutput frames this window (integer)\ninput bytes this window (integer)\noutput bytes this window (integer)\ndecode us per frame (integer)\ntransform us per frame (integer)\nencode us per frame (integer)\ninput codec short (string)\noutput codec short (string)\ninput width (integer)\ninput height (integer)\noutput width (integer)\noutput height (integer)\ninput fpks (integer)\noutput fps measured (float)\nsample rate (integer)\nchannels (integer)\nsource timestamp ms (integer)\nsink timestamp ms (integer)\nsource advanced ms (integer)\nsink advanced ms (integer)\nreal-time factor in (float)\nreal-time factor out (float)\npipeline lag ms (integer)\noutput bitrate bps (integer)\nis_final (0 or 1)";
+    trgs["PROCESS_AV_VIRTUAL_SEGMENT_COMPLETE"]["response"] = "ignored";
+    trgs["PROCESS_AV_VIRTUAL_SEGMENT_COMPLETE"]["response_action"] = "None.";
+
+    trgs["THUMBNAIL_UPDATED"]["when"] = "When MistProcThumbs regenerates the sprite sheet and preview frame.";
+    trgs["THUMBNAIL_UPDATED"]["stream_specific"] = true;
+    trgs["THUMBNAIL_UPDATED"]["payload"] = "stream name (string)\npath to poster.jpg (string)\npath to sprite.jpg (string)\npath to sprite.vtt (string)";
+    trgs["THUMBNAIL_UPDATED"]["response"] = "ignored";
+    trgs["THUMBNAIL_UPDATED"]["response_action"] = "None.";
   }
 
   /// Acquire list of available protocols, storing in global 'capabilities' JSON::Value.
@@ -510,7 +646,8 @@ namespace Controller{
         if (capabilities["connectors"].isMember((*it).substr(8))){continue;}
         arg_one = Util::getMyPath() + (*it);
         conn_args[0] = arg_one.c_str();
-        capabilities["connectors"][(*it).substr(8)].fromString(Util::Procs::getOutputOf((char **)conn_args));
+        capabilities["connectors"][(*it).substr(8)] =
+            JSON::fromString(Util::Procs::getOutputOf((char **)conn_args));
         if (capabilities["connectors"][(*it).substr(8)].size() < 1){
           capabilities["connectors"].removeMember((*it).substr(8));
         }
@@ -519,7 +656,8 @@ namespace Controller{
         arg_one = Util::getMyPath() + (*it);
         conn_args[0] = arg_one.c_str();
         std::string entryName = (*it).substr(7);
-        capabilities["connectors"][entryName].fromString(Util::Procs::getOutputOf((char **)conn_args));
+        capabilities["connectors"][entryName] =
+            JSON::fromString(Util::Procs::getOutputOf((char **)conn_args));
         if (capabilities["connectors"][entryName].size() < 1){
           capabilities["connectors"].removeMember(entryName);
         }else if (capabilities["connectors"][entryName]["version"].asStringRef() != PACKAGE_VERSION){
@@ -544,7 +682,7 @@ namespace Controller{
         conn_args[0] = arg_one.c_str();
         std::string entry = (*it).substr(8);
         JSON::Value & C = capabilities["processes"][entry];
-        C.fromString(Util::Procs::getOutputOf((char **)conn_args));
+        C = JSON::fromString(Util::Procs::getOutputOf((char **)conn_args));
         // Add entry to inputs if type is standalone
         if (C.isMember("type") && C["type"].asStringRef() == "standalone") {
           JSON::Value & I = capabilities["inputs"][entry];
@@ -569,7 +707,7 @@ namespace Controller{
         arg_one = Util::getMyPath() + (*it);
         conn_args[0] = arg_one.c_str();
         std::string entryName = (*it).substr(6);
-        capabilities["inputs"][entryName].fromString(Util::Procs::getOutputOf((char **)conn_args));
+        capabilities["inputs"][entryName] = JSON::fromString(Util::Procs::getOutputOf((char **)conn_args));
         if (capabilities["inputs"][entryName].size() < 1){
           capabilities["inputs"].removeMember((*it).substr(6));
         }else if (capabilities["inputs"][entryName]["version"].asStringRef() != PACKAGE_VERSION){

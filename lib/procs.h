@@ -3,10 +3,11 @@
 
 #pragma once
 #include <deque>
+#include <map>
 #include <set>
+#include <stdint.h>
 #include <string>
 #include <unistd.h>
-#include <stdint.h> 
 
 /// Contains utility code, not directly related to streaming media
 namespace Util{
@@ -37,6 +38,8 @@ namespace Util{
     static bool isRunning(pid_t pid);
     static void forget(pid_t pid);
     static void remember(pid_t pid);
+    static void ignoreExitCode(pid_t pid); ///< Discards any stored exit code and ignores the next reap for this pid
+    static bool getExitCode(pid_t pid, int & code); ///< Returns true and sets code for a reaped process, false if not found
     static std::set<int> socketList; ///< Holds sockets that should be closed before forking
     static int kill_timeout;
   };

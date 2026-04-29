@@ -1434,10 +1434,12 @@ int main(int argc, char *argv[]) {
   } else {
     // read configuration
     if (config.getString("configuration") != "-") {
-      Mist::opt.fromString(config.getString("configuration"));
+      Mist::opt = JSON::fromString(config.getString("configuration"));
     } else {
+      std::string json, line;
       INFO_MSG("Reading configuration from standard input");
-      Mist::opt.fromStream(std::cin);
+      while (std::getline(std::cin, line)) { json.append(line); }
+      Mist::opt = JSON::fromString(json.c_str());
     }
   }
 

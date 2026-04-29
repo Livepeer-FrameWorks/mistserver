@@ -1,4 +1,5 @@
 #include "output.h"
+#include "dtsc.h"
 
 #include <mist/bitfields.h>
 #include <mist/defines.h>
@@ -148,10 +149,10 @@ namespace Mist{
     // If we have a target, scan for trailing ?, remove it, parse into targetParams
     if (config->hasOption("target")){
       std::string tgt = config->getString("target");
-      if (tgt.rfind('?') != std::string::npos){
-        INFO_MSG("Stripping target options: %s", tgt.substr(tgt.rfind('?') + 1).c_str());
-        HTTP::parseVars(tgt.substr(tgt.rfind('?') + 1), targetParams);
-        config->getOption("target", true).append(tgt.substr(0, tgt.rfind('?')));
+      if (tgt.rfind('#') != std::string::npos){
+        INFO_MSG("Stripping target options: %s", tgt.substr(tgt.rfind('#') + 1).c_str());
+        HTTP::parseVars(tgt.substr(tgt.rfind('#') + 1), targetParams);
+        config->getOption("target", true).append(tgt.substr(0, tgt.rfind('#')));
       }
     }
     if (targetParams.count("rate")){
@@ -232,7 +233,7 @@ namespace Mist{
   void Output::initialize(){
     MEDIUM_MSG("initialize");
     if (isInitialized){return;}
-    if (!isPushing() && Triggers::shouldTrigger("PLAY_REWRITE", streamName)){
+    if (!isPushing() && DTSC::trackValidMask == TRACK_VALID_EXT_HUMAN && Triggers::shouldTrigger("PLAY_REWRITE", streamName)){
       std::string payload = streamName + "\n" + getConnectedHost() + "\n" + capa["name"].asStringRef() + "\n" + reqUrl;
       std::string newStreamName = streamName;
       Triggers::doTrigger("PLAY_REWRITE", payload, streamName, false, newStreamName);
@@ -862,19 +863,15 @@ namespace Mist{
   /// Return the end time of the selected tracks, or 0 if unknown or live.
   /// Returns the end time of latest track if nothing is selected.
   /// Returns zero if no tracks exist.
-  uint64_t Output::endTime(){
-    std::set<size_t> validTracks = M.getValidTracks();
-    if (!validTracks.size()){return 0;}
+  uint64_t Output::endTime() {
     uint64_t end = 0;
-    if (userSelect.size()){
-      for (std::map<size_t, Comms::Users>::iterator it = userSelect.begin(); it != userSelect.end(); it++){
-        if (M.trackValid(it->first) && end < M.getLastms(it->first)){
-          end = meta.getLastms(it->first);
-        }
+    if (userSelect.size()) {
+      for (const auto & it : userSelect) {
+        if (M.trackValid(it.first) && end < M.getLastms(it.first)) { end = meta.getLastms(it.first); }
       }
-    }else{
-      for (std::set<size_t>::iterator it = validTracks.begin(); it != validTracks.end(); it++){
-        if (end < meta.getLastms(*it)){end = meta.getLastms(*it);}
+    } else {
+      for (const auto & T : M.getValidTracks()) {
+        if (end < meta.getLastms(T)) { end = meta.getLastms(T); }
       }
     }
     return end;
@@ -1488,19 +1485,19 @@ namespace Mist{
       if (lMs - mKa - needsLookAhead > cTime + 50){
         // We need to speed up!
         uint64_t diff = (lMs - mKa - needsLookAhead) - cTime;
-        if (!rateOnly && diff > 3000){
+        if (!rateOnly && diff > 2000){
           noReturn = true;
           newSpeed = 1000;
         }else if (diff > 1000){
-          newSpeed = 750;
+          newSpeed = 400;
         }else if (diff > 500){
-          newSpeed = 900;
+          newSpeed = 600;
         }else{
-          newSpeed = 950;
+          newSpeed = 800;
         }
       }
       if (realTime != newSpeed){
-        VERYHIGH_MSG("Changing playback speed from %" PRIu64 " to %" PRIu64 "(%" PRIu64 " ms LA, %" PRIu64 " ms mKA)", realTime, newSpeed, needsLookAhead, mKa);
+        VERYHIGH_MSG("Changing playback speed from %" PRIu64 " to %" PRIu64 "(%" PRIu64 " ms LA, %" PRIu64 " ms mKA) - " PRETTY_PRINT_MSTIME " / " PRETTY_PRINT_MSTIME " -" PRETTY_PRINT_MSTIME " from live point", realTime, newSpeed, needsLookAhead, mKa, PRETTY_ARG_MSTIME(cTime), PRETTY_ARG_MSTIME(lMs), PRETTY_ARG_MSTIME(lMs - cTime));
         resetTiming(cTime);
         realTime = newSpeed;
       }
@@ -1653,16 +1650,12 @@ namespace Mist{
     const char* origTargetPtr = getenv("MST_ORIG_TARGET");
     if (origTargetPtr){
       origTarget = origTargetPtr;
-      if (origTarget.rfind('?') != std::string::npos){
+      if (origTarget.rfind('#') != std::string::npos){
         std::map<std::string, std::string> tmpParams;
-        HTTP::parseVars(origTarget.substr(origTarget.rfind('?') + 1), tmpParams);
-        origTarget.erase(origTarget.rfind('?'));
-        if (tmpParams.count("m3u8")){
-          targetParams["m3u8"] = tmpParams["m3u8"];
-        }
-        if (tmpParams.count("segment")){
-          targetParams["segment"] = tmpParams["segment"];
-        }
+        HTTP::parseVars(HTTP::URL(origTarget).frag, tmpParams);
+        origTarget.erase(origTarget.rfind('#'));
+        if (tmpParams.count("m3u8")) { targetParams["m3u8"] = tmpParams["m3u8"]; }
+        if (tmpParams.count("segment")) { targetParams["segment"] = tmpParams["segment"]; }
       }
     }else if (config->hasOption("target")){
       origTarget = config->getString("target");
@@ -1986,10 +1979,11 @@ namespace Mist{
         if (suggestedWait){
           // No packet prepared
           ++prepFalse;
-          if (realTime) {
+          if (realTime){
             ++timingBootMs;
-            if (timingBootMs > thisBootMs) { timingBootMs = thisBootMs; }
+            if (timingBootMs > thisBootMs){ timingBootMs = thisBootMs; }
           }
+          if (lastReadAttemptWasAtLivePoint){ atLivePoint(); }
         }else{
           // Packet prepared
           // End point reached?
@@ -2104,6 +2098,11 @@ namespace Mist{
               }
             }
 
+            if (isRecordingToFile && Triggers::shouldTrigger("RECORDING_SEGMENT", streamName)){
+              std::string payload = streamName + "\n" + currentTarget + "\n" + JSON::Value(lastPacketTime - currentStartTime).asString() + "\n" + JSON::Value(currentStartTime).asString() + "\n" + JSON::Value(lastPacketTime).asString();
+              Triggers::doTrigger("RECORDING_SEGMENT", payload, streamName);
+            }
+
             // Keep track of filenames written, so that they can be added to the playlist file
             std::string newTarget;
             if (targetParams.count("segment")){
@@ -2193,6 +2192,11 @@ namespace Mist{
       }
     }
     if (myConn && myConn.isChunkedMode()) { myConn.SendNow(0, 0); }
+
+    if (isRecordingToFile && Triggers::shouldTrigger("RECORDING_SEGMENT", streamName)){
+      std::string payload = streamName + "\n" + currentTarget + "\n" + JSON::Value(lastPacketTime - currentStartTime).asString() + "\n" + JSON::Value(currentStartTime).asString() + "\n" + JSON::Value(lastPacketTime).asString();
+      Triggers::doTrigger("RECORDING_SEGMENT", payload, streamName);
+    }
 
     if (isPushing()) {
       // Ensure pushed tracks are unclaimed on (clean) shutdown
@@ -2380,6 +2384,7 @@ namespace Mist{
   /// \returns true if thisPacket was filled with the next packet.
   /// \returns 0 if a packet was filled, suggested wait time in milliseconds otherwise
   size_t Output::prepareNext(){
+    lastReadAttemptWasAtLivePoint = false;
     size_t bufSize = buffer.size();
     if (!bufSize){
       thisPacket.null();
@@ -2432,6 +2437,12 @@ namespace Mist{
         return 1;
       }
 
+      // Check if we've reached the "dead point" - we're before the earliest buffer point!
+      if (nxt.time < M.getFirstms(nxt.tid)){
+        atDeadPoint();
+        return 2000;
+      }
+
       // Ensure we have the lookahead available
       if (needsLookAhead && M.getLive() && M.getNowms(nxt.tid) < nxt.time + needsLookAhead){
         int64_t waitTime = (nxt.time + needsLookAhead) - M.getNowms(nxt.tid);
@@ -2452,6 +2463,7 @@ namespace Mist{
               buffer.replaceFirst(nxt);
               playbackSleep(5);
             }
+            lastReadAttemptWasAtLivePoint = true;
             return 5;
           }
         }
@@ -2642,8 +2654,9 @@ namespace Mist{
       //That means we're waiting for data to show up, somewhere.
       
       // If it's a live stream, request to be signalled on packet availability
-      if (M.getLive()){
+      if (M.getLive()) {
         userSelect[nxt.tid].setKeyNum(0xFFFFFFFFFFFFFFFFull);
+        lastReadAttemptWasAtLivePoint = true;
       }
 
       // If now-ms is higher than current, we know we can safely return this packet at least
@@ -2654,6 +2667,7 @@ namespace Mist{
         buffer.moveFirstToEnd();
         continue;
       }
+
 
       // Set current packet to unavailable so that we fall back to the heuristic for next packet timing
       if (!nxt.unavailable){
@@ -2798,6 +2812,7 @@ namespace Mist{
     // Disable stats for HTTP internal output
     if (Comms::sessionStreamInfoMode == SESS_HTTP_DISABLED && capa["name"].asStringRef() == "HTTP"){return;}
     if (getenv("NOSESS")) { return; } // Disable sessions and stats if NOSESS env variable is set
+    if (capa["name"].asStringRef() == "JPG") { return; }
 
     // Set the token to the pid for outputs which do not generate it in the requestHandler
     if (!tkn.size()){ tkn = JSON::Value(getpid()).asString(); }

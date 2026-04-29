@@ -16,6 +16,14 @@
 #include <string>
 #include <sys/stat.h>
 
+#ifdef __APPLE__
+#include <libproc.h>
+#include <mach/mach.h>
+#include <mach/processor_info.h>
+#else
+#include <unistd.h>
+#endif
+
 #ifndef TIMEOUTMULTIPLIER
 #define TIMEOUTMULTIPLIER 2
 #endif
@@ -25,12 +33,21 @@
 #define FRAG_BOOT 3
 /*LTS-END*/
 
+//For USR2 signal handling
+Mist::InputBuffer* myBuf = 0;
+void usr2sig_handler(int signum){myBuf->onDebug();}
+
 namespace Mist{
   InputBuffer::InputBuffer(Util::Config *cfg) : Input(cfg){
     lastBPS = 0;
     firstProcTime = 0;
     lastProcTime = 0;
     allProcsRunning = false;
+    processOverrideResolved = false;
+    effectiveSpeed = 0;
+    lastRateUpdateMs = 0;
+    sysCpuIdlePrev = 0;
+    sysCpuTotalPrev = 0;
 
     capa["optional"].removeMember("realtime");
 
@@ -177,6 +194,56 @@ namespace Mist{
       DTSC::Meta cleanMeta(streamName, false);
       cleanMeta.setMaster(true);
     }
+  }
+
+  /// Intended to be triggered by USR2 signals, this function prints internal state information as log messages.
+  void InputBuffer::onDebug(){
+    //Temporarily reset debug level to INFO so the messages are visible no matter what
+    int32_t dbgOld = Util::printDebugLevel;
+    Util::printDebugLevel = DLVL_INFO;
+    //Print some helpful debugging messages
+   
+    //Process info
+    std::set<size_t> gPids;
+    INFO_MSG("There are %zu running processes:", runningProcs.size());
+    for (std::map<std::string, pid_t>::iterator it = runningProcs.begin(); it != runningProcs.end(); it++){
+      INFO_MSG("Process PID %d: %s", it->second, it->first.c_str());
+      gPids.insert(it->second);
+    }
+
+    size_t cUsers = 0;
+    bool hPush = false;
+    size_t lastUser = users.recordCount();
+    for (size_t i = 0; i < lastUser; ++i){
+      if (users.getStatus(i) == COMM_STATUS_INVALID){continue;}
+
+      if (!(users.getStatus(i) & COMM_STATUS_DISCONNECT) && (users.getStatus(i) & COMM_STATUS_SOURCE)){
+        INFO_MSG("Connection %zu (PID %" PRIu32 ") is a source for track %" PRIu32, i, users.getPid(i), users.getTrack(i));
+        if (M && M.trackValid(users.getTrack(i)) && !gPids.count(users.getPid(i))){hPush = true;}
+      }
+
+      if (!(users.getStatus(i) & COMM_STATUS_DONOTTRACK) && !gPids.count(users.getPid(i))){++cUsers;}
+    }
+    INFO_MSG("%zu active connections to tracks", cUsers);
+    INFO_MSG("Push active (non-process): %s", hPush?"Yes":"No");
+    if (M){
+      uint64_t time = Util::bootSecs();
+      std::set<size_t> aTrks = M.getValidTracks();
+      INFO_MSG("There are %zu active tracks:", aTrks.size());
+      for (std::set<size_t>::iterator it = aTrks.begin(); it != aTrks.end(); it++){
+        INFO_MSG("Track %zu: %s", *it, M.getTrackIdentifier(*it).c_str());
+        INFO_MSG("  Contains timestamps %" PRIu64 " - %" PRIu64, M.getFirstms(*it), M.getLastms(*it));
+        INFO_MSG("  Last updated %" PRId64 "s ago", (int64_t)(time-M.getLastUpdated(*it)));
+      }
+      JSON::Value stream_details;
+      M.getHealthJSON(stream_details);
+      INFO_MSG("Health: %s", stream_details.toString().c_str());
+    }else{
+      INFO_MSG("The buffer's metadata is disconnected or uninitialized!");
+    }
+
+    //Change debug level back to what it was
+    Util::printDebugLevel = dbgOld;
   }
 
   /// \triggers
@@ -462,6 +529,183 @@ namespace Mist{
     updateMeta();
   }
 
+  void InputBuffer::updateProcessingRate(){
+    if (runningProcs.empty()){return;}
+    uint64_t now = Util::bootMS();
+    if (lastRateUpdateMs && now - lastRateUpdateMs < 1000){return;}
+    lastRateUpdateMs = now;
+
+    // Read realtime_speed cap from stream config
+    uint64_t realtimeSpeed = 0;
+    {
+      std::string strName = config->getString("streamname");
+      Util::sanitizeName(strName);
+      strName = strName.substr(0, (strName.find_first_of("+ ")));
+      char tmpBuf[NAME_BUFFER_SIZE];
+      snprintf(tmpBuf, NAME_BUFFER_SIZE, SHM_STREAM_CONF, strName.c_str());
+      Util::DTSCShmReader rStrmConf(tmpBuf);
+      DTSC::Scan streamCfg = rStrmConf.getScan();
+      if (streamCfg && streamCfg.getMember("realtime_speed")){
+        realtimeSpeed = streamCfg.getMember("realtime_speed").asInt();
+      }
+    }
+    if (realtimeSpeed <= 1){return;}
+
+    // Phase 1: System CPU — raw ticks converted to microseconds
+    double systemCpu = 0.0;
+    uint64_t sysTotalDelta = 0;
+    {
+      uint64_t curIdle = 0, curTotal = 0;
+#ifdef __APPLE__
+      natural_t numCPUs = 0;
+      processor_info_array_t cpuLoadInfo;
+      mach_msg_type_number_t infoCount;
+      if (host_processor_info(mach_host_self(), PROCESSOR_CPU_LOAD_INFO, &numCPUs, &cpuLoadInfo, &infoCount) == KERN_SUCCESS){
+        uint64_t tickIdle = 0, tickTotal = 0;
+        for (natural_t i = 0; i < numCPUs; i++){
+          tickIdle += cpuLoadInfo[CPU_STATE_MAX * i + CPU_STATE_IDLE];
+          tickTotal += cpuLoadInfo[CPU_STATE_MAX * i + CPU_STATE_USER] +
+                       cpuLoadInfo[CPU_STATE_MAX * i + CPU_STATE_SYSTEM] +
+                       cpuLoadInfo[CPU_STATE_MAX * i + CPU_STATE_NICE] +
+                       cpuLoadInfo[CPU_STATE_MAX * i + CPU_STATE_IDLE];
+        }
+        static long ticksPerSec = sysconf(_SC_CLK_TCK);
+        curIdle = tickIdle * 1000000 / ticksPerSec;
+        curTotal = tickTotal * 1000000 / ticksPerSec;
+        vm_deallocate(mach_task_self(), (vm_address_t)cpuLoadInfo, infoCount * sizeof(integer_t));
+      }
+#else
+      std::ifstream cpustat("/proc/stat");
+      if (cpustat){
+        char line[300];
+        while (cpustat.getline(line, 300)){
+          uint64_t user, nice, syst, idle;
+          if (sscanf(line, "cpu %" PRIu64 " %" PRIu64 " %" PRIu64 " %" PRIu64, &user, &nice, &syst, &idle) == 4){
+            static long ticksPerSec = sysconf(_SC_CLK_TCK);
+            curIdle = idle * 1000000 / ticksPerSec;
+            curTotal = (user + nice + syst + idle) * 1000000 / ticksPerSec;
+            break;
+          }
+        }
+      }
+#endif
+      if (sysCpuTotalPrev && curTotal > sysCpuTotalPrev){
+        sysTotalDelta = curTotal - sysCpuTotalPrev;
+        uint64_t sysIdleDelta = curIdle - sysCpuIdlePrev;
+        systemCpu = 1.0 - (double)sysIdleDelta / (double)sysTotalDelta;
+      }
+      sysCpuIdlePrev = curIdle;
+      sysCpuTotalPrev = curTotal;
+    }
+
+    // Phase 2: Per-process CPU fraction + process timing stats
+    double maxProcFraction = 0.0;
+    double minSleepRatio = 1.0;
+    bool hasTimingStats = false;
+
+    for (auto it = procCpuPrev.begin(); it != procCpuPrev.end();){
+      bool found = false;
+      for (auto &rp : runningProcs){
+        if (rp.second == it->first){found = true; break;}
+      }
+      if (!found){
+        procStatsPrev.erase(it->first);
+        it = procCpuPrev.erase(it);
+      }else{
+        ++it;
+      }
+    }
+
+    for (auto &rp : runningProcs){
+      pid_t pid = rp.second;
+      if (!pid){continue;}
+
+      uint64_t cpuTimeUs = 0;
+#ifdef __APPLE__
+      struct proc_taskinfo pti;
+      if (proc_pidinfo(pid, PROC_PIDTASKINFO, 0, &pti, sizeof(pti)) > 0){
+        cpuTimeUs = (pti.pti_total_user + pti.pti_total_system) / 1000;
+      }
+#else
+      {
+        char statPath[64];
+        snprintf(statPath, sizeof(statPath), "/proc/%d/stat", pid);
+        std::ifstream pstat(statPath);
+        if (pstat){
+          char line[512];
+          pstat.getline(line, sizeof(line));
+          char *p = strrchr(line, ')');
+          if (p){
+            unsigned long utime = 0, stime = 0;
+            if (sscanf(p + 2, "%*c %*d %*d %*d %*d %*d %*u %*u %*u %*u %*u %lu %lu", &utime, &stime) == 2){
+              static long ticksPerSec = sysconf(_SC_CLK_TCK);
+              cpuTimeUs = (utime + stime) * 1000000 / ticksPerSec;
+            }
+          }
+        }
+      }
+#endif
+      if (procCpuPrev.count(pid) && sysTotalDelta > 0 && cpuTimeUs >= procCpuPrev[pid]){
+        uint64_t procDelta = cpuTimeUs - procCpuPrev[pid];
+        double fraction = (double)procDelta / (double)sysTotalDelta;
+        if (fraction > maxProcFraction){maxProcFraction = fraction;}
+      }
+      if (cpuTimeUs > 0){procCpuPrev[pid] = cpuTimeUs;}
+
+      char statsName[NAME_BUFFER_SIZE];
+      snprintf(statsName, NAME_BUFFER_SIZE, SHM_PROC_STATE, pid);
+      IPC::sharedPage sp;
+      sp.init(statsName, 0, false, false);
+      if (sp && sp.mapped && sp.len >= sizeof(ProcState)) {
+        ProcState cur;
+        memcpy(&cur, sp.mapped, sizeof(ProcState));
+        sp.master = false;
+        if (cur.lastUpdateMs && now - cur.lastUpdateMs < 10000){
+          if (procStatsPrev.count(pid)){
+            ProcState & prev = procStatsPrev[pid];
+            uint64_t dWork = cur.totalWork - prev.totalWork;
+            uint64_t dSrcSleep = cur.totalSourceSleep - prev.totalSourceSleep;
+            uint64_t dSnkSleep = cur.totalSinkSleep - prev.totalSinkSleep;
+            uint64_t dTotal = dWork + dSrcSleep + dSnkSleep;
+            if (dTotal > 0){
+              double sleepRatio = (double)dSrcSleep / (double)dTotal;
+              if (sleepRatio < minSleepRatio){minSleepRatio = sleepRatio;}
+              hasTimingStats = true;
+            }
+          }
+          procStatsPrev[pid] = cur;
+        }
+      }
+    }
+
+    // Phase 3: Rate adjustment — independent signals
+    if (!effectiveSpeed){effectiveSpeed = realtimeSpeed;}
+
+    bool shouldSlowDown = false;
+    bool canSpeedUp = true;
+
+    if (systemCpu > 0.85){shouldSlowDown = true;}
+    if (systemCpu > 0.6){canSpeedUp = false;}
+
+    if (hasTimingStats){
+      if (minSleepRatio < 0.05){shouldSlowDown = true;}
+      if (minSleepRatio < 0.3){canSpeedUp = false;}
+    }
+
+    if (maxProcFraction > 0.3){shouldSlowDown = true;}
+    if (maxProcFraction > 0.15){canSpeedUp = false;}
+
+    if (shouldSlowDown){
+      effectiveSpeed = std::max((uint64_t)(effectiveSpeed * 0.8), (uint64_t)1);
+    }else if (canSpeedUp && effectiveSpeed < realtimeSpeed){
+      effectiveSpeed = std::min((uint64_t)(effectiveSpeed * 1.2 + 1), realtimeSpeed);
+    }
+
+    if (streamStatus && streamStatus.len >= 16){
+      memcpy(streamStatus.mapped + 8, &effectiveSpeed, sizeof(uint64_t));
+    }
+  }
+
   void InputBuffer::userLeadIn(){
     meta.reloadReplacedPagesIfNeeded();
     /*LTS-START*/
@@ -486,13 +730,34 @@ namespace Mist{
       Util::DTSCShmReader rStrmConf(tmpBuf);
       DTSC::Scan streamCfg = rStrmConf.getScan();
       if (streamCfg){
-        JSON::Value configuredProcesses = streamCfg.getMember("processes").asJSON();
+        JSON::Value configuredProcesses;
+        /*LTS-START*/
+        if (!processOverrideResolved){
+          processOverrideResolved = true;
+          std::string fullStreamName = config->getString("streamname");
+          std::string baseName = fullStreamName.substr(0, fullStreamName.find_first_of("+ "));
+          if (Triggers::shouldTrigger("STREAM_PROCESS", baseName)){
+            std::string response;
+            Triggers::doTrigger("STREAM_PROCESS", fullStreamName, baseName, false, response);
+            if (response.size()){
+              processOverride = JSON::fromString(response);
+              if (!processOverride.isArray()){processOverride.null();}
+            }
+          }
+        }
+        if (processOverride.isArray() && processOverride.size()){
+          configuredProcesses = processOverride;
+        }else{
+          configuredProcesses = streamCfg.getMember("processes").asJSON();
+        }
+        /*LTS-END*/
         checkProcesses(configuredProcesses);
       }else{
         //If there is no config, we assume all processes are running, since, well, there can't be any
         allProcsRunning = true;
       }
     }
+    updateProcessingRate();
     /*LTS-END*/
     connectedUsers = 0;
 
@@ -579,6 +844,17 @@ namespace Mist{
   bool InputBuffer::preRun(){
     // This function gets run periodically to make sure runtime updates of the config get parsed.
     Util::Procs::kill_timeout = 5;
+    static bool firstRun = true;
+    if (firstRun){
+      firstRun = false;
+      //Setup USR2 signal handler for debugging purposes
+      myBuf = this;
+      struct sigaction new_action;
+      new_action.sa_handler = usr2sig_handler;
+      sigemptyset(&new_action.sa_mask);
+      new_action.sa_flags = 0;
+      sigaction(SIGUSR2, &new_action, NULL);
+    }
     std::string strName = config->getString("streamname");
     Util::sanitizeName(strName);
     strName = strName.substr(0, (strName.find_first_of("+ ")));
@@ -771,15 +1047,38 @@ namespace Mist{
         if (!newProcs.count(it->first)){
           if (Util::Procs::isActive(it->second)){
             INFO_MSG("Stopping process %d: %s", it->second, it->first.c_str());
+            Util::Procs::ignoreExitCode(it->second);
             Util::Procs::Stop(it->second);
+          } else {
+            int exitCode = 0;
+            Util::Procs::getExitCode(it->second, exitCode);
+          }
+          // Clean up SHM state page for this process
+          {
+            char shmName[NAME_BUFFER_SIZE];
+            snprintf(shmName, NAME_BUFFER_SIZE, SHM_PROC_STATE, it->second);
+            IPC::sharedPage sp;
+            sp.init(shmName, 0, false, false);
+            if (sp) { sp.master = true; }
           }
           runningProcs.erase(it);
           // If we stop a process this way, reset it's counter and delayed start time
           procBoots.erase(it->first);
           procNextBoot.erase(it->first);
+          procHardFailed.erase(it->first);
           if (!runningProcs.size()){break;}
           it = runningProcs.begin();
         }
+      }
+    }
+
+    // Clean up procHardFailed entries for configs no longer in the process list
+    // (prevents sticky suppression when a config is removed and re-added)
+    for (auto hfIt = procHardFailed.begin(); hfIt != procHardFailed.end();) {
+      if (!newProcs.count(*hfIt)) {
+        hfIt = procHardFailed.erase(hfIt);
+      } else {
+        ++hfIt;
       }
     }
 
@@ -787,9 +1086,83 @@ namespace Mist{
     // start up new/changed connectors
     while (newProcs.size() && config->is_active){
       const std::string & config = (*newProcs.begin());
-      JSON::Value args;
-      args.fromString(config);
+      JSON::Value args = JSON::fromString(config);
       if (!runningProcs.count(config) || !Util::Procs::isActive(runningProcs[config])){
+
+        // Skip if this process previously hard-failed (config change clears this)
+        if (procHardFailed.count(config)) {
+          newProcs.erase(newProcs.begin());
+          continue;
+        }
+
+        // If process was running but is now dead, check exit code
+        if (runningProcs.count(config)) {
+          pid_t deadPid = runningProcs[config];
+          int exitCode = 0;
+
+          // Not yet reaped — skip this tick, retry next cycle
+          if (!Util::Procs::getExitCode(deadPid, exitCode)) {
+            newProcs.erase(newProcs.begin());
+            continue;
+          }
+
+          // Read exit reason from SHM (best-effort: empty for crashes)
+          std::string shortReason;
+          std::string longReason;
+          {
+            char shmName[NAME_BUFFER_SIZE];
+            snprintf(shmName, NAME_BUFFER_SIZE, SHM_PROC_STATE, deadPid);
+            IPC::sharedPage sp;
+            sp.init(shmName, 0, false, false);
+            if (sp && sp.mapped && sp.len >= sizeof(ProcState)) {
+              ProcState *state = (ProcState *)sp.mapped;
+              if (state->shortReason[0]) { shortReason = state->shortReason; }
+              if (state->longReason[0]) { longReason = state->longReason; }
+            }
+            // Clean up the SHM page
+            if (sp) {
+              sp.master = true;
+              // sp destructor will unlink
+            }
+          }
+
+          // Determine status based on exit code AND restart config
+          std::string restartType = "fixed";
+          if (args.isMember("restart_type")) { restartType = args["restart_type"].asString(); }
+          std::string status;
+          if (exitCode == 2) {
+            status = "unrecoverable";
+          } else if (exitCode == 0) {
+            status = "clean";
+          } else if (restartType == "disabled" && procBoots[config]) {
+            status = "disabled";
+          } else {
+            status = "retrying";
+          }
+
+          // Fire PROCESS_EXIT trigger
+          std::string procType = args["process"].asString();
+          if (Triggers::shouldTrigger("PROCESS_EXIT", streamName)) {
+            std::string payload = std::string(streamName) + "\n" + procType + "\n" + config + "\n" +
+              JSON::Value((uint64_t)deadPid).asString() + "\n" + JSON::Value((int64_t)exitCode).asString() + "\n" +
+              JSON::Value((uint64_t)procBoots[config]).asString() + "\n" + status + "\n" + shortReason + "\n" + longReason;
+            Triggers::doTrigger("PROCESS_EXIT", payload, streamName);
+          }
+
+          // Hard error — stop retrying this process
+          if (status == "unrecoverable") {
+            WARN_MSG("Process `%s` (PID %d) exited with unrecoverable error (code %d: %s), disabling restart",
+                     procType.c_str(), deadPid, exitCode, longReason.c_str());
+            procHardFailed.insert(config);
+            runningProcs.erase(config);
+            newProcs.erase(newProcs.begin());
+            continue;
+          }
+
+          // Clean or retryable — clear the old PID entry and fall through to restart logic
+          runningProcs.erase(config);
+        }
+
         // Check restart behaviour - default to instant (re)starts
         std::string restartType = "fixed";
         uint64_t restartDelay = 0;
@@ -825,7 +1198,8 @@ namespace Mist{
           continue;
         }
 
-        std::string procname = Util::getMyPath() + "MistProc" + args["process"].asString();
+        std::string procname =
+            Util::getMyPath() + "MistProc" + JSON::fromString(config)["process"].asString();
         argarr[0] = (char *)procname.c_str();
         argarr[1] = (char *)config.c_str();
         argarr[2] = 0;
@@ -833,7 +1207,7 @@ namespace Mist{
           if (args.isMember("debug")){
             debugLvl = args["debug"].asString();
           }else{
-            debugLvl = std::to_string(Util::printDebugLevel);
+            debugLvl = JSON::Value(Util::printDebugLevel).asString();
           }
           argarr[2] = (char*)"--debug";
           argarr[3] = (char*)debugLvl.c_str();;

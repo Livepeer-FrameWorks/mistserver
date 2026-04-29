@@ -10,11 +10,6 @@ void addGenericProcessOptions(JSON::Value & capa){
   {
     JSON::Value & genopts = capa["optional"]["general_process_options"]["options"];
 
-    genopts["debug"]["name"] = "Debug level";
-    genopts["debug"]["type"] = "debug";
-    genopts["debug"]["help"] = "Debug message level for process. Default inherits from the stream setting.";
-    genopts["debug"]["sort"] = "yyyy";
-
     genopts["start_control"]["name"] = "Process start behaviour";
     genopts["start_control"]["type"] = "group";
     genopts["start_control"]["help"] = "Control when the process starts";
@@ -23,12 +18,30 @@ void addGenericProcessOptions(JSON::Value & capa){
     {
       JSON::Value & grp = genopts["start_control"]["options"];
 
-      grp["restart_delay"]["name"] = "Restart delay";
-      grp["restart_delay"]["help"] =
-        "The time in milliseconds between restarts. If set to 0 it will restart immediately";
-      grp["restart_delay"]["type"] = "uint";
-      grp["restart_delay"]["unit"] = "ms";
-      grp["restart_delay"]["default"] = 0;
+      grp["debug"]["name"] = "Debug level";
+      grp["debug"]["type"] = "debug";
+      grp["debug"]["help"] = "Debug message level for process. Default inherits from the stream setting.";
+      grp["debug"]["sort"] = "a";
+
+      grp["track_inhibit"]["name"] = "Track inhibitor(s)";
+      grp["track_inhibit"]["help"] =
+        "What tracks to use as inhibitors. If this track selector is able to select a track, the "
+        "process does not start. Defaults to none.";
+      grp["track_inhibit"]["type"] = "string";
+      grp["track_inhibit"]["validate"][0u] = "track_selector";
+      grp["track_inhibit"]["default"] = "audio=none&video=none&subtitle=none";
+      grp["track_inhibit"]["sort"] = "b";
+
+      grp["tags_inhibit"]["name"] = "Tag inhibitor(s)";
+      grp["tags_inhibit"]["help"] =
+        "Optional list of tags, if any of them are set on the stream, this process does not start.";
+      grp["tags_inhibit"]["type"] = "inputlist";
+      grp["tags_inhibit"]["default"] = "";
+      grp["tags_inhibit"]["sort"] = "c";
+
+      grp["info"]["type"] = "help";
+      grp["info"]["help"] = "The following settings only apply while a process wants to start: i.e. not inhibited and the stream is active.";
+      grp["info"]["sort"] = "d";
 
       grp["restart_type"]["name"] = "Restart behaviour";
       grp["restart_type"]["help"] = "What to do when the process exits or fails for any reason. Fixed waits the "
@@ -42,25 +55,20 @@ void addGenericProcessOptions(JSON::Value & capa){
       grp["restart_type"]["select"][2u][0u] = "disabled";
       grp["restart_type"]["select"][2u][1u] = "Disabled";
       grp["restart_type"]["default"] = "fixed";
+      grp["restart_type"]["sort"] = "e";
 
-      grp["track_inhibit"]["name"] = "Track inhibitor(s)";
-      grp["track_inhibit"]["help"] =
-        "What tracks to use as inhibitors. If this track selector is able to select a track, the "
-        "process does not start. Defaults to none.";
-      grp["track_inhibit"]["type"] = "string";
-      grp["track_inhibit"]["validate"][0u] = "track_selector";
-      grp["track_inhibit"]["default"] = "audio=none&video=none&subtitle=none";
-
-      grp["tags_inhibit"]["name"] = "Tag inhibitor(s)";
-      grp["tags_inhibit"]["help"] =
-        "Optional list of tags, if any of them are set on the stream, this process does not start.";
-      grp["tags_inhibit"]["type"] = "inputlist";
-      grp["tags_inhibit"]["default"] = "";
+      grp["restart_delay"]["name"] = "Restart delay";
+      grp["restart_delay"]["help"] = "The time in milliseconds between restarts. If set to 0 it will restart immediately";
+      grp["restart_delay"]["type"] = "uint";
+      grp["restart_delay"]["unit"] = "ms";
+      grp["restart_delay"]["default"] = 0;
+      grp["restart_delay"]["sort"] = "f";
 
       grp["inconsequential"]["name"] = "Inconsequential process";
       grp["inconsequential"]["help"] =
         "If set, this process need not be running for a stream to be considered fully active.";
       grp["inconsequential"]["default"] = false;
+      grp["inconsequential"]["sort"] = "g";
     }
   }
 }
