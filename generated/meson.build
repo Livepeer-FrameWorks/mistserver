@@ -23,12 +23,14 @@ embed_files = [
     {'infile': '../embed/min/wrappers/flv.js',          'variable': 'flv_js',            'outfile': 'flv.js.h'},
     {'infile': '../embed/min/wrappers/hlsjs.js',        'variable': 'hlsjs_js',          'outfile': 'hlsjs.js.h'},
     {'infile': '../embed/min/wrappers/rawws.js',        'variable': 'rawws_js',          'outfile': 'rawws.js.h'},
+    {'infile': '../embed/min/wrappers/rawwscanvas.js',  'variable': 'rawwscanvas_js',    'outfile': 'rawwscanvas.js.h'},
     {'infile': '../embed/players/dash.js.license.js',   'variable': 'player_dash_lic_js','outfile': 'player_dash_lic.js.h'},
     {'infile': '../embed/players/dash.all.min.js',      'variable': 'player_dash_js',    'outfile': 'player_dash.js.h'},
     {'infile': '../embed/players/video.min.js',         'variable': 'player_video_js',   'outfile': 'player_video.js.h'},
     {'infile': '../embed/players/flv.min.js',           'variable': 'player_flv_js',     'outfile': 'player_flv.js.h'},
     {'infile': '../embed/players/hls.js',               'variable': 'player_hlsjs_js',   'outfile': 'player_hlsjs.js.h'},
     {'infile': '../embed/players/libde265.min.js',      'variable': 'player_libde265_js','outfile': 'player_libde265.js.h'},
+    {'infile': '../embed/players/webcodecsworker.js',   'variable': 'wcworker_js',       'outfile': 'wcworker.js.h'},
     {'infile': '../embed/min/skins/default.css',        'variable': 'skin_default_css',  'outfile': 'skin_default.css.h'},
     {'infile': '../embed/min/skins/dev.css',            'variable': 'skin_dev_css',      'outfile': 'skin_dev.css.h'},
     {'infile': '../embed/skins/video-js.css',           'variable': 'skin_videojs_css',  'outfile': 'skin_videojs.css.h'},
@@ -45,4 +47,3 @@ if get_option('EFG_UI')
 else
   server_html = custom_target('embed_server.html', output: 'server.html.h', input: gen_html, command: [sourcery, '@INPUT@', 'server_html', '@OUTPUT@'])
 endif
-

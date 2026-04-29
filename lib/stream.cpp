@@ -1865,13 +1865,7 @@ std::set<size_t> Util::wouldSelect(const DTSC::Meta &M, const std::map<std::stri
 /// Will clear the list automatically if not empty.
 void Util::sortTracks(std::set<size_t> & validTracks, const DTSC::Meta & M, Util::trackSortOrder sorting, std::list<size_t> & srtTrks){
   srtTrks.clear();
-  if (sorting == TRKSORT_DEFAULT){
-    if (M.getLive()){
-      sorting = TRKSORT_ID_HTL;
-    }else{
-      sorting = TRKSORT_ID_LTH;
-    }
-  }
+  if (sorting == TRKSORT_DEFAULT) { sorting = TRKSORT_OPTIMAL; }
   if (!validTracks.size()){return;}
   for (std::set<size_t>::iterator it = validTracks.begin(); it != validTracks.end(); ++it){
     //The first element is always at the beginning of the list. Yeah. That makes sense.
@@ -1890,25 +1884,31 @@ void Util::sortTracks(std::set<size_t> & validTracks, const DTSC::Meta & M, Util
     }
     bool inserted = false;
     for (std::list<size_t>::iterator lt = srtTrks.begin(); lt != srtTrks.end(); ++lt){
-      if (sorting == TRKSORT_BPS_LTH){
+      if (sorting == TRKSORT_OPTIMAL) {
+        if (M.getQuality(*it) >= M.getQuality(*lt)) {
+          srtTrks.insert(lt, *it);
+          inserted = true;
+          break;
+        }
+      } else if (sorting == TRKSORT_BPS_LTH) {
         if (M.getBps(*it) <= M.getBps(*lt)){
           srtTrks.insert(lt, *it);
           inserted = true;
           break;
         }
-      }else if (sorting == TRKSORT_BPS_HTL){
+      } else if (sorting == TRKSORT_BPS_HTL) {
         if (M.getBps(*it) >= M.getBps(*lt)){
           srtTrks.insert(lt, *it);
           inserted = true;
           break;
         }
-      }else if (sorting == TRKSORT_RES_LTH){
+      } else if (sorting == TRKSORT_RES_LTH) {
         if (M.getWidth(*it) * M.getHeight(*it) < M.getWidth(*lt) * M.getHeight(*lt) || M.getRate(*it) < M.getRate(*lt)){
           srtTrks.insert(lt, *it);
           inserted = true;
           break;
         }
-      }else if (sorting == TRKSORT_RES_HTL){
+      } else if (sorting == TRKSORT_RES_HTL) {
         if (M.getWidth(*it) * M.getHeight(*it) > M.getWidth(*lt) * M.getHeight(*lt) || M.getRate(*it) > M.getRate(*lt)){
           srtTrks.insert(lt, *it);
           inserted = true;
@@ -1919,6 +1919,4 @@ void Util::sortTracks(std::set<size_t> & validTracks, const DTSC::Meta & M, Util
     //Insert at end of list if not inserted yet
     if (!inserted){srtTrks.push_back(*it);}
   }
-
 }
-

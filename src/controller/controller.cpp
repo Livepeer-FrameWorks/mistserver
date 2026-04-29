@@ -453,6 +453,7 @@ int main_loop(int argc, char **argv){
   Controller::E.addInterval(Controller::jwkUriCheck, 1000);
   Controller::E.addInterval(Controller::runStats, 1000);
   Controller::E.addInterval(Controller::updateLoad, 1000);
+  Controller::E.addInterval(Controller::handleStreamMeta, 1000);
   Controller::variableTimer = Controller::E.addInterval(Controller::variableRun, 750);
   Controller::E.addInterval(Controller::runPushCheck, 1000);
   Controller::E.addInterval(statusMonitor, 3000);
@@ -711,4 +712,3 @@ int main(int argc, char **argv){
   }
   return 0;
 }
-

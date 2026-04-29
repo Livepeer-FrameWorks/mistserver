@@ -11785,24 +11785,24 @@ context_menu: function(){
                         create: function(id){
                           var table = $("<table>").css("width","auto");
                           table.rows = [];
-                          var headers = {
-                            audio: {
-                              vheader: 'Audio',
-                              labels: ['Codec','Duration','Jitter','Avg bitrate','Peak bitrate','Channels','Samplerate','Language','Player track index','Track id']
-                            },
-                            video: {
-                              vheader: 'Video',
-                              labels: ['Codec','Duration','Jitter','Avg bitrate','Peak bitrate','Size','Framerate','Language','Player track index','Track id','Has B-Frames']
-                            },
-                            subtitle: {
-                              vheader: 'Subtitles',
-                              labels: ['Codec','Duration','Jitter','Avg bitrate','Peak bitrate','Language','Player track index','Track id']
-                            },
-                            meta: {
-                              vheader: 'Metadata',
-                              labels: ['Codec','Duration','Jitter','Avg bitrate','Peak bitrate','Track id']
-                            }
-                          };
+	                          var headers = {
+	                            audio: {
+	                              vheader: 'Audio',
+	                              labels: ['Codec','Duration','Jitter','Avg bitrate','Peak bitrate','Channels','Samplerate','Language','Player track index','Track id','Process id','Source track','Visibility']
+	                            },
+	                            video: {
+	                              vheader: 'Video',
+	                              labels: ['Codec','Duration','Jitter','Avg bitrate','Peak bitrate','Size','Framerate','Language','Player track index','Track id','Process id','Source track','Visibility','Has B-Frames','Key duration','Frame duration','Frames per key','Issues']
+	                            },
+	                            subtitle: {
+	                              vheader: 'Subtitles',
+	                              labels: ['Codec','Duration','Jitter','Avg bitrate','Peak bitrate','Language','Player track index','Track id','Process id','Source track','Visibility']
+	                            },
+	                            meta: {
+	                              vheader: 'Metadata',
+	                              labels: ['Codec','Duration','Jitter','Avg bitrate','Peak bitrate','Track id','Process id','Source track','Visibility']
+	                            }
+	                          };
                           table.headers = headers[id].labels;
                           table.header = $("<tr>").addClass("header").append(
                             $("<td>").addClass("vheader").attr("rowspan",headers[id].labels.length+1).html($("<span>").text(headers[id].vheader))
@@ -11867,9 +11867,35 @@ context_menu: function(){
                                 out = UI.format.duration((track.lastms-track.firstms)/1000);
                                 out += '<br><span class=description>'+UI.format.duration(track.firstms/1000)+' to '+UI.format.duration(track[lastmsindex]/1000)+'</span>';
                                 return out;
-                              }
-                              var type = track.codec == "subtitle" ? "subtitle" : track.type;
-                              switch (type) {
+	                              }
+	                              var type = track.codec == "subtitle" ? "subtitle" : track.type;
+	                              function formatTrackMask(mask){
+	                                var map = {
+	                                  1: "viewers",
+	                                  2: "push outputs",
+	                                  4: "processes"
+	                                };
+	                                var hidden = [];
+	                                for (var key in map) {
+	                                  if ((mask & key) == 0) { hidden.push(map[key]); }
+	                                }
+	                                if (!hidden.length) { return "Not hidden"; }
+	                                if (hidden.length == Object.keys(map).length) { return "Hidden for everything"; }
+	                                return "Hidden for "+hidden.join(" and ");
+	                              }
+	                              function formatMinMax(min,max,format_func){
+	                                if (!format_func) { format_func = function(a){return a}; }
+	                                if (min == undefined || max == undefined) { return "N/A"; }
+	                                if (min == max) { return format_func(min); }
+	                                return [format_func(min),format_func(max)].join(" - ");
+	                              }
+	                              function processId(track) { return track.pid == 0 ? "none" : track.pid; }
+	                              function sourceTrack(track) { return "source" in track ? "Track "+track.source : "N/A"; }
+	                              function visibility(track) { return "mask" in track ? formatTrackMask(track.mask) : "N/A"; }
+	                              function keyHealth(track, key) {
+	                                return track.keys ? track.keys[key] : undefined;
+	                              }
+	                              switch (type) {
                                 case 'audio':
                                   return {
                                     header: 'Track '+track.idx,
@@ -11881,11 +11907,14 @@ context_menu: function(){
                                       peakoravg(track,"maxbps"),
                                       track.channels,
                                       UI.format.addUnit(UI.format.number(track.rate),'Hz'),
-                                      ('language' in track ? track.language : 'unknown'),
-                                      track.nth,
-                                      track.trackid
-                                    ]
-                                  };
+	                                      ('language' in track ? track.language : 'unknown'),
+	                                      track.nth,
+	                                      track.trackid,
+	                                      processId(track),
+	                                      sourceTrack(track),
+	                                      visibility(track)
+	                                    ]
+	                                  };
                                   break;
                                 case 'video':
                                   return {
@@ -11898,12 +11927,25 @@ context_menu: function(){
                                       peakoravg(track,"maxbps"),
                                       UI.format.addUnit(track.width,'x ')+UI.format.addUnit(track.height,'px'),
                                       (track.fpks == 0 ? "variable" : UI.format.addUnit(UI.format.number(track.fpks/1000),'fps')),
-                                      ('language' in track ? track.language : 'unknown'),
-                                      track.nth,
-                                      track.trackid,
-                                      ("bframes" in track ? "yes" : "no")
-                                    ]
-                                  }
+	                                      ('language' in track ? track.language : 'unknown'),
+	                                      track.nth,
+	                                      track.trackid,
+	                                      processId(track),
+	                                      sourceTrack(track),
+	                                      visibility(track),
+	                                      ("bframes" in track ? "yes" : "no"),
+	                                      formatMinMax(keyHealth(track,"ms_min"),keyHealth(track,"ms_max"),function(v){
+	                                        return UI.format.addUnit(UI.format.number(v),"ms");
+	                                      }),
+	                                      formatMinMax(keyHealth(track,"frame_ms_min"),keyHealth(track,"frame_ms_max"),function(v){
+	                                        return UI.format.addUnit(UI.format.number(v),"ms");
+	                                      }),
+	                                      formatMinMax(keyHealth(track,"frames_min"),keyHealth(track,"frames_max"),function(v){
+	                                        return UI.format.number(v);
+	                                      }),
+	                                      "issues" in track ? "<ul><li>"+track.issues.join("</li><li>")+"</li></ul>" : "None"
+	                                    ]
+	                                  }
                                   break;
                                 case 'subtitle':
                                   return {
@@ -11913,12 +11955,15 @@ context_menu: function(){
                                       displayDuration(track),
                                       UI.format.addUnit(UI.format.number(track.jitter),"ms"),
                                       peakoravg(track,"bps"),
-                                      peakoravg(track,"maxbps"),
-                                      ('language' in track ? track.language : 'unknown'),
-                                      track.nth,
-                                      track.trackid
-                                    ]
-                                  }
+	                                      peakoravg(track,"maxbps"),
+	                                      ('language' in track ? track.language : 'unknown'),
+	                                      track.nth,
+	                                      track.trackid,
+	                                      processId(track),
+	                                      sourceTrack(track),
+	                                      visibility(track)
+	                                    ]
+	                                  }
                                   break;
                                 case "meta":
                                   return {
@@ -11926,12 +11971,15 @@ context_menu: function(){
                                     body: [
                                       track.codec,
                                       displayDuration(track),
-                                      UI.format.addUnit(UI.format.number(track.jitter),"ms"),
-                                      peakoravg(track,"bps"),
-                                      peakoravg(track,"maxbps"),
-                                      track.trackid
-                                    ]
-                                  }
+	                                      UI.format.addUnit(UI.format.number(track.jitter),"ms"),
+	                                      peakoravg(track,"bps"),
+	                                      peakoravg(track,"maxbps"),
+	                                      track.trackid,
+	                                      processId(track),
+	                                      sourceTrack(track),
+	                                      visibility(track)
+	                                    ]
+	                                  }
                                   break;
                               }
                             }
@@ -12067,27 +12115,9 @@ context_menu: function(){
 
         }
 
-        var firsttime = true;
-        UI.sockets.ws.info_json.subscribe(function(d){
-          ondata(d);
-
-          if (firsttime && !d.error) { //activate the interval after the first message without error entry
-            firsttime = false;
-            if (d.type == "live") {
-              //the websocket will not update values that change often, like firstms, lastms, etc
-              //hax
-              //this will. ugly but meh.
-              UI.interval.set(function(){
-                $.ajax({
-                  type: "GET",
-                  url: UI.sockets.http_host + "json_"+streamname+".js",
-                  success: ondata
-                });
-              },5e3);
-            }
-
-          }
-        },streamname);
+	        UI.sockets.ws.stream.subscribe(streamname,function(type,d){
+	          ondata(d);
+	        });
 
 
         return $("<section>").addClass("meta").append(
@@ -15819,6 +15849,80 @@ context_menu: function(){
       }
     },
     ws: {
+      stream: {
+        children: {},
+        subscribe: function(streamname,callback){
+          if (!(streamname in this.children)) {
+            this.children[streamname] = {
+              ws: false,
+              listeners: [],
+              messages: [],
+              init: function(error_callback){
+                var url = parseURL(mist.user.host);
+                url = parseURL(mist.user.host,{pathname:url.pathname.replace(/\/api$/,"")+"ws/stream/"+streamname});
+                var metaWs = UI.websockets.create(url.full.replace(/^http/,"ws"),error_callback);
+                this.ws = metaWs;
+                var me = this;
+                metaWs.authState = 0;
+                metaWs.onmessage = function(d){
+                  var da = JSON.parse(d.data);
+                  var type = da[0];
+                  var data = da[1];
+
+                  if (type == "auth") {
+                    if (data === true) { this.authState = 2; }
+                    else if (data === false) {
+                      this.send(JSON.stringify(["auth",{
+                        password: MD5(mist.user.password+mist.user.authstring),
+                        username: mist.user.name
+                      }]));
+                      this.authState = 1;
+                    }
+                    else if (typeof data == "object") {
+                      if ("challenge" in data) {
+                        this.send(JSON.stringify(["auth",{
+                          password: MD5(mist.user.password+data.challenge),
+                          username: mist.user.name
+                        }]));
+                        this.authState = 1;
+                      }
+                      else if (("status" in data) && (data.status == "OK")) {
+                        this.authState = 2;
+                      }
+                    }
+                    return;
+                  }
+
+                  data = da[2];
+                  me.messages.push([type,data]);
+                  for (var i in me.listeners){
+                    me.listeners[i](type,data);
+                  }
+                };
+                var close = metaWs.close;
+                metaWs.close = function(){
+                  me.listeners = [];
+                  me.messages = [];
+                  me.ws = false;
+                  return close.apply(this,arguments);
+                };
+              }
+            };
+          }
+          for (var i in this.children[streamname].messages) {
+            callback(this.children[streamname].messages[i][0],this.children[streamname].messages[i][1]);
+          }
+          var me = this.children[streamname];
+          if (!me.ws || (me.ws.readyState > 1)) {
+            me.init(function(){
+              for (var i in me.listeners) {
+                me.listeners[i]("error","An error occured: failed to connect to the stream meta websocket.");
+              }
+            });
+          }
+          me.listeners.push(callback);
+        }
+      },
       info_json: {
         children: {},
         init: function(url){

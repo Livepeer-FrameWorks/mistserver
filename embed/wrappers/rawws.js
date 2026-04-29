@@ -69,6 +69,7 @@ mistplayers.rawws = {
   player: function(){
     this.onreadylist = [];
   },
+  scriptsrc: function(host) { return host+"/webcodecsworker.js"; },
   cacheSupported: {
     //<streamname>: { last: <playabletracks>, trackId: true/false }
   },
@@ -148,7 +149,7 @@ p.prototype.build = function (MistVideo,callback) {
   };
 
   var debugging;
-  debugging = true;
+  debugging = false;
   //debugging = "verbose"; //logs all parsed chunks
 
   Object.defineProperty(this,"debugging",{
@@ -793,8 +794,7 @@ p.prototype.build = function (MistVideo,callback) {
     function WebCodecsWorker() {
       var self = this;
 
-      //this.worker = new Worker(URL.createObjectURL(new Blob(["("+myDedicatedWorker.toString()+")();"],{type: 'application/javascript'})));
-      this.worker = new Worker("../players/webcodecsworker.js"); //TODO put into MistServer 
+      this.worker = new Worker(mistplayers.rawws.scriptsrc(MistVideo.options.host));
       this.worker.onmessage = function(e){
         var msg = e.data;
         var key = [msg.type,msg.idx,msg.uid].join("_");
