@@ -72,6 +72,18 @@ if get_option('WITH_AV')
         'deps' :[libmist_dep, av_libs],
         'defines': [],
     }
+    executables += {
+        'name' : 'MistProcThumbs',
+        'sources' : [
+            files('process.hpp', 'process_thumbs.cpp'),
+            header_tgts,
+            io_cpp,
+            input_cpp,
+            output_cpp,
+        ],
+        'deps' :[libmist_dep, av_libs],
+        'defines': [],
+    }
 endif
 
 executables += {
