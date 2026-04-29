@@ -1,0 +1,13 @@
+diff --git a/meson.build b/meson.build
+index f32b5a4..eb847d7 100644
+--- a/meson.build
++++ b/meson.build
+@@ -2191,7 +2191,7 @@ foreach check : all_checks
+           else
+             req = false
+           endif
+-          dep = cc.find_library(link_with, required : req)
++          dep = cc.find_library(link_with, required : req, static: conf.get('static').is_odd())
+           found = found and dep.found()
+           extra_deps += dep
+         endforeach
