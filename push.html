@@ -1,0 +1,1475 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <script>
+      //defaults
+      let broadcaststream = "https://ssl.ktwtest.efgtalent.live:4433/webrtc/webrtc"; //url to WebRTC WHEP broadcast input
+      let supportstream   = ["https://ssl.ktwtest.efgtalent.live:4433/","webrtc"];   //url to mistserver host and streamname of support stream
+
+      /*
+      let myhost = location.host;
+      broadcaststream = broadcaststream.replace("localhost",myhost);
+      supportstream[0] = supportstream[0].replace("localhost",myhost);
+      */
+
+      //the broadstream link can be set by passing url param "bc"
+      //the support stream host can be set by passing url param "ssh"
+      //the support stream name can be set by passing url param "ssn"
+      //ex: push.html?bc=//example.com/mist/webrtc/broadcast&ssh=//example.com/mist/&ssn=help
+      //!! when using these params, the input field placeholders will not be overwritten
+
+      let mic_settings = {
+        autoGainControl: false,
+        echoCancellation: false,
+        noiseSuppression: false,
+        voiceIsolation: false
+      }
+      //these can also be configured using url params with values 0 or 1: 
+      // agc=0, ec=1, ns=1, vi=1
+
+
+    </script>
+    <script>
+      var p = document.createElement("script");
+      p.src = supportstream[0]+"player.js";
+      document.head.appendChild(p);
+    </script>
+    <meta charset="utf-8">
+    <title>Contributor Interface</title>
+    <meta name="viewport" content="width=800">
+    <link rel="icon" href="https://eslfaceitgroup.com/wp-content/uploads/2020/02/efg-favicon-150x150.png" sizes="32x32">
+    <style>
+      html,body {
+        padding: 0;
+        margin: 0;
+        height: 100%;
+        width: 100%;
+      }
+      body {
+        display: flex;
+        flex-flow: column nowrap;
+        font-family: Barlow, sans-serif;
+        font-size: 1.2em;
+        background: #222;
+        color: #fff;
+        max-width: 100vw;
+        max-height: 100vh;
+      }
+      header {
+        background: #000;
+        color: #fff;
+        padding: 0.5em;
+        display: flex;
+        align-items: center;
+      }
+      header .logo {
+        height: 2em;
+      }
+      header > * {
+        margin: 0 0.5em;
+      }
+      aside.error {
+        background: #800;
+        padding: 1em;
+      }
+      aside.error:empty {
+        display: none;
+      }
+      aside.error:before {
+        content: 'Error:';
+        font-family: Barlow Condensed;
+        font-weight: bold;
+        display: block;
+      }
+      aside.error > :first-child {
+        margin-top: 0;
+      }
+      main {
+        flex-grow: 1;
+        display: flex;
+        flex-flow: column nowrap;
+        max-width: 100%;
+        max-height: 100%;
+      }
+      h1,h2,h3,h4,h5,
+      .titlefont,
+      button {
+        font-weight: 700;
+        text-transform: uppercase;
+        font-family: Barlow Condensed, sans-serif;
+      }
+      button {
+        display: block;
+        cursor: pointer;
+        border: 0;
+        background-color: #000;
+        color: #fff;
+        padding: 1em 0.5em;
+        margin: 0.5em;
+        width: 15em;
+      }
+      .mistvideo button {
+        width: auto;
+      }
+      button:hover, button.active {
+        background: #111;
+      }
+      button.active {
+        background: #fff;
+        color: #000;
+      }
+      button.active:hover {
+        background: #bbb;
+      }
+      button:disabled {
+        opacity: 0.5;
+      }
+      button.primary {
+        background: #006400;
+      }
+      button.primary:hover {
+        background: #090;
+      }
+      button[data-icon] {
+        position: relative;
+        padding-left: 2em;
+      }
+      button[data-icon]:before,
+      button:after {
+        content: attr(data-icon);
+        font-size: 1.8em;
+        line-height: 0.5;
+        transform: translateY(0.1em);
+        display: inline-block;
+        position: absolute;
+        left: 0.5em;
+        font-family: sans serif;
+      }
+      button:after { 
+        content: none;
+      }
+      button > .key {
+        display: none;
+        opacity: 0.5;
+        font-weight: normal;
+        border: 1px solid #fff;
+        position: absolute;
+        right: 0.5em;
+        aspect-ratio: 1 / 1;
+        top: 50%;
+        transform: translateY(-50%);
+        height: 1.2em;
+      }
+      button:focus > .key,
+      button:hover > .key {
+        display: block;
+      }
+
+      a { color: inherit; }
+
+      input {
+        background-color: #000;
+        color: inherit;
+        border: 0;
+        height: 2em;
+        padding: 0 1em;
+      }
+      .mistvideo input {
+        padding: 0;
+      }
+      main {
+        text-align: center;
+      }
+      main .mistvideo {
+        text-align: left;
+      }
+      main > div {
+        display: flex;
+        flex-flow: column nowrap;
+        align-items: center;
+        padding: 0.5em 1em;
+        min-width: 0;
+      }
+      main > div.primary {
+        flex-grow: 1;
+        flex-shrink: 1;
+      }
+      main > div.primary > .video {
+        align-self: stretch;
+      }
+      main > div.secondary {
+        width: 30em;
+        max-width: 30vw;
+      }
+      .primary   button .large { display:none; }
+      .secondary button .small { display:none; }
+      .controls {
+        display: flex;
+        flex-flow: row wrap;
+        justify-content: center;
+        margin: 0.5em 0;
+        align-items:center;
+      }
+
+      .video, video {
+        background: #000;
+        width: 100%;
+        max-width: 100%;
+        max-height: 100%;
+        display: block;
+      }
+      .video {
+        aspect-ratio: 16 / 9;
+        position: relative;
+        container-type: inline-size;
+      }
+      .video:not(:empty),
+      .broadcasting .video.broadcast {
+        aspect-ratio: auto;
+      }
+      .video:after {
+        position: absolute;
+        margin: 0.25em;
+        top: 0; right: 0;
+        font-size: 10cqw;
+      }
+      .video.muted:after {
+        content: '🙊';
+      }
+      .video.nocam:after {
+        content: '🙈';
+      }
+      .video.nocam.muted:after {
+        content: '🙊🙈';
+      }
+
+
+      canvas {
+        outline: 1px solid blue;
+      }
+
+      button.settings {
+        width: 3em;
+        aspect-ratio: 1;
+        position: fixed;
+        right: 0;
+        bottom: 0;
+        margin: 1em;
+      }
+      section.settings, section.choose-source {
+        position: fixed;
+        margin: 0 auto;
+        padding: 1em;
+        background: #333;
+        top: 50%;
+        transform: translateY(-50%);
+        left: 0; right: 0;
+        width: 30em;
+        display: none;
+        flex-flow: column nowrap;
+      }
+      label {
+        display: flex;
+        flex-flow: row wrap;
+        margin: 0.25em 0;
+        align-items: center;
+      }
+      label > :nth-child(2) {
+        flex-grow: 1;
+      }
+      label > :not(:last-child) {
+        margin-right: 0.5em;
+      }
+      fieldset {
+        border: none;
+        margin: 1em 0;
+        padding: 0;
+      }
+      input[type="radio"], input[type="checkbox"] {
+        aspect-ratio: 1 / 1;
+        width: 1.2em;
+      }
+      label input + span { /* applies to text labels of radiobuttons and checkboxes */
+        user-select: none;
+      }
+
+      section.settings label span {
+        width: 12em;
+        font-size: 0.9em;
+      }
+      section.settings .controls, section.choose-source .controls {
+        justify-content: flex-end;
+      }
+      body.show-settings main,
+      body.choose-source main {
+        opacity: 0.5;
+        filter: blur(0.5em);
+        pointer-events: none;
+      }
+      body.show-settings section.settings,
+      body.choose-source section.choose-source
+      {
+        display: flex;
+      }
+      section.choose-source label span span {
+        opacity: 0.5;
+      }
+      section.choose-source fieldset:not(:has(label)):after {
+        content: 'None detected';
+        opacity: 0.5;
+      }
+
+      .controls:has(button.broadcast) {
+        display: grid;
+      }
+      button.broadcast {
+        grid-column: span 2;
+        width: auto;
+        margin: 1em 0.5em;
+      }
+      body:not(.broadcasting) button.broadcast {
+        margin: 1em 6em;
+        outline: 0.5em double transparent;
+        animation: 0.7s 15s blinkoutline linear infinite;
+      }
+      body:not(.broadcasting) button.broadcast:before {
+        content: '➡️';
+        display: block;
+        opacity: 0;
+        position: absolute;
+        left: -2em; right: auto;
+        top: 50%;
+        transform: translateY(-50%);
+        animation: 0.7s 30s clickme linear infinite;
+      }
+      body:not(.broadcasting) button.broadcast:after {
+        content: '⬅️';
+        display: block;
+        opacity: 0;
+        position: absolute;
+        right: -2em; left: auto;
+        top: 50%;
+        transform: translateY(-50%);
+        animation: 0.7s 30s clickme2 linear infinite;
+      }
+
+      body.broadcasting button.broadcast > .start { display: none; }
+      body button.broadcast > .stop, 
+      body.connecting button.broadcast > .start,
+      body.broadcasting.connecting button.broadcast > .stop,
+      body button.broadcast > .connecting { 
+        display: none; 
+      }
+      body.broadcasting button.broadcast > .stop  { display: inline; }
+      body.broadcasting button.broadcast { background: #800; }
+      body.connecting button.broadcast { background: #666; }
+      body.connecting button.broadcast:before { content: '⏳'; }
+      body.connecting button.broadcast .connecting { display: inline; }
+
+      .rec-circle {
+        width: 1em;
+        height: 1em;
+        margin: 1em;
+        font-size: 3cqw;
+        position: absolute;
+        top: 0; left: 0;
+      }
+      body.broadcasting .video.broadcast .rec-circle:before {
+        content: '';
+        position: relative;
+        display: block;
+        width: 100%;
+        height: 100%;
+        box-sizing: border-box;
+        border-radius: 100%;
+        background-color: #ff4136;
+        animation: pulse-ring 1.25s cubic-bezier(0.215, 0.61, 0.355, 1) infinite;
+        scale: 3;
+      }
+
+      body.broadcasting .video.broadcast .rec-circle:after {
+        content: '';
+        position: absolute;
+        left: 0; 
+        top: 0;
+        display: block;
+        width: 100%;
+        height: 100%;
+        background-color: #ff4136;
+        border-radius: 100%;
+        box-shadow: 0 0 0.5em rgba(0,0,0,.3);
+        animation: pulse-dot 1.25s cubic-bezier(0.455, 0.03, 0.515, 0.955) -.4s infinite;
+      }
+
+      @keyframes pulse-ring {
+        0% {
+          transform: scale(.33);
+        }
+        80%, 100% {
+          opacity: 0;
+        }
+      }
+
+      @keyframes pulse-dot {
+        0% {
+          transform: scale(.8);
+        }
+        50% {
+          transform: scale(1);
+        }
+        100% {
+          transform: scale(.8);
+        }
+      }
+
+      @keyframes clickme {
+        0% {
+          transform: translateX(-1.2em) translateY(-50%);
+          opacity: 1;
+        }
+        50%, 100% {
+          transform: translateX(0.5em) translateY(-50%);
+          opacity: 1;
+        }
+        60% {
+          transform: translateX(0em) translateY(-50%);
+          opacity: 1;
+        }
+      }
+      @keyframes clickme2 {
+        0% {
+          transform: translateX(1.2em) translateY(-50%);
+          opacity: 1;
+        }
+        50%, 100% {
+          transform: translateX(-0.5em) translateY(-50%);
+          opacity: 1;
+        }
+        60% {
+          transform: translateX(-0em) translateY(-50%);
+          opacity: 1;
+        }
+      }
+      @keyframes blinkoutline {
+        0%, 100% { outline-color: #fff; }
+        50% { outline-color: transparent; }
+      }
+
+
+      button.muted.active .mute { display: none; }
+      button.muted .unmute { display: none; }
+      button.muted.active .unmute { display: inline; }
+      button.muted.active:after {
+        content: '🚫'; 
+        scale: 0.75;
+      }
+      button.videomuted.active .cam { display: none; }
+      button.videomuted .nocam { display: none; }
+      button.videomuted.active .nocam { display: inline; }
+      button.videomuted.active:after {
+        content: '🚫'; 
+        scale: 0.75;
+      }
+
+      body.streaming-support button > .support.start { display: none; }
+      body button > .support.stop { display: none; }
+      body.streaming-support button > .support.stop  { display: inline; }
+
+      @media (min-aspect-ratio: 1/1) {
+        main { 
+          flex-flow: row nowrap;
+        }
+        main > div.secondary {
+          max-width: 30vw;
+        }
+      }
+      @media (max-height: 600px) {
+        header {
+          display: none;
+        }
+      }
+
+      @font-face {
+        font-family: 'Barlow Condensed';
+        font-style: normal;
+        font-weight: normal;
+        font-display: auto;
+        src: url('https://eslfaceitgroup.com/wp-content/uploads/2022/08/BarlowCondensed-Regular.woff2') format('woff2'),  
+        url('https://eslfaceitgroup.com/wp-content/uploads/2022/08/BarlowCondensed-Regular.woff') format('woff'),
+          url('https://eslfaceitgroup.com/wp-content/uploads/2022/08/BarlowCondensed-Regular.ttf') format('truetype');
+      }
+      @font-face {
+        font-family: 'Barlow Condensed';
+        font-style: normal;
+        font-weight: 700;
+        font-display: auto;
+        src: url('https://eslfaceitgroup.com/wp-content/uploads/2022/08/BarlowCondensed-Bold.woff2') format('woff2'),
+          url('https://eslfaceitgroup.com/wp-content/uploads/2022/08/BarlowCondensed-Bold.woff') format('woff'),
+          url('https://eslfaceitgroup.com/wp-content/uploads/2022/08/BarlowCondensed-Bold.ttf') format('truetype');
+      }
+      @font-face {
+        font-family: 'Barlow';
+        font-style: normal;
+        font-weight: 400;
+        font-display: auto;
+        src: url('https://eslfaceitgroup.com/wp-content/uploads/2022/08/Barlow-Regular.woff2') format('woff2'),
+          url('https://eslfaceitgroup.com/wp-content/uploads/2022/08/Barlow-Regular.woff') format('woff'),
+          url('https://eslfaceitgroup.com/wp-content/uploads/2022/08/Barlow-Regular.ttf') format('truetype');
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <svg class="logo" version="1.1" id="Layer_1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+	 viewBox="0 0 63 62.9" style="enable-background:new 0 0 63 62.9;" xml:space="preserve">
+<style type="text/css">
+	.st0{fill:#FFFFFF;}
+</style>
+<rect y="0" class="st0" width="63" height="63"/>
+<g>
+	<path d="M12.3,30.8v1.9H4.5V22.3h7.8v1.9H6.9v2.2h4.2v1.8H6.9v2.5h5.4V30.8z"/>
+	<path d="M22,29.6c0,1.3-0.2,2.2-0.7,2.7c-0.3,0.3-0.9,0.5-1.6,0.5h-3.9c-0.8,0-1.4-0.2-1.7-0.5c-0.2-0.2-0.4-0.5-0.5-0.9
+		s-0.1-1.1-0.1-2h2.3c0,0.8,0.1,1.3,0.2,1.4s0.3,0.1,0.7,0.1h2.2c0.4,0,0.6,0,0.7-0.1s0.1-0.4,0.1-1c0-0.5-0.1-0.8-0.2-0.9
+		s-0.3-0.1-0.7-0.2l-3.2-0.3c-0.7-0.1-1.2-0.3-1.5-0.6c-0.2-0.2-0.4-0.5-0.4-0.8c-0.1-0.3-0.1-0.9-0.1-1.5c0-1.2,0.2-2.1,0.7-2.5
+		c0.3-0.3,0.9-0.5,1.6-0.5h3.6c0.9,0,1.4,0.1,1.7,0.4c0.2,0.2,0.4,0.5,0.5,0.9s0.1,1,0.2,1.9h-2.3c0-0.7-0.1-1.2-0.2-1.3
+		c-0.1-0.1-0.3-0.1-0.6-0.1h-2.1c-0.3,0-0.6,0-0.6,0.1c-0.1,0.1-0.1,0.4-0.1,1c0,0.5,0,0.8,0.1,0.9s0.3,0.1,0.7,0.2l3.2,0.3
+		c0.7,0.1,1.2,0.2,1.4,0.5c0.2,0.2,0.4,0.5,0.4,0.8C22,28.4,22,28.9,22,29.6z"/>
+	<path d="M25.9,22.3v8.5h5v1.9h-7.4V22.3H25.9z"/>
+	<path d="M12,37.1H7v2.6h3.8v1.8H6.9v4.1H4.5V35.2H12V37.1z"/>
+	<path d="M19,45.6L18.2,43h-3.6l-0.8,2.6h-2.4l3.2-9.8c0.1-0.3,0.2-0.5,0.3-0.6s0.3-0.1,0.6-0.1h2c0.3,0,0.4,0,0.5,0.1
+		s0.2,0.3,0.3,0.6l3.2,9.8H19z M16.3,37.3l-1.2,3.9h2.5L16.3,37.3L16.3,37.3z"/>
+	<path d="M31,41.7c0,1-0.1,1.8-0.2,2.3s-0.3,0.9-0.6,1.1c-0.3,0.3-1,0.5-1.9,0.5H25c-0.9,0-1.5-0.2-1.9-0.5
+		c-0.3-0.3-0.6-0.8-0.8-1.5c-0.2-0.7-0.3-1.7-0.3-3.2s0.1-2.6,0.3-3.2c0.2-0.7,0.4-1.2,0.8-1.5c0.3-0.3,1-0.5,1.9-0.5h3.2
+		c0.9,0,1.5,0.2,1.9,0.5c0.3,0.3,0.5,0.6,0.6,1.1s0.2,1.2,0.2,2.1h-2.3c0-1-0.1-1.5-0.3-1.7c-0.1-0.1-0.3-0.1-0.7-0.1h-1.9
+		c-0.4,0-0.6,0-0.7,0.1c-0.2,0.2-0.3,1.2-0.3,3.1c0,1.9,0.1,2.9,0.3,3.1c0.1,0.1,0.3,0.1,0.7,0.1h1.9c0.4,0,0.6,0,0.7-0.1
+		c0.2-0.2,0.3-0.8,0.3-1.8H31V41.7z"/>
+	<path d="M40.2,43.7v1.9h-7.8V35.2h7.8v1.9h-5.4v2.2H39v1.8h-4.2v2.5L40.2,43.7L40.2,43.7z"/>
+	<path d="M44,45.6h-2.4V35.2H44V45.6z"/>
+	<path d="M54,37.1h-3.2v8.5h-2.4v-8.5h-3.2v-1.9H54V37.1z"/>
+	<path d="M7.1,48.1h3.2c1,0,1.6,0.2,1.9,0.5c0.3,0.3,0.5,0.6,0.6,1s0.2,1.1,0.2,1.9h-2.3c0-0.7-0.1-1.2-0.3-1.4
+		C10.3,50,10.1,50,9.7,50h-2c-0.4,0-0.6,0-0.7,0.1c-0.2,0.2-0.4,1.3-0.4,3.2s0.1,2.9,0.4,3.2c0.1,0.1,0.3,0.1,0.7,0.1h2
+		c0.3,0,0.6,0,0.7-0.1c0.2-0.2,0.3-0.7,0.3-1.5v-0.3H8.5v-1.8h4.7v1.3c0,1.1-0.1,2-0.2,2.5c-0.2,0.6-0.4,1-0.7,1.3
+		c-0.4,0.3-1,0.5-1.9,0.5H7.1c-0.9,0-1.5-0.2-1.9-0.5c-0.3-0.3-0.6-0.8-0.8-1.5c-0.2-0.7-0.3-1.7-0.3-3.2s0.1-2.6,0.3-3.2
+		c0.2-0.7,0.4-1.2,0.8-1.5C5.6,48.2,6.2,48.1,7.1,48.1z"/>
+	<path d="M20.6,55.9c0-0.6-0.1-1-0.3-1.1c-0.2-0.1-0.5-0.2-1-0.2h-2.2v3.9h-2.4V48.1h6.1c0.9,0,1.4,0.2,1.8,0.5
+		c0.2,0.2,0.4,0.5,0.5,0.9s0.2,0.9,0.2,1.6c0,0.9-0.1,1.5-0.4,1.9s-0.7,0.6-1.3,0.7l0,0c0.6,0.1,1,0.3,1.2,0.6s0.4,0.8,0.4,1.5
+		c0,1.2,0.1,2.1,0.2,2.8h-2.5C20.7,57.8,20.7,57,20.6,55.9z M17.1,52.7h2.6c0.4,0,0.6,0,0.7-0.1c0.2-0.2,0.3-0.6,0.3-1.3
+		s-0.1-1.1-0.3-1.3c-0.1,0-0.3,0-0.7,0h-2.6V52.7z"/>
+	<path d="M27.4,48.1h3.2c0.9,0,1.5,0.2,1.9,0.5c0.3,0.3,0.6,0.8,0.8,1.5s0.3,1.7,0.3,3.2s-0.1,2.5-0.3,3.2s-0.4,1.2-0.8,1.5
+		c-0.3,0.3-1,0.5-1.9,0.5h-3.2c-0.9,0-1.5-0.2-1.9-0.5c-0.3-0.3-0.6-0.8-0.8-1.5c-0.2-0.7-0.3-1.7-0.3-3.2s0.1-2.6,0.3-3.2
+		c0.2-0.7,0.4-1.2,0.8-1.5C25.9,48.2,26.5,48.1,27.4,48.1z M27,53.3c0,1.9,0.1,2.9,0.3,3.1c0.1,0.1,0.3,0.1,0.7,0.1h2
+		c0.4,0,0.6,0,0.7-0.1c0.2-0.2,0.3-1.3,0.3-3.1c0-1.9-0.1-2.9-0.3-3.1c0-0.2-0.3-0.2-0.7-0.2h-2c-0.4,0-0.6,0-0.7,0.1
+		C27.1,50.3,27,51.4,27,53.3z"/>
+	<path d="M43.9,48.1v6.2c0,1.2-0.1,2-0.2,2.5c-0.1,0.5-0.3,0.9-0.6,1.2c-0.2,0.2-0.5,0.4-0.9,0.5s-0.9,0.1-1.6,0.1h-2.3
+		c-0.7,0-1.2,0-1.6-0.1c-0.4-0.1-0.7-0.2-0.9-0.5c-0.3-0.3-0.5-0.7-0.6-1.2S35,55.5,35,54.3v-6.2h2.4v6.3c0,1,0.1,1.6,0.3,1.8
+		c0.1,0.1,0.6,0.2,1.2,0.2h1c0.7,0,1.1-0.1,1.2-0.2c0.1-0.1,0.2-0.3,0.2-0.5s0.1-0.7,0.1-1.3v-6.3H43.9z"/>
+	<path d="M54,51.5c0,1.5-0.3,2.5-0.9,3c-0.3,0.3-0.9,0.4-1.8,0.4H48v3.5h-2.4V48.1h5.7c0.9,0,1.5,0.1,1.8,0.4
+		c0.3,0.3,0.5,0.6,0.7,1.1C53.9,50,54,50.6,54,51.5z M48,53h2.4c0.5,0,0.7,0,0.8-0.1c0.2-0.2,0.3-0.7,0.3-1.4c0-0.8-0.1-1.2-0.3-1.4
+		C51.1,50,50.8,50,50.4,50H48V53z"/>
+</g>
+</svg>
+      <h1>Contributor interface</h1>
+    </header>
+    <aside class="error"></aside>
+    <main>
+      <div class="secondary">
+        <h3>Broadcast</h3>
+        <div class="broadcast video">
+          <video muted></video>
+          <div class="rec-circle"></div>
+        </div>
+        <div class="controls">
+          <button class="broadcast" data-icon="➡️" data-key="B" onclick="startStopBroadcast(true)">
+            <span class="start">Start broadcast</span><span class="stop">Stop broadcast</span>
+            <span class="connecting">Connecting..</span>
+          </button>
+          <button class="muted" data-icon="🎙️" data-key="A" onclick="toggleMute()">
+            <span class="mute">Mute mic</span><span class="unmute">Mic Muted</span>
+          </button>
+          <button class="videomuted" data-icon="🎞️" data-key="V" onclick="toggleBlackVideo()">
+            <span class="cam">Don't send</span><span class="nocam">Not sending</span> video
+          </button>
+          <button data-icon="📹" data-key="S" onclick="toggleChooseSource()"> Choose source</button>
+        </div>
+      </div>
+      <div class="primary">
+        <h3>Return Stream</h3>
+        <div class="support video"></div>
+        <div class="controls">
+          <button data-icon="🙋" data-key="H" onclick="startSupportStream(true)">
+            <span class="support start">Start</span><span class="support stop">Stop</span> return stream
+          </button>
+          <button data-icon="🗚" data-key="F" onclick="flipPrimary()">
+            Show <span class="small">small</span><span class="large">large</span>
+          </button>
+        </div>
+      </div>
+      <button class="settings" onclick="toggleSettings()">⚙️</button>
+    </main>
+    <section class="settings">
+      <h3>Settings</h3>
+      <label>
+        <span>Broadcasting url:</span>
+        <input type="url" name="broadcasturl">
+      </label>
+      <label>
+        <span>Return stream host:</span>
+        <input type="url" name="support_host">
+      </label>
+      <label>
+        <span>Return stream name:</span>
+        <input type="text" name="support_streamname">
+      </label>
+      <div class="controls">
+        <button data-icon="❌" class="cancel" onclick="toggleSettings(); setFields(false);"> Cancel</button>
+        <button data-icon="✔️" class="primary" onclick="applySettings()"> Save and close</button>
+      </div>
+    </section>
+    <section class="choose-source">
+      <h3>Choose your source</h3>
+      <fieldset name="videoinput">
+        <legend>Video source</legend>
+        
+      </fieldset>
+      <fieldset name="audioinput">
+        <legend>Audio source</legend>
+        
+      </fieldset>
+      <div class="controls">
+        <button data-icon="❌" class="cancel" onclick="toggleChooseSource(); setSourceFields();"> Cancel</button>
+        <button data-icon="✔️" class="primary" onclick="chooseSource()"> Save and close</button>
+      </div>
+    </section>
+    <script>
+      let RTCConnection = false;
+      let CamStream = false;
+      let muted = false;
+      let black = false;
+
+      let error = document.body.querySelector("aside.error");
+
+      const video = document.body.querySelector(".video.broadcast video");
+      let devices = { audioinput: {}, videoinput: {}};
+      let constraint = {
+        audio: false, 
+        video: false
+      };
+
+      function showError(message) {
+        while (error.children.length) {
+          error.removeChild(error.children[0]);
+        }
+        error.innerText = "";
+        if (message == "") { return; }
+        if (typeof message == "string") {
+          error.appendChild(document.createTextNode(message));
+          console.error(message);
+        }
+        else {
+          //its a DOMelement
+          error.appendChild(message);
+          console.error(message.innerText);
+        }
+      }
+
+
+      //set settings fields
+      function setFields(init) {
+        const fields = document.body.querySelectorAll("body > section.settings input");
+        for (let i = 0; i < fields.length; i++) {
+          const field = fields[i];
+          let v = false;
+          switch (field.getAttribute("name")) {
+            case "broadcasturl": { v = broadcaststream; break; }
+            case "support_host": { v = supportstream[0]; break; }
+            case "support_streamname": { v = supportstream[1]; break; }
+            case "autoGainControl":
+            case "echoCancellation": 
+            case "noiseSuppression":
+            case "voiceIsolation": {
+              v = !!mic_settings[field.getAttribute("name")];
+              break;
+            }
+          }
+          if (field.type == "checkbox") {
+            field.checked = v;
+          }
+          else {
+            field.value = v;
+            if (init) field.setAttribute("placeholder",v);
+          }
+        }
+      }
+      setFields(true); //placeholders are now set
+      
+      //retrieve values set by url params
+      let loc = new URL(location.href);
+      let bc = loc.searchParams.get("bc");
+      let ssh = loc.searchParams.get("ssh");
+      let ssn = loc.searchParams.get("ssn");
+      let agc = loc.searchParams.get("agc");
+      let ec = loc.searchParams.get("ec");
+      let ns = loc.searchParams.get("ns");
+      let vi = loc.searchParams.get("vi");
+      if (bc || ssh || ssn || agc || ec || ns || vi) {
+        if (bc) broadcaststream = bc;
+        if (ssh) { 
+          supportstream[0] = ssh;
+          if (!window.mistplayers) { 
+            var p = document.createElement("script");
+            p.src = supportstream[0]+"player.js";
+            document.head.appendChild(p);
+          }
+        }
+        if (ssn) supportstream[1] = ssn;
+        if (agc) mic_settings.autoGainControl = !!Number(agc);
+        if (ec) mic_settings.echoCancellation = !!Number(ec);
+        if (ns) mic_settings.noiseSuppression = !!Number(ns);
+        if (vi) mic_settings.voiceIsolation = !!Number(vi);
+
+        setFields(); //put these values in the input fields
+      }
+
+      function flipPrimary() {
+        const pri = document.body.querySelector("body > main > .primary");
+        const sec = document.body.querySelector("body > main > .secondary");
+        pri.classList.remove("primary");
+        pri.classList.add("secondary");
+        sec.classList.remove("secondary");
+        sec.classList.add("primary");
+        if (mv.reference && mv.reference.player && mv.reference.player.resizeAll) {
+          mv.reference.player.resizeAll();
+        }
+      }
+      function toggleSettings(){
+        if (document.body.classList.contains("show-settings")) {
+          document.body.classList.remove("show-settings");
+          document.body.focus();
+        }
+        else {
+          document.body.classList.add("show-settings");
+          document.body.querySelector("body > section.settings input").focus();
+        }
+      }
+      function applySettings(){
+        const fields = document.body.querySelectorAll("body > section.settings input");
+        let restartSupportStream = false;
+        let applyMicSettings = false;
+        for (let i = 0; i < fields.length; i++) {
+          const field = fields[i];
+          if (field.value == "") { field.value = field.getAttribute("placeholder"); }
+          switch (field.getAttribute("name")) {
+            case "broadcasturl": { 
+              if (broadcaststream != field.value) {
+                broadcaststream = field.value; 
+                //if broadcasting, restart
+                if (RTCConnection) {
+                  startStopBroadcast(); //stop
+                  startStopBroadcast(); //start
+                }
+
+              }
+              break;
+            }
+            case "support_host": { 
+              if (field.value != supportstream[0]) {
+                supportstream[0] = field.value; 
+                restartSupportStream = true;
+                if (!window.mistplayers) { 
+                  var p = document.createElement("script");
+                  p.src = supportstream[0]+"player.js";
+                  document.head.appendChild(p);
+                }
+              }
+              break; 
+            }
+            case "support_streamname": {
+              if (field.value != supportstream[1]) {
+                supportstream[1] = field.value; 
+                restartSupportStream = true;
+              }
+              break; 
+            }
+            case "autoGainControl":
+            case "echoCancellation": 
+            case "noiseSuppression":
+            case "voiceIsolation": {
+              if (mic_settings[field.getAttribute("name")] != field.checked) {
+                mic_settings[field.getAttribute("name")] = field.checked;
+                applyMicSettings = true;
+              }
+              break;
+            }
+          }
+        }
+        if (restartSupportStream && mv && mv.reference) {
+          startSupportStream(false); 
+        }
+        if (applyMicSettings) {
+          //apply mic settings
+          chooseSource(); //not named intuitively but does the job, trust me <3
+        }
+        toggleSettings();
+      }
+      function toggleChooseSource(){
+        if (document.body.classList.contains("choose-source")) {
+          document.body.classList.remove("choose-source");
+          document.body.focus();
+        }
+        else {
+          document.body.classList.add("choose-source");
+          document.body.querySelector("body > section.choose-source input").focus();
+        }
+      }
+      function chooseSource(){
+        const fields = document.body.querySelectorAll("body > section.choose-source input:checked");
+        let replaceSourceStream = [];
+        for (let i = 0; i < fields.length; i++) {
+          const field = fields[i];
+          const kind = field.getAttribute("name").replace("input","");
+          if ((!constraint[kind].deviceId) || (constraint[kind].deviceId.exact != field.value)) {
+            constraint[kind].deviceId.exact = field.value;
+            replaceSourceStream.push(kind);
+          }
+        }
+        for (let i in mic_settings) {
+          if (constraint.audio[i] != mic_settings[i]) {
+            constraint.audio[i] = mic_settings[i];
+            replaceSourceStream.push("audio");
+          }
+        }
+        
+
+        if (replaceSourceStream.length) {
+          //without renegotiating :D
+
+          //remove possible double "audio"
+          for (let i = replaceSourceStream.length-1; i >= 0; i--) {
+            if (replaceSourceStream.indexOf(replaceSourceStream[i]) != i) {
+              replaceSourceStream.splice(i,1);
+            }
+          }
+
+          showError("");
+
+          //update constraint
+          if (replaceSourceStream.indexOf("video") >= 0) {
+            let device = devices.videoinput[constraint.video.deviceId.exact].capabilities;
+            let aspect = 16 / 9;
+            constraint.video.height = { ideal: device.height.max };
+            constraint.video.width  = { ideal: Math.round(device.height.max*aspect) };
+            constraint.video.frameRate = { ideal: device.frameRate.max };
+          }
+
+          let reducedConstraint = Object.assign({},constraint);
+          for (let i in reducedConstraint) {
+            if (replaceSourceStream.indexOf(i) < 0) {
+              delete reducedConstraint[i];
+            }
+          }
+
+          //stop the old track
+          if (CamStream) {
+            for (let i in replaceSourceStream) {
+              const kind = replaceSourceStream[i];
+
+              const oldtrack = CamStream["get"+kind.charAt(0).toUpperCase()+kind.slice(1)+"Tracks"]()[0];
+              if (oldtrack) {
+                oldtrack.stop();
+              }
+            }
+          }
+          
+          navigator.mediaDevices.getUserMedia(reducedConstraint).then((newstream)=>{
+            let mergedStream = new MediaStream();
+
+            for (let i in replaceSourceStream) {
+              const kind = replaceSourceStream[i];
+              const newtrack = newstream["get"+kind.charAt(0).toUpperCase()+kind.slice(1)+"Tracks"]()[0];
+
+              //replace the track @ the webrtc sender
+              if (RTCConnection) {
+                const senders = RTCConnection.getSenders();
+                let sender = false;
+                for (var j in senders) {
+                  if (senders[j].track.kind == newtrack.kind) {
+                    sender = senders[j];
+                    break;
+                  }
+                }
+                if (sender) {
+                  sender.replaceTrack(newtrack);
+                }
+                else {
+                  throw Error("Could not find webrtc "+newtrack.kind+" sender");
+                }
+              }
+
+              mergedStream.addTrack(newtrack);
+
+              if ({audio: muted, video: black}[kind]) {
+                //if this track was disabled in the old stream, disable the new one too
+                newtrack.enabled = false;
+              }
+
+
+            }
+
+            //add old tracks to the merged stream
+            if (CamStream) {
+              for (let kind in constraint) {
+                if (replaceSourceStream.indexOf(kind) < 0) {
+                  mergedStream.addTrack(CamStream["get"+kind.charAt(0).toUpperCase()+kind.slice(1)+"Tracks"]()[0])
+                }
+              }
+            }
+            
+            setCamStream(mergedStream);
+            
+          }).catch((e)=>{
+
+            let msg = []
+            for (let i in replaceSourceStream) {
+              let kind = replaceSourceStream[i];
+              msg.push(kind+" device '"+devices[kind+"input"][constraint[kind].deviceId.exact].mylabel+"'");
+
+              document.body.querySelector("section.choose-source input[value=\""+constraint[kind].deviceId.exact+"\"]").checked = false;
+              constraint[kind].deviceId.exact = null;
+
+            }
+            msg = "There was a problem selecting "+msg.join(" and ")+": "+e.message;
+            showError(msg);
+
+            document.body.classList.add("choose-source");
+
+          })
+
+        }
+        if (document.body.classList.contains("choose-source")) toggleChooseSource();
+      }
+      function setSourceFields() {
+        const fields = document.body.querySelectorAll("body > section.choose-source fieldset");
+        for (let i = 0; i < fields.length; i++) {
+          const kind = fields[i].getAttribute("name");
+          const val = constraint[kind.replace("input","")]?.deviceId?.exact;
+          if (val) fields[i].querySelector("input[name=\""+kind+"\"][value=\""+val+"\"]").checked = true;
+        }
+      }
+
+      let mv = {};
+      function startSupportStream(toggle) {
+        if (mv.reference && mv.reference.unload) { mv.reference.unload(); } 
+        if ((toggle) && (document.body.classList.contains("streaming-support"))) {
+          document.body.classList.remove("streaming-support");
+          delete mv.reference;
+        }
+        else {
+          const container = document.querySelector(".support.video");
+          try {
+            if (!window.mistPlay) {
+              throw new Error("Failed to contact media server at "+supportstream[0]);
+            }
+            mistPlay(supportstream[1],{
+              host: supportstream[0],
+              skin: "dev", //enables advanced player ui
+              target: container,
+              fillSpace: true, //grow the player to the size of the container, even if the stream size is smaller
+              //forcePriority: {"source":[["type",["webrtc","ws/video/mp4"]]]}, //prioritize a low latency streaming protocol
+              forceType: "webrtc", //force player protocol to webrtc
+              MistVideoObject: mv //store the player object here so it can be accessed by this pages' javascript
+            });
+            document.body.classList.add("streaming-support");
+          }
+          catch (e) {
+            showError("Could not start support stream: "+e.message);
+          }
+        }
+      }
+
+      function queryDevices(){
+        //query available devices
+
+        if (!("mediaDevices" in navigator)) {
+          console.error("This browser doesn't have the mediaDevices API: nothing to broadcast.");
+          if (location.protocol != "https:") {
+            const t = document.createElement("p");
+            t.appendChild(document.createTextNode("Please access this page "));
+            const a = document.createElement("a");
+            a.setAttribute("href",location.href.replace(location.protocol,"https:"));
+            t.appendChild(a);
+            a.appendChild(document.createTextNode("through https"))
+            t.appendChild(document.createTextNode("!"));
+            showError(t);
+          }
+          return;
+        }
+
+        navigator.permissions.query({name:"camera"}).then((p)=>{
+          navigator.permissions.query({name:"microphone"}).then((q)=>{
+            if ((p.state == "denied") && (q.state == "denied")) {
+              showError("Please enable camera and/or microphone access.");
+              return;
+            }
+            if ((p.state == "prompt") || (q.state == "prompt")) {
+              //ask
+              navigator.mediaDevices.getUserMedia({audio:true,video:true}).then(()=>{
+                enumerate();
+              }).catch(()=>{
+                showError("Please enable camera and/or microphone access.");
+              });
+              return;
+            }
+
+            if ((p.state == "granted") || (q.state == "granted")) {
+              //carry on
+              enumerate();
+            }
+
+          });
+        }).catch(()=>{
+          //not implemented, ask for permissions, then carry on
+          navigator.mediaDevices.getUserMedia({audio:true,video:true}).then((stream)=>{
+            stream.getTracks().forEach((t)=>{ t.stop(); });
+            enumerate();
+          })
+        });
+
+        function enumerate() {
+
+          navigator.mediaDevices.enumerateDevices().then((ds) => {
+            ds.forEach((device) => {
+              if (device.kind in devices) {
+                if (device.deviceId == "") {
+                  //we probably don't have permission to use this cam/mic
+                  return;
+                }
+                if (device.label == "") {
+                  device.mylabel = "Unknown ("+device.deviceId+")";
+                }
+                else { device.mylabel = device.label; }
+
+                device.specs = "";
+
+                if (!("getCapabilities" in device)) {
+                  //probably firefox.. pretend and carry on
+                  device.capabilities = {
+                    height: { max: 2160 },
+                    width: { max: 4096 },
+                    frameRate: { max: 120 },
+                    sampleRate: 48000
+                  };
+                  device.specs = "";
+                  devices[device.kind][device.deviceId] = device;
+                  return;
+                }
+
+                let capa = device.getCapabilities();
+                if (Object.keys(capa).length) {
+                  device.capabilities = capa;
+
+                  if (capa.width) { 
+                    device.specs = " ("+capa.height.max+"p"+Math.round(capa.frameRate.max*1e2)/1e2+")";
+                  }
+                  if (capa.sampleRate) {
+                    let s = [];
+                    if (capa.channelCount) { s.push((capa.channelCount.max == 1 ? "mono" : (capa.channelCount.max == 2 ? "stereo" : "surround"))); }
+                    s.push((Math.round(capa.sampleRate.max/100)/10)+"kHz");
+                    if (capa.sampleSize) { s.push((capa.sampleSize.max)+"kB"); }
+                    device.specs = " ("+s.join(", ")+")";
+                  }
+                }
+                else {
+                  //probably chrome without permissions
+                  device.capabilities = {
+                    height: { max: 2160 },
+                    width: { max: 4096 },
+                    frameRate: { max: 120 },
+                    sampleRate: 48000
+                  };
+                }
+                devices[device.kind][device.deviceId] = device;
+              }
+            });
+
+            let n = 0;
+            for (let kind in devices) {
+              let fieldset = document.body.querySelector(".choose-source fieldset[name=\""+kind+"\"]");
+              for (let deviceid in devices[kind]) {
+                let device = devices[kind][deviceid];
+                let label = document.createElement("label");
+                let radio = document.createElement("input");
+                radio.setAttribute("type","radio");
+                radio.setAttribute("name",kind);
+                radio.setAttribute("value",deviceid);
+                label.appendChild(radio);
+                let span = document.createElement("span");
+                span.appendChild(document.createTextNode(device.mylabel));
+                let specs = document.createElement("span");
+                specs.appendChild(document.createTextNode(device.specs));
+                span.appendChild(specs);
+                label.appendChild(span);
+                fieldset.appendChild(label);
+                n++;
+              }
+            }
+
+            if (n == 0) { //no video or audio devices found
+              showError("Could not find any camera's or microphones, so there's not much to broadcast. Did you deny permissions?");
+              return;
+            }
+
+            //orig
+            /*
+              {
+                audio: { channelCount: { ideal: 2 }, sampleRate: { ideal: 48000 } }, 
+                video: { width: { ideal: 1920 }, height: { ideal: 1080 } }
+              };
+            */
+
+            //find default sources and bind the MediaSource to the video element
+
+            //video: highest resolution available
+            let best = null;
+            let height = 0;
+            for (let deviceid in devices.videoinput) {
+              if (!best) best = deviceid;
+              let capa = devices.videoinput[deviceid].capabilities;
+              if (capa.height.max >= height) {
+                best = deviceid;
+                height = capa.height.max;
+              }
+            }
+            if (best) { 
+              constraint.video = { deviceId: { exact: best } };
+              document.body.querySelector("input[type=\"radio\"][name=\"videoinput\"][value=\""+best+"\"]").checked = true;
+
+              let device = devices.videoinput[best].capabilities;
+              let aspect = 16 / 9;
+              constraint.video.height = { ideal: device.height.max };
+              constraint.video.width  = { ideal: Math.round(device.height.max*aspect) };
+              constraint.video.frameRate = { ideal: device.frameRate.max };
+            }
+
+            //audio: samplerate 48k and most features
+            best = null;
+            let features = 0;
+            for (let deviceid in devices.audioinput) {
+              if (!best) best = deviceid;
+              let capa = devices.audioinput[deviceid].capabilities;
+              if ((capa.sampleRate) && (capa.sampleRate.max >= 48000) && (capa.sampleRate.min <= 48000)) {
+                let f = 0;
+                if (capa.channelCount && capa.channelCount.max <= 2) { f++; }
+                if (capa.autoGainControl) { f++; }
+                if (capa.echoCancellation) { f++; }
+                if (capa.noiseSuppression) { f++; }
+                if (capa.voiceIsolation) { f++; }
+                if (f > features) {
+                  best = deviceid;
+                  features = f;
+                }
+              }
+            }
+            if (best) { 
+              constraint.audio = Object.assign({
+                deviceId: { exact: best }
+              }, mic_settings);
+              document.body.querySelector("input[type=\"radio\"][name=\"audioinput\"][value=\""+best+"\"]").checked = true;
+            }
+            
+            startStream();
+
+          }).catch((e)=>{
+            console.error("Enumerate devices failed:",e);
+          });
+
+        }
+      }
+      
+      function startStream() {
+
+        navigator.mediaDevices.getUserMedia(constraint).then(async (cam) => {
+          setCamStream(cam) 
+        }).catch((e) => {
+          showError("Could not retrieve video or audio");
+          console.error(e);
+          video.srcObject = null;
+        });
+
+      }
+      queryDevices();
+
+      function startStopBroadcast(confirmStop){
+        if (document.body.classList.contains("broadcasting")) {
+          if (!confirmStop || confirm("Are you sure you want to stop your broadcast?\nYou can also temporarily turn off your mic/cam using the buttons.")) {
+            if (RTCConnection){
+              RTCConnection.close();
+              RTCConnection = false;
+            }
+            document.body.classList.remove("connecting");
+            document.body.classList.remove("broadcasting");
+          }
+        }
+        else {
+
+          async function startBroadcast(url){
+            if (!CamStream) { 
+              console.warn("Could not start broadcast, stream not ready yet.");
+              document.body.classList.remove("broadcasting");
+             
+              let f = function(){
+                video.removeEventListener("loadeddata",f);
+                startBroadcast(url);
+              };
+              video.addEventListener("loadeddata",f); 
+              return;
+            }
+
+            document.body.classList.add("connecting");
+            document.body.classList.add("broadcasting");
+
+            if (!document.body.classList.contains("streaming-support")) {
+              startSupportStream();
+            }
+
+            //startStream();
+            let cam = CamStream;
+
+            RTCConnection = new RTCPeerConnection();
+            for (const track of cam.getTracks()) {
+              RTCConnection.addTrack(track);
+            }
+
+            //set video encoder settings
+            const senders = RTCConnection.getSenders();
+            senders.forEach((sender)=>{
+              if (sender.track.kind == "video") {
+                const parameters = sender.getParameters();
+                if (!parameters.encodings) { parameters.encodings = [{}]; }
+
+                parameters.encodings[0].maxBitrate    = 10485760;                         //10 mbps
+                parameters.encodings[0].maxFramerate  = constraint.video.frameRate.ideal; //the camera's max fps
+                parameters.encodings[0].adaptivePtime = true;                             //adaptive packet rate
+
+                sender.setParameters(parameters).then(() => {
+                  //encoding parameters changed successfuly
+                }).catch(e => console.error(e));
+              }
+            });
+
+
+            RTCConnection.onconnectionstatechange = () => {
+              if (["disconnected", "closed", "failed"].indexOf(RTCConnection.connectionState) >= 0){
+                document.body.classList.remove("broadcasting");
+                document.body.classList.remove("connecting");
+                showError("Broadcast to "+broadcaststream+" has "+RTCConnection.connectionState);
+              }
+              else if (RTCConnection.connectionState == "connected") {
+                showError("");
+                document.body.classList.remove("connecting");
+                document.body.classList.add("broadcasting");
+
+                /*
+                function getStats() {
+                  if (RTCConnection.connectionState == "connected") {
+                    RTCConnection.getStats().then((t) => {
+                      let entries = Array.from(t.entries());
+                      let send = {
+                        timestamp: new Date()
+                      };
+                      for (let i in entries) {
+                        let value = entries[i];
+                        let d = value[1];
+                        if ((d.type == "outbound-rtp") && (d.kind == "video")) {
+                          send.fps = d.framesPerSecond;
+                          send.resolution = d.frameWidth + "×" + d.frameHeight;
+                          send.qualityLimitation = d.qualityLimitationReason;
+                        }
+                        else if (d.type == "transport") {
+                          send.bytesSent = d.bytesSent;
+                        }
+                      }
+                      displayStats(send);
+                      setTimeout(function(){
+                        getStats();
+                      },1e3);
+                    });
+                  }
+                }
+                getStats();
+                */
+
+              }
+            };
+
+            // Create offer
+            const offer = await RTCConnection.createOffer({offerToReceiveVideo: false, offerToReceiveAudio: false});
+            RTCConnection.setLocalDescription(offer);
+            //console.log('Offer:', offer.sdp);
+
+            // Do WHIP request
+            let response = await fetch(url, {method:'POST', headers: {'Content-Type':'application/sdp'}, body: offer.sdp.replace("sendrecv","sendonly")}); //safari sends sendrecv instead of sendonly despite offerToReceive false.. :(
+            if (response.status != 201) {
+              document.body.classList.remove("broadcasting");
+              document.body.classList.remove("connecting");
+
+              showError("Could not initialise broadcast to "+broadcaststream);
+
+              let answer = await response.text();
+              console.error("Answer code: "+response.status,answer);
+              return;
+            }
+
+            // Act on response
+            let answer = await response.text();
+            //console.log('Answer:', answer);
+            if (RTCConnection) {
+              RTCConnection.setRemoteDescription({type: 'answer', sdp: answer}).then(()=>{
+                //success!
+
+              }).catch((e)=>{
+                console.error(e)
+                document.body.classList.remove("broadcasting");
+                document.body.classList.remove("connecting");
+
+                showError("Could not initialise broadcast to "+broadcaststream)
+              });
+            }
+            else { 
+              //broadcasting was already canceled
+            }
+
+          }
+      
+          startBroadcast(broadcaststream);
+        }
+      }
+      function setCamStream(cs) {
+        let v = cs.getVideoTracks();
+        if (v.length) {
+          v[0].onended = () => {
+            showError("Video stream ended unexpectedly");
+            if (constraint.video.deviceId?.exact) {
+              document.body.querySelector("section.choose-source input[value=\""+constraint.video.deviceId.exact+"\"]").checked = false;
+              constraint.video.deviceId.exact = null;
+              document.body.classList.add("choose-source");
+              if (RTCConnection) { startStopBroadcasting(); }
+            }
+          };
+        }
+        let a = cs.getAudioTracks();
+        if (a.length) {
+          a.onended = () => {
+            showError("Audio stream ended unexpectedly");
+            if (constraint.audio.deviceId?.exact) {
+              document.body.querySelector("section.choose-source input[value=\""+constraint.audio.deviceId.exact+"\"]").checked = false;
+              constraint.audio.deviceId.exact = null;
+              document.body.classList.add("choose-source");
+              if (RTCConnection) { startStopBroadcasting(); }
+            }
+          }
+        };
+
+        CamStream = cs;
+        video.srcObject = CamStream;
+        video.play(); 
+
+      }
+
+      function toggleMute(mute){
+        let button = document.querySelector("button.muted");
+        if (typeof mute == "undefined") {
+          muted = !muted;
+        }
+        else { muted = mute; }
+
+        wantedState = !muted;
+        if (CamStream) {
+          let tracks = CamStream.getAudioTracks();
+          for (let i = 0; i < tracks.length; i++) {
+            let track = tracks[i];
+            track.enabled = wantedState;
+          }
+        }
+
+        let video = document.querySelector(".broadcast.video");
+        if (wantedState) {
+          button.classList.remove("active");
+          video.classList.remove("muted");
+        }
+        else {
+          button.classList.add("active");
+          video.classList.add("muted");
+        }
+      }
+      function toggleBlackVideo(blacken){
+        let button = document.querySelector("button.videomuted");
+        if (typeof blacken == "undefined") {
+          black = !black;
+        }
+        else { black = blacken; }
+
+        wantedState = !black;
+        if (CamStream) {
+          let tracks = CamStream.getVideoTracks();
+          for (let i = 0; i < tracks.length; i++) {
+            let track = tracks[i];
+            track.enabled = wantedState;
+          }
+        }
+
+        let video = document.querySelector(".broadcast.video");
+        if (black) {
+          button.classList.add("active");
+          video.classList.add("nocam");
+        }
+        else {
+          button.classList.remove("active");
+          video.classList.remove("nocam");
+        }
+      }
+
+
+      document.body.addEventListener("keydown",function(e){
+        switch (e.key) {
+          case 'Escape': {
+            if (document.body.classList.contains("show-settings")) {
+              document.body.querySelector("section.settings .controls button.cancel").click();
+            }
+            else if (document.body.classList.contains("choose-source")) {
+              document.body.querySelector("section.choose-source .controls button.cancel").click();
+            }
+            break;
+          }
+          case 'Enter': {
+            if (document.body.classList.contains("show-settings")) {
+              document.body.querySelector("section.settings .controls button.primary").click();
+            }
+            else if (document.body.classList.contains("choose-source")) {
+              document.body.querySelector("section.choose-source .controls button.primary").click();
+            }
+            break;
+          }
+        }
+      });
+
+      let buttons = document.body.querySelectorAll("button[data-key]");
+      for (let i = 0; i < buttons.length; i++) {
+        const button = buttons[i];
+        let s = document.createElement("span");
+        s.classList.add("key");
+        let key = button.getAttribute("data-key");
+        s.appendChild(document.createTextNode(key));
+        key = key.toLowerCase();
+        button.appendChild(s);
+        document.body.addEventListener("keydown",function(e){
+          if (e.srcElement.tagName == "INPUT") { return; }
+          if (e.key == key) {
+            button.click();
+          }
+        });
+      }
+      
+    </script>
+  </body>
+</html>
+

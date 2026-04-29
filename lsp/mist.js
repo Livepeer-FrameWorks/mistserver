@@ -111,10 +111,10 @@ $(function(){
   
   //check if username and host have been stored in the url
   if (location.hash) {
-    var hash = decodeURIComponent(location.hash).substring(1).split('@');
+    var hash = location.hash.substring(1).split('@');
     var user = hash[0].split('&');
-    mist.user.name = user[0];
-    if (user[1]) { mist.user.host = user[1]; }
+    mist.user.name = decodeURIComponent(user[0]);
+    if (user[1]) { mist.user.host = decodeURIComponent(user[1]); }
   }
   
   //check if we are logged in
@@ -135,9 +135,9 @@ $(function(){
 
 var lastpage = [];
 $(window).on('hashchange', function(e) {
-  var loc = decodeURIComponent(location.hash).substring(1).split('@');
+  var loc = location.hash.substring(1).split('@');
   if (!loc[1]) { loc[1] = ''; }
-  var tab = loc[1].split('&');
+  var tab = loc[1].split('&').map((a)=>decodeURIComponent(a));
   if (tab[0] == '') { tab[0] = 'Overview'; }
   UI.showTab(tab[0],tab[1],lastpage);
   if (lastpage[0] != tab[0] || lastpage[1] != tab[1]) lastpage = [tab[0],tab[1]];
@@ -1746,7 +1746,7 @@ context_menu: function(){
         if ("dependent_not" in e) {
           for (var i in e.dependent_not) {
             if (typeof e.dependent_not[i] == "string") e.dependent_not[i] = [e.dependent_not[i]]
-            $s.attr("data-dependent-not-"+i,"'"+e.dependent_not[i].join(" ")+"'");
+            $s.attr("data-dependent-not-"+i,"'"+e.dependent_not[i].join("' '")+"'");
           }
         }
         continue;
@@ -2377,40 +2377,57 @@ context_menu: function(){
           }
           $cont.change(function(){
             $summary.html("");
-            $(this).find(".isSetting, input[type=\"hidden\"].isSetting").each(function(){ 
+            let wasexpanded = $cont.hasClass("expanded");
+            if (!wasexpanded) $cont.addClass("expanded");
+            $(this).find(".isSetting, input[type=\"hidden\"].isSetting").not(".isSetting .isSetting").each(function(){ 
               var val = $(this).getval();
               if (val == "") { return; }
               var opts = $(this).data('opts');
+              if ((opts.type != "hidden") && (!$(this).is(":visible"))) return;
               if (val != opts['default']) {
                 var label = opts["label"]+": ";
+                var text = val;
                 switch (opts.type) {
                   case "select": {
-                    val = opts.select.filter(function(v){ if (v[0] == val) return true; return false; })[0][1]; break;
+                    text = opts.select.filter(function(v){ if (v[0] == val) return true; return false; })[0][1]; break;
                   }
                   case "unix": {
-                    val = UI.format.dateTime(val); break;
+                    text = UI.format.dateTime(val); break;
                   }
                   case "checkbox": {
-                    val = ""; 
+                    text = ""; 
                     label = label.slice(0,-2);
                     break;
                   }
                   case "inputlist": {
-                    val = val.join(", ");
+                    text = val.join(", ");
                     break;
+                  }
+                  case "bitmask": {
+                    text = opts.bitmask.filter((v)=>(val & v[0]) == v[0]).map((v)=>v[1]).join(", ");
+                    break;
+                  }
+                }
+                var unit = "";
+                if (opts.unit) {
+                  if (typeof opts.unit == "string") unit = opts.unit;
+                  else if (opts.factor) {
+                    text = val / opts.factor;
+                    unit = opts.unit.filter((v)=>v[0] == opts.factor)[0][1];
                   }
                 }
                 $summary.append(
                   $("<li>").addClass("setting").append(
                     $("<span>").addClass("label").text(label)
                   ).append(
-                    $("<span>").text(val)
+                    $("<span>").text(text)
                   ).append(
-                    $("<span>").addClass("unit").text(typeof opts.unit  == "string" ? opts["unit"] : "")
+                    $("<span>").addClass("unit").text(unit)
                   )
                 );
               }
             });
+            if (!wasexpanded) $cont.removeClass("expanded");
           }).append(UI.buildUI(children)).trigger("change");
           $c.append($cont); //add this to input_container
           $e.remove(); //remove the created label UIelement from input_container
@@ -2423,7 +2440,7 @@ context_menu: function(){
           if ("dependent_not" in e) {
             for (var i in e.dependent_not) {
               if (typeof e.dependent_not[i] == "string") e.dependent_not[i] = [e.dependent_not[i]]
-              $cont.attr("data-dependent-not-"+i,"'"+e.dependent_not[i].join(" ")+"'");
+              $cont.attr("data-dependent-not-"+i,"'"+e.dependent_not[i].join("' '")+"'");
             }
           }
           continue; //continue for (var i in elements)
@@ -2609,7 +2626,7 @@ context_menu: function(){
       if ("dependent_not" in e) {
         for (var i in e.dependent_not) {
           if (typeof e.dependent_not[i] == "string") e.dependent_not[i] = [e.dependent_not[i]]
-          $e.attr("data-dependent-not-"+i,"'"+e.dependent_not[i].join(" ")+"'");
+          $e.attr("data-dependent-not-"+i,"'"+e.dependent_not[i].join("' '")+"'");
         }
       }
       
@@ -4173,8 +4190,12 @@ context_menu: function(){
   navto: function(tab,other){
     var prevhash = location.hash;
     var hash = prevhash.split('@');
-    hash[0] = [mist.user.name,mist.user.host].join('&');
-    hash[1] = [tab,other].join('&');
+    function replacer(str) {
+      if (typeof str == "string") return str.replace(/\&/g,"%26").replace(/@/g,"%40");
+      return str;
+    }
+    hash[0] = [replacer(mist.user.name),replacer(mist.user.host)].join('&');
+    hash[1] = [replacer(tab),replacer(other)].join('&');
     if (typeof screenlog != 'undefined') { screenlog.navto(hash[1]); } //allow logging if screenlog is active
     location.hash = hash.join('@');
     if (location.hash == prevhash) {
@@ -9381,10 +9402,10 @@ context_menu: function(){
                 saveas.stream = saveas.stream.slice(16);
               }
 
-              var parts = saveas.target.split("?");
+              var parts = saveas.target.split("#");
               if (parts.length > 1) {
-                params = parts.pop(); //contains the part that comes after the ?, eg recstartunix=123&scheduletime=456
-                saveas.target = parts.join("?"); //the rest of the url string can go back into the target
+                params = parts.pop(); //contains the part that comes after the last #, eg recstartunix=123&scheduletime=456
+                saveas.target = parts.join("#"); //the rest of the url string can go back into the target
                 params = params.split("&");
                 for (var i in params) {
                   var param = params[i].split("=");
@@ -9661,6 +9682,14 @@ context_menu: function(){
                   '+(writer_protocols.length ? 'Additionally, the following protocols may be used in combination with any of the above file formats:<ul><li>'+writer_protocols.join("</li><li>")+'</li></ul>' : ""),
                   classes: ['red']
                 }
+              },function(val,me){
+                if (val.indexOf("#")) {
+                  return {
+                    msg: "Note: Parameters passed after # will overwrite settings of the same name made using the form.",
+                    classes: ["orange"],
+                    break: false
+                  }
+                }
               }],
               "function": function(){
                 //find what kind of target this is
@@ -9725,7 +9754,7 @@ context_menu: function(){
                   sort: "sort"
                 };
                 var capaform = mist.convertBuildOptions(capa,saveas.params);
-                if (capaform[1].is("h4")) capaform.splice(1,1);
+                if ((capaform.length >= 2) && capaform[1].is("h4")) capaform.splice(1,1);
 
                 //find left over url params that are not covered by this connector's capabilities
                 var custom_params = [];
@@ -9860,14 +9889,36 @@ context_menu: function(){
                   saveas.completetime = 0;
                 }
                 if (Object.keys(params).length || (saveas.custom_url_params && saveas.custom_url_params.length)) {
+
+                  var ignoreFields = {};
+                  var overridestr = function(target){
+                    var arr = target.split("#");
+                    if (arr.length <= 1) return "";
+                    saveas.target = arr[0]; //save target without the hash
+                    var str = arr.slice(1).join("&"); //any elements after the hash (more than one hash is not allowed in a url so join them with &)
+                    for (var pair of str.split("&")) {
+                      ignoreFields[pair.split("=")[0]] = 1; //any fieldnames specified in the target take precedence over the form params and custom params
+                    }
+                    return str;
+                  }(saveas.target);
+
                   var str = [];
+                  function replaceAmp(str){
+                    //url encode &'s
+                    if (typeof str != "string") return str;
+                    return str.replace(/\&/g,"%26");
+                  }
                   for (var i in params) { //the MistServer settings as entered in "Optional parameters"
-                    str.push(i+"="+params[i]);
+                    if (i in ignoreFields) continue;
+                    str.push(i+"="+replaceAmp(params[i]));
                   }
                   for (var i in saveas.custom_url_params) { //the MistServer settings custom url parameters
-                    str.push(saveas.custom_url_params[i]);
+                    if ((""+saveas.custom_url_params[i]).split("=")[0] in ignoreFields) continue;
+                    str.push(replaceAmp(saveas.custom_url_params[i]));
                   }
-                  saveas.target += "?"+str.join("&");
+                  if (overridestr) str.push(overridestr);
+
+                  saveas.target += "#"+str.join("&");
                 }
                 delete saveas.params; //these are now part of the target url and we don't need them separately
                 delete saveas.custom_url_params;
@@ -11993,7 +12044,7 @@ context_menu: function(){
                                   return {
                                     header: 'Track '+track.idx,
                                     body: [
-                                      track.codec,
+                                      track.codec+(track.codecstring ? " ("+track.codecstring+")" : ""),
                                       displayDuration(track),
                                       UI.format.addUnit(UI.format.number(track.jitter),"ms"),
                                       peakoravg(track,"bps"),
@@ -12010,7 +12061,7 @@ context_menu: function(){
                                   return {
                                     header: 'Track '+track.idx,
                                     body: [
-                                      track.codec,
+                                      track.codec+(track.codecstring ? " ("+track.codecstring+")" : ""),
                                       displayDuration(track),
                                       UI.format.addUnit(UI.format.number(track.jitter),"ms"),
                                       peakoravg(track,"bps"),
@@ -14138,16 +14189,16 @@ context_menu: function(){
                 }
               }
               //split url params
-              t = t.split("?");
+              t = t.split("#");
               var params = [];
               if (t.length > 1) params = t.pop().split("&");
-              var main = t.join("?");
+              var main = t.join("#");
               $cont.append(
                 $("<span>").text(main).attr("title",push.target)
               );
               if (params.length) {
                 $cont.append(
-                  $("<span>").addClass("param").text("?"+params[0])
+                  $("<span>").addClass("param").text("#"+params[0])
                 );
                 for (var i = 1; i < params.length; i++) {
                   $cont.append(
@@ -14288,7 +14339,7 @@ context_menu: function(){
                     latency: "Latency: ",
                     active_ms: "Active for: ",
                     bytes: "Data transferred: ",
-                    mediatime: "Last sent timestamp:",
+                    mediatime: "Last sent timestamp: ",
                     media_tx: "Media time transferred: ",
                     mediaremaining: "Media time until stream end: ",
                     pkt_retrans_count: "Packets retransmitted: ",
@@ -14961,7 +15012,6 @@ context_menu: function(){
       );
     },
     templates: function(kind,saveas,$form,template_options){
-      return false; //disable templates UI
       var t = mist.stored.get("templates");
       var templates;
       if (kind in t) { templates = t[kind]; }
@@ -16627,7 +16677,7 @@ var mist = {
       }
       var query = m.replace(/[^\w\s]/g,'\\$&'); //prefix any special chars with a \
       query = query.replace(/\\\*/g,'.*'); //replace * with any amount of .*
-      var regex = new RegExp('^(?:[a-zA-Z]\:)?'+query+'(?:\\?[^\\?]*)?$','i'); //case insensitive, and ignore everything after the last ?
+      var regex = new RegExp('^(?:[a-zA-Z]\:)?'+query+'(?:\\#[^\\#]*)?$','i'); //case insensitive, and ignore everything after the last #
       if (regex.test(str)){
         return true;
       }
@@ -16703,13 +16753,27 @@ var mist = {
               obj.select.unshift(["",("placeholder" in obj ? "Default ("+obj.placeholder+")" : "" )]);
             }
             break;
+          case "selectinput":
+            obj.type = "selectinput";
+            obj.selectinput = [];
+            for (let entry of ele.selectinput) {
+              obj.selectinput.push([typeof entry[0] == "string" ? entry[0] : processEle("","",entry[0]),entry[1]]);
+            }
+            break;
           case 'sublist': {
             obj.type = 'sublist';
             //var subele = Object.assign({},ele);
             //delete subele.type;
             obj.saveas = {};
             obj.itemLabel = ele.itemLabel;
-            obj.sublist = mist.convertBuildOptions(ele,obj.saveas);
+            obj.hrn = ele.hrn;
+            let o = {
+              optional: ele.sublist,
+              sort: input.sort
+            };
+            if (ele.required) o.required = ele.required;
+            if (ele.optional) Object.assign(o.optional,ele.optional);
+            obj.sublist = mist.convertBuildOptions(o,obj.saveas);
             break;
           }
           case 'group': {
@@ -16737,7 +16801,7 @@ var mist = {
           }
           case 'inputlist': {
             obj.type = "inputlist";
-            if ("input" in ele) obj.input = ele.input;
+            if ("input" in ele) obj.input = processEle("","",ele.input);
             break;
           }
           case 'help': {
@@ -16746,9 +16810,14 @@ var mist = {
             if ("dependent" in ele) obj.dependent = ele.dependent;
             break;
           }
+          case 'bitmask': {
+            obj.type = "bitmask";
+            obj.bitmask = ele.bitmask;
+            obj["default"] = ele["default"];
+            break;
+          }
           case 'json':
           case 'debug':
-          case 'inputlist':
           case 'browse': {
             obj.type = ele.type;
             break;
@@ -16790,8 +16859,8 @@ var mist = {
           else {
             style = style[0];
           }
-          style.innerHTML = '[data-dependent-'+i+']:not([data-dependent-'+i+'~="\''+$(this).getval()+'\'"]) { display: none; }'+"\n"; //hide any labels that are dependent on this variable, but not this value
-          style.innerHTML += '[data-dependent-not-'+i+'~="\''+$(this).getval()+'\'"] { display: none; }'+"\n"; //hide any labels that have dependent_not on this variable with this value
+          style.innerHTML = '.input_container [data-dependent-'+i+']:not([data-dependent-'+i+'~="\''+$(this).getval()+'\'"]) { display: none; }'+"\n"; //hide any labels that are dependent on this variable, but not this value
+          style.innerHTML += '.input_container [data-dependent-not-'+i+'~="\''+$(this).getval()+'\'"] { display: none; }'+"\n"; //hide any labels that have dependent_not on this variable with this value
           
           $(style).data("content",style.innerHTML);
 
@@ -17053,9 +17122,13 @@ $.fn.getval = function(){
         break;
       case "bitmask": {
         val = 0;
+        if (opts.placeholder) val = Number(opts.placeholder); //if this field has a placeholder, use it as the default value - then, for each checkbox, set the bits: this way, we can define a default for bits that don't have a checkbox
         $(this).find("input").each(function(){
           if ($(this).prop("checked")) {
-            val += Number($(this).val());
+            val |= Number($(this).val());
+          }
+          else {
+            val &= ~Number($(this).val());
           }
         });
         break;
@@ -17240,12 +17313,7 @@ $.fn.setval = function(val,extraParameters){
         var $inputs = $(this).find("input");
         for (var i in map) {
           $el = $inputs.eq(i);
-          if ((val & map[i][0]) == map[i][0]) {
-            $el.attr("checked","checked");
-          }
-          else {
-            $el.removeAttr("checked");
-          }
+          $el.prop("checked",(val & map[i][0]) == map[i][0]);
         }
         break;
       }
