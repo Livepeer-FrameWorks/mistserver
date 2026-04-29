@@ -59,7 +59,7 @@ namespace Socket{
     char recvbuf[5000]; ///< Buffer where received data is stored in
 
     void SendNow(const std::string &data);
-    void SendNow(const char *data, size_t len);
+    void SendNow(const char *data, size_t len, uint64_t timestamp = 0);
 
     SRTSOCKET getSocket(){return sock;}
 
@@ -68,6 +68,7 @@ namespace Socket{
     std::string getStreamName();
 
     unsigned int connTime();
+    int latency();
     uint64_t dataUp();
     uint64_t dataDown();
     uint64_t packetCount();
@@ -82,6 +83,7 @@ namespace Socket{
     SRTSOCKET sock;
     bool open();
     int eid;
+    int32_t msgNo;
     CBytePerfMon performanceMonitor;
 
     std::string host;

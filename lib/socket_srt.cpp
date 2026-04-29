@@ -476,9 +476,18 @@ namespace Socket{
 
   void SRTConnection::SendNow(const std::string &data){SendNow(data.data(), data.size());}
 
-  void SRTConnection::SendNow(const char *data, size_t len){
+  void SRTConnection::SendNow(const char *data, size_t len, uint64_t timestamp){
     srt_clearlasterror();
-    int res = srt_sendmsg2(sock, data, len, NULL);
+    int res;
+    if (timestamp){
+      SRT_MSGCTRL mctrl;
+      srt_msgctrl_init(&mctrl);
+      mctrl.msgno = ++msgNo;
+      mctrl.srctime = timestamp * 1000;
+      res = srt_sendmsg2(sock, data, len, &mctrl);
+    }else{
+      res = srt_sendmsg2(sock, data, len, 0);
+    }
 
     if (res == SRT_ERROR){
       int err = srt_getlasterror(0);
@@ -512,9 +521,11 @@ namespace Socket{
   }
 
   unsigned int SRTConnection::connTime(){
-    srt_bstats(sock, &performanceMonitor, false);
+    srt_bistats(sock, &performanceMonitor, 0, 0);
     return performanceMonitor.msTimeStamp / 1000;
   }
+
+  int SRTConnection::latency(){return performanceMonitor.msSndTsbPdDelay;}
 
   uint64_t SRTConnection::dataUp(){return performanceMonitor.byteSentTotal;}
 
@@ -537,6 +548,7 @@ namespace Socket{
     memset(&performanceMonitor, 0, sizeof(performanceMonitor));
     prev_pktseq = 0;
     rejectReason = 0;
+    msgNo = 0;
     sock = SRT_INVALID_SOCK;
     eid = -1;
     chunkTransmitSize = 1316;

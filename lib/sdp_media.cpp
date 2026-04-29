@@ -892,6 +892,8 @@ namespace SDP{
     o << "t=0 0\r\n";
     o << "a=ice-lite\r\n";
 
+    std::set<std::string> seenTypes;
+
     // session: bundle (audio and video use same candidate)
     if (isVideoEnabled && isAudioEnabled){
       if (answerVideoMedia.mediaID.empty()){
@@ -905,12 +907,17 @@ namespace SDP{
       std::string bundled;
       for (size_t i = 0; i < sdpOffer.medias.size(); ++i){
         if (sdpOffer.medias[i].type == "audio" || sdpOffer.medias[i].type == "video"){
-          if (!bundled.empty()){bundled += " ";}
-          bundled += sdpOffer.medias[i].mediaID;
+          if (!seenTypes.count(sdpOffer.medias[i].type)){
+            if (!bundled.empty()){bundled += " ";}
+            bundled += sdpOffer.medias[i].mediaID;
+            seenTypes.insert(sdpOffer.medias[i].type);
+          }
         }
       }
       o << "a=group:BUNDLE " << bundled << "\r\n";
     }
+    seenTypes.clear();
+
 
     // add medias (order is important)
     for (SDP::Media & mediaOffer : sdpOffer.medias) {
@@ -938,6 +945,15 @@ namespace SDP{
         media = &answerMetaMedia;
         mFmt = &answerMetaFormat;
       }
+
+      if (isEnabled){
+        if (seenTypes.count(type)){
+          isEnabled = false;
+        }else{
+          seenTypes.insert(type);
+        }
+      }
+
 
       if (!media){
         WARN_MSG("No media found.");

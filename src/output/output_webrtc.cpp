@@ -581,7 +581,7 @@ namespace Mist{
     capa["optional"]["preferredvideocodec"]["help"] =
         "Comma separated list of video codecs you want to support in preferred order. e.g. "
         "H264,VP8";
-    capa["optional"]["preferredvideocodec"]["default"] = "H264,AV1,VP9,VP8";
+    capa["optional"]["preferredvideocodec"]["default"] = "H264,HEVC,AV1,VP9,VP8";
     capa["optional"]["preferredvideocodec"]["type"] = "str";
     capa["optional"]["preferredvideocodec"]["option"] = "--webrtc-video-codecs";
     capa["optional"]["preferredvideocodec"]["short"] = "V";
@@ -788,8 +788,7 @@ namespace Mist{
   void OutWebRTC::setIceHeaders(HTTP::Parser & H){
     if (!config->getString("iceservers").size()){return;}
     std::deque<std::string> links;
-    JSON::Value iceConf;
-    iceConf.fromString(config->getString("iceservers"));
+    JSON::Value iceConf = JSON::fromString(config->getString("iceservers"));
     jsonForEach(iceConf, i){
       if (i->isMember("url") && (*i)["url"].isString()){
         JSON::Value &u = (*i)["url"];
@@ -946,6 +945,22 @@ namespace Mist{
             ctrlprefix = "/webrtc/"+ctrlKey;
           }
           H.SetHeader("Location", ctrlprefix);
+
+          if (!isPushing() && M){
+            initialSeek();
+            H.SetHeader("Playhead-millis", currentTime());
+            if (M.getLive() || M.getUTCOffset()){
+              uint64_t systemBoot = Util::getGlobalConfig("systemBoot").asInt();
+              uint64_t unixMs;
+              if (M.getUTCOffset()){
+                unixMs = M.getUTCOffset() + currentTime();
+              }else{
+                unixMs = M.getBootMsOffset() + systemBoot + currentTime();
+              }
+              H.SetHeader("Playhead-UTC", Util::getUTCStringMillis(unixMs));
+            }
+          }
+
           if (req.GetVar("constant").size()){
             INFO_MSG("Disabling automatic playback rate control");
             maxSkipAhead = 1;//disable automatic rate control
@@ -992,9 +1007,8 @@ namespace Mist{
       HIGH_MSG("Ignoring non-text websocket frame");
       return;
     }
-
-    JSON::Value command;
-    command.fromString(webSock->data, webSock->data.size());
+    
+    JSON::Value command = JSON::fromString(webSock->data, webSock->data.size());
     JSON::Value commandResult;
 
     if(command.isMember("encrypt")){
@@ -1298,7 +1312,7 @@ namespace Mist{
     capa["codecs"].null();
 
     if (sdpSession.getMediaForType("video")) {
-      for (const std::string c : {"H264", "AV1", "VP9", "VP8"}) {
+      for (const std::string c : {"H264", "HEVC", "AV1", "VP9", "VP8"}) {
         if (sdpSession.getMediaFormatByEncodingName("video", c)) { capa["codecs"][0u][0u].append(c); }
       }
     }
@@ -1325,12 +1339,12 @@ namespace Mist{
 
     if (!udpPort) { setupIncomingMainSocket(); }
 
-    std::string prefVideoCodec = "VP9,VP8,H264,AV1";
+    std::string prefVideoCodec = "VP9,VP8,HEVC,AV1,H264";
     if (config && config->hasOption("preferredvideocodec")){
       prefVideoCodec = config->getString("preferredvideocodec");
       if (prefVideoCodec.empty()){
         WARN_MSG("No preferred video codec value set; resetting to default.");
-        prefVideoCodec = "H264,AV1,VP9,VP8";
+        prefVideoCodec = "HEVC,H264,AV1,VP9,VP8";
       }
     }
 
@@ -2354,7 +2368,11 @@ namespace Mist{
               std::string val(offset+2, len);
               // Ignore blank SDES messages
               if (len){
-                INFO_MSG("SDES for %" PRIu32 ": type %" PRIu8 " = %s", ssrc, type, val.c_str());
+                if (type == 1){ //CNAME
+                  VERYHIGH_MSG("SDES CNAME for %" PRIu32 ": %s", ssrc, val.c_str());
+                }else{
+                  INFO_MSG("SDES for %" PRIu32 ": type %" PRIu8 " = %s", ssrc, type, val.c_str());
+                }
               }
             }
             offset += len +2;
@@ -2440,8 +2458,7 @@ namespace Mist{
       }
     }else if (ppid == 51){
       if (wsCmdForce && wSock.dataChannels.count("MistControl") && wSock.dataChannels["MistControl"] == stream){
-        JSON::Value command;
-        command.fromString(data, len);
+        JSON::Value command = JSON::fromString(data, len);
         if (!command || !command.isMember("type")){return;}
         handleCommand(command);
         return;
@@ -2613,7 +2630,7 @@ namespace Mist{
       JSON::Value jPack;
       if (M.getCodec(thisIdx) == "JSON"){
         if (dataLen == 0 || (dataLen == 1 && dataPointer[0] == ' ')){return;}
-        jPack["data"].fromString(dataPointer, dataLen);
+        jPack["data"] = JSON::fromString(dataPointer, dataLen);
         jPack["time"] = thisTime;
         jPack["track"] = (uint64_t)thisIdx;
       }else if (M.getCodec(thisIdx) == "subtitle"){

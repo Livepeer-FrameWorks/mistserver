@@ -167,6 +167,8 @@ namespace Mist{
     double timeScale;
     bool wantBlocks;
     size_t totalBytes;
+    bool liveOffsetSet;
+    int64_t liveOffset;
   };
 }// namespace Mist
 
