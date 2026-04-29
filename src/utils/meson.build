@@ -9,6 +9,7 @@ utils = [
     {'name': 'Log',     'file': 'log'},
     {'name': 'Writer',    'file': 'writer'},
     {'name': 'Health',    'file': 'health'},
+    {'name': 'Foghorn', 'file': 'foghorn'},
 ]
 
 if get_option('LOAD_BALANCE')
