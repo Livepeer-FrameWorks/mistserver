@@ -1,0 +1,607 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta http-equiv="content-type" content="text/html; charset=utf-8">
+    <title>Nautophone</title>
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>📣</text></svg>">
+    <script>
+
+      let params = new URL(location).searchParams;
+      let config = {
+        connect: {
+          translator: params.has("translator") ? cleanURL(params.get("translator")) : "http://"+(location.host ? location.host : "localhost")+":7078/",
+          foghorn: []
+        }
+      };
+
+      //helper functions
+      function cleanURL(url) {
+        let u = new URL(url);
+        if ((u.protocol != "http:") && (u.protocol != "https:")) {
+          return cleanURL("http://"+url);
+        }
+        return u.toString();
+      }
+      function splitFH(url) {
+        let u = new URL("http://"+url);
+        return {
+          host: u.hostname,
+          port: u.port ? u.port : false,
+          pass: u.username ? u.username : false
+        };
+      }
+      function write(str) {
+        document.currentScript.parentNode.append(document.createTextNode(str));
+      }
+      function writeH(str) {
+        let s = document.createElement("span");
+        s.innerHTML = str;
+        document.currentScript.parentNode.append(s);
+      }
+      function copy_button(text) {
+        let button = document.createElement("button");
+        button.className = "copy";
+        button.appendChild(document.createTextNode("Copy"));
+        button.addEventListener("click",function(){
+
+          let textArea = document.createElement("textarea");
+          textArea.value = text;
+          document.body.appendChild(textArea);
+          textArea.select();
+          let yay = false;
+          try {
+            yay = document.execCommand('copy');
+          } catch (err) { }
+          document.body.removeChild(textArea);
+
+          button.innerText = yay ? "Done" : "Failed";
+
+          setTimeout(function(){
+            button.innerText = "Copy";
+          },2e3);
+        });
+        return button;
+      }
+      function sortableItems (item_container,getVal,controls) {
+        var lastsortby;
+        var lastsortdir = 1;
+        if (controls) {
+          lastsortby = controls.getAttribute("data-sortby");
+          lastsortdir = controls.getAttribute("data-sortdir") ? controls.getAttribute("data-sortdir") : 1;
+        }
+
+        item_container.sort = function(sortby,sortdir){
+          if (!sortdir) {
+            sortdir = lastsortdir;
+            if (sortby == lastsortby) {
+              sortdir *= -1;
+            }
+          } 
+          sortby = sortby ? sortby : lastsortby;
+
+          lastsortby = sortby;
+          lastsortdir = sortdir;
+          if (controls) {
+            controls.setAttribute("data-sortby",sortby);
+            controls.setAttribute("data-sortdir",sortdir);
+            var old = controls.querySelector("[data-sorting]");
+            if (old) { old.removeAttribute("data-sorting"); }
+            controls.querySelector("[data-index=\""+sortby+"\"]").setAttribute("data-sorting","");
+          }
+
+          var compare = new Intl.Collator('en',{numeric:true, sensitivity:'accent'}).compare;
+          for (var i = 0; i < this.children.length-1; i++) {
+            var row = this.children[i];
+            var next = this.children[i+1];
+            if (sortdir * compare(getVal.call(row,sortby),getVal.call(next,sortby)) > 0) {
+              //the next row should be before the current one
+              //put it before and then check if it needs to go up further
+              this.insertBefore(next,row); 
+              if (i > 0) {
+                i = i-2;
+              }
+            }
+          }
+
+        }
+      }
+
+
+
+    </script>
+    <script>
+      //class that represents the connection to a single foghorn instance
+      function FogHorn(connect = {}) {
+        this.host = connect.host;
+        this.port = ("port" in connect) && (connect.port !== false) ? connect.port : null;
+        this.pass = ("pass" in connect) && (connect.pass !== false) ? connect.pass : null;
+
+        //generic function to send a request to the translator service
+        this.request = async function(params = {}){
+          this.error = null;
+          this.http_code = 0;
+
+          try {
+
+            let url = new URL(config.connect.translator);
+
+            url.searchParams.append("machine","");
+            params.host = this.host;
+            if (this.port) params.port = this.port;
+            if (this.pass) params.pass = this.pass;
+
+            for (var i in params) {
+              url.searchParams.append(i,params[i]);
+            }
+
+            const response = await fetch(url);
+            this.http_code = response.status;
+
+
+            switch (this.http_code) {
+              case 404: this.error = "No answer received from fh://"+this.host+":"+this.port+" via "+config.connect.translator; break;
+            }
+
+
+            return await response.json();
+
+          } catch (error) {
+            this.error = error.message+(this.http_code == 0 ?  ": connection refused (to "+config.connect.translator+")" : "");
+            console.error(this.error);
+          }
+
+        }
+
+        //return an array of entries
+        this.getList = async function(start = 0,end = null){
+          let params = {getlist:"",start:start};
+          if (end !== null) params.end = end;
+          let response = await this.request(params);
+
+
+          let list = [];
+          if (response) {
+            //merge the foghorn responses
+            for (var i in response.responses) {
+              list.push.apply(list,response.responses[i].entries);
+            }
+          }
+          if (this.http_code != 200) {
+            let msg = this.error ? this.error : "";
+            throw new Error(msg);
+          }
+          return list;
+        }
+
+        this.state = null;
+        this.ping = async function(){
+          let response = await this.request({cmd:4});
+          if (this.http_code == 200) {
+            this.state = "up";
+            return response.responses[0];
+          }
+          else {
+            this.state = "down";
+            return false;
+          }
+        };
+      }
+
+    </script>
+    <style>
+      :root {
+        font-family: sans-serif;
+        line-height: 1.2;
+        padding: 0 0.5em;
+
+        color-scheme: dark;
+        background: #202020;
+        color: #ccc;
+
+        --good: darkgreen;
+        --bad: darkred;
+        --unknown: darkgray;
+        --lessgood: darkorange;
+
+        --accentColor: #2584c4;
+
+        --sortableImage: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='100%' height='100%' viewBox='-2 -2 14 14'><g style='stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round;stroke:white;fill:none'><path d='M 2,4 5,2 8,4'/><path d='M 2,7 5,9 8,7'/></g></svg>");
+        --sortingAscImage: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='100%' height='100%' viewBox='-2 -2 14 14'><g style='stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round;stroke:white;fill:none;'><path d='M 2,5 5,3 8,5'/><path d='M 2,9 5,7 8,9'/></g></svg>");
+        --sortingDescImage: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='100%' height='100%' viewBox='-2 -2 14 14'><g style='stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round;stroke:white;fill:none'><path d='M 2,3 5,5 8,3'/><path d='M 2,7 5,9 8,7'/></g></svg>");
+
+      }
+
+      .errors:not(:empty) {
+        border: 1px solid var(--accentColor);
+        padding:  0 0.5em;
+        width: fit-content;
+      }
+
+      label {
+        display: flex;
+        flex-flow: row wrap;
+        margin: 1em 0;
+        align-items: baseline;
+      }
+      label span { margin-right: 0.5em; }
+
+      .foghorns {
+        column-width: 20em;
+        column-gap: 2em;
+        margin: 3em 0 2em;
+        position: relative;
+      }
+      .foghorns:before {
+        content: "Foghorns:";
+        font-weight: bold;
+        position: absolute;
+        bottom: 100%;
+        margin-bottom: 0.5em;
+      }
+      .foghorns label {
+        margin: 0;
+        flex-wrap: nowrap;
+        align-items: flex-start;
+      }
+      .foghorns label .foghorn {
+        flex-grow: 1;
+      }
+      .foghorns label:has(button.copy:hover) .foghorn,
+      .foghorns label:has(button.copy:focus) .foghorn {
+        color: var(--accentColor);
+      }
+
+      .foghorns [data-state] {
+        width: 7em;
+      }
+
+      table {
+        border-collapse: collapse;
+        margin: 0.5em -0.5em;
+      }
+      table tr > * {
+        padding: 0 0.5em;
+        text-align: left;
+      }
+      table tr > *:nth-child(6) { /* port */
+        text-align: right;
+      }
+
+      table tr:has(button.copy:hover) > :first-child,
+      table tr:has(button.copy:hover) > *:nth-child(2), 
+      table tr:has(button.copy:focus) > :first-child,
+      table tr:has(button.copy:focus) > *:nth-child(2) {
+        color: var(--accentColor);
+      }
+
+      table tbody:empty { height: 1em; background: red; }
+      table tbody:empty:before,
+      table tbody:not(:has(tr:visible)):before {
+        content: "None.";
+        padding: 0.2em 0.8em;
+      }
+
+      [data-state]:before {
+        content: '?';
+        --color: darkgray;
+
+        display: inline-block;
+        aspect-ratio: 1 / 1;
+        border-radius: 100%;
+        text-align: center;
+        background: var(--color);
+        color: white;
+        text-shadow: 0 0 0.1em black;
+        font-weight: bold;
+        margin-right: 0.5em;
+        padding: 0.3em;
+        scale: 0.8;
+        transition: scale 0.2s;
+      }
+      [data-state]:hover:before { scale: 1.2; }
+      [data-state="0"]:before   { content: '💕'; --color: var(--good);       } /* Open */
+      [data-state="1"]:before   { content: '🦜'; --color: var(--lessgood);   } /* Consistent */
+      [data-state="2"]:before   { content: '🔮'; --color: var(--lessgood);   } /* Predictable */
+      [data-state="254"]:before { content: '🏰'; --color: var(--bad);        } /* Impenetrable */
+      [data-state="255"]:before { content: '❔'; --color: var(--unknown);    } /* Unknown */
+      [data-state="up"]:before  { content: ''; --color: var(--good);       }
+      [data-state="down"]:before{ content: ''; --color: var(--bad);   }
+
+
+
+      [data-sortby] th[data-index] {
+        cursor: pointer;
+        white-space: nowrap;
+      }
+      [data-sortby][data-sortdir] {
+        --dirImage: var(--sortingAscImage);
+      }
+      [data-sortby][data-sortdir="-1"] {
+        --dirImage: var(--sortingDescImage);
+      } 
+      [data-sortby] [data-index]:after {
+        content: '';
+        background-color: var(--accentColor);
+        mask-image: var(--sortableImage);
+        height: 1.2em;
+        width: 1.2em;
+        display: inline-block;
+        transform: translate(0.25em,0.25em);
+      }
+      [data-sortby] [data-sorting]:after {
+        content: '';
+        mask-image: var(--dirImage);
+        background-color: var(--accentColor);
+      }
+
+      ol {
+        list-style: none;
+        padding: 0;
+      }
+      ol li {
+        margin-bottom: 0.5em;
+        padding-left: 1em;
+      }
+      ol li:first-line {
+        font-style: italic;
+      }
+
+    </style>
+  </head>
+  <body>
+    <h1>Nautophone</h1>
+    <div id="help" style="display:none;">
+      <p>
+        Hello! You haven't passed any foghorn urls for me to check so you probably want some help.<br>
+        Here's what I need:
+      </p>
+      <ul>
+        <li>
+          <h3>The translator</h3>
+          <p>
+            Use url parameter <code>translator</code> to help me locate the Nautophone translation service. This is a node script that can translate HTTP requests from me, forwards them to FogHorn over UDP, and gives me the reply.<br>
+            This defaults to <code><script>write("http://"+location.host+":7078/");</script></code> and is currently set to <code><script>write(config.connect.translator)</script></code>.
+          </p>
+        </li>
+        <li>
+          <h3>Foghorn instances</h3>
+          <p>
+            Use any amount of <code>fh</code> url parameters to list foghorn instances. They should use this format: <code>passphrase@host:port</code>.<br>
+            The default port is <code>7077</code>. The default passphrase is none.
+          </p>
+        </li>
+      </ul>
+      <p>
+        For example:<br>
+        <script>
+          writeH('<a href="?translator='+config.connect.translator+'&fh=example.com:1234&fh=mypass@example.com">'+location.origin+location.pathname+'?translator='+config.connect.translator+'&fh=example.com:1234&fh=mypass@example.com</a>');
+        </script>
+      </p>
+    </div>
+
+    <script>
+
+      //retrieve fh url params and configure them as foghorn instances to connect to
+      if (params.has("fh")) {
+        let fhs = params.getAll("fh");
+        for (let i in fhs) {
+          config.connect.foghorn.push(splitFH(fhs[i]));
+        }
+      }
+      else {
+        document.getElementById("help").style.display = "";
+      }
+
+    </script>
+
+    <script>
+      if (config.connect.foghorn.length) {
+
+        //create a table listing the results from each of the foghorn instances
+
+        let foghorns = {};
+        for (let i in config.connect.foghorn) {
+          foghorns[
+            (config.connect.foghorn[i].pass ? config.connect.foghorn[i].pass+"@" : "" )+config.connect.foghorn[i].host+(config.connect.foghorn[i].port ? ":"+config.connect.foghorn[i].port : "")
+          ] = new FogHorn(config.connect.foghorn[i]);
+        }
+
+        // create a container to print errors in 
+
+        let errs = document.createElement("div");
+        errs.className = "errors";
+        document.body.appendChild(errs);
+
+        //create a list of connected foghorn instances and their status, plus allow turning them off in the table
+        let fieldset = document.createElement("div");
+        fieldset.className = "foghorns";
+        document.body.appendChild(fieldset);
+        
+        function addFoghornLabel(i) {
+          let label = document.createElement("label");
+          fieldset.appendChild(label);
+          let input = document.createElement("input");
+          label.appendChild(input);
+          input.setAttribute("type","checkbox");
+          input.setAttribute("checked","");
+          let style = document.createElement("style");
+          label.appendChild(style);
+          input.setAttribute("title","Toggle displaying entries for this foghorn address in the table below");
+          input.addEventListener("change",function(){
+            if (this.checked) {
+              style.innerText = "";
+            }
+            else {
+              style.innerText = "table tr[data-fh=\""+i+"\"] { display: none; }";
+            }
+          });
+          let span = document.createElement("span");
+          span.className = "foghorn";
+          label.appendChild(span);
+          span.appendChild(document.createTextNode("fh://"+i.replace(/.*@/,"")));
+          let state = document.createElement("span");
+          label.appendChild(state);
+          state.innerText = "Checking..";
+
+          foghorns[i].ping().then(function(result){
+            if (result) {
+              state.innerText = "Up ("+Math.round(result.delay_ms*10)/10+"ms)";
+            }
+            else { 
+              state.innerText = "Down";
+            }
+            state.setAttribute("data-state",result ? "up" : "down");
+          });
+
+          label.appendChild(copy_button("fh://"+i));
+
+          return label;
+        }
+
+        for (var i in foghorns) {
+          addFoghornLabel(i);
+        }
+
+
+        // create a filter form
+        let label = document.createElement("label");
+        document.body.appendChild(label);
+        let span = document.createElement("span");
+        label.appendChild(span);
+        span.appendChild(document.createTextNode("Filter table:"));
+        let filter = document.createElement("input");
+        label.appendChild(filter);
+
+        let t = document.createElement("table");
+        document.body.appendChild(t);
+        let thead = document.createElement("thead");
+        t.appendChild(thead);
+        let tbody = document.createElement("tbody");
+        t.appendChild(tbody);
+
+        filter.addEventListener("keyup",function(){
+          let filter = this.value.toLowerCase();
+          for (var i = 0; i < tbody.children.length;i++) {
+            let child = tbody.children[i];
+            let str = Object.values(child._raw).join("|").toLowerCase();
+            if (str.indexOf(filter) == -1) {
+              child.style.display = "none";
+            }
+            else {
+              child.style.display = "";
+            }
+          }
+        });
+
+        function createTd(text) {
+          let td = document.createElement("td");
+          td.appendChild(document.createTextNode(text));
+          return td;
+        }
+        function createTh(text,index) {
+          let th = document.createElement("th");
+          th.appendChild(document.createTextNode(text));
+          if (index) {
+            th.setAttribute("data-index",index);
+            th.addEventListener("click",function(){
+              tbody.sort(index);
+            });
+          }
+          return th;
+        }
+
+        let tr = document.createElement("tr");
+        thead.appendChild(tr);
+        tr.setAttribute("data-sortby","mapname");
+
+        tr.appendChild(createTh("Foghorn address","id"));
+        tr.appendChild(createTh("Map name","mapname"));
+        tr.appendChild(createTh(""));
+        tr.appendChild(createTh("Protocol","protocol"));
+        tr.appendChild(createTh("IP","ip"));
+        tr.appendChild(createTh("Port","port"));
+        tr.appendChild(createTh("State","statebyte"));
+
+        sortableItems(tbody,function(sortby){
+          return this._raw[sortby];
+        },tr); 
+
+
+        for (let id in foghorns) {
+          foghorns[id].getList(0,100).then(function(list){
+
+            function createRow(entry) {
+              let tr = document.createElement("tr");
+              //entry.id = id; //do not filter by foghorn address
+              tr._raw = entry;
+              tr.setAttribute("data-fh",id);
+
+              let copy_cell = createTd("");
+              copy_cell.appendChild(copy_button((entry.protocol == "SRT" ? "srt-fh" : "fh" )+"://"+id+"/"+entry.mapname+"?streamid="));
+
+              tr.appendChild(createTd("fh://"+id.replace(/.*@/,"")+"/"));
+              tr.appendChild(createTd(entry.mapname));
+              tr.appendChild(copy_cell);
+              tr.appendChild(createTd(entry.protocol));
+              tr.appendChild(createTd(entry.ip));
+              tr.appendChild(createTd(entry.port));
+
+              let state = createTd(entry.state);
+              tr.appendChild(state);
+              state.setAttribute("data-state",entry.statebyte);
+              
+              return tr;
+            }
+
+
+            for (let i in list) {
+              tbody.appendChild(createRow(list[i]));
+            }
+
+            tbody.sort();
+
+          }).catch(function(e){
+
+            if (foghorns[id].state == "down") return; //if the foghorn doesn't pong back, this is displayed already, do not print error 
+
+            let p = document.createElement("p");
+            errs.appendChild(p);
+            p.appendChild(
+              document.createTextNode(e)
+            );
+          });
+        }
+
+      }
+
+    </script>
+
+    <h3 style="margin-top: 3em;">What do the states mean?</h3>
+    <p>Foghorn can list these states:</p>
+    <ol>
+      <li value="0" data-state="0">
+        Open<br>
+        The port is not blocked in any way and accessible for everyone on the public internet. This means connections will always succeed, regardless of who connects.
+      </li>
+      <li value="1" data-state="1">
+        Consistent<br>
+        The publically visible port number for this endpoint is the same for every peer that tries to communicate with it. Consistency is usually easy to hole punch through, however some routers interact with other routers in ways that make it fail anyway.
+      </li>
+      <li value="2" data-state="2">
+        Predictable<br>
+        The publically visible port number for this endpoint is the same as the port that was opened on the local side. Predictability is not necessarily perfect, so connections to this host may fail depending on the types of networks involved.
+      </li>
+      <li value="254" data-state="254">
+        Impenetrable<br>
+        The publically visible port for this endpoint is entirely randomized. This means it can only connect to open ports.
+      </li>
+      <li value="255" data-state="255">
+        Unknown<br>
+        This address's state has not (yet) been determined.
+      </li>
+    </ol>
+
+
+  </body>
+</html>
+

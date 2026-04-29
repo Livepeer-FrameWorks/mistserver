@@ -4,6 +4,7 @@
 #include <mist/defines.h>
 #include <mist/downloader.h>
 #include <mist/flv_tag.h>
+#include <mist/foghorn.h>
 #include <mist/http_parser.h>
 #include <mist/mp4_generic.h>
 #include <mist/procs.h>
@@ -49,6 +50,7 @@ namespace Mist{
     capa["name"] = "TSSRT";
     capa["desc"] = "This input allows for processing MPEG2-TS-based SRT streams using libsrt " SRT_VERSION_STRING ".";
     capa["source_match"].append("srt://*");
+    capa["source_match"].append("srt-fh://*");
     // These can/may be set to always-on mode
     
     capa["source_prefill"] = "srt://";
@@ -56,6 +58,7 @@ namespace Mist{
     capa["source_help"] = "All available socket options to libSRT are available as parameter, look for 'TSSRT Push parameters' in the documentations. Example of the most popular parameters:\n ?streamid=streamname&latency=1000&passphrase=10characterpassphrase";
 
     capa["always_match"].append("srt://*");
+    capa["always_match"].append("srt-fh://*");
     capa["incoming_push_url"] = "srt://$host:$port";
     capa["incoming_push_url_match"] = "srt://*";
     capa["priority"] = 9;
@@ -107,6 +110,7 @@ namespace Mist{
       capa["optional"]["acceptable"]["select"][1u][1u] = "Ignore all streamids";
       capa["optional"]["acceptable"]["select"][2u][0u] = 2;
       capa["optional"]["acceptable"]["select"][2u][1u] = "Disallow non-matching streamid";
+
       capa["optional"]["raw"]["name"] = "Raw input mode";
       capa["optional"]["raw"]["help"] = "Enable raw MPEG-TS passthrough mode";
       capa["optional"]["raw"]["option"] = "--raw";
@@ -208,6 +212,24 @@ namespace Mist{
 
       std::string addData;
       if (arguments.count("streamid")){addData = arguments["streamid"];}
+      Foghorn::Puncher fhp(u, "SRT", addData);
+
+      if (u.protocol == "srt-fh"){
+        if (!fhp.start()){
+          FAIL_MSG("Could not create connection through foghorn!");
+          return false;
+        }
+        u.protocol = "srt";
+        u.host = fhp.targetHost;
+        u.port = JSON::Value(fhp.targetPort).asString();
+        if (fhp.isOpen()){
+          srtConn = new Socket::SRTConnection();
+        }else{
+          INFO_MSG("Pulling in rendezvous mode from %s:%s", u.host.c_str(), u.port.c_str());
+          srtConn = new Socket::SRTConnection(*(fhp.getSocket()), "rendezvous", arguments);
+        }
+      }
+
       size_t connectCnt = 0;
       do{
         if (!srtConn){srtConn = new Socket::SRTConnection();}
@@ -224,6 +246,9 @@ namespace Mist{
   void InputTSSRT::getNext(size_t idx){
     thisPacket.null();
     bool hasPacket = tsStream.hasPacket();
+    if (srtConn && *srtConn){
+      srtConn->setBlocking(true);
+    }
     while (!hasPacket && srtConn && *srtConn && config->is_active){
 
       size_t recvSize = srtConn->RecvNow();
@@ -248,10 +273,6 @@ namespace Mist{
           continue;
         }
         if (assembler.assemble(tsStream, srtConn->recvbuf, recvSize, true)){hasPacket = tsStream.hasPacket();}
-      }else if (srtConn && *srtConn){
-        // This should not happen as the SRT socket is read blocking and won't return until there is
-        // data. But if it does, wait before retry
-        Util::sleep(10);
       }
     }
     if (hasPacket){tsStream.getEarliestPacket(thisPacket);}
