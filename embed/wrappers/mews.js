@@ -720,7 +720,10 @@ p.prototype.build = function (MistVideo,callback) {
 
                         player.msinit().then(function(){
                           player.sbinit(msg.data.codecs);
-                          if (!player.sb) MistVideo.log("Failed to reinitialize source buffer","error"); return;
+                          if (!player.sb) {
+                            MistVideo.log("Failed to reinitialize source buffer","error");
+                            return;
+                          }
                           player.sb.do_on_updateend = remaining_do_on_updateend;
 
                           var e = MistUtil.event.addListener(video,"loadedmetadata",function(){

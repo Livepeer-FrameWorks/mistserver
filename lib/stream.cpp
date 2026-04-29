@@ -37,7 +37,7 @@ static std::string strftime_now(const std::string &format){
   return buffer;
 }
 
-std::string Util::codecString(const std::string &codec, const std::string &initData){
+std::string Util::codecString(const std::string &codec, const std::string &initData, bool webCodec){
   if (codec == "H264"){
     std::stringstream r;
     r << "avc1";
@@ -109,7 +109,7 @@ std::string Util::codecString(const std::string &codec, const std::string &initD
     return r.str();
   }
   if (codec == "AAC"){return "mp4a.40.2";}
-  if (codec == "MP3"){return "mp4a.40.34";}
+  if (codec == "MP3") { return webCodec ? "mp3" : "mp4a.40.34"; }
   if (codec == "AC3"){return "mp4a.a5";}
   if (codec == "AV1"){
     if (initData.size() < 4){return "av01";}// Can't determine properties. :-(
@@ -133,7 +133,9 @@ std::string Util::codecString(const std::string &codec, const std::string &initD
   }
   if (codec == "opus") { return "opus"; }
   if (codec == "VP8") { return "vp8"; }
-  if (codec == "VP9") { return "vp9.00.00.08"; }
+  if (codec == "ULAW") { return "ulaw"; }
+  if (codec == "ALAW") { return "alaw"; }
+  if (codec == "VP9") { return "vp09.00.10.08"; }
   return "";
 }
 
@@ -696,6 +698,13 @@ bool Util::startInput(std::string streamname, std::string filename, bool forkFir
   args.push_back(streamname);
   args.push_back(filename);
 
+  if (Util::printDebugLevel >= DLVL_MEDIUM){
+    std::stringstream cmdline;
+    for (std::string & s : args) { cmdline << s << " "; }
+    MEDIUM_MSG("Options: %s", stream_cfg.toString().c_str());
+    MEDIUM_MSG("Starting process: %s", cmdline.str().c_str());
+  }
+
   // Set environment variable so we can know if we have a provider when re-exec'ing.
   if (isProvider) { setenv("MISTPROVIDER", "1", 1); }
 
@@ -736,14 +745,18 @@ bool Util::startInput(std::string streamname, std::string filename, bool forkFir
   if (overrides.count("dontWaitForStream")) { return true; }
 
   unsigned int waiting = 0;
+  bool throughBoot = overrides.count("throughboot");
   while (!streamAlive(streamname) && ++waiting < 240){
-    Util::wait(250);
     if (!Util::Procs::isRunning(pid)){
       std::stringstream cmd;
       for (auto & a : args) { cmd << "'" << a << "' "; }
       FAIL_MSG("Input process (PID %d, command: %s) shut down before stream coming online, aborting.", pid, cmd.str().c_str());
       break;
+    }else if (throughBoot){
+      streamStat = getStreamStatus(streamname);
+      if (streamStat == STRMSTAT_BOOT || streamStat == STRMSTAT_WAIT || streamStat == STRMSTAT_READY){return true;}
     }
+    Util::wait(250);
   }
 
   return streamAlive(streamname);
@@ -956,11 +969,11 @@ pid_t Util::startPush(const std::string &streamname, std::string &target, int de
         unsigned int push_count = output.getMember("push_urls").getSize();
         for (unsigned int j = 0; j < push_count; ++j){
           if (output_bin.size()) { break; }
-          std::string checkTarget = target.substr(0, target.rfind('?'));
+          std::string checkTarget = target.substr(0, target.rfind('#'));
           std::string tar_match = output.getMember("push_urls").getIndice(j).asString();
-          if (*tar_match.rbegin() == '?') {
+          if (*tar_match.rbegin() == '#') {
             tar_match.erase(tar_match.size() - 1);
-            checkTarget = target.substr(0, target.find('?'));
+            checkTarget = target.substr(0, target.find('#'));
           }
           std::string front = tar_match.substr(0, tar_match.find('*'));
           std::string back = tar_match.substr(tar_match.find('*') + 1);
