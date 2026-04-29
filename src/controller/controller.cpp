@@ -236,86 +236,66 @@ int main_loop(int argc, char **argv){
   Controller::isTerminal = Controller::isColorized = isatty(fileno(stdout));
   if (!isatty(fileno(stdin))){Controller::isTerminal = false;}
   Controller::Storage = JSON::fromFile("config.json");
-
-  JSON::Value stored_port;
-  stored_port.fromString(R"-({"long":"port", "short":"p", "arg":"integer", "help":"TCP port to listen on."})-");
+  JSON::Value stored_port =
+      JSON::fromString("{\"long\":\"port\", \"short\":\"p\", \"arg\":\"integer\", \"help\":\"TCP "
+                       "port to listen on.\"}");
   stored_port["default"] = Controller::Storage["config"]["controller"]["port"];
   if (!stored_port["default"]){stored_port["default"] = 4242;}
-  Controller::conf.addOption("port", stored_port);
-
-  JSON::Value stored_interface;
-  stored_interface.fromString(R"-({
-    "long":"interface",
-    "short":"i",
-    "arg":"string",
-    "help":"Interface address to listen on, or 0.0.0.0 for all available interfaces."
-  })-");
+  JSON::Value stored_interface = JSON::fromString(
+      "{\"long\":\"interface\", \"short\":\"i\", \"arg\":\"string\", \"help\":\"Interface address "
+      "to listen on, or 0.0.0.0 for all available interfaces.\"}");
   stored_interface["default"] = Controller::Storage["config"]["controller"]["interface"];
   if (!stored_interface["default"]){stored_interface["default"] = "0.0.0.0";}
-  Controller::conf.addOption("interface", stored_interface);
-
-  JSON::Value stored_user;
-  stored_user.fromString(R"-({
-    "long":"username",
-    "short":"u",
-    "arg":"string",
-    "help":"Username to transfer privileges to, default is root."
-  })-");
+  JSON::Value stored_user =
+      JSON::fromString("{\"long\":\"username\", \"short\":\"u\", \"arg\":\"string\", "
+                       "\"help\":\"Username to transfer privileges to, default is root.\"}");
   stored_user["default"] = Controller::Storage["config"]["controller"]["username"];
-  if (!stored_user["default"]) { stored_user["default"] = "root"; }
+  if (!stored_user["default"]){stored_user["default"] = "root";}
+  Controller::conf.addOption("port", stored_port);
+  Controller::conf.addOption("interface", stored_interface);
   Controller::conf.addOption("username", stored_user);
+  Controller::conf.addOption(
+      "account", JSON::fromString("{\"long\":\"account\", \"short\":\"a\", \"arg\":\"string\" "
+                                  "\"default\":\"\", \"help\":\"A username:password string to "
+                                  "create a new account with.\"}"));
+  Controller::conf.addOption(
+      "logfile", JSON::fromString("{\"long\":\"logfile\", \"short\":\"L\", \"arg\":\"string\" "
+                                  "\"default\":\"\",\"help\":\"Redirect all standard output to a "
+                                  "log file, provided with an argument.\"}"));
+  Controller::conf.addOption(
+      "accesslog", JSON::fromString("{\"long\":\"accesslog\", \"short\":\"A\", \"arg\":\"string\" "
+                                    "\"default\":\"LOG\",\"help\":\"Where to write the access log. "
+                                    "If set to 'LOG' (the default), writes to wherever the log is "
+                                    "written to. If empty, access logging is turned off. "
+                                    "Otherwise, writes to the given filename.\"}"));
+  Controller::conf.addOption(
+      "configFile", JSON::fromString("{\"long\":\"config\", \"short\":\"c\", \"arg\":\"string\" "
+                                     "\"default\":\"config.json\", \"help\":\"Specify a config "
+                                     "file other than default.\"}"));
 
-  Controller::conf.addOption("account", R"-({
-    "long":"account",
-    "short":"a",
-    "arg":"string",
-    "default":"",
-    "help":"A username:password string to create a new account with."
-  })-");
-  Controller::conf.addOption("logfile", R"-({
-    "long":"logfile",
-    "short":"L",
-    "arg":"string"
-    "default":"",
-    "help":"Redirect all standard output to a " "log file, provided with an argument."
-  })-");
-  Controller::conf.addOption("accesslog", R"-({
-    "long":"accesslog",
-    "short":"A",
-    "arg":"string",
-    "default":"LOG",
-    "help":"Where to write the access log. If set to 'LOG' (the default), writes to wherever the log is written to. If empty, access logging is turned off. Otherwise, writes to the given filename."
-  })-");
-  Controller::conf.addOption("configFile", R"-({
-    "long":"config",
-    "short":"c",
-    "arg":"string",
-    "default":"config.json",
-    "help":"Specify a config file other than default."
-  })-");
-
-  Controller::conf.addOption("configrw", R"-({
-    "long":"configrw",
-    "short":"C",
-    "arg":"string",
-    "default":"rw",
-    "help":"If 'r', read config changes from disk. If 'w', writes them to disk after 60 seconds of no changes. If 'rw', does both (default). In all other cases does neither."
-  })-");
+  Controller::conf.addOption(
+      "configrw", JSON::fromString("{\"long\":\"configrw\", \"short\":\"C\", \"arg\":\"string\" "
+                                     "\"default\":\"rw\", \"help\":\"If 'r', read config changes from disk. If 'w', writes them to disk after 60 seconds of no changes. If 'rw', does both (default). In all other cases does neither.\"}"));
 #ifdef UPDATER
-  Controller::conf.addOption("update", R"-({
-    "long":"update",
-    "short":"D",
-    "default":0,
-    "help":"Check for and install updates before starting."
-  })-");
+  Controller::conf.addOption(
+      "update", JSON::fromString("{\"default\":0, \"help\":\"Check for and install updates before "
+                                 "starting.\", \"short\":\"D\", \"long\":\"update\"}")); /*LTS*/
 #endif
-  Controller::conf.addOption("prometheus", R"-({
-    "long":"prometheus",
-    "short":"S",
-    "arg":"string"
-    "default":"",
-    "help":"If set, allows collecting of Prometheus-style " "stats on the given path over the API port."
-  })-");
+  Controller::conf.addOption(
+      "uplink",
+      JSON::fromString("{\"default\":\"\", \"arg\":\"string\", \"help\":\"MistSteward uplink host "
+                       "and port.\", \"short\":\"U\", \"long\":\"uplink\"}")); /*LTS*/
+  Controller::conf.addOption("uplink-name", JSON::fromString("{\"default\":\"" COMPILED_USERNAME "\", \"arg\":\"string\", \"help\":\"MistSteward "
+                                                             "uplink username.\", \"short\":\"N\", "
+                                                             "\"long\":\"uplink-name\"}")); /*LTS*/
+  Controller::conf.addOption("uplink-pass", JSON::fromString("{\"default\":\"" COMPILED_PASSWORD "\", \"arg\":\"string\", \"help\":\"MistSteward "
+                                                             "uplink password.\", \"short\":\"P\", "
+                                                             "\"long\":\"uplink-pass\"}")); /*LTS*/
+  Controller::conf.addOption(
+      "prometheus",
+      JSON::fromString("{\"long\":\"prometheus\", \"short\":\"S\", \"arg\":\"string\" "
+                       "\"default\":\"\", \"help\":\"If set, allows collecting of Prometheus-style "
+                       "stats on the given path over the API port.\"}"));
   Controller::conf.parseArgs(argc, argv);
   if (Controller::conf.getString("logfile") != ""){
     // open logfile, dup stdout to logfile
@@ -534,8 +514,7 @@ int main_loop(int argc, char **argv){
     Controller::E.addSocket(uSock.getSock(), [&](void *) {
       while (uSock.Receive()) {
         MEDIUM_MSG("UDP API: %.*s", (int)uSock.data.size(), (const char *)uSock.data);
-        JSON::Value Request;
-        Request.fromString(uSock.data, uSock.data.size());
+        JSON::Value Request = JSON::fromString(uSock.data, uSock.data.size());
         Request["minimal"] = true;
         JSON::Value Response;
         if (Request.isObject()) {

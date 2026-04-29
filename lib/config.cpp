@@ -89,6 +89,7 @@ static bool checkSerial(const std::string &ser, const std::string & directory = 
           std::string currSer(serial, len);
           while (currSer.size() && (currSer[0] == ' ' || currSer[0] == 0)){currSer.erase(0, 1);}
           while (currSer.size() && (currSer[currSer.size()-1] == ' ' || currSer[currSer.size()-1] == 0)){currSer.erase(currSer.size()-1);}
+          DONTEVEN_MSG("Serial: %s", currSer.c_str());
           if (currSer == ser){ret = true;}
           fclose(fd);
         }
@@ -255,17 +256,7 @@ void Util::Config::addOption(const std::string & optname, const JSON::Value & op
 }
 
 void Util::Config::addOption(const std::string & optname, const char *jsonStr) {
-  JSON::Value & O = vals[optname];
-  O.fromString(jsonStr);
-  if (!O.isMember("value") && O.isMember("default")) {
-    O["value"].append(O["default"]);
-    O.removeMember("default");
-  }
-  if (O.isMember("value") && O["value"].isArray() && O["value"].size()) { O["has_default"] = true; }
-  long_count = 0;
-  jsonForEach (vals, it) {
-    if (it->isMember("long")) { long_count++; }
-  }
+  addOption(optname, JSON::fromString(jsonStr));
 }
 
 /// Prints a usage message to the given output.
@@ -620,6 +611,13 @@ void Util::Config::activate(){
   if (cur_action.sa_handler == SIG_DFL || cur_action.sa_handler == SIG_IGN){
     new_action.sa_handler = SIG_IGN;
     sigaction(SIGCHLD, &new_action, NULL);
+  }
+  //Check if a USR2 signal handler exists. If not, ignore that signal (default is terminate).
+  sigaction(SIGUSR2, 0, &cur_action);
+  if (cur_action.sa_handler == SIG_DFL){
+    new_action.sa_flags = 0;
+    new_action.sa_handler = SIG_IGN;
+    sigaction(SIGUSR2, &new_action, NULL);
   }
   is_active = true;
 }
