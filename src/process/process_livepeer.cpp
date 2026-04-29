@@ -1,18 +1,23 @@
 #include "process_livepeer.h"
-#include "process.hpp"
-#include <mist/timing.h>
-#include <mist/procs.h>
-#include <mist/util.h>
-#include <mist/downloader.h>
-#include <mist/triggers.h>
-#include <mist/encode.h>
+
 #include "../input/input.h"
-#include <ostream>
-#include <thread>
+#include "process.hpp"
+
+#include <mist/downloader.h>
+#include <mist/encode.h>
+#include <mist/proc_stats.h>
+#include <mist/procs.h>
+#include <mist/shared_memory.h>
+#include <mist/timing.h>
+#include <mist/triggers.h>
+#include <mist/util.h>
+
 #include <mutex>
-#include <sys/stat.h>  //for stat
+#include <ostream>
+#include <sys/stat.h> //for stat
 #include <sys/types.h> //for stat
-#include <unistd.h>    //for stat
+#include <thread>
+#include <unistd.h> //for stat
 
 std::mutex segMutex;
 std::mutex broadcasterMutex;
@@ -35,11 +40,12 @@ std::string api_url;
 Util::Config co;
 Util::Config conf;
 
+IPC::sharedPage procStatePage;
+ProcExitState procExit;
+
 size_t insertTurn = 0;
 bool isStuck = false;
 size_t sourceIndex = INVALID_TRACK_ID;
-
-uint8_t sinkCommState = COMM_STATUS_ACTSOURCEDNT;
 
 namespace Mist{
 
@@ -203,7 +209,6 @@ namespace Mist{
         std::lock_guard<std::mutex> guard(statsMutex);
         pStat["proc_status_update"]["sink"] = streamName;
         pStat["proc_status_update"]["source"] = opt["source"];
-        if (streamName != opt["source"].asStringRef()) { sinkCommState = COMM_STATUS_ACTIVE | COMM_STATUS_SOURCE; }
       }
       Util::setStreamName(opt["source"].asString() + "→" + streamName);
       if (opt.isMember("target_mask") && !opt["target_mask"].isNull() && opt["target_mask"].asString() != ""){
@@ -213,12 +218,6 @@ namespace Mist{
       }
       preRun();
     };
-    void connStats(Comms::Connections & statComm) {
-      for (std::map<size_t, Comms::Users>::iterator it = userSelect.begin(); it != userSelect.end(); it++) {
-        if (it->second) { it->second.setStatus(sinkCommState | it->second.getStatus()); }
-      }
-      Input::connStats(statComm);
-    }
     virtual bool needsLock(){return false;}
     bool isSingular(){return false;}
   private:
@@ -290,7 +289,7 @@ namespace Mist{
         if (!thisPacket){
           Util::sleep(25);
           if (userSelect.size() && userSelect.begin()->second.getStatus() == COMM_STATUS_REQDISCONNECT){
-            Util::logExitReason(ER_CLEAN_LIVE_BUFFER_REQ, "buffer requested shutdown");
+            procExit.log(ER_CLEAN_LIVE_BUFFER_REQ, 0, "buffer requested shutdown");
             return;
           }
         }
@@ -323,19 +322,22 @@ void sinkThread(){
   co.activate();
   co.is_active = true;
   INFO_MSG("Running sink thread...");
-  in.run();
+  int rc = in.run();
+  if (rc == 0) {
+    procExit.log(ER_CLEAN_EOF, 0, "Sink thread finished");
+  } else {
+    procExit.log(Util::mRExitReason ? Util::mRExitReason : ER_UNKNOWN, rc, "%s",
+                 Util::exitReason[0] ? Util::exitReason : "Sink thread failed");
+  }
   INFO_MSG("Sink thread shutting down");
   conf.is_active = false;
   co.is_active = false;
 }
 
 void sourceThread(){
-  conf.addOption("streamname", R"-({
-    "arg":"string",
-    "short":"s",
-    "long":"stream",
-    "help":"The name of the stream that this connector will transmit."
-  })-");
+  conf.addOption("streamname", JSON::fromString("{\"arg\":\"string\",\"short\":\"s\",\"long\":"
+                                                  "\"stream\",\"help\":\"The name of the stream "
+                                                  "that this connector will transmit.\"}"));
   JSON::Value opt;
   opt["arg"] = "string";
   opt["default"] = "";
@@ -361,14 +363,33 @@ void sourceThread(){
   Mist::ProcessSource out(c, conf, capa);
   if (conf.is_active){
     INFO_MSG("Running source thread...");
-    out.run();
-    INFO_MSG("Stopping source thread...");
+    int rc = out.run();
+    if (rc == 0) {
+      procExit.log(ER_CLEAN_EOF, 0, "Source thread finished");
+    } else {
+      procExit.log(Util::mRExitReason ? Util::mRExitReason : ER_UNKNOWN, rc, "%s",
+                   Util::exitReason[0] ? Util::exitReason : "Source thread failed");
+    }
+    INFO_MSG("Stopping source thread");
   }else{
-    INFO_MSG("Aborting source thread...");
+    procExit.log(ER_READ_START_FAILURE, 2, "Source thread failed to initialize");
   }
   conf.is_active = false;
   co.is_active = false;
 }
+
+/// Structure to hold per-rendition information
+struct RenditionInfo {
+  std::string name;
+  size_t bytes;
+};
+
+/// Result from parsing multipart response
+struct MultipartResult {
+  size_t renditionCount;
+  size_t totalOutputBytes;
+  std::vector<RenditionInfo> renditions;
+};
 
 ///Inserts a part into the queue of parts to parse
 void insertPart(const Mist::preparedSegment & mySeg, const std::string & rendition, void * ptr, size_t len){
@@ -394,15 +415,18 @@ void insertPart(const Mist::preparedSegment & mySeg, const std::string & renditi
   }
 }
 
-///Parses a multipart response
-void parseMultipart(const Mist::preparedSegment & mySeg, const std::string & cType, const std::string & d){
+///Parses a multipart response, returns rendition details
+MultipartResult parseMultipart(const Mist::preparedSegment & mySeg, const std::string & cType, const std::string & d){
+  MultipartResult result;
+  result.renditionCount = 0;
+  result.totalOutputBytes = 0;
   std::string bound;
   if (cType.find("boundary=") != std::string::npos){
     bound = "--"+cType.substr(cType.find("boundary=")+9);
   }
   if (!bound.size()){
     FAIL_MSG("Could not parse boundary string from Content-Type header!");
-    return;
+    return result;
   }
   size_t startPos = 0;
   size_t nextPos = d.find(bound, startPos);
@@ -432,14 +456,22 @@ void parseMultipart(const Mist::preparedSegment & mySeg, const std::string & cTy
       for (std::map<std::string, std::string>::iterator it = partHeaders.begin(); it != partHeaders.end(); ++it){
         VERYHIGH_MSG("Header %s = %s", it->first.c_str(), it->second.c_str());
       }
-      VERYHIGH_MSG("Body has length %zi", nextPos-headEnd-6);
+      size_t bodyLen = nextPos - headEnd - 6;
+      VERYHIGH_MSG("Body has length %zi", bodyLen);
       std::string preType = partHeaders["Content-Type"].substr(0, 10);
       Util::stringToLower(preType);
       if (preType == "video/mp2t"){
-        insertPart(mySeg, partHeaders["Rendition-Name"], (void*)(d.data()+headEnd+4), nextPos-headEnd-6);
+        insertPart(mySeg, partHeaders["Rendition-Name"], (void*)(d.data()+headEnd+4), bodyLen);
+        ++result.renditionCount;
+        result.totalOutputBytes += bodyLen;
+        RenditionInfo rInfo;
+        rInfo.name = partHeaders["Rendition-Name"];
+        rInfo.bytes = bodyLen;
+        result.renditions.push_back(rInfo);
       }
     }
   }
+  return result;
 }
 
 void segmentRejectedTrigger(Mist::preparedSegment & mySeg, const std::string & bc1, const std::string & bc2){
@@ -504,8 +536,11 @@ void uploadThread(size_t myNum){
           //Wait your turn
           while (myNum != insertTurn && conf.is_active){Util::sleep(100);}
           if (!conf.is_active){return;}//Exit early on shutdown
+          MultipartResult mpResult;
+          mpResult.renditionCount = 0;
+          mpResult.totalOutputBytes = 0;
           if (upper.getHeader("Content-Type").substr(0, 10) == "multipart/"){
-            parseMultipart(mySeg, upper.getHeader("Content-Type"), upper.const_data());
+            mpResult = parseMultipart(mySeg, upper.getHeader("Content-Type"), upper.const_data());
           }else{
             ++statFailParse;
             FAIL_MSG("Non-multipart response (%s, %zu bytes) received - this version only works "
@@ -514,6 +549,37 @@ void uploadThread(size_t myNum){
           }
           mySeg.fullyRead = true;
           insertTurn = (insertTurn + 1) % PRESEG_COUNT;
+          // Fire LIVEPEER_SEGMENT_COMPLETE trigger
+          if (Triggers::shouldTrigger("LIVEPEER_SEGMENT_COMPLETE", Util::streamName)){
+            // Build renditions JSON array (only this field is JSON since it's variable-length)
+            JSON::Value renditionsJson;
+            for (size_t i = 0; i < mpResult.renditions.size(); ++i){
+              JSON::Value rend;
+              rend["name"] = mpResult.renditions[i].name;
+              rend["bytes"] = (uint64_t)mpResult.renditions[i].bytes;
+              renditionsJson.append(rend);
+            }
+
+            uint64_t turnaroundMs = uplTime / 1000;
+            double speedFactor = turnaroundMs > 0 ? (double)mySeg.segDuration / (double)turnaroundMs : 0.0;
+
+            std::string payload = std::string(Util::streamName) + "\n" +      // 1. stream name
+              Mist::lpID + "\n" +                                              // 2. livepeer session ID
+              JSON::Value(mySeg.keyNo).asString() + "\n" +                     // 3. segment number
+              JSON::Value(mySeg.time).asString() + "\n" +                      // 4. segment start ms
+              JSON::Value(mySeg.segDuration).asString() + "\n" +               // 5. segment duration ms
+              JSON::Value(mySeg.width).asString() + "\n" +                     // 6. source width
+              JSON::Value(mySeg.height).asString() + "\n" +                    // 7. source height
+              JSON::Value((uint64_t)mySeg.data.size()).asString() + "\n" +     // 8. input bytes
+              JSON::Value((uint64_t)mpResult.totalOutputBytes).asString() + "\n" + // 9. output bytes total
+              JSON::Value(mpResult.renditionCount).asString() + "\n" +         // 10. rendition count
+              JSON::Value((uint64_t)attempts).asString() + "\n" +              // 11. attempt count
+              target.getUrl() + "\n" +                                         // 12. broadcaster URL
+              JSON::Value(turnaroundMs).asString() + "\n" +                    // 13. turnaround ms
+              JSON::Value(speedFactor).asString() + "\n" +                     // 14. speed factor
+              renditionsJson.toString();                                       // 15. renditions (JSON array)
+            Triggers::doTrigger("LIVEPEER_SEGMENT_COMPLETE", payload, Util::streamName);
+          }
           break;//Success: no need to retry
         }else if (upper.getStatusCode() == 422){
           //segment rejected by broadcaster node; try a different broadcaster at most once and keep track
@@ -545,7 +611,7 @@ void uploadThread(size_t myNum){
       attempts++;
       Util::sleep(100);//Rate-limit retries
       if (attempts > 4){
-        Util::logExitReason(ER_FORMAT_SPECIFIC, "too many upload failures");
+        procExit.log(ER_FORMAT_SPECIFIC, 2, "too many upload failures");
         conf.is_active = false;
         return;
       }
@@ -557,7 +623,7 @@ void uploadThread(size_t myNum){
         Mist::pickRandomBroadcaster();
         if (!Mist::currBroadAddr.size()){
           FAIL_MSG("Cannot switch to new broadcaster: none available");
-          Util::logExitReason(ER_FORMAT_SPECIFIC, "no Livepeer broadcasters available");
+          procExit.log(ER_FORMAT_SPECIFIC, 2, "no Livepeer broadcasters available");
           conf.is_active = false;
           return;
         }
@@ -584,6 +650,15 @@ int main(int argc, char *argv[]){
   DTSC::trackValidMask = TRACK_VALID_INT_PROCESS;
   Util::Config config(argv[0]);
   Util::Config::binaryType = Util::PROCESS;
+
+  // Initialize SHM early so exit reasons are available even for config errors
+  {
+    char shmName[NAME_BUFFER_SIZE];
+    snprintf(shmName, NAME_BUFFER_SIZE, SHM_PROC_STATE, getpid());
+    procStatePage.init(shmName, sizeof(ProcState), true, false);
+    if (procStatePage.mapped) { memset(procStatePage.mapped, 0, sizeof(ProcState)); }
+  }
+
   JSON::Value capa;
 
   {
@@ -609,7 +684,10 @@ int main(int argc, char *argv[]){
 
   capa["codecs"][0u][0u].append("H264");
 
-  if (!(config.parseArgs(argc, argv))){return 1;}
+  if (!(config.parseArgs(argc, argv))) {
+    procExit.log(ER_FORMAT_SPECIFIC, 2, "Failed to parse command-line arguments");
+    return procExit.flush(procStatePage);
+  }
   if (config.getBool("json")){
 
     capa["name"] = "Livepeer";
@@ -690,17 +768,17 @@ int main(int argc, char *argv[]){
     capa["required"]["target_profiles"]["type"] = "sublist";
     capa["required"]["target_profiles"]["itemLabel"] = "profile";
     capa["required"]["target_profiles"]["help"] = "Tracks to transcode the source into";
-    capa["required"]["target_profiles"]["sort"] = "n";
+    capa["required"]["target_profiles"]["sort"] = "f";
     {
       JSON::Value &grp = capa["required"]["target_profiles"]["required"];
       grp["name"]["name"] = "Name";
       grp["name"]["help"] = "Name for the profile. Must be unique within this transcode.";
       grp["name"]["type"] = "str";
-      grp["name"]["n"] = 0;
+      grp["name"]["sort"] = 0;
       grp["bitrate"]["name"] = "Bitrate";
       grp["bitrate"]["help"] = "Target bit rate of the output";
       grp["bitrate"]["type"] = "int";
-      grp["bitrate"]["n"] = 1;
+      grp["bitrate"]["sort"] = 1;
       grp["bitrate"]["unit"][0u][0u] = "1";
       grp["bitrate"]["unit"][0u][1u] = "bit/s";
       grp["bitrate"]["unit"][1u][0u] = "1000";
@@ -708,29 +786,29 @@ int main(int argc, char *argv[]){
       grp["bitrate"]["unit"][2u][0u] = "1000000";
       grp["bitrate"]["unit"][2u][1u] = "Mbit/s";
     }{
-      JSON::Value &grp = capa["required"]["target_profiles"]["optional"];
+      JSON::Value &grp = capa["required"]["target_profiles"]["sublist"];
       grp["width"]["name"] = "Width";
       grp["width"]["help"] = "Width in pixels of the output. Defaults to match aspect with height, or source width if both are default.";
       grp["width"]["unit"] = "px";
       grp["width"]["type"] = "int";
-      grp["width"]["n"] = 2;
+      grp["width"]["sort"] = 2;
       grp["height"]["name"] = "Height";
       grp["height"]["help"] = "Height in pixels of the output. Defaults to match aspect with width, or source height if both are default. If only height is given and the source height is greater than the source width, width and height will swap and do what you most likely wanted to do (e.g. follow your config in portrait mode instead of landscape mode).";
       grp["height"]["unit"] = "px";
       grp["height"]["type"] = "int";
-      grp["height"]["n"] = 3;
+      grp["height"]["sort"] = 3;
       grp["fps"]["name"] = "Framerate";
       grp["fps"]["help"] = "Framerate of the output. Zero means to match the input (= the default).";
       grp["fps"]["unit"] = "frames per second";
       grp["fps"]["default"] = 0;
       grp["fps"]["type"] = "int";
-      grp["fps"]["n"] = 4;
+      grp["fps"]["sort"] = 4;
       grp["gop"]["name"] = "Keyframe interval / GOP size";
       grp["gop"]["help"] = "Interval of keyframes / duration of GOPs for the transcode. \"0.0\" means to match input (= the default), 'intra' means to send only key frames. Otherwise, fractional seconds between keyframes.";
       grp["gop"]["unit"] = "seconds";
       grp["gop"]["default"] = "0.0";
       grp["gop"]["type"] = "str";
-      grp["gop"]["n"] = 5;
+      grp["gop"]["sort"] = 5;
 
       grp["profile"]["name"] = "H264 Profile";
       grp["profile"]["help"] = "Profile to use. Defaults to \"High\".";
@@ -794,18 +872,20 @@ int main(int argc, char *argv[]){
 
   // read configuration
   if (config.getString("configuration") != "-"){
-    Mist::opt.fromString(config.getString("configuration"));
-  } else {
+    Mist::opt = JSON::fromString(config.getString("configuration"));
+  }else{
+    std::string json, line;
     INFO_MSG("Reading configuration from standard input");
-    Mist::opt.fromStream(std::cin);
+    while (std::getline(std::cin, line)){json.append(line);}
+    Mist::opt = JSON::fromString(json.c_str());
   }
 
   // check config for generic options
   srand(getpid());
   // Check generic configuration variables
   if (!Mist::opt.isMember("source") || !Mist::opt["source"] || !Mist::opt["source"].isString()){
-    FAIL_MSG("Missing or blank source in config!");
-    return 1;
+    procExit.log(ER_FORMAT_SPECIFIC, 2, "Missing or blank source in config");
+    return procExit.flush(procStatePage);
   }
 
   if (!Mist::opt.isMember("sink") || !Mist::opt["sink"] || !Mist::opt["sink"].isString()){
@@ -830,8 +910,8 @@ int main(int argc, char *argv[]){
   const std::string & srcStrm = Mist::opt["source"].asStringRef();
   if (config.getBool("kickoff")){
     if (!Util::startInput(srcStrm, "")){
-      FAIL_MSG("Could not connector and/or start source stream!");
-      return 1;
+      procExit.log(ER_READ_START_FAILURE, 1, "Could not start source stream");
+      return procExit.flush(procStatePage);
     }
     uint8_t streamStat = Util::getStreamStatus(srcStrm);
     size_t sleeps = 0;
@@ -843,8 +923,8 @@ int main(int argc, char *argv[]){
       streamStat = Util::getStreamStatus(srcStrm);
     }
     if (streamStat != STRMSTAT_READY){
-      FAIL_MSG("Stream not available!");
-      return 1;
+      procExit.log(ER_READ_START_FAILURE, 1, "Source stream not available after kickoff");
+      return procExit.flush(procStatePage);
     }
   }
 
@@ -873,8 +953,8 @@ int main(int argc, char *argv[]){
     }
   }
   if (sourceIdx == INVALID_TRACK_ID || !M.getWidth(sourceIdx) || !M.getHeight(sourceIdx)){
-    FAIL_MSG("No valid source track!");
-    return 1;
+    procExit.log(ER_FORMAT_SPECIFIC, 2, "No valid source video track found");
+    return procExit.flush(procStatePage);
   }
 
   //build transcode request
@@ -949,7 +1029,7 @@ int main(int argc, char *argv[]){
     const std::string & hcbc = Mist::opt["hardcoded_broadcasters"].asStringRef();
     // Detect array
     if (hcbc.size() && hcbc[0] == '[') {
-      Mist::lpBroad.fromString(hcbc);
+      Mist::lpBroad = JSON::fromString(hcbc);
       // If an array element is a string, assume it's the address field only
       jsonForEach (Mist::lpBroad, it) {
         if (it->isString()) {
@@ -966,19 +1046,19 @@ int main(int argc, char *argv[]){
   } else {
     // Get broadcaster list, pick first valid address
     if (!dl.get(HTTP::URL(api_url + "/broadcaster"))) {
-      FAIL_MSG("Livepeer API responded negatively to request for broadcaster list");
-      return 1;
+      procExit.log(ER_FORMAT_SPECIFIC, 2, "Livepeer API rejected broadcaster list request");
+      return procExit.flush(procStatePage);
     }
-    Mist::lpBroad.fromString(dl.data());
+    Mist::lpBroad = JSON::fromString(dl.data());
   }
   if (!Mist::lpBroad || !Mist::lpBroad.isArray()){
-    FAIL_MSG("No Livepeer broadcasters available");
-    return 1;
+    procExit.log(ER_FORMAT_SPECIFIC, 2, "No Livepeer broadcasters available (invalid response)");
+    return procExit.flush(procStatePage);
   }
   Mist::pickRandomBroadcaster();
   if (!Mist::currBroadAddr.size()){
-  FAIL_MSG("No Livepeer broadcasters available");
-    return 1;
+    procExit.log(ER_FORMAT_SPECIFIC, 2, "No Livepeer broadcasters available (empty list)");
+    return procExit.flush(procStatePage);
   }
   INFO_MSG("Using broadcaster: %s", Mist::currBroadAddr.c_str());
   if (Mist::opt.isMember("access_token") && Mist::opt["access_token"] && Mist::opt["access_token"].isString()) {
@@ -986,17 +1066,17 @@ int main(int argc, char *argv[]){
     dl.setHeader("Content-Type", "application/json");
     dl.setHeader("Authorization", "Bearer " + Mist::opt["access_token"].asStringRef());
     if (!dl.post(HTTP::URL(api_url + "/stream"), pl.toString())) {
-      FAIL_MSG("Livepeer API responded negatively to encode request");
-      return 1;
+      procExit.log(ER_FORMAT_SPECIFIC, 2, "Livepeer API rejected encode request");
+      return procExit.flush(procStatePage);
     }
-    Mist::lpEnc.fromString(dl.data());
+    Mist::lpEnc = JSON::fromString(dl.data());
     if (!Mist::lpEnc) {
-      FAIL_MSG("Livepeer API did not respond with JSON");
-      return 1;
+      procExit.log(ER_FORMAT_SPECIFIC, 2, "Livepeer API did not respond with JSON");
+      return procExit.flush(procStatePage);
     }
     if (!Mist::lpEnc.isMember("id")) {
-      FAIL_MSG("Livepeer API did not respond with a valid ID: %s", dl.data().data());
-      return 1;
+      procExit.log(ER_FORMAT_SPECIFIC, 2, "Livepeer API response missing stream ID");
+      return procExit.flush(procStatePage);
     }
     Mist::lpID = Mist::lpEnc["id"].asStringRef();
   } else {
@@ -1067,6 +1147,6 @@ int main(int argc, char *argv[]){
   uploader1.join();
 
   INFO_MSG("Shutdown reason: %s", Util::exitReason);
-  return 0;
-}
 
+  return procExit.flush(procStatePage);
+}

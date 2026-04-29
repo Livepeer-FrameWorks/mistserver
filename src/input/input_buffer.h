@@ -1,6 +1,12 @@
 #include "input.h"
+
 #include <mist/dtsc.h>
+#include <mist/proc_stats.h>
 #include <mist/shared_memory.h>
+
+#include <map>
+#include <set>
+#include <sys/types.h>
 
 namespace Mist{
   class InputBuffer : public Input{
@@ -8,9 +14,12 @@ namespace Mist{
     InputBuffer(Util::Config *cfg);
     ~InputBuffer();
     void onCrash();
+    void onDebug();
 
   private:
     void fillBufferDetails(JSON::Value &details) const;
+    JSON::Value processOverride;       /*LTS*/
+    bool processOverrideResolved;      /*LTS*/
     uint64_t bufferTime;
     uint64_t idleTime;
     uint64_t cutTime;
@@ -50,9 +59,19 @@ namespace Mist{
 
     uint64_t findTrack(const std::string &trackVal);
     void checkProcesses(const JSON::Value &procs); // LTS
+    void updateProcessingRate();
     std::map<std::string, pid_t> runningProcs;     // LTS
     std::map<std::string, uint32_t> procBoots;
     std::map<std::string, uint64_t> procNextBoot;
+    std::set<std::string> procHardFailed; // configs that hit unrecoverable error
+
+    // Rate control state
+    uint64_t effectiveSpeed;
+    uint64_t lastRateUpdateMs;
+    std::map<pid_t, uint64_t> procCpuPrev;          // previous cumulative CPU time (microseconds)
+    std::map<pid_t, ProcState> procStatsPrev; // previous timing stats snapshot
+    uint64_t sysCpuIdlePrev;                         // previous system idle (microseconds)
+    uint64_t sysCpuTotalPrev;                        // previous system total (microseconds)
 
     std::set<size_t> generatePids;
     std::map<size_t, size_t> sourceUsers;
