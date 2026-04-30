@@ -169,22 +169,35 @@ namespace Mist{
     }
     if (sdpState.tracks.size()){
       bool atLeastOne = false;
+      bool triedSwitch = false;
       for (std::map<uint64_t, SDP::Track>::iterator it = sdpState.tracks.begin();
            it != sdpState.tracks.end(); ++it){
         transportSet = false;
         extraHeaders.clear();
         extraHeaders["Transport"] = it->second.generateTransport(it->first, url.host, TCPmode);
-        lastRequestedSetup = baseUrl + it->second.control;
+        lastRequestedSetup = HTTP::URL(baseUrl + "/").link(it->second.control).getUrl();
         sendCommand("SETUP", lastRequestedSetup, "", &extraHeaders);
-        if (tcpCon && transportSet){
+        if (tcpCon && transportSet) {
           atLeastOne = true;
           continue;
+        } else {
+          std::string newUrl = baseUrl + it->second.control;
+          if (lastRequestedSetup != newUrl) {
+            INFO_MSG("Trying alternate URL behaviour: %s -> %s", lastRequestedSetup.c_str(), newUrl.c_str());
+            lastRequestedSetup = newUrl;
+            sendCommand("SETUP", lastRequestedSetup, "", &extraHeaders);
+            if (tcpCon && transportSet) {
+              atLeastOne = true;
+              continue;
+            }
+          }
         }
-        if (!atLeastOne && tcpCon){
+        if (!atLeastOne && tcpCon && !triedSwitch){
           INFO_MSG("Failed to set up transport for track %s, switching transports...", M.getTrackIdentifier(it->first).c_str());
           TCPmode = !TCPmode;
-          extraHeaders["Transport"] = it->second.generateTransport(it->first, url.host, TCPmode);
-          sendCommand("SETUP", lastRequestedSetup, "", &extraHeaders);
+          triedSwitch = true;
+          --it; // Retry current entry on next iteration
+          continue;
         }
         if (tcpCon && transportSet){
           atLeastOne = true;
