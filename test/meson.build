@@ -1,4 +1,3 @@
-
 # Testing binaries that are not unit tests, but intended for manual use
 convertertest = executable('convertertest', 'converter.cpp', header_tgts, dependencies: libmist_dep)
 urireadertest = executable('urireadertest', 'urireader.cpp', header_tgts, dependencies: libmist_dep)
@@ -7,7 +6,11 @@ streamstatustest = executable('streamstatustest', 'status.cpp', header_tgts, dep
 websockettest = executable('websockettest', 'websocket.cpp', header_tgts, dependencies: libmist_dep)
 
 # Actual unit tests
-test('Redirecting log messages produces no error', exec_tgts.get('MistUtilLog'), suite:'Logs', args: ['BadBinary'], should_fail: true)
+if meson.version().version_compare('>=1.11.0')
+  test('Redirecting log messages produces no error', exec_tgts.get('MistUtilLog'), suite:'Logs', args: ['BadBinary'], expected_fail: true)
+else
+  test('Redirecting log messages produces no error', exec_tgts.get('MistUtilLog'), suite:'Logs', args: ['BadBinary'], should_fail: true)
+endif
 
 downloadertest = executable('downloadertest', 'downloader.cpp', header_tgts, dependencies: libmist_dep)
 test('event-looped non-blocking', downloadertest, args: ['AUTO'], env: {'EVENTLOOP':'1'}, suite: 'Downloader')
