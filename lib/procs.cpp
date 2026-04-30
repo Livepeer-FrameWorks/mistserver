@@ -402,17 +402,26 @@ std::string Util::Procs::getLimitedOutputOf(char *const *argv, uint64_t maxWait,
 
 std::string Util::Procs::getLimitedOutputOf(const std::deque<std::string> & argDeq, uint64_t maxWait, uint32_t maxValBytes) {
   char *const *argv = dequeToArgv(argDeq); // Note: Do not edit deque before executing command
-  return getLimitedOutputOf(argv, maxWait, maxValBytes);
+  if (!argv) { return ""; }
+  std::string ret = getLimitedOutputOf(argv, maxWait, maxValBytes);
+  free((void *)argv);
+  return ret;
 }
 
 std::string Util::Procs::getOutputOf(const std::deque<std::string> & argDeq, uint64_t maxWait) {
   char *const *argv = dequeToArgv(argDeq); // Note: Do not edit deque before executing command
-  return getOutputOf(argv, maxWait);
+  if (!argv) { return ""; }
+  std::string ret = getOutputOf(argv, maxWait);
+  free((void *)argv);
+  return ret;
 }
 
 pid_t Util::Procs::StartPiped(const std::deque<std::string> & argDeq, int *fdIn, int *fdOut, int *fdErr) {
   char *const *argv = dequeToArgv(argDeq); // Note: Do not edit deque before executing command
-  return Util::Procs::StartPiped(argv, fdIn, fdOut, fdErr);
+  if (!argv) { return 0; }
+  pid_t ret = Util::Procs::StartPiped(argv, fdIn, fdOut, fdErr);
+  free((void *)argv);
+  return ret;
 }
 
 pid_t Util::Procs::StartPiped(const char *const *argv) {

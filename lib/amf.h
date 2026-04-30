@@ -101,6 +101,9 @@ namespace AMF{
     Object *getContentP(std::string s);
     Object getContent(std::string s);
     Object();
+    Object(const Object & rhs);
+    Object & operator=(const Object & rhs);
+    ~Object();
     Object(obj0type objTyp);
     Object(std::string indice, double val, obj0type setType = AMF0_NUMBER);
     Object(std::string indice, const std::string & val, obj0type setType = AMF0_STRING);

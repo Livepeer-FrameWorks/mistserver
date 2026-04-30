@@ -132,6 +132,34 @@ AMF::Object::Object(){
   numval = 0;
 } // default constructor
 
+AMF::Object::Object(const AMF::Object & rhs) {
+  myIndice = rhs.myIndice;
+  myType = rhs.myType;
+  strval = rhs.strval;
+  numval = rhs.numval;
+  for (std::deque<Object *>::const_iterator it = rhs.contents.begin(); it != rhs.contents.end(); it++) {
+    contents.push_back(*it ? new AMF::Object(**it) : 0);
+  }
+}
+
+AMF::Object & AMF::Object::operator=(const AMF::Object & rhs) {
+  if (this == &rhs) { return *this; }
+  for (std::deque<Object *>::iterator it = contents.begin(); it != contents.end(); it++) { delete *it; }
+  contents.clear();
+  myIndice = rhs.myIndice;
+  myType = rhs.myType;
+  strval = rhs.strval;
+  numval = rhs.numval;
+  for (std::deque<Object *>::const_iterator it = rhs.contents.begin(); it != rhs.contents.end(); it++) {
+    contents.push_back(*it ? new AMF::Object(**it) : 0);
+  }
+  return *this;
+}
+
+AMF::Object::~Object() {
+  for (std::deque<Object *>::iterator it = contents.begin(); it != contents.end(); it++) { delete *it; }
+}
+
 /// Contructor for container-type (or null) objects
 /// Sets the given type.
 AMF::Object::Object(obj0type objTyp) {
