@@ -29,8 +29,6 @@
 #include "timing.h"
 #include "util.h"
 
-#include <string.h> //for strncmp
-
 namespace Triggers{
 
   static void submitTriggerStat(const std::string trigger, uint64_t millis, bool ok){
@@ -220,10 +218,7 @@ namespace Triggers{
       setenv("MIST_DATE", date.c_str(), 1);
     }
 
-    size_t splitter = streamName.find_first_of("+ ");
     bool retVal = true;
-    bool gotTags = false;
-    std::set<std::string> tags;
 
     for (uint32_t i = 0; i < trigs.getRCount(); ++i) {
       std::string uri = std::string(trigs.getPointer("url", i));
@@ -252,20 +247,10 @@ namespace Triggers{
           onlyNegative = false;
         }
 
-        // Stream (base)name match
-        if ((streamName.size() == stringLen || splitter == stringLen) && strncmp(currPtr, streamName.data(), stringLen) == 0) {
+        if (Util::streamMatches(streamName, std::string(currPtr, stringLen))) {
           isHandled = !negated;
           onlyNegative = false; // Prevent catch-all matching since anything matched
           continue;
-        }
-        // Tag-based? Check tags for this stream
-        if (currPtr[0] == '#') {
-          if (!gotTags) { tags = Util::streamTags(streamName); }
-          if (tags.count(std::string(currPtr + 1, stringLen - 1))) {
-            isHandled = !negated;
-            onlyNegative = false; // Prevent catch-all matching since anything matched
-            continue;
-          }
         }
       }
       // If all entries were negative, match unless rejected
