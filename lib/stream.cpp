@@ -655,11 +655,11 @@ bool Util::startInput(std::string streamname, std::string filename, bool forkFir
   /*LTS-START*/
   if (!filename.size()){
     if (stream_cfg && stream_cfg.isMember("hardlimit_active")){return false;}
-    if (Triggers::shouldTrigger("STREAM_LOAD", smp)){
-      if (!Triggers::doTrigger("STREAM_LOAD", streamname, smp)){return false;}
+    if (Triggers::shouldTrigger("STREAM_LOAD", streamname)) {
+      if (!Triggers::doTrigger("STREAM_LOAD", streamname, streamname)) { return false; }
     }
-    if (Triggers::shouldTrigger("STREAM_SOURCE", smp)){
-      Triggers::doTrigger("STREAM_SOURCE", streamname, smp, false, filename);
+    if (Triggers::shouldTrigger("STREAM_SOURCE", streamname)) {
+      Triggers::doTrigger("STREAM_SOURCE", streamname, streamname, false, filename);
     }
   }
   /*LTS-END*/
