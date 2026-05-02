@@ -49,13 +49,82 @@ bool vodDone = false; // true when VOD source has finished scanning
 bool newData = false; // set by source when new keyframes are cached
 
 // Config values
+uint32_t configuredThumbWidth = 160;
+uint32_t configuredThumbHeight = 90;
 uint32_t thumbWidth = 160;
 uint32_t thumbHeight = 90;
+bool thumbWidthExplicit = false;
+bool thumbHeightExplicit = false;
+bool thumbGeometryReady = false;
+uint32_t thumbSourceWidth = 0;
+uint32_t thumbSourceHeight = 0;
 uint32_t gridCols = 10;
 uint32_t gridRows = 10;
 uint32_t jpegQuality = 75;
 uint32_t regenInterval = 5000; // ms between regenerations for live
 size_t maxCacheSize = 300;     // cap for smart thinning (set from gridCols * gridRows * 3)
+
+uint32_t evenDimension(uint64_t value) {
+  if (value < 2) { return 2; }
+  if (value > 0xFFFFFFFEull) { return 0xFFFFFFFEu; }
+  if (value & 1) { --value; }
+  return (uint32_t)value;
+}
+
+uint32_t evenDimensionForRatio(uint32_t fixedSize, uint32_t ratioNum, uint32_t ratioDen) {
+  if (!ratioDen) { return 2; }
+  return evenDimension((uint64_t)fixedSize * ratioNum / ratioDen);
+}
+
+bool updateThumbGeometry(uint32_t sourceWidth, uint32_t sourceHeight, uint32_t & outWidth, uint32_t & outHeight) {
+  if (!sourceWidth || !sourceHeight) { return false; }
+
+  std::lock_guard<std::mutex> lk(thumbMutex);
+
+  uint32_t boxWidth = evenDimension(configuredThumbWidth);
+  uint32_t boxHeight = evenDimension(configuredThumbHeight);
+  uint32_t newWidth;
+  uint32_t newHeight;
+
+  if (thumbWidthExplicit && !thumbHeightExplicit) {
+    newWidth = boxWidth;
+    newHeight = evenDimensionForRatio(boxWidth, sourceHeight, sourceWidth);
+  } else if (!thumbWidthExplicit && thumbHeightExplicit) {
+    newWidth = evenDimensionForRatio(boxHeight, sourceWidth, sourceHeight);
+    newHeight = boxHeight;
+  } else {
+    uint32_t widthAtConfiguredHeight = evenDimensionForRatio(boxHeight, sourceWidth, sourceHeight);
+    if (widthAtConfiguredHeight <= boxWidth) {
+      newWidth = widthAtConfiguredHeight;
+      newHeight = boxHeight;
+    } else {
+      newWidth = boxWidth;
+      newHeight = evenDimensionForRatio(boxWidth, sourceHeight, sourceWidth);
+    }
+  }
+
+  bool changed = !thumbGeometryReady || newWidth != thumbWidth || newHeight != thumbHeight ||
+    sourceWidth != thumbSourceWidth || sourceHeight != thumbSourceHeight;
+  if (changed) {
+    if (thumbGeometryReady && !thumbCache.empty()) {
+      thumbCache.clear();
+      newData = false;
+      HIGH_MSG("Thumbnail geometry changed; cleared cached thumbnails");
+    }
+    thumbWidth = newWidth;
+    thumbHeight = newHeight;
+    thumbSourceWidth = sourceWidth;
+    thumbSourceHeight = sourceHeight;
+    thumbGeometryReady = true;
+    INFO_MSG("Thumbnail geometry: source %ux%u -> thumbs %ux%u (configured %ux%u%s%s)", sourceWidth, sourceHeight,
+             thumbWidth, thumbHeight, configuredThumbWidth, configuredThumbHeight,
+             thumbWidthExplicit ? ", fixed width" : "", thumbHeightExplicit ? ", fixed height" : "");
+  }
+
+  outWidth = thumbWidth;
+  outHeight = thumbHeight;
+  return true;
+}
 
 /// Thin the cache to stay under maxCacheSize while preserving even temporal coverage.
 /// Keeps recent entries dense (near live edge), thins older entries evenly.
@@ -98,12 +167,16 @@ namespace Mist{
     size_t spriteIdx;
     size_t vttIdx;
     size_t previewIdx;
+    uint32_t publishedThumbWidth;
+    uint32_t publishedThumbHeight;
 
   public:
     ProcessSink(Util::Config *cfg) : Input(cfg){
       spriteIdx = INVALID_TRACK_ID;
       vttIdx = INVALID_TRACK_ID;
       previewIdx = INVALID_TRACK_ID;
+      publishedThumbWidth = 0;
+      publishedThumbHeight = 0;
       capa["name"] = "Thumbs";
       streamName = opt["sink"].asString();
       if (!streamName.size()){streamName = opt["source"].asString();}
@@ -128,10 +201,25 @@ namespace Mist{
     virtual bool publishesTracks(){return false;}
     void connStats(Comms::Connections &statComm){}
 
-    void initTracks(){
-      if (spriteIdx != INVALID_TRACK_ID){return;}
-      uint32_t gridW = thumbWidth * gridCols;
-      uint32_t gridH = thumbHeight * gridRows;
+    void initTracks(uint32_t cellWidth, uint32_t cellHeight) {
+      uint32_t gridW = cellWidth * gridCols;
+      uint32_t gridH = cellHeight * gridRows;
+
+      if (spriteIdx != INVALID_TRACK_ID) {
+        if (cellWidth != publishedThumbWidth || cellHeight != publishedThumbHeight) {
+          meta.setWidth(spriteIdx, gridW);
+          meta.setHeight(spriteIdx, gridH);
+          meta.markUpdated(spriteIdx);
+          meta.setWidth(previewIdx, cellWidth);
+          meta.setHeight(previewIdx, cellHeight);
+          meta.markUpdated(previewIdx);
+          publishedThumbWidth = cellWidth;
+          publishedThumbHeight = cellHeight;
+          INFO_MSG("Thumbnail tracks resized: sprite=%zu preview=%zu (grid %ux%u = %ux%u)", spriteIdx, previewIdx,
+                   gridCols, gridRows, gridW, gridH);
+        }
+        return;
+      }
 
       // Sprite sheet JPEG track
       spriteIdx = meta.addTrack();
@@ -157,12 +245,14 @@ namespace Mist{
       meta.setType(previewIdx, "video");
       meta.setCodec(previewIdx, "JPEG");
       meta.setLang(previewIdx, "pre");
-      meta.setWidth(previewIdx, thumbWidth);
-      meta.setHeight(previewIdx, thumbHeight);
+      meta.setWidth(previewIdx, cellWidth);
+      meta.setHeight(previewIdx, cellHeight);
       meta.setID(previewIdx, previewIdx);
       meta.markUpdated(previewIdx);
       userSelect[previewIdx].reload(streamName, previewIdx, COMM_STATUS_ACTSOURCEDNT);
 
+      publishedThumbWidth = cellWidth;
+      publishedThumbHeight = cellHeight;
       INFO_MSG("Thumbnail tracks created: sprite=%zu vtt=%zu preview=%zu (grid %ux%u = %ux%u)",
                spriteIdx, vttIdx, previewIdx, gridCols, gridRows, gridW, gridH);
     }
@@ -204,21 +294,21 @@ namespace Mist{
     }
 
     /// Compose the 10x10 grid from cached thumbnails, encode as JPEG, generate VTT
-    void composeAndBuffer(){
-      initTracks();
-
+    void composeAndBuffer() {
       uint32_t totalCells = gridCols * gridRows;
-      uint32_t gridW = thumbWidth * gridCols;
-      uint32_t gridH = thumbHeight * gridRows;
 
       // Snapshot thumbCache under lock (cheap: shared_ptr refcount bumps only)
       std::deque<ThumbFrame> localCache;
       uint64_t firstMs, lastMs;
+      uint32_t cellWidth, cellHeight;
       {
         std::lock_guard<std::mutex> lk(thumbMutex);
+        if (!thumbGeometryReady) { return; }
         localCache = thumbCache;
         firstMs = bufferFirstMs;
         lastMs = bufferLastMs;
+        cellWidth = thumbWidth;
+        cellHeight = thumbHeight;
       }
 
       if (localCache.empty() || lastMs <= firstMs){
@@ -226,6 +316,11 @@ namespace Mist{
                  localCache.size(), firstMs, lastMs);
         return;
       }
+
+      initTracks(cellWidth, cellHeight);
+
+      uint32_t gridW = cellWidth * gridCols;
+      uint32_t gridH = cellHeight * gridRows;
 
       // Sample evenly when cache exceeds grid capacity
       std::vector<size_t> selected;
@@ -240,7 +335,7 @@ namespace Mist{
 
       // Allocate RGB buffer for the full grid
       std::vector<uint8_t> gridRgb(gridW * gridH * 3, 0);
-      size_t rgbSize = thumbWidth * thumbHeight * 3;
+      size_t rgbSize = cellWidth * cellHeight * 3;
 
       uint32_t cellIdx = 0;
       for (size_t si = 0; si < selected.size(); ++si, ++cellIdx){
@@ -249,12 +344,11 @@ namespace Mist{
 
         uint32_t col = cellIdx % gridCols;
         uint32_t row = cellIdx / gridCols;
-        uint32_t xOff = col * thumbWidth;
-        uint32_t yOff = row * thumbHeight;
+        uint32_t xOff = col * cellWidth;
+        uint32_t yOff = row * cellHeight;
 
-        for (uint32_t y = 0; y < thumbHeight; y++){
-          memcpy(&gridRgb[(yOff + y) * gridW * 3 + xOff * 3],
-                 &(*entry.rgb)[y * thumbWidth * 3], thumbWidth * 3);
+        for (uint32_t y = 0; y < cellHeight; y++) {
+          memcpy(&gridRgb[(yOff + y) * gridW * 3 + xOff * 3], &(*entry.rgb)[y * cellWidth * 3], cellWidth * 3);
         }
       }
 
@@ -345,8 +439,8 @@ namespace Mist{
 
         uint32_t col = (uint32_t)si % gridCols;
         uint32_t row = (uint32_t)si / gridCols;
-        uint32_t x = col * thumbWidth;
-        uint32_t y = row * thumbHeight;
+        uint32_t x = col * cellWidth;
+        uint32_t y = row * cellHeight;
 
         char timeBuf[80];
         snprintf(timeBuf, sizeof(timeBuf),
@@ -358,8 +452,8 @@ namespace Mist{
                  endMs / 3600000, (endMs % 3600000) / 60000,
                  ((endMs % 3600000) % 60000) / 1000, endMs % 1000);
         vtt << timeBuf << "\n";
-        vtt << "/" << streamName << ".jpg?track=" << spriteIdx
-            << "#xywh=" << x << "," << y << "," << thumbWidth << "," << thumbHeight << "\n\n";
+        vtt << "/" << streamName << ".jpg?track=" << spriteIdx << "#xywh=" << x << "," << y << "," << cellWidth << ","
+            << cellHeight << "\n\n";
       }
       std::string vttStr = vtt.str();
       uint64_t bufTs = localCache.back().timeMs;
@@ -376,8 +470,8 @@ namespace Mist{
         const AVCodec *prevCodec = avcodec_find_encoder(AV_CODEC_ID_MJPEG);
         AVCodecContext *prevCtx = prevCodec ? avcodec_alloc_context3(prevCodec) : NULL;
         if (prevCtx){
-          prevCtx->width = thumbWidth;
-          prevCtx->height = thumbHeight;
+          prevCtx->width = cellWidth;
+          prevCtx->height = cellHeight;
           prevCtx->pix_fmt = AV_PIX_FMT_YUVJ420P;
           prevCtx->time_base = (AVRational){1, 1};
           prevCtx->codec_type = AVMEDIA_TYPE_VIDEO;
@@ -385,16 +479,15 @@ namespace Mist{
           prevCtx->qmax = qval;
           if (avcodec_open2(prevCtx, prevCodec, 0) >= 0){
             AVFrame *prevFrame = av_frame_alloc();
-            prevFrame->width = thumbWidth;
-            prevFrame->height = thumbHeight;
+            prevFrame->width = cellWidth;
+            prevFrame->height = cellHeight;
             prevFrame->format = AV_PIX_FMT_YUVJ420P;
             av_frame_get_buffer(prevFrame, 0);
-            SwsContext *prevSws = sws_getContext(thumbWidth, thumbHeight, AV_PIX_FMT_RGB24,
-                                                 thumbWidth, thumbHeight, AV_PIX_FMT_YUVJ420P,
-                                                 SWS_BILINEAR, NULL, NULL, NULL);
+            SwsContext *prevSws = sws_getContext(cellWidth, cellHeight, AV_PIX_FMT_RGB24, cellWidth, cellHeight,
+                                                 AV_PIX_FMT_YUVJ420P, SWS_BILINEAR, NULL, NULL, NULL);
             uint8_t *prevSrc[1] = {latestEntry.rgb->data()};
-            int prevStride[1] = {(int)(thumbWidth * 3)};
-            sws_scale(prevSws, prevSrc, prevStride, 0, thumbHeight, prevFrame->data, prevFrame->linesize);
+            int prevStride[1] = {(int)(cellWidth * 3)};
+            sws_scale(prevSws, prevSrc, prevStride, 0, cellHeight, prevFrame->data, prevFrame->linesize);
             sws_freeContext(prevSws);
             prevFrame->pts = 0;
             AVPacket *prevPkt = av_packet_alloc();
@@ -555,20 +648,24 @@ namespace Mist{
         return false;
       }
 
-      // Scale to thumbnail size
-      if (!scaleCtx){
-        scaleCtx = sws_getContext(rawFrame->width, rawFrame->height,
-                                  (AVPixelFormat)rawFrame->format, thumbWidth, thumbHeight,
-                                  AV_PIX_FMT_RGB24, SWS_BILINEAR, NULL, NULL, NULL);
-        if (!scaleCtx){
-          ERROR_MSG("Could not create scale context");
-          return false;
-        }
+      uint32_t targetWidth = 0;
+      uint32_t targetHeight = 0;
+      if (!updateThumbGeometry(rawFrame->width, rawFrame->height, targetWidth, targetHeight)) {
+        ERROR_MSG("Could not determine thumbnail geometry from source frame");
+        return false;
       }
 
-      outRgb.resize(thumbWidth * thumbHeight * 3);
+      // Scale to thumbnail size
+      scaleCtx = sws_getCachedContext(scaleCtx, rawFrame->width, rawFrame->height, (AVPixelFormat)rawFrame->format,
+                                      targetWidth, targetHeight, AV_PIX_FMT_RGB24, SWS_BILINEAR, NULL, NULL, NULL);
+      if (!scaleCtx){
+        ERROR_MSG("Could not create scale context");
+        return false;
+      }
+
+      outRgb.resize(targetWidth * targetHeight * 3);
       uint8_t *dstSlice[1] = {outRgb.data()};
-      int dstStride[1] = {(int)(thumbWidth * 3)};
+      int dstStride[1] = {(int)(targetWidth * 3)};
       sws_scale(scaleCtx, rawFrame->data, rawFrame->linesize, 0, rawFrame->height, dstSlice,
                 dstStride);
       return true;
@@ -872,13 +969,13 @@ int main(int argc, char *argv[]){
     }
 
     capa["optional"]["thumb_width"]["name"] = "Thumbnail width";
-    capa["optional"]["thumb_width"]["help"] = "Width of each individual thumbnail in the grid";
+    capa["optional"]["thumb_width"]["help"] = "Maximum width of each individual thumbnail in the grid";
     capa["optional"]["thumb_width"]["type"] = "uint";
     capa["optional"]["thumb_width"]["default"] = 160;
     capa["optional"]["thumb_width"]["sort"] = "ba";
 
     capa["optional"]["thumb_height"]["name"] = "Thumbnail height";
-    capa["optional"]["thumb_height"]["help"] = "Height of each individual thumbnail in the grid";
+    capa["optional"]["thumb_height"]["help"] = "Maximum height of each individual thumbnail in the grid";
     capa["optional"]["thumb_height"]["type"] = "uint";
     capa["optional"]["thumb_height"]["default"] = 90;
     capa["optional"]["thumb_height"]["sort"] = "bb";
@@ -929,10 +1026,14 @@ int main(int argc, char *argv[]){
 
   // Apply config
   if (Mist::opt.isMember("thumb_width") && Mist::opt["thumb_width"].asInt()){
-    thumbWidth = Mist::opt["thumb_width"].asInt();
+    configuredThumbWidth = Mist::opt["thumb_width"].asInt();
+    thumbWidth = evenDimension(configuredThumbWidth);
+    thumbWidthExplicit = true;
   }
   if (Mist::opt.isMember("thumb_height") && Mist::opt["thumb_height"].asInt()){
-    thumbHeight = Mist::opt["thumb_height"].asInt();
+    configuredThumbHeight = Mist::opt["thumb_height"].asInt();
+    thumbHeight = evenDimension(configuredThumbHeight);
+    thumbHeightExplicit = true;
   }
   if (Mist::opt.isMember("grid_cols") && Mist::opt["grid_cols"].asInt()){
     gridCols = Mist::opt["grid_cols"].asInt();
@@ -956,8 +1057,8 @@ int main(int argc, char *argv[]){
     return procExit.flush(procStatsPage);
   }
 
-  INFO_MSG("Thumbnail generator: %ux%u grid, %ux%u per thumb, quality=%u, interval=%ums",
-           gridCols, gridRows, thumbWidth, thumbHeight, jpegQuality, regenInterval);
+  INFO_MSG("Thumbnail generator: %ux%u grid, %ux%u thumb box, quality=%u, interval=%ums", gridCols, gridRows,
+           configuredThumbWidth, configuredThumbHeight, jpegQuality, regenInterval);
 
   co.is_active = true;
   conf.is_active = true;
