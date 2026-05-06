@@ -379,7 +379,7 @@ namespace Mist{
 
       if (H.hasHeader("Authorization")) {
         std::string auth = H.GetHeader("Authorization");
-        if (auth.size() > 7 && auth.substr(0, 7) == "Bearer ") { tkn = auth.substr(8); }
+        if (auth.size() > 7 && auth.substr(0, 7) == "Bearer ") { tkn = auth.substr(7); }
       }
       // Generate a session token if it is being sent as a cookie or url parameter and we couldn't read one
       if (!tkn.size() && Comms::tknMode > 3){
