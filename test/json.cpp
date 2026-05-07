@@ -17,8 +17,20 @@ int main(int argc, char **argv){
   // If JSON_RESULT is set, compare the toString output to it, return 1 if they do not match, printing the two
   if (getenv("JSON_RESULT")) {
     if (J.toString() != getenv("JSON_RESULT")) {
-      std::cerr << "Result '" << J.toString() << "' does not match expected '" << getenv("JSON_RESULT") << "'" << std::endl;
+      std::cerr << "fromString result '" << J.toString() << "' does not match expected '" << getenv("JSON_RESULT")
+                << "'" << std::endl;
       return 1;
+    }
+    // Also test fromStream, since they are different functions
+    {
+      std::stringstream I;
+      I << getenv("JSON_STRING");
+      J.fromStream(I);
+      if (J.toString() != getenv("JSON_RESULT")) {
+        std::cerr << "fromStream result '" << J.toString() << "' does not match expected '" << getenv("JSON_RESULT")
+                  << "'" << std::endl;
+        return 1;
+      }
     }
   }
   return 0;

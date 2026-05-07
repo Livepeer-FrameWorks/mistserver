@@ -659,6 +659,7 @@ size_t JSON::Value::fromString(const char *ptr, size_t len) {
         ++offset;
         break;
       case ',':
+        if (negative) { intVal *= -1; }
         if (!reading_object && !reading_array) { return offset; }
         ++offset;
         if (reading_array) {
@@ -668,9 +669,11 @@ size_t JSON::Value::fromString(const char *ptr, size_t len) {
         break;
       case '}':
         if (reading_object) { ++offset; }
+        if (negative) { intVal *= -1; }
         return offset;
       case ']':
         if (reading_array) { ++offset; }
+        if (negative) { intVal *= -1; }
         return offset;
       case 't':
       case 'T':

@@ -50,6 +50,7 @@ jsontest = executable('jsontest', 'json.cpp', header_tgts, dependencies: libmist
 test('Empty array', jsontest, suite: 'JSON parser / printer', env : {'JSON_STRING':'[]', 'JSON_RESULT':'[]'})
 test('Empty object', jsontest, suite: 'JSON parser / printer', env : {'JSON_STRING':'{}', 'JSON_RESULT':'{}'})
 test('Blank string', jsontest, suite: 'JSON parser / printer', env : {'JSON_STRING':'', 'JSON_RESULT':''})
+test('Strange numbers', jsontest, suite: 'JSON parser / printer', env : {'JSON_STRING':'[-1,-1.1,{"-1":-1},-1]', 'JSON_RESULT':'[-1,-1.1,{"-1":-1},-1]'})
 test('Newline', jsontest, suite: 'JSON parser / printer', env : {'JSON_STRING':'\n', 'JSON_RESULT':''})
 test('Carriage return, newline', jsontest, suite: 'JSON parser / printer', env : {'JSON_STRING':'\r\n', 'JSON_RESULT':''})
 test('Array with carriage return and newline mixed', jsontest, suite: 'JSON parser / printer', env : {'JSON_STRING':'\r\n[\n1\n,\n2\r\n]', 'JSON_RESULT':'[1,2]'})
