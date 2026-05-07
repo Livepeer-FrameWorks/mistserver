@@ -62,6 +62,8 @@ $(function(){
   var long_click = { timeout: false, delay: 1500 };
   UI.elements.main.on("mousedown",function(e){
     var ele = e.target;
+    if (ele.tagName == "SELECT") return; //browser captures mouseup and does not bubble it, so we would always detect a click as long click
+
     long_click.timeout = setTimeout(function(){
       long_click.timeout = false;
       var event = new Event("contextmenu",{bubbles:true});
@@ -362,6 +364,7 @@ context_menu: function(){
             }
             else {
               function createEntry(opts) {
+                if (!opts) return;
                 if (Array.isArray(opts)) {
                   var obj = {};
                   obj.text = opts[0];
@@ -1021,6 +1024,7 @@ context_menu: function(){
       Triggers: {},
       Logs: {},
       Statistics: {},
+      Connections: {},
       'Server Stats': {}
     },
     {
@@ -9196,7 +9200,13 @@ context_menu: function(){
         });
         $dashboard.append($findMist);
         $dashboard.append(UI.modules.stream.actions("Status",other)); //the actions can be used even if the http host is unknown
-        $dashboard.append(UI.modules.stream.clients(other));
+        $dashboard.append(
+          UI.modules.stream.clients({streams:[other],protocols:["INPUT"]},{
+            direction: "horizontal",
+            title: "Current inputs",
+            hide: ["Stream","Type","Session Id"]
+          })
+        );
 
         break;
       }
@@ -10253,7 +10263,7 @@ context_menu: function(){
         $main.append($buttons).append($logs);
         break;
       }
-      case 'Statistics':
+      case 'Statistics': {
         var $UI = $('<span>').text('Loading..');
         $main.append($UI);
         
@@ -10466,6 +10476,166 @@ context_menu: function(){
         },{active_streams: true, capabilities: true});
         
         break;
+      }
+      case 'Connections': {
+
+        let filter = mist.stored.get().connections_filter || {};
+        filter = Object.assign({
+          sessids: [],
+          streams: [],
+          protocols: [],
+          hosts: []
+        },filter);
+
+        let subscription = {};
+
+        let $form = $("<div>").text("Loading..");
+        $main.append($form);
+        
+        mist.send(function(){
+          $form.html(UI.buildUI([$("<h3>").text("Show connections"),{
+            label: "with session id",
+            type: "inputlist",
+            help: "Enter session ids to only show connections of these sessions.",
+            pointer: {
+              main: filter,
+              index: "sessids"
+            },
+            input: {
+              placeholder: "(blank)",
+              prefix: $("<span>").text("or").css("margin-right","0.5em")[0].outerHTML
+            }
+          },$("<h3>").text("..or filter connections"),{
+            label: "By stream",
+            type: "inputlist",
+            help: "Enter stream names to only show connections of these streams.",
+            pointer: {
+              main: filter,
+              index: "streams"
+            },
+            input: {
+              prefix: $("<span>").text("or").css("margin-right","0.5em")[0].outerHTML,
+              placeholder: "(blank)",
+              datalist: function(){
+                let out = Object.keys(mist.data.streams);
+                out = out.concat(mist.data.active_streams);
+                out = [...new Set(out)];
+                out.sort();
+                return out;
+              }()
+            }
+          },{
+            label: "By protocol",
+            type: "inputlist",
+            help: "Choose protocols to only show connections of these protocols.",
+            pointer: {
+              main: filter,
+              index: "protocols"
+            },
+            input: {
+              type: "select",
+              select: [
+                ["","(blank)"],
+                ["INPUT","Any input"],
+                ["OUTPUT","Any output"]
+              ].concat(Object.keys(mist.data.capabilities.connectors)),
+              prefix: $("<span>").text("or").css("margin-right","0.5em")[0].outerHTML
+            }
+          },{
+            label: "By host",
+            type: "inputlist",
+            help: "Enter hosts to only show connections with these hosts.",
+            pointer: {
+              main: filter,
+              index: "hosts"
+            },
+            input: {
+              placeholder: "(blank)",
+              prefix: $("<span>").text("or").css("margin-right","0.5em")[0].outerHTML
+            }
+          },{
+            type: "buttons",
+            buttons: [{
+              type: "save",
+              label: "Apply",
+              "function": applyFilter
+            }]
+          }]));
+        },{capabilities:true,active_streams:true});
+
+
+        let $result = $("<div>");
+        $main.append($result);
+        let $clients = null; //will contain clients module
+
+        function applyFilter() {
+          if ($clients) $clients.detach(); //ensures event listeners stay intact
+          $result.text("Loading..");
+          
+          //first, request the total amount of clients for these filters
+          let req = Object.assign({},filter);
+          req.fields = ["clients","inputs","outputs"];
+          req.end = -3;
+          req.start = req.end;
+          mist.send(function(d){
+            let amount = filter.sessids.length;
+            if (amount == 0) {
+              amount = d.totals.data?.[0]?.reduce(function(acc,val){ acc += val; return acc; },0);
+            }
+            if (amount > 100) {
+              $result.html("Your current filters would yield "+UI.format.number(amount)+" results. Please modify them to reduce this. We recommend bringing the amount below 100.");
+              if ($clients === null) {
+                //this was the initial request on tab load
+                $clients = false;
+                return;
+              }
+              else {
+                if (!confirm("Your current filters would yield "+amount+" results. Are you sure you want to query all of them?")) {
+                  return;
+                }
+              }
+            }
+
+            //filter is updated through reference
+            subscription.sessids = filter.sessids;
+            subscription.streams = filter.streams;
+            subscription.protocols = filter.protocols.reduce(function(acc,val){
+              switch (val.toUpperCase()) {
+                case "INPUT":
+                case "OUTPUT": {
+                  acc.push(val.toUpperCase());
+                  break;
+                }
+                default: {
+                  acc.push("INPUT:"+val);
+                  acc.push("OUTPUT:"+val);
+                  acc.push(val);
+                  val += "/WS";
+                  acc.push("INPUT:"+val);
+                  acc.push("OUTPUT:"+val);
+                  acc.push(val);
+                }
+              }
+              return acc;
+            },[]);
+            subscription.hosts = filter.hosts;
+
+            mist.stored.set("connections_filter",filter);
+
+            if (!$clients) $clients = UI.modules.stream.clients(subscription);
+            else {
+              $clients.update();
+            }
+            $result.html($clients);
+
+          },{
+            totals: req
+          });
+        }
+        applyFilter();
+
+        break;
+      }
       case 'Server Stats':
         if (typeof mist.data.capabilities == 'undefined') {
           mist.send(function(d){
@@ -13310,62 +13480,151 @@ context_menu: function(){
           }
         });
       },
-      clients: function(streamname){
-        var layout = {
+      clients: function(filter,options){
+        if (!options) {
+          options = {};
+        }
+        options = $.extend({
+          direction: "vertical",
+          title: null,
+          hide: []
+        },options);
+        
+        var layout = { //function should return processed_value or [raw_value,processed_value]
           Host: function(d){
-            return d.host;
+            return [d.host,d.host == "::" ? "" : $("<span>").attr("title",d.host).addClass("overflow_ellipsis").addClass("clickable").text(d.host)];
+          },
+          Stream: function(d){
+            return [d.stream,$("<span>").addClass("clickable").text(d.stream).click(function(){
+              UI.navto("Status",d.stream);
+            })];
+          },
+          Type: function(d){
+            let split = d.protocol.split(":");
+            switch (split[0]) {
+              case "INPUT": {
+                return "Input";
+              }
+              case "OUTPUT": {
+                return "Output";
+              }
+            }
+            return "Viewer";
           },
           Protocol: function(d){
-            return d.protocol.replace("INPUT:","");
+            return d.protocol.replace("INPUT:","").replace("OUTPUT:","");
+          },
+          "Session Id": function(d){
+            return [d.sessid,$("<span>").attr("title",d.sessid).addClass("overflow_ellipsis").addClass("clickable").text(d.sessid)];
+          },
+          Tags: function(d){
+            if (Array.isArray(d.tags)) {
+              let $tags = $("<span>").addClass("tags");
+              for (let tag of d.tags) {
+                $tags.append(
+                  $("<span>").addClass("tag").addClass("overflow_ellipsis").attr("title",tag).text(tag).on("contextmenu",function(e){
+                    e.stopPropagation();
+                    e.preventDefault();
+                    context_menu.show([[
+                      $("<div>").addClass("header").append(
+                        $("<div>").text("#"+tag)
+                      )
+                    ],[
+                      ["Untag",function(){
+                        let me = this;
+                        mist.send(function(){
+                          me._setText("Tag removed!");
+                          $out.update();
+                          setTimeout(function(){ context_menu.hide(); },300);
+                        },{
+                          untag_sessid: { [d.sessid]: tag }
+                        });
+                        return false;
+                      },"➖","Remove this tag from this session"]
+                    ]],e);
+                  })
+                );
+              }
+              return [d.tags.join(""),$tags];
+            }
+            return d.tags;
           },
           Connected: function(d){
-            return UI.format.duration(d.conntime);
+            return [d.conntime,UI.format.duration(d.conntime)];
           },
           "Data downloaded": function(d){
-            return UI.format.bytes(d.down);
+            return [d.down,UI.format.bytes(d.down)];
           },
           "Current bitrate": function(d){
-            return UI.format.bits(d.downbps*8,true);
+            return [d.downbps,UI.format.bits(d.downbps*8,true)];
           },
           "Media time": function(d){
-            return d.position ? UI.format.duration(d.position) : "";
+            return [d.position,d.position ? UI.format.duration(d.position) : ""];
           },
           "Packets received": function(d){
-            return d.pktcount ? UI.format.number(d.pktcount,{round:false}) : ""
+            return [d.pktcount,d.pktcount ? UI.format.number(d.pktcount,{round:false}) : ""];
           },
           "Packets lost": function(d){
-            return d.pktcount ? UI.format.number(d.pktlost,{round:false}) : ""
+            return [d.pktlost,d.pktcount ? UI.format.number(d.pktlost,{round:false}) : ""]
           },
           "Packets retransmitted": function(d){
-            return d.pktcount ? UI.format.number(d.pktretransmit,{round:false}) : ""
+            return [d.pktretransmit,d.pktcount ? UI.format.number(d.pktretransmit,{round:false}) : ""]
           }
-
         };
-        var $inputs = UI.dynamic({
+        const context_menu = new UI.context_menu();
+        for (var i of options.hide) {
+          if (i in layout) delete layout[i];
+        }
+        var $all = UI.dynamic({
           create: function(){
             var $thead = $("<thead>");
             var $tbody = $("<tbody>");
             var $table = $("<table>").append($thead).append($tbody);
-            $table._rows = {};
-            for (var i in layout) {
-              var row = $("<tr>");
-              
-              var cell = $("<td>").text(i+":");
-              row.append(cell);
 
-              $table._rows[i]= row;
-              $tbody.append(row);
+
+            if (options.direction == "horizontal") {
+              $table._rows = {};
+              for (var i in layout) {
+                var row = $("<tr>");
+
+                var cell = $("<td>").text(i+":");
+                row.append(cell);
+
+                $table._rows[i] = row;
+                $tbody.append(row);
+              }
+              $thead.append($tbody.children().first());
             }
-            $thead.append($tbody.children().first());
+            else {
+              var $header = $("<tr>");
+              for (var i in layout) {
+                $header.append($("<th>").text(i).attr("data-index",i));
+              }
+              $thead.append($header);
+              UI.sortableItems($table,function(sortby){
+                return $table._children[this.getAttribute("data-sessid")].cells[sortby].raw
+              },{
+                controls: $header[0],
+                container: $tbody[0],
+                sortby: "Connected"
+              });
+            }
+
             return $table;
           },
           add: {
-            create: function(){
+            create: function(id){
               var out = {
+                row: $("<tr>").attr("data-sessid",id),
                 cells: {},
-                customAdd: function(table){
+                customAdd: options.direction == "horizontal" ? function(table){
                   for (var i in this.cells) {
                     table._rows[i].append(this.cells[i]);
+                  }
+                } : function(table){
+                  table.append(this.row);
+                  for (var i in this.cells) {
+                    this.row.append(this.cells[i]);
                   }
                 },
                 remove: function(table){
@@ -13373,54 +13632,192 @@ context_menu: function(){
                     this.cells[i].remove();
                     delete this.cells[i];
                   }
+                  this.row.remove();
                 }
               };
               for (var i in layout) {
-                out.cells[i] = $("<td>");
+                out.cells[i] = $("<td>").on("contextmenu",function(e){
+                  e.preventDefault();
+                  let d = out.values;
+                  context_menu.show([[
+                    $("<div>").addClass("header").append(
+                      $("<span>").text(["Session",d.protocol,"("+d.stream+")"].join(" "))
+                    ).append(
+                      $("<span>").attr("title",d.sessid).text(d.sessid).addClass("overflow_ellipsis").addClass("description")
+                    ).append(
+                      $("<span>").addClass("description").text("Host" in out.cells ? out.cells.Host.text() : d.host)
+                    ).css({display:"flex","flex-flow":"column nowrap"})
+                  ],[
+                    ["Copy session id",function(){
+                      let me = this;
+                      UI.copy(d.sessid).then(function(){
+                        me._setText("Copied!")
+                        setTimeout(function(){ context_menu.hide(); },300);
+                      });
+                      return false;
+                    },"copy","Copy this session id to the clipboard."],
+                    d.host == "::" ? null : ["Copy host",function(){
+                      let me = this;
+                      UI.copy(d.host).then(function(){
+                        me._setText("Copied!")
+                        setTimeout(function(){ context_menu.hide(); },300);
+                      });
+                      return false;
+                    },"copy","Copy this host to the clipboard."]
+                  ],[
+                    ["Add tag",function(){
+                      let formdata = {};
+                      let popup = UI.popup(UI.buildUI([$("<h3>").text("Add tag to session"),
+                        $("<div>").addClass("header").append(
+                          $("<span>").text("Session")
+                        ).append(
+                          $("<span>").text([d.protocol,"("+d.stream+")"].join(" "))
+                        ).append(
+                          $("<span>").text(d.sessid).addClass("description")
+                        ).append(
+                          $("<span>").addClass("description").text("Host" in out.cells ? out.cells.Host.text() : d.host)
+                        ).css({display:"flex","align-items":"baseline",gap:"0.5em","margin-bottom":"1em"}),
+                      {
+                        label: "Add tag",
+                        prefix: "#",
+                        pointer: {
+                          main: formdata,
+                          index: d.sessid
+                        },
+                        validate: [function(val,me){
+                          if (val.indexOf("#") > -1) {
+                            return {
+                              msg: 'You don\'t need to prefix these values with a #.',
+                              classes: ['orange'],
+                              "break": false
+                            };
+                          }
+                        }]
+                      },{
+                        type: "buttons",
+                        buttons: [{
+                          type: "cancel",
+                          label: "Cancel",
+                          "function": function(){
+                            popup.close();
+                          }
+                        },{
+                          type: "save",
+                          label: "Save",
+                          "function": function(){
+                            mist.send(function(){
+                              $out.update();
+                              popup.close();
+                            },{
+                              tag_sessid: formdata
+                            });
+                          }
+                        }]
+                      }]));
+                    },"plus","Add a tag to this session."]
+                  ],[
+                    ["Stop session",function(){
+                      let me = this;
+                      if (confirm("Are you sure you want to stop this session?\nA stopped session will disconnect any currently open connections, and, if the USER_NEW trigger is in use, prevent new connections from opening for at least ten seconds.")) {
+                        mist.send(function(){
+                          me._setText("Stopped!");
+                          $out.update();
+                          setTimeout(function(){ context_menu.hide(); },300);
+                        },{stop_sessid:[d.sessid]});
+                        return false;
+                      }
+                    },"stop","A stopped session will disconnect any currently open connections, and, if the USER_NEW trigger is in use, prevent new connections from opening for at least ten seconds."],
+                    ["Invalidate session",function(){
+                      let me = this;
+                      if (confirm("Are you sure you want to invalidate this session?\nThis will re-trigger the USER_NEW trigger (if in use), allowing you to close the existing connections after they have been previously allowed.")) {
+                        mist.send(function(){
+                          me._setText("Invalidated!");
+                          $out.update();
+                          setTimeout(function(){ context_menu.hide(); },300);
+                        },{invalidate_sessid:[d.sessid]});
+                        return false;
+                      }
+                    },"invalidate","Invalidating a session will re-trigger the USER_NEW trigger (if in use), allowing you to close the existing connections after they have been previously allowed."]
+                  ]],e);
+                });
+                switch (i) {
+                  case "Host":
+                  case "Session Id": {
+                    out.cells[i].click(function(){
+                      let $span = $(this).find(".clickable");
+                      if (!$span.length) return;
+                      let text = $span.text();
+                      UI.copy(text);
+                      $span.css("max-width",$span.parent().width()+"px");
+                      $span.text("Copied!");
+                      $span.removeClass("clickable");
+                      setTimeout(function(){
+                        if ($span.text() == "Copied!") {
+                          $span.text(text);
+                        }
+                        $span.css("max-width","");
+                        $span.addClass("clickable");
+                      },1e3);
+                    });
+                    break;
+                  }
+                }
               }
               return out;
             },
             update: function(d){
               for (var i in this.cells) {
-                var value = layout[i].call(null,d);
-                if (this.cells[i].raw != value) {
+                var raw = layout[i].call(null,d);
+                var value;
+                if (Array.isArray(raw)) {
+                  value = raw[1];
+                  raw = raw[0];
+                }
+                else {
+                  value = raw;
+                }
+                if (this.cells[i].raw != raw) {
                   this.cells[i].html(value);
-                  this.cells[i].raw = value;
+                  this.cells[i].raw = raw;
                 }
               }
             }
           },
           update: function(values){
-            if (values.length) {
-              if (!$inputs.parent().length) {
-                $inputs._parent.append($inputs);
+            if (Object.keys(values).length) {
+              if (!$all.parent().length) {
+                $all._parent.append($all);
               }
             }
-            else if ($inputs.parent()) {
-              $inputs._parent = $inputs.parent();
-              $inputs.remove();
+            else if ($all.parent()) {
+              $all._parent = $all.parent();
+              $all.remove();
             }
+          },
+          getEntries: function(values){
+            return values.reduce(function(acc,val){
+              acc[val.sessid] = val;
+              return acc; 
+            },{});
           }
         });
 
         UI.sockets.http.clients.subscribe(function(d){
-          for (var i = d.data.length -1; i >= 0; i--) {
-            if (d.data[i].stream != streamname) {
-              d.data.splice(i,1);
-            }
-          }
-          $inputs.update(d.data);
-          //console.warn(d);
-        },{streams:[streamname],protocols:["INPUT"]});
+          $all.update(d.data);
+        },filter);
         
-        
-        return $("<section>").addClass("clients").append(
-          $("<div>").addClass("inputs").append(
-            $("<h3>").text("Current input")
+        let $out = $("<section>").addClass("clients").append(
+          $("<div>").addClass(options.direction).append(
+            options.title ? $("<h3>").text(options.title) : null
           ).append(
-            $inputs
-          )
-        )
+            $all
+          ).append(context_menu.ele)
+        );
+        $out.update = function(){
+          UI.sockets.http.api.get();
+        };
+        
+        return $out;
       }
     },
     logs: function(streamname){
@@ -14736,7 +15133,7 @@ context_menu: function(){
                 popup.element.find("textarea").select();
 
               });
-              //return false; //TODO restore
+              return false;
             },"copy"],
             ["Delete",function(e){
               if (confirm("Are you sure you would like to delete the template '"+template.name+"'?")) {

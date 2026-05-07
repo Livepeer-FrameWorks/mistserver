@@ -539,7 +539,7 @@ textarea.embed_code {
 select option[disabled] {
   display: none;
 }
-select option[value=""] {
+select option[value=""], input::placeholder {
   color: #808080;
 }
 
@@ -785,6 +785,7 @@ table .sticky {
 
 [data-sortby] th[data-index] {
   cursor: pointer;
+  white-space: nowrap;
 }
 [data-sortby][data-sortdir] {
   --dirImage: var(--sortingAscImage);
@@ -1109,6 +1110,8 @@ table button {
   white-space: nowrap;
   text-overflow: ellipsis;
   max-width: 15em;
+  min-width: 0;
+  display: inline-block;
 }
 
 .graph_container {
@@ -1948,6 +1951,14 @@ main[data-tab="Preview"] .dashboard section.logs {
     grid-row: span 2;
   }
 }
+
+main[data-tab="Connections"] {
+  .input_container .inputlist .listitem:first-child .unit {
+    display: none;
+  }
+}
+
+
 /*
 main[data-tab="Status"] .dashboard > section:has([onempty]):not(:has([onempty]:not(:empty))),
 main[data-tab="Status"] .dashboard section.logcont > section:has([onempty]):not(:has([onempty]:not(:empty)))
@@ -2556,8 +2567,8 @@ section.clients .inputs table {
   width: auto;
   font-size: 0.9em;
 }
-section.clients .inputs:not(:has(table)):after { content: "None." }
-section.clients .inputs table tr:not(:has(td:not(:first-child):not(:empty))) {
+section.clients > div:not(:has(table)):after { content: "None." }
+section.clients > div.horizontal table tr:not(:has(td:not(:first-child):not(:empty))) {
   display: none;
 }
 section.clients .inputs:has(table thead tr td:nth-child(3)) h3:after { content: "s"; }
