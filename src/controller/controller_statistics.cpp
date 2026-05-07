@@ -25,28 +25,29 @@
 #endif
 
 // These are used to store "clients" field requests in a bitfield for speedup.
-#define STAT_CLI_HOST 1
-#define STAT_CLI_STREAM 2
-#define STAT_CLI_PROTO 4
-#define STAT_CLI_CONNTIME 8
-#define STAT_CLI_POSITION 16
-#define STAT_CLI_DOWN 32
-#define STAT_CLI_UP 64
-#define STAT_CLI_BPS_DOWN 128
-#define STAT_CLI_BPS_UP 256
-#define STAT_CLI_SESSID 1024
-#define STAT_CLI_PKTCOUNT 2048
-#define STAT_CLI_PKTLOST 4096
-#define STAT_CLI_PKTRETRANSMIT 8192
+#define STAT_CLI_HOST 0x1
+#define STAT_CLI_STREAM 0x2
+#define STAT_CLI_PROTO 0x4
+#define STAT_CLI_CONNTIME 0x8
+#define STAT_CLI_POSITION 0x10
+#define STAT_CLI_DOWN 0x20
+#define STAT_CLI_UP 0x40
+#define STAT_CLI_BPS_DOWN 0x80
+#define STAT_CLI_BPS_UP 0x100
+#define STAT_CLI_SESSID 0x200
+#define STAT_CLI_PKTCOUNT 0x400
+#define STAT_CLI_PKTLOST 0x800
+#define STAT_CLI_PKTRETRANSMIT 0x1000
+#define STAT_CLI_TAGS 0x2000
 #define STAT_CLI_ALL 0xFFFF
 // These are used to store "totals" field requests in a bitfield for speedup.
-#define STAT_TOT_CLIENTS 1
-#define STAT_TOT_BPS_DOWN 2
-#define STAT_TOT_BPS_UP 4
-#define STAT_TOT_INPUTS 8
-#define STAT_TOT_OUTPUTS 16
-#define STAT_TOT_PERCLOST 32
-#define STAT_TOT_PERCRETRANS 64
+#define STAT_TOT_CLIENTS 0x1
+#define STAT_TOT_BPS_DOWN 0x2
+#define STAT_TOT_BPS_UP 0x4
+#define STAT_TOT_INPUTS 0x8
+#define STAT_TOT_OUTPUTS 0x10
+#define STAT_TOT_PERCLOST 0x20
+#define STAT_TOT_PERCRETRANS 0x40
 #define STAT_TOT_ALL 0xFF
 
 // Mapping of sessId -> session statistics
@@ -1163,14 +1164,33 @@ bool Controller::hasViewers(std::string streamName){
 }
 
 /// Local-only helper function for fillTotals and fillClients
-static bool hasEntry(const std::set<std::string> & dataSet, const std::string & entry, char splitter){
-  if (!dataSet.size()){return true;}
-  if (dataSet.count(entry)){return true;}
-  size_t pos = entry.find(splitter);
-  if (pos != std::string::npos){
-    if (dataSet.count(entry.substr(0, pos))){return true;}
+static bool hasEntry(const std::set<std::string> & dataSet, const std::string & entry, char splitter) {
+  // Nothing selected? Always include.
+  if (!dataSet.size()) { return true; }
+  // Excluded literally? Always exclude
+  if (dataSet.count("!" + entry)) { return false; }
+  // Prefix excluded? Always exclude
+  if (splitter) {
+    size_t pos = entry.find(splitter);
+    if (pos != std::string::npos) {
+      if (dataSet.count("!" + entry.substr(0, pos))) { return false; }
+    }
   }
-  return false;
+  // Included literally? Always include
+  if (dataSet.count(entry)) { return true; }
+  // Prefix included? Always include
+  if (splitter) {
+    size_t pos = entry.find(splitter);
+    if (pos != std::string::npos) {
+      if (dataSet.count(entry.substr(0, pos))) { return true; }
+    }
+  }
+  // Include if we only have exclusions, exclude in all other cases.
+  bool onlyNegative = true;
+  for (const std::string & E : dataSet) {
+    if (E.size() && E[0] != '!') { onlyNegative = false; }
+  }
+  return onlyNegative;
 }
 
 /// This takes a "clients" request, and fills in the response data.
@@ -1252,20 +1272,43 @@ void Controller::fillClients(JSON::Value &req, JSON::Value &rep){
       if ((*it).asStringRef() == "pktcount"){fields |= STAT_CLI_PKTCOUNT;}
       if ((*it).asStringRef() == "pktlost"){fields |= STAT_CLI_PKTLOST;}
       if ((*it).asStringRef() == "pktretransmit"){fields |= STAT_CLI_PKTRETRANSMIT;}
+      if ((*it).asStringRef() == "tags") { fields |= STAT_CLI_TAGS; }
     }
   }
   // select all, if none selected
   if (!fields){fields = STAT_CLI_ALL;}
-  // figure out what streams are wanted
+
+  // Allow selecting a specific session ID
+  std::set<std::string> sessIds;
+  if (req.isMember("sessids") && req["sessids"].size()) {
+    jsonForEach (req["sessids"], it) { sessIds.insert((*it).asStringRef()); }
+  }
+  if (req.isMember("sessid") && req["sessid"].isString() && req["sessid"].size()) {
+    sessIds.insert(req["sessid"].asStringRef());
+  }
+  // Filter by streamname
   std::set<std::string> streams;
   if (req.isMember("streams") && req["streams"].size()){
     jsonForEach(req["streams"], it){streams.insert((*it).asStringRef());}
   }
-  // figure out what protocols are wanted
+  if (req.isMember("stream") && req["stream"].isString() && req["stream"].size()) {
+    streams.insert(req["stream"].asStringRef());
+  }
+  // Filter by protocol/connector
   std::set<std::string> protos;
   if (req.isMember("protocols") && req["protocols"].size()){
     jsonForEach(req["protocols"], it){protos.insert((*it).asStringRef());}
   }
+  if (req.isMember("protocol") && req["protocol"].isString() && req["protocol"].size()) {
+    protos.insert(req["protocol"].asStringRef());
+  }
+  // Filter by host
+  std::set<std::string> hosts;
+  if (req.isMember("hosts") && req["hosts"].size()) {
+    jsonForEach (req["hosts"], it) { hosts.insert((*it).asStringRef()); }
+  }
+  if (req.isMember("host") && req["host"].isString() && req["host"].size()) { hosts.insert(req["host"].asStringRef()); }
+
   // output the selected fields
   rep["fields"].null();
   if (fields & STAT_CLI_HOST){rep["fields"].append("host");}
@@ -1281,35 +1324,55 @@ void Controller::fillClients(JSON::Value &req, JSON::Value &rep){
   if (fields & STAT_CLI_PKTCOUNT){rep["fields"].append("pktcount");}
   if (fields & STAT_CLI_PKTLOST){rep["fields"].append("pktlost");}
   if (fields & STAT_CLI_PKTRETRANSMIT){rep["fields"].append("pktretransmit");}
+  if (fields & STAT_CLI_TAGS) { rep["fields"].append("tags"); }
   // output the data itself
   rep["data"].null();
-  // loop over all sessions
-  if (sessions.size()){
-    for (std::map<std::string, statSession>::iterator it = sessions.begin(); it != sessions.end(); it++){
-      unsigned long long time = reqTime;
-      if (now && reqTime - it->second.getEnd() < 5){time = it->second.getEnd();}
-      // data present and wanted? insert it!
-      if ((it->second.getEnd() >= time && it->second.getStart() <= time) &&
-          hasEntry(streams, it->second.getStreamName(time), '+') &&
-          hasEntry(protos, it->second.getConnectors(time), ':')){
-        const statLog & dta = it->second.curData.getDataFor(time);
-        if (notEmpty(dta)){
-          JSON::Value d;
-          if (fields & STAT_CLI_HOST){d.append(it->second.getStrHost(time));}
-          if (fields & STAT_CLI_STREAM){d.append(it->second.getStreamName(time));}
-          if (fields & STAT_CLI_PROTO){d.append(it->second.getConnectors(time));}
-          if (fields & STAT_CLI_CONNTIME){d.append(it->second.getConnTime(time));}
-          if (fields & STAT_CLI_POSITION){d.append(it->second.getLastSecond(time));}
-          if (fields & STAT_CLI_DOWN){d.append(it->second.getDown(time));}
-          if (fields & STAT_CLI_UP){d.append(it->second.getUp(time));}
-          if (fields & STAT_CLI_BPS_DOWN){d.append(it->second.getBpsDown(time));}
-          if (fields & STAT_CLI_BPS_UP){d.append(it->second.getBpsUp(time));}
-          if (fields & STAT_CLI_SESSID){d.append(it->second.getSessId());}
-          if (fields & STAT_CLI_PKTCOUNT){d.append(it->second.getPktCount(time));}
-          if (fields & STAT_CLI_PKTLOST){d.append(it->second.getPktLost(time));}
-          if (fields & STAT_CLI_PKTRETRANSMIT){d.append(it->second.getPktRetransmit(time));}
-          rep["data"].append(d);
-        }
+
+  auto fillData = [&](statSession & S, uint64_t time) {
+    const statLog & dta = S.curData.getDataFor(time);
+    if (notEmpty(dta)) {
+      JSON::Value & d = rep["data"].append();
+      if (fields & STAT_CLI_HOST) { d.append(S.getStrHost(time)); }
+      if (fields & STAT_CLI_STREAM) { d.append(S.getStreamName(time)); }
+      if (fields & STAT_CLI_PROTO) { d.append(S.getConnectors(time)); }
+      if (fields & STAT_CLI_CONNTIME) { d.append(S.getConnTime(time)); }
+      if (fields & STAT_CLI_POSITION) { d.append(S.getLastSecond(time)); }
+      if (fields & STAT_CLI_DOWN) { d.append(S.getDown(time)); }
+      if (fields & STAT_CLI_UP) { d.append(S.getUp(time)); }
+      if (fields & STAT_CLI_BPS_DOWN) { d.append(S.getBpsDown(time)); }
+      if (fields & STAT_CLI_BPS_UP) { d.append(S.getBpsUp(time)); }
+      if (fields & STAT_CLI_SESSID) { d.append(S.getSessId()); }
+      if (fields & STAT_CLI_PKTCOUNT) { d.append(S.getPktCount(time)); }
+      if (fields & STAT_CLI_PKTLOST) { d.append(S.getPktLost(time)); }
+      if (fields & STAT_CLI_PKTRETRANSMIT) { d.append(S.getPktRetransmit(time)); }
+      if (fields & STAT_CLI_TAGS) {
+        JSON::Value & O = d.append();
+        for (const std::string & T : S.tags) { O.append(T); }
+      }
+    }
+  };
+
+  if (sessIds.size()) {
+    for (auto & it : sessIds) {
+      if (sessions.count(it)) {
+        statSession & S = sessions[it];
+        unsigned long long time = reqTime;
+        if (now && reqTime - S.getEnd() < 5) { time = S.getEnd(); }
+        fillData(S, time);
+      }
+    }
+  } else {
+    // loop over all sessions
+    if (sessions.size()) {
+      for (auto & it : sessions) {
+        unsigned long long time = reqTime;
+        if (now && reqTime - it.second.getEnd() < 5) { time = it.second.getEnd(); }
+        // data present and wanted? insert it!
+        if (it.second.getEnd() < time || it.second.getStart() > time) { continue; }
+        if (!hasEntry(streams, it.second.getStreamName(time), '+')) { continue; }
+        if (!hasEntry(protos, it.second.getConnectors(time), ':')) { continue; }
+        if (!hasEntry(hosts, it.second.getStrHost(time), 0)) { continue; }
+        fillData(it.second, time);
       }
     }
   }
@@ -1664,16 +1727,30 @@ void Controller::fillTotals(JSON::Value &req, JSON::Value &rep){
   }
   // select all, if none selected
   if (!fields){fields = STAT_TOT_ALL;}
-  // figure out what streams are wanted
+
+  // Filter by streamname
   std::set<std::string> streams;
   if (req.isMember("streams") && req["streams"].size()){
     jsonForEach(req["streams"], it){streams.insert((*it).asStringRef());}
   }
-  // figure out what protocols are wanted
+  if (req.isMember("stream") && req["stream"].isString() && req["stream"].size()) {
+    streams.insert(req["stream"].asStringRef());
+  }
+  // Filter by protocol/connector
   std::set<std::string> protos;
   if (req.isMember("protocols") && req["protocols"].size()){
     jsonForEach(req["protocols"], it){protos.insert((*it).asStringRef());}
   }
+  if (req.isMember("protocol") && req["protocol"].isString() && req["protocol"].size()) {
+    protos.insert(req["protocol"].asStringRef());
+  }
+  // Filter by host
+  std::set<std::string> hosts;
+  if (req.isMember("hosts") && req["hosts"].size()) {
+    jsonForEach (req["hosts"], it) { hosts.insert((*it).asStringRef()); }
+  }
+  if (req.isMember("host") && req["host"].isString() && req["host"].size()) { hosts.insert(req["host"].asStringRef()); }
+
   // output the selected fields
   rep["fields"].null();
   if (fields & STAT_TOT_CLIENTS){rep["fields"].append("clients");}
@@ -1688,16 +1765,16 @@ void Controller::fillTotals(JSON::Value &req, JSON::Value &rep){
   // loop over all sessions
   /// \todo Make the interval configurable instead of 1 second
   if (sessions.size()){
-    for (std::map<std::string, statSession>::iterator it = sessions.begin(); it != sessions.end(); it++){
+    for (auto & it : sessions) {
       // data present and wanted? insert it!
-      if ((it->second.getEnd() >= (unsigned long long)reqStart ||
-           it->second.getStart() <= (unsigned long long)reqEnd) &&
-           hasEntry(streams, it->second.getStreamName(), '+') &&
-           hasEntry(protos, it->second.getConnectors(), ':')){
-        for (unsigned long long i = reqStart; i <= reqEnd; ++i){
-          if (it->second.hasDataFor(i)){
-            totalsCount[i].add(it->second.getBpsDown(i), it->second.getBpsUp(i), it->second.getSessType(), it->second.getPktCount(), it->second.getPktLost(), it->second.getPktRetransmit());
-          }
+      if (it.second.getEnd() < reqStart || it.second.getStart() > reqEnd) { continue; }
+      if (!hasEntry(streams, it.second.getStreamName(), '+')) { continue; }
+      if (!hasEntry(protos, it.second.getConnectors(), ':')) { continue; }
+      if (!hasEntry(hosts, it.second.getStrHost(), 0)) { continue; }
+      for (unsigned long long i = reqStart; i <= reqEnd; ++i) {
+        if (it.second.hasDataFor(i)) {
+          totalsCount[i].add(it.second.getBpsDown(i), it.second.getBpsUp(i), it.second.getSessType(),
+                             it.second.getPktCount(), it.second.getPktLost(), it.second.getPktRetransmit());
         }
       }
     }
