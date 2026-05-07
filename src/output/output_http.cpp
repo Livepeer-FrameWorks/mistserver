@@ -483,8 +483,9 @@ namespace Mist{
         //Generic websocket handling sets idle interval to 1s and changes name by appending "/WS"
         if (wsCmds){
           idleInterval = 1000;
-          if (capa["name"].asStringRef().find("/WS") != std::string::npos){
+          if (capa["name"].asStringRef().find("/WS") == std::string::npos) {
             capa["name"] = capa["name"].asStringRef() + "/WS";
+            if (statComm) { statComm.setConnector(getStatsName()); }
           }
         }
         onWebsocketConnect();
