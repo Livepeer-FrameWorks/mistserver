@@ -236,7 +236,6 @@ void Controller::sessions_shutdown(JSON::Iter &i){
 }
 
 /// Shuts down the given session
-/// Updates the session cache, afterwards.
 void Controller::sessId_shutdown(const std::string &sessId){
   if (!statCommActive){
     FAIL_MSG("In controller shutdown procedure - cannot shutdown sessions.");
@@ -244,6 +243,27 @@ void Controller::sessId_shutdown(const std::string &sessId){
   }
   killConnections(sessId);
   INFO_MSG("Shut down session with session ID %s", sessId.c_str());
+}
+
+/// Invalidates the given session
+void Controller::sessId_invalidate(const std::string & sessId) {
+  if (!statCommActive) {
+    FAIL_MSG("In controller shutdown procedure - cannot invalidate sessions.");
+    return;
+  }
+  // Find a matching stream in statComm with a matching sessID and kill it
+  for (size_t i = 0; i < statComm.recordCount(); i++) {
+    if (statComm.getStatus(i) == COMM_STATUS_INVALID || (statComm.getStatus(i) & COMM_STATUS_DISCONNECT)) { continue; }
+    if (statComm.getSessId(i) == sessId) {
+      uint32_t pid = statComm.getPid(i);
+      if (pid > 1) {
+        // Re-trigger USER_NEW trigger for this session
+        kill(pid, SIGUSR1);
+        INFO_MSG("Invalidating PID %" PRIu32, pid);
+      }
+    }
+  }
+  INFO_MSG("Invalidated session with session ID %s", sessId.c_str());
 }
 
 ///Checks if the given stream is matched by the given matchString.
@@ -323,21 +343,33 @@ bool Controller::stream_untag(const std::string &stream, const std::string &tag)
 }
 
 /// Tags the given session
-void Controller::sessId_tag(const std::string &sessId, const std::string &tag){
-  if (!statCommActive){
+void Controller::sessId_tag(const std::string & sessId, const std::string & tag) {
+  if (!statCommActive) {
     FAIL_MSG("In controller shutdown procedure - cannot tag sessions.");
     return;
   }
-  std::lock_guard<std::recursive_mutex> guard(statsMutex);
-  for (std::map<std::string, statSession>::iterator it = sessions.begin(); it != sessions.end(); it++){
-    if (it->first == sessId){
-      it->second.tags.insert(tag);
+  if (sessions.count(sessId)) {
+    sessions[sessId].tags.insert(tag);
+    return;
+  }
+  if (tag.substr(0, 3) != "UA:") { WARN_MSG("Session %s not found - cannot tag with %s", sessId.c_str(), tag.c_str()); }
+}
+
+/// Untags the given session
+void Controller::sessId_untag(const std::string & sessId, const std::string & tag) {
+  if (!statCommActive) {
+    FAIL_MSG("In controller shutdown procedure - cannot tag sessions.");
+    return;
+  }
+  if (sessions.count(sessId)) {
+    statSession & S = sessions[sessId];
+    if (S.tags.count(tag)) {
+      S.tags.erase(tag);
       return;
     }
+    WARN_MSG("Session %s does not have the %s tag, cannot untag", sessId.c_str(), tag.c_str());
   }
-  if (tag.substr(0, 3) != "UA:"){
-    WARN_MSG("Session %s not found - cannot tag with %s", sessId.c_str(), tag.c_str());
-  }
+  WARN_MSG("Session %s not found - cannot untag %s", sessId.c_str(), tag.c_str());
 }
 
 /// Shuts down sessions with the given tag set

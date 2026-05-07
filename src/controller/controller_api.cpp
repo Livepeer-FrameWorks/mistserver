@@ -1587,6 +1587,14 @@ void Controller::handleAPICommands(JSON::Value &Request, JSON::Value &Response){
     }
   }
 
+  if (Request.isMember("invalidate_sessid")) {
+    if (Request["invalidate_sessid"].isArray() || Request["invalidate_sessid"].isObject()) {
+      jsonForEach (Request["invalidate_sessid"], it) { Controller::sessId_invalidate(it->asStringRef()); }
+    } else {
+      Controller::sessId_invalidate(Request["invalidate_sessid"].asStringRef());
+    }
+  }
+
   if (Request.isMember("stop_tag")){
     if (Request["stop_tag"].isArray() || Request["stop_tag"].isObject()){
       jsonForEach(Request["stop_tag"], it){Controller::tag_shutdown(it->asStringRef());}
@@ -1600,6 +1608,12 @@ void Controller::handleAPICommands(JSON::Value &Request, JSON::Value &Response){
       jsonForEach(Request["tag_sessid"], it){
         Controller::sessId_tag(it.key(), it->asStringRef());
       }
+    }
+  }
+
+  if (Request.isMember("untag_sessid")) {
+    if (Request["untag_sessid"].isObject()) {
+      jsonForEach (Request["untag_sessid"], it) { Controller::sessId_untag(it.key(), it->asStringRef()); }
     }
   }
 

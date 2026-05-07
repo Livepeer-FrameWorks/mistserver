@@ -125,8 +125,10 @@ namespace Controller{
   void sessions_invalidate(const std::string &streamname);
   void sessions_shutdown(JSON::Iter &i);
   void sessId_shutdown(const std::string &sessId);
+  void sessId_invalidate(const std::string & sessId);
   void tag_shutdown(const std::string &tag);
   void sessId_tag(const std::string &sessId, const std::string &tag);
+  void sessId_untag(const std::string & sessId, const std::string & tag);
   bool stream_tag(const std::string &stream, const std::string &tag);
   std::set<std::string> stream_tags(const std::string &stream);
   bool stream_untag(const std::string &stream, const std::string &tag);
