@@ -348,12 +348,19 @@ namespace HTTP{
       size_t prev = cb.getDataCallbackPos();
       if (downer.continueNonBlocking([&cb]() { return cb.getDataCallbackPos(); },
                                      [&cb](const char *ptr, size_t len) { cb.dataCallback(ptr, len); })) {
+        if (!downer.completed()){
+          downer.getSocket().close();
+          downer.getSocket().Received().clear();
+          stateType = HTTP::Closed;
+          return 0;
+        }
         if (downer.getStatusCode() >= 400){
           WARN_MSG("Received error response code %" PRIu32 " (%s)", downer.getStatusCode(), downer.getStatusText().c_str());
           // cb.dataCallbackFlush();
           downer.getSocket().close();
           downer.getSocket().Received().clear();
           allData.truncate(0);
+          stateType = HTTP::Closed;
           return 0;
         }
       }
