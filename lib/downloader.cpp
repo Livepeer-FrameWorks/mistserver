@@ -5,6 +5,9 @@
 #include "ev.h"
 #include "timing.h"
 
+#include <algorithm>
+#include <cctype>
+
 static const std::string emptyString;
 
 namespace HTTP{
@@ -225,7 +228,10 @@ namespace HTTP{
             }
           }
 
-          if (H.protocol == "HTTP/1.0"){getSocket().close();}
+          std::string connectionHeader = getHeader("Connection");
+          std::transform(connectionHeader.begin(), connectionHeader.end(), connectionHeader.begin(),
+                         [](unsigned char c) { return std::tolower(c); });
+          if (H.protocol == "HTTP/1.0" || connectionHeader.find("close") != std::string::npos) { getSocket().close(); }
 
           H.headerOnly = false;
           return true; // Success!
