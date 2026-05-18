@@ -686,7 +686,12 @@ bool Util::startInput(std::string streamname, std::string filename, bool forkFir
   } else {
     args.push_back(Util::getMyPath() + "MistIn" + input["name"].asStringRef());
   }
-  Util::optionsToArguments(stream_cfg, input, args, overrides);
+  std::map<std::string, std::string> effectiveOverrides = overrides;
+  bool isInternalPush = filename.find("push://INTERNAL_") == 0;
+  if (!isInternalPush && stream_cfg.isMember("realtime") && stream_cfg["realtime"].asBool() && !effectiveOverrides.count("realtime")) {
+    effectiveOverrides["realtime"] = "1";
+  }
+  Util::optionsToArguments(stream_cfg, input, args, effectiveOverrides);
 
   // Set debug level if needed
   if (Util::printDebugLevel != DEBUG && !stream_cfg.isMember("debug")) {
