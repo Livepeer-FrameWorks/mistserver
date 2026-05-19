@@ -361,6 +361,13 @@ int main_loop(int argc, char **argv){
   // Start reading log messages
   Util::Procs::socketList.insert(logInput); // Mark this FD as needing to be closed before forking
   std::thread logThread(Controller::handleMsg, logInput);
+  auto stopLogThread = [&]() {
+    if (!logThread.joinable()) { return; }
+    close(STDERR_FILENO);
+    close(logInput);
+    logThread.join();
+    logInput = -1;
+  };
   setenv("MIST_CONTROL", "1", 0); // Signal in the environment that the controller handles all children
 
 #ifdef __CYGWIN__
@@ -375,7 +382,10 @@ int main_loop(int argc, char **argv){
 
   Controller::readConfigFromDisk();
   Controller::writeConfig();
-  if (!Controller::conf.is_active){return 0;}
+  if (!Controller::conf.is_active) {
+    stopLogThread();
+    return 0;
+  }
   Controller::checkAvailProtocols();
   Controller::checkAvailTriggers();
   Controller::writeCapabilities();
@@ -391,7 +401,10 @@ int main_loop(int argc, char **argv){
 
   // if a terminal is connected, check for first time setup
   if (Controller::isTerminal){
-    if (!interactiveFirstTimeSetup()){return 0;}
+    if (!interactiveFirstTimeSetup()) {
+      stopLogThread();
+      return 0;
+    }
   }
 
   // Generate instanceId once per boot.
@@ -419,6 +432,7 @@ int main_loop(int argc, char **argv){
   Socket::Server apiSock;
   if (!Controller::conf.setupServerSocket(apiSock)) {
     Util::logExitReason(ER_READ_START_FAILURE, "Could not listen on API port - aborting");
+    stopLogThread();
     return 0;
   }
 
@@ -585,12 +599,13 @@ int main_loop(int argc, char **argv){
   // give everything some time to print messages
   Util::wait(100);
   std::cout << "Killed all processes, wrote config to disk. Exiting." << std::endl;
-  if (Util::Config::is_restarting){return 42;}
+  if (Util::Config::is_restarting) {
+    stopLogThread();
+    return 42;
+  }
 
   // close logInput to make the log reading thread exit, then join it
-  close(STDERR_FILENO);
-  close(logInput);
-  logThread.join();
+  stopLogThread();
 
   // Finally de-allocate storage - the log thread uses these structures
   Controller::deinitStorage(Util::Config::is_restarting);
