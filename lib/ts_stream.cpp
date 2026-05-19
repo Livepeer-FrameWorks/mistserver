@@ -1197,24 +1197,23 @@ namespace TS{
         trkDta.type = "audio";
         trkDta.codec = "opus";
         trkDta.size = 16;
-        trkDta.init = std::string("OpusHead\001\002\170\000\200\273\000\000\000\000\001", 19);
+        trkDta.init = std::string("OpusHead\001\002\170\000\200\273\000\000\000\000\000", 19);
         trkDta.channels = 2;
         std::string extData = TS::ProgramDescriptors(metaInit[it->first].data(), metaInit[it->first].size()).getExtension();
-        if (extData.size() > 1){
-          trkDta.channels = extData[1];
-          uint8_t channel_map = extData[2];
-          if (trkDta.channels > 8) {
-            FAIL_MSG("Channel count %u not implemented", (int)trkDta.channels);
-            if (channel_map == 1){channel_map = 255;}
-          }
-          if (channel_map > 1){
-            FAIL_MSG("Channel mapping table %u not implemented", (int)trkDta.init[18]);
+        uint8_t channel_map = 0;
+        if (extData.size() >= 2 && ((uint8_t)extData[0]) == 0x80) {
+          uint8_t channel_config_code = (uint8_t)extData[1];
+          if (channel_config_code <= 8) {
+            trkDta.channels = channel_config_code ? channel_config_code : 2;
+            channel_map = channel_config_code ? (trkDta.channels > 2) : 255;
+          } else {
+            FAIL_MSG("Opus in TS channel configuration %u not implemented", (int)channel_config_code);
             channel_map = 255;
           }
-          if (trkDta.channels > 2 && trkDta.channels <= 8 && channel_map == 0) {
-            WARN_MSG("Overriding channel mapping table from 0 to 1");
-            channel_map = 1;
-          }
+        }
+        if (channel_map == 255) {
+          FAIL_MSG("Opus channel mapping table 255 not implemented");
+        } else {
           trkDta.init[9] = trkDta.channels;
           trkDta.init[18] = channel_map;
           if (channel_map == 1){

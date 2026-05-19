@@ -16,6 +16,9 @@ downloadertest = executable('downloadertest', 'downloader.cpp', header_tgts, dep
 test('event-looped non-blocking', downloadertest, args: ['AUTO'], env: {'EVENTLOOP':'1'}, suite: 'Downloader')
 test('blocking', downloadertest, args: ['AUTO'], suite: 'Downloader')
 
+tspackettest = executable('tspackettest', 'ts_packet_unit.cpp', header_tgts, dependencies: libmist_dep)
+test('Opus MPEG-TS descriptor payload', tspackettest, suite: 'MPEG-TS')
+
 
 # The only argument is simply the 'alg' parameter value as defined in the JWA spec (RFC7518)
 jwttest = executable('jwttest', 'jwt.cpp', header_tgts, dependencies: libmist_dep)
@@ -225,4 +228,3 @@ test('AMF parser', amftest, suite: 'AMF parser', protocol:'tap')
 
 #abst_test = executable('abst_test', 'abst_test.cpp', dependencies: libmist_dep)
 #test('MP4::ABST Test', abst_test)
-
