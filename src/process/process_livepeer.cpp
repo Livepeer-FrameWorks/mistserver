@@ -12,6 +12,7 @@
 #include <mist/triggers.h>
 #include <mist/util.h>
 
+#include <atomic>
 #include <mutex>
 #include <ostream>
 #include <sys/stat.h> //for stat
@@ -28,12 +29,28 @@ JSON::Value pStat;
 JSON::Value & pData = pStat["proc_status_update"]["status"];
 std::mutex statsMutex;
 uint64_t statSwitches = 0;
-uint64_t statFailN200 = 0;
-uint64_t statFailTimeout = 0;
-uint64_t statFailParse = 0;
-uint64_t statFailOther = 0;
+// Failure counters: written from uploadThread(s), read from main's periodic
+// publisher for control decisions -> must be atomic.
+std::atomic<uint64_t> statFailN200{0};
+std::atomic<uint64_t> statFailTimeout{0};
+std::atomic<uint64_t> statFailParse{0};
+std::atomic<uint64_t> statFailOther{0};
 uint64_t statSinkMs = 0;
 uint64_t statSourceMs = 0;
+
+// Pressure-publisher inputs. Updated from uploadThread(s); consumed by the
+// periodic ProcState writer in main(). Atomics to avoid the statsMutex hot path.
+std::atomic<uint64_t> statTotalExternalUs{0}; // sum of POST-to-response time (us)
+std::atomic<uint64_t> statTotalLocalWorkUs{0}; // sum of local muxing/parse/insert time (us)
+std::atomic<uint64_t> statTotalSourceWaitUs{0}; // sum of time uploadThreads waited for input
+std::atomic<uint64_t> statTotalSinkWaitUs{0}; // sum of time uploadThreads waited their insert turn
+std::atomic<uint32_t> statActiveUploads{0}; // # uploadThreads currently mid-POST
+std::atomic<uint32_t> statLastSegSpeedQ16_16{0}; // last observed segDuration/turnaround (Q16.16)
+// Slots currently occupied (filled by source, not yet released by upload).
+// Read by the periodic publisher into ProcState.queueDepth without a lock;
+// the previous approach of summing presegs[i].fullyWritten/fullyRead was a
+// data race against the source and upload threads.
+std::atomic<uint32_t> statQueueDepth{0};
 
 std::string api_url;
 
@@ -181,6 +198,7 @@ namespace Mist{
             presegs[currPreSeg].segDuration = thisTime - presegs[currPreSeg].time;
             presegs[currPreSeg].fullyRead = false;
             presegs[currPreSeg].fullyWritten = true;
+            statQueueDepth.fetch_add(1, std::memory_order_relaxed);
             currPreSeg = (currPreSeg + 1) % PRESEG_COUNT;
           }
           while (!presegs[currPreSeg].fullyRead && conf.is_active) { Util::sleep(100); }
@@ -488,6 +506,7 @@ void segmentRejectedTrigger(Mist::preparedSegment & mySeg, const std::string & b
   }
   mySeg.fullyWritten = false;
   mySeg.fullyRead = true;
+  statQueueDepth.fetch_sub(1, std::memory_order_relaxed);
   insertTurn = (insertTurn + 1) % PRESEG_COUNT;
 }
 
@@ -497,7 +516,11 @@ void uploadThread(size_t myNum){
   bool was422 = false;
   std::string prevURL;
   while (conf.is_active){
+    // Block until source thread has prepared this slot. Time spent here counts
+    // as "source wait"; we are starved for input.
+    uint64_t srcWaitStart = Util::getMicros();
     while (conf.is_active && !mySeg.fullyWritten){Util::sleep(100);}
+    statTotalSourceWaitUs.fetch_add(Util::getMicros(srcWaitStart), std::memory_order_relaxed);
     if (!conf.is_active){return;}//Exit early on shutdown
     size_t attempts = 0;
     do{
@@ -521,8 +544,12 @@ void uploadThread(size_t myNum){
       }
 
       uint64_t uplTime = Util::getMicros();
-      if (upper.post(target, mySeg.data, mySeg.data.size())){
+      statActiveUploads.fetch_add(1, std::memory_order_relaxed);
+      bool postOk = upper.post(target, mySeg.data, mySeg.data.size());
+      statActiveUploads.fetch_sub(1, std::memory_order_relaxed);
+      if (postOk) {
         uplTime = Util::getMicros(uplTime);
+        statTotalExternalUs.fetch_add(uplTime, std::memory_order_relaxed);
         if (upper.getStatusCode() == 200){
           MEDIUM_MSG("Uploaded %zu bytes (time %" PRIu64 "-%" PRIu64 " = %" PRIu64 " ms) to %s in %.2f ms", mySeg.data.size(), mySeg.time, mySeg.time+mySeg.segDuration, mySeg.segDuration, target.getUrl().c_str(), uplTime/1000.0);
           was422 = false;
@@ -533,9 +560,15 @@ void uploadThread(size_t myNum){
             std::string newCookie = upper.getCookie();
             if (newCookie.size() && newCookie != cookie) { cookie = newCookie; }
           }
-          //Wait your turn
+          // Sink wait: blocked waiting for our insertion turn (serialized
+          // across uploadThreads).
+          uint64_t sinkWaitStart = Util::getMicros();
           while (myNum != insertTurn && conf.is_active){Util::sleep(100);}
+          statTotalSinkWaitUs.fetch_add(Util::getMicros(sinkWaitStart), std::memory_order_relaxed);
           if (!conf.is_active){return;}//Exit early on shutdown
+          // Local work: multipart parse + per-rendition insert. Whatever
+          // happens here is CPU we're spending on this proc.
+          uint64_t workStart = Util::getMicros();
           MultipartResult mpResult;
           mpResult.renditionCount = 0;
           mpResult.totalOutputBytes = 0;
@@ -548,8 +581,22 @@ void uploadThread(size_t myNum){
                      upper.getHeader("Content-Type").c_str(), upper.const_data().size());
           }
           mySeg.fullyRead = true;
+          statQueueDepth.fetch_sub(1, std::memory_order_relaxed);
           insertTurn = (insertTurn + 1) % PRESEG_COUNT;
-          // Fire LIVEPEER_SEGMENT_COMPLETE trigger
+          statTotalLocalWorkUs.fetch_add(Util::getMicros(workStart), std::memory_order_relaxed);
+
+          // Always publish observed speed to ProcState; the controller needs
+          // this independent of whether LIVEPEER_SEGMENT_COMPLETE is wired up.
+          // Only the trigger payload emission lives behind shouldTrigger().
+          uint64_t turnaroundMs = uplTime / 1000;
+          double speedFactor = turnaroundMs > 0 ? (double)mySeg.segDuration / (double)turnaroundMs : 0.0;
+          {
+            double sf = speedFactor;
+            if (sf < 0) sf = 0;
+            if (sf > 65535.0) sf = 65535.0;
+            statLastSegSpeedQ16_16.store((uint32_t)(sf * 65536.0), std::memory_order_relaxed);
+          }
+
           if (Triggers::shouldTrigger("LIVEPEER_SEGMENT_COMPLETE", Util::streamName)){
             // Build renditions JSON array (only this field is JSON since it's variable-length)
             JSON::Value renditionsJson;
@@ -559,9 +606,6 @@ void uploadThread(size_t myNum){
               rend["bytes"] = (uint64_t)mpResult.renditions[i].bytes;
               renditionsJson.append(rend);
             }
-
-            uint64_t turnaroundMs = uplTime / 1000;
-            double speedFactor = turnaroundMs > 0 ? (double)mySeg.segDuration / (double)turnaroundMs : 0.0;
 
             std::string payload = std::string(Util::streamName) + "\n" +      // 1. stream name
               Mist::lpID + "\n" +                                              // 2. livepeer session ID
@@ -600,10 +644,11 @@ void uploadThread(size_t myNum){
           ++statFailN200;
           WARN_MSG("Failed to upload %zu bytes to %s in %.2f ms: %" PRIu32 " %s", mySeg.data.size(), target.getUrl().c_str(), uplTime/1000.0, upper.getStatusCode(), upper.getStatusText().c_str());
         }
-      }else{
+      } else {
         //other failures and aborted uploads
         if (!conf.is_active){return;}//Exit early on shutdown
         uplTime = Util::getMicros(uplTime);
+        statTotalExternalUs.fetch_add(uplTime, std::memory_order_relaxed);
         ++statFailTimeout;
         WARN_MSG("Failed to upload %zu bytes to %s in %.2f ms", mySeg.data.size(), target.getUrl().c_str(), uplTime/1000.0);
       }
@@ -656,7 +701,7 @@ int main(int argc, char *argv[]){
     char shmName[NAME_BUFFER_SIZE];
     snprintf(shmName, NAME_BUFFER_SIZE, SHM_PROC_STATE, getpid());
     procStatePage.init(shmName, sizeof(ProcState), true, false);
-    if (procStatePage.mapped) { memset(procStatePage.mapped, 0, sizeof(ProcState)); }
+    ProcState::initPage(procStatePage);
   }
 
   JSON::Value capa;
@@ -1110,16 +1155,18 @@ int main(int argc, char *argv[]){
   std::thread uploader0(uploadThread, 0);
   std::thread uploader1(uploadThread, 1);
 
+  // Previous-window snapshots for pressure derivation.
+  uint64_t prevTotalFails = 0;
   while (conf.is_active && co.is_active){
     Util::sleep(200);
     if (lastProcUpdate + 5 <= Util::bootSecs()){
       std::lock_guard<std::mutex> guard(statsMutex);
       pData["active_seconds"] = (Util::bootSecs() - startTime);
       pData["ainfo"]["switches"] = statSwitches;
-      pData["ainfo"]["fail_non200"] = statFailN200;
-      pData["ainfo"]["fail_timeout"] = statFailTimeout;
-      pData["ainfo"]["fail_parse"] = statFailParse;
-      pData["ainfo"]["fail_other"] = statFailOther;
+      pData["ainfo"]["fail_non200"] = statFailN200.load();
+      pData["ainfo"]["fail_timeout"] = statFailTimeout.load();
+      pData["ainfo"]["fail_parse"] = statFailParse.load();
+      pData["ainfo"]["fail_other"] = statFailOther.load();
       pData["ainfo"]["sourceTime"] = statSourceMs;
       pData["ainfo"]["sinkTime"] = statSinkMs;
       M.reloadReplacedPagesIfNeeded();
@@ -1133,6 +1180,63 @@ int main(int argc, char *argv[]){
         pData["ainfo"]["bc"] = Mist::currBroadAddr;
       }
       Util::sendUDPApi(pStat);
+
+      // Publish ProcState v2: timing + normalized pressure for the rate controller.
+      if (procStatePage.mapped && ProcState::isValid(procStatePage)) {
+        ProcState *s = (ProcState *)procStatePage.mapped;
+        uint64_t nowBootMs = Util::bootMS();
+
+        // Backlog: pre-segments that are written but not yet inserted.
+        // Maintained as an atomic counter (incremented by the source thread
+        // when filling a slot, decremented by the upload thread on insert /
+        // reject); free of the data race the previous flag-scan had.
+        uint32_t queueDepth = statQueueDepth.load(std::memory_order_relaxed);
+        uint32_t inflight = statActiveUploads.load(std::memory_order_relaxed);
+        uint64_t totExtUs = statTotalExternalUs.load(std::memory_order_relaxed);
+        uint64_t totWorkUs = statTotalLocalWorkUs.load(std::memory_order_relaxed);
+        uint64_t totSrcWaitUs = statTotalSourceWaitUs.load(std::memory_order_relaxed);
+        uint64_t totSnkWaitUs = statTotalSinkWaitUs.load(std::memory_order_relaxed);
+        uint64_t totalFails = statFailN200.load() + statFailTimeout.load() + statFailParse.load() + statFailOther.load();
+        uint32_t retryDelta = (uint32_t)(totalFails - prevTotalFails);
+        uint32_t obsSpeed = statLastSegSpeedQ16_16.load(std::memory_order_relaxed);
+
+        // Only retry/queue_full are reported as proc-side hard signals.
+        // External-gateway "can't keep up" pressure (observedSpeed < feederSpeed)
+        // is computed by the controller, which is the only side that knows the
+        // current feeder speed.
+        uint8_t reason = PRC_REASON_UNKNOWN;
+        uint16_t pressureQ = 0;
+        uint8_t accept = 1;
+        if (retryDelta > 0) {
+          reason = PRC_REASON_RETRY;
+          double p = 0.25 * (double)retryDelta;
+          if (p > 1.0) p = 1.0;
+          pressureQ = (uint16_t)(p * 65535.0);
+          accept = 0;
+        } else if (queueDepth >= PRESEG_COUNT) {
+          reason = PRC_REASON_QUEUE_FULL;
+          pressureQ = 60000; // ~0.92
+          accept = 0;
+        }
+
+        s->totalWork = totWorkUs;
+        s->totalSourceWait = totSrcWaitUs;
+        s->totalSinkWait = totSnkWaitUs;
+        s->totalExternalWait = totExtUs;
+        s->frameCount = 0; // proc-defined; segments are not frames
+        s->lastUpdateMs = nowBootMs;
+        s->observedSpeedQ16_16 = obsSpeed;
+        s->pressureQ0_16 = pressureQ;
+        s->canAcceptMore = accept;
+        s->reasonCode = reason;
+        s->queueDepth = queueDepth;
+        s->inflight = inflight;
+        s->retryCount = retryDelta;
+        s->negotiatedKind = PRC_KIND_LIVEPEER;
+
+        prevTotalFails = totalFails;
+      }
+
       lastProcUpdate = Util::bootSecs();
     }
   }

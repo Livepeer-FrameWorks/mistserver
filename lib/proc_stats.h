@@ -11,18 +11,104 @@
 
 #define SHM_PROC_STATE "/MstProcState_%d" // format with PID
 
+/// ProcState schema version. Bump on any layout change.
+/// Old/new MistProc binaries on the same node are unsupported; readers reject pages
+/// with a different version or a structSize smaller than their own sizeof(ProcState).
+static constexpr uint32_t PROC_STATE_VERSION = 2;
+
+/// Normalized pressure reason. Ordered by aggregation priority (higher = stronger backoff).
+enum ProcPressureReason : uint8_t {
+  PRC_REASON_UNKNOWN = 0,
+  PRC_REASON_CPU = 1,
+  PRC_REASON_SOURCE_WAIT = 2,
+  PRC_REASON_SINK_WAIT = 3,
+  PRC_REASON_HW_SLOT = 4,
+  PRC_REASON_EXTERNAL_WAIT = 5,
+  PRC_REASON_QUEUE_FULL = 6,
+  PRC_REASON_RETRY = 7,
+};
+
+/// Negotiated processing kind as observed by the proc after init (e.g. AV
+/// reports whether it ended up on HW or SW encode, which the static config
+/// classifier cannot know). These numeric values match
+/// `Mist::ProcessingProfileKind` (src/input/processing_profile.h); a
+/// static_assert there keeps the two in sync.
+enum ProcNegotiatedKind : uint8_t {
+  PRC_KIND_UNKNOWN = 0,
+  PRC_KIND_THUMBS = 1,
+  PRC_KIND_AUDIO = 2,
+  PRC_KIND_AV_SW_VIDEO = 3,
+  PRC_KIND_AV_HW_VIDEO = 4,
+  PRC_KIND_LIVEPEER = 5,
+  PRC_KIND_MIXED = 6, // never reported by a proc; classifier-only
+};
+
 /// Process state shared via SHM between MistProc processes and InputBuffer.
-/// Timing stats used for rate control; exit state read after process dies.
+/// Two kinds of data live here:
+///   * Raw counters (totalWork / totalSourceWait / ...): debug/support, NOT
+///     required truth. Procs may leave any of them zero.
+///   * Normalized pressure (canAcceptMore, pressureQ0_16, reasonCode,
+///     observedSpeedQ16_16, queueDepth, inflight, retryCount): first-class
+///     signal the controller acts on. Each proc fills what it can measure.
+/// Exit state (short/longReason) is written by the process before exiting and
+/// read by InputBuffer after the process dies.
 struct ProcState {
-    // Timing stats (all times in microseconds, cumulative since process start)
-    uint64_t totalWork; // cumulative active processing time (decode+encode+transform+inference+etc)
-    uint64_t totalSourceSleep; // cumulative time waiting for input data (KEY rate control signal)
-    uint64_t totalSinkSleep; // cumulative time waiting to write output
-    uint64_t frameCount; // frames/items processed
-    uint64_t lastUpdateMs; // Util::bootMS() of last write
-    // Exit state (written by process before exiting, read by buffer after process dies)
-    char shortReason[32]; // ER_* constant string (e.g. "FORMAT_SPECIFIC")
-    char longReason[256]; // Human-readable exit reason
+    // --- Header (always at offset 0; layout-stable across versions) ---
+    uint32_t schemaVersion; ///< must equal PROC_STATE_VERSION
+    uint32_t structSize; ///< sizeof(ProcState) at the time of writing
+
+    // --- Timing ---
+    uint64_t lastUpdateMs; ///< Util::bootMS() of last write (0 = never written)
+    uint64_t frameCount; ///< frames/items processed (cumulative)
+
+    // --- Raw counters (microseconds, cumulative; optional per-proc) ---
+    uint64_t totalWork; ///< active processing time (decode+encode+transform+...)
+    uint64_t totalSourceWait; ///< time waiting for input data
+    uint64_t totalSinkWait; ///< time waiting to write output
+    uint64_t totalExternalWait; ///< time waiting on external service (e.g. Livepeer gateway)
+
+    // --- Normalized pressure (first-class) ---
+    uint32_t observedSpeedQ16_16; ///< measured throughput as multiple of realtime (Q16.16)
+    uint16_t pressureQ0_16; ///< 0..65535 -> 0.0..1.0 (1.0 = max pressure / cannot keep up)
+    uint8_t canAcceptMore; ///< 0 = hard stop / do not feed faster, 1 = OK
+    uint8_t reasonCode; ///< ProcPressureReason enum
+
+    uint32_t queueDepth; ///< pending work units (proc-defined unit)
+    uint32_t inflight; ///< work items currently in-flight (e.g. Livepeer segments)
+    uint32_t retryCount; ///< rolling count of retriable failures
+
+    // Negotiated kind: proc fills this once it knows what it actually became.
+    // The controller uses it to re-derive the effective speed profile on each
+    // tick. For example, HW-accelerated AV that the static config classifier could
+    // not detect gets its real cap, not the SW-video fallback. 0 = unknown.
+    uint8_t negotiatedKind; ///< ProcNegotiatedKind value
+    uint8_t _pad0;
+    uint8_t _pad1;
+    uint8_t _pad2;
+
+    // --- Exit state ---
+    char shortReason[32]; ///< ER_* constant string (e.g. "FORMAT_SPECIFIC")
+    char longReason[256]; ///< human-readable exit reason
+
+    /// Initialize a freshly-mapped SHM page: zero everything, then stamp version/size.
+    /// Call this once from the process side right after init() of the SHM page.
+    static void initPage(IPC::sharedPage & page) {
+      if (!page.mapped || page.len < sizeof(ProcState)) { return; }
+      memset(page.mapped, 0, sizeof(ProcState));
+      ProcState *s = (ProcState *)page.mapped;
+      s->schemaVersion = PROC_STATE_VERSION;
+      s->structSize = (uint32_t)sizeof(ProcState);
+    }
+
+    /// True if a mapped page looks like a valid current-version ProcState.
+    /// Readers should call this and skip / log-once on false.
+    static bool isValid(const IPC::sharedPage & page) {
+      if (!page.mapped || page.len < sizeof(ProcState)) { return false; }
+      const ProcState *s = (const ProcState *)page.mapped;
+      if (s->schemaVersion != PROC_STATE_VERSION) { return false; }
+      if (s->structSize < sizeof(ProcState)) { return false; }
+      return true;
+    }
 
     /// Write exit reason into the SHM fields
     void setExitReason(const char *shortStr, const char *longStr) {

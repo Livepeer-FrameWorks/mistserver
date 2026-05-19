@@ -1,4 +1,5 @@
 #include "input.h"
+#include "processing_profile.h"
 
 #include <mist/dtsc.h>
 #include <mist/proc_stats.h>
@@ -65,13 +66,27 @@ namespace Mist{
     std::map<std::string, uint64_t> procNextBoot;
     std::set<std::string> procHardFailed; // configs that hit unrecoverable error
 
-    // Rate control state
+    // Rate control state. Driven entirely by per-proc normalized pressure
+    // (ProcState v2 page); no separate CPU / sleep-ratio polling here.
     uint64_t effectiveSpeed;
     uint64_t lastRateUpdateMs;
-    std::map<pid_t, uint64_t> procCpuPrev;          // previous cumulative CPU time (microseconds)
-    std::map<pid_t, ProcState> procStatsPrev; // previous timing stats snapshot
-    uint64_t sysCpuIdlePrev;                         // previous system idle (microseconds)
-    uint64_t sysCpuTotalPrev;                        // previous system total (microseconds)
+    uint32_t rampLockoutTicks; ///< # ticks remaining before speed-up allowed
+    // Highest ProcState.lastUpdateMs we've already acted on, per pid. Procs
+    // publish every ~5s but the controller ticks every 1s. Without this
+    // gate, the same publish would drive several *1.2+1 ramp bumps. We only
+    // run per-proc decision logic when lastUpdateMs has advanced.
+    std::map<pid_t, uint64_t> lastConsumedUpdateMs;
+    // Required procs whose latest fresh sample explicitly allowed speed-up.
+    // Cleared after each ramp; this lets offset 5s publishers vote over
+    // multiple ticks without allowing one proc to ramp repeatedly by itself.
+    std::set<pid_t> procsReadyForSpeedUp;
+
+    // Per-instance processing profile (resolved from this stream's processes
+    // array at startup; never mutates shared `processing.*` config).
+    bool isProcessing; ///< stream name is "processing" or "processing+<hash>"
+    bool procProfileResolved; ///< true once classifier has run
+    bool negotiatedFullyResolved; ///< true once every running proc has reported its negotiatedKind at least once
+    ProcessingProfile procProfile;
 
     std::set<size_t> generatePids;
     std::map<size_t, size_t> sourceUsers;
