@@ -513,7 +513,7 @@ namespace Mist{
         tsStream.finish();
         isFinished = true;
       }
-      hasPacket = true;
+      hasPacket = (idx == INVALID_TRACK_ID ? tsStream.hasPacket() : tsStream.hasPacket(pid));
     }
     if (!hasPacket){return;}
     if (idx == INVALID_TRACK_ID){
