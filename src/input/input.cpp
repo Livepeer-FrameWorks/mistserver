@@ -1,5 +1,7 @@
 #include "input.h"
 
+#include "processing_profile.h"
+
 #include <mist/auth.h>
 #include <mist/defines.h>
 #include <mist/encode.h>
@@ -8,6 +10,7 @@
 #include <mist/triggers.h>
 #include <mist/urireader.h>
 
+#include <algorithm>
 #include <fcntl.h>
 #include <fstream>
 #include <iomanip>
@@ -1141,9 +1144,17 @@ namespace Mist{
     size_t idx;
     Comms::Connections statComm;
 
-
-    // Read realtime_speed from stream config (0 = uncapped, 1 = normal, N = Nx speed)
+    // Default feeder speed. For processing streams the InputBuffer-side
+    // controller is authoritative and publishes the real per-tick speed via
+    // streamStatus[8..15]; we trust whatever it writes there (read each
+    // iteration below). For non-processing streams that happen to set
+    // realtime=true, the operator's realtime_speed config is the cap.
+    //
+    // Default of 1x for processing streams is fine: the controller's first
+    // tick (within ~200ms of MistInBuffer starting) writes the profile's
+    // startSpeed and the feeder picks it up immediately on the next packet.
     uint64_t realtimeSpeed = 1;
+    bool isProcessing = isProcessingStreamName(streamName);
     {
       std::string strName = streamName.substr(0, (streamName.find_first_of("+ ")));
       char tmpBuf[NAME_BUFFER_SIZE];
@@ -1158,6 +1169,8 @@ namespace Mist{
       INFO_MSG("Realtime speed set to %" PRIu64 "x", realtimeSpeed);
     }else if (realtimeSpeed == 0){
       INFO_MSG("Realtime speed set to uncapped");
+    } else if (isProcessing) {
+      INFO_MSG("Processing stream: deferring speed to controller (effectiveSpeed via streamStatus)");
     }
 
     DTSC::Meta liveMeta(config->getString("streamname"), false);
@@ -1263,26 +1276,59 @@ namespace Mist{
         break;
       }
       idx = realTimeTrackMap.count(thisIdx) ? realTimeTrackMap[thisIdx] : INVALID_TRACK_ID;
+      if (idx == INVALID_TRACK_ID && thisIdx != INVALID_TRACK_ID && M.getCodec(thisIdx).size()) {
+        std::set<size_t> validLive = liveMeta.getValidTracks();
+        size_t newID = 0;
+        for (std::set<size_t>::iterator lit = validLive.begin(); lit != validLive.end(); ++lit) {
+          newID = std::max(newID, liveMeta.getID(*lit) + 1);
+        }
+        size_t newIdx = liveMeta.addTrack();
+        realTimeTrackMap[thisIdx] = newIdx;
+        liveMeta.setID(newIdx, newID);
+        liveMeta.setType(newIdx, M.getType(thisIdx));
+        liveMeta.setCodec(newIdx, M.getCodec(thisIdx));
+        liveMeta.setFpks(newIdx, M.getFpks(thisIdx));
+        liveMeta.setInit(newIdx, M.getInit(thisIdx));
+        liveMeta.setLang(newIdx, M.getLang(thisIdx));
+        liveMeta.setRate(newIdx, M.getRate(thisIdx));
+        liveMeta.setSize(newIdx, M.getSize(thisIdx));
+        liveMeta.setWidth(newIdx, M.getWidth(thisIdx));
+        liveMeta.setHeight(newIdx, M.getHeight(thisIdx));
+        INFO_MSG("Mapped late realtime track %zu to live track %zu", thisIdx, newIdx);
+        idx = newIdx;
+      }
       if (thisPacket && !userSelect.count(idx)) { userSelect[idx].reload(streamName, idx, COMM_STATUS_ACTSOURCEDNT); }
       if (userSelect[idx].getStatus() & COMM_STATUS_REQDISCONNECT){
         Util::logExitReason(ER_CLEAN_LIVE_BUFFER_REQ, "buffer requested shutdown");
         break;
       }
-      if (realtimeSpeed != 0){
-        // Read effective_speed from InputBuffer (if set via rate control)
-        uint64_t activeSpeed = realtimeSpeed;
+      // Always pace processing streams via the controller's effectiveSpeed.
+      // realtime_speed=0 on a processing stream means "no operator-imposed
+      // cap on top of profile.maxSpeed"; NOT "feed as fast as possible and
+      // ignore the controller". For non-processing realtime streams the
+      // legacy semantic stands: realtime_speed=0 bypasses pacing entirely.
+      if (realtimeSpeed != 0 || isProcessing) {
+        // The InputBuffer-side controller is authoritative for processing
+        // streams: trust whatever it writes to streamStatus[8..15] regardless
+        // of whether it's higher or lower than the local fallback.
+        uint64_t activeSpeed = (realtimeSpeed != 0) ? realtimeSpeed : 1;
         if (streamStatus && streamStatus.len >= 16){
           uint64_t effectiveSpeed = 0;
           memcpy(&effectiveSpeed, streamStatus.mapped + 8, sizeof(uint64_t));
-          if (effectiveSpeed > 0 && effectiveSpeed < activeSpeed){
-            activeSpeed = effectiveSpeed;
-          }
+          if (effectiveSpeed > 0) { activeSpeed = effectiveSpeed; }
         }
-        uint64_t scaledBuffer = SIMULATED_LIVE_BUFFER * activeSpeed;
-        while (config->is_active && userSelect[idx] &&
-               Util::bootMS() + scaledBuffer < (thisTime + timeOffset) + bootMsOffset){
-          Util::sleep(std::min(((thisTime + timeOffset) + bootMsOffset) - (Util::getMS() + scaledBuffer),
-                               (uint64_t)1000));
+        // True sustained N x rate: the deadline is the packet's intended live-clock
+        // time scaled down by activeSpeed, with a fixed wall-clock readahead
+        // window of SIMULATED_LIVE_BUFFER. (The previous formula scaled the
+        // readahead UP by activeSpeed, which produced bursty "run fast, then
+        // wait" behaviour rather than a smooth N x feed.)
+        if (activeSpeed < 1) { activeSpeed = 1; }
+        uint64_t packetSourceMs = (thisTime + timeOffset);
+        int64_t scaledDeadline = bootMsOffset + (int64_t)(packetSourceMs / activeSpeed);
+        while (config->is_active && userSelect[idx] && (int64_t)(Util::bootMS() + SIMULATED_LIVE_BUFFER) < scaledDeadline) {
+          int64_t remaining = scaledDeadline - (int64_t)(Util::bootMS() + SIMULATED_LIVE_BUFFER);
+          if (remaining <= 0) { break; }
+          Util::sleep(std::min((uint64_t)remaining, (uint64_t)1000));
         }
       }
 

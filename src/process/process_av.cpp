@@ -81,6 +81,7 @@ uint64_t outAudioChannels = 0;                    ///< Audio channel count to se
 uint64_t outAudioDepth = 0;                       ///< Audio bit depth to set to the output
 std::string codecIn, codecOut;                    ///< If not raw pixels: names of encoding/decoding codecs
 bool isVideo = true;                              ///< Transcoding in video or audio mode
+bool hwEncodeActive = false; ///< True when video encode negotiated to a HW backend
 uint64_t totalDecode = 0;
 uint64_t totalSinkSleep = 0;
 uint64_t totalTransform = 0;
@@ -209,9 +210,9 @@ namespace Mist{
       if (codec_out){
         bool isKey = packet_out->flags & AV_PKT_FLAG_KEY;
         if (isKey){
-          MEDIUM_MSG("Buffering %iB keyframe @%zums", packet_out->size, thisTime);
+          MEDIUM_MSG("Buffering %iB keyframe @%" PRIu64 "ms", packet_out->size, thisTime);
         }else{
-          VERYHIGH_MSG("Buffering %iB packet @%zums", packet_out->size, thisTime);
+          VERYHIGH_MSG("Buffering %iB packet @%" PRIu64 "ms", packet_out->size, thisTime);
         }
 
         if (codecOut == "AV1"){
@@ -252,7 +253,7 @@ namespace Mist{
     void bufferAudio(){
       // Init audio track
       setAudioInit();
-      VERYHIGH_MSG("Buffering %iB audio packet @%zums", packet_out->size, thisTime);
+      VERYHIGH_MSG("Buffering %iB audio packet @%" PRIu64 "ms", packet_out->size, thisTime);
       // Set init data
       if (context_out->extradata_size && !M.getInit(thisIdx).size()){
         meta.setInit(thisIdx, (char*)context_out->extradata, context_out->extradata_size);
@@ -771,6 +772,9 @@ namespace Mist{
         return false;
       }
       context_out = tmpCtx;
+      // Record whether the encode negotiated to HW; controller reads this via
+      // ProcState.negotiatedKind to distinguish AV-HW from AV-SW caps.
+      hwEncodeActive = (hwDev != AV_HWDEVICE_TYPE_NONE);
 
       av_logLevel = AV_LOG_WARNING;
       return true;
@@ -917,10 +921,10 @@ namespace Mist{
           tmpCtx->sample_rate = 48000;
           tmpCtx->time_base = (AVRational){1, 48000};
           if (tmpCtx->bit_rate < 500){
-            WARN_MSG("Opus does not support a bitrate of %lu, clipping to 500", tmpCtx->bit_rate);
+            WARN_MSG("Opus does not support a bitrate of %" PRId64 ", clipping to 500", tmpCtx->bit_rate);
             tmpCtx->bit_rate = 500;
           } else if (tmpCtx->bit_rate > 256000) {
-            WARN_MSG("Opus does not support a bitrate of %lu, clipping to 128000", tmpCtx->bit_rate);
+            WARN_MSG("Opus does not support a bitrate of %" PRId64 ", clipping to 128000", tmpCtx->bit_rate);
             tmpCtx->bit_rate = 128000;
           }
           depth = 16;
@@ -1754,7 +1758,17 @@ namespace Mist{
             return;
           }
 
-          frameTimes.push_back(sendPacketTime + (packet_out->pts * 1000 * context_out->time_base.num) / context_out->time_base.den);
+          uint64_t outputTime = sendPacketTime;
+          if (packet_out->pts != AV_NOPTS_VALUE) {
+            int64_t offsetMs = (packet_out->pts * 1000 * context_out->time_base.num) / context_out->time_base.den;
+            if (offsetMs < 0) {
+              uint64_t negOffset = (uint64_t)(-offsetMs);
+              outputTime = negOffset > sendPacketTime ? 0 : sendPacketTime - negOffset;
+            } else {
+              outputTime = sendPacketTime + (uint64_t)offsetMs;
+            }
+          }
+          frameTimes.push_back(outputTime);
           outputFrameCount = (char*)packet_out->pts;
           
           frameReady = true;
@@ -1940,6 +1954,10 @@ namespace Mist{
     processStartTime = startTime;
     uint64_t encPrevTime = 0;
     uint64_t encPrevCount = 0;
+    // Previous-window snapshots for pressure derivation
+    uint64_t prevWork = 0, prevSrcWait = 0, prevSnkWait = 0;
+    uint64_t prevSinkMsForRate = 0;
+    uint64_t prevUpdateBootMs = Util::bootMS();
     while (conf.is_active && co.is_active){
       Util::sleep(200);
       if (lastProcUpdate + 5 <= Util::bootSecs()){
@@ -1972,14 +1990,80 @@ namespace Mist{
         }
         pData["ainfo"]["scaler"] = scaler;
         Util::sendUDPApi(pStat);
-        // Write timing stats to shm for InputBuffer rate control
-        if (procStatsPage.mapped){
+        // Write timing stats + normalized pressure to shm for InputBuffer rate control
+        if (procStatsPage.mapped && ProcState::isValid(procStatsPage)) {
           ProcState *s = (ProcState *)procStatsPage.mapped;
-          s->totalWork = totalDecode + totalEncode + totalTransform;
-          s->totalSourceSleep = totalSourceSleep;
-          s->totalSinkSleep = totalSinkSleep;
+          uint64_t curWork = totalDecode + totalEncode + totalTransform;
+          uint64_t curSrcWait = totalSourceSleep;
+          uint64_t curSnkWait = totalSinkSleep;
+          uint64_t nowBootMs = Util::bootMS();
+
+          // Pressure: derived from delta-over-window. Window-elapsed = wallclock delta.
+          // Map ratios to pressure with a meaningful slope: workRatio 0.5 -> 0,
+          // 0.85 -> 0.7 (slow-down watermark), 1.0 -> 1.0 (max). Same shape for
+          // sink-wait. Anything below 0.5 is "plenty of headroom" -> pressure 0.
+          uint8_t reason = PRC_REASON_UNKNOWN;
+          uint16_t pressureQ = 0;
+          uint64_t dWork = curWork - prevWork;
+          uint64_t dSrc = curSrcWait - prevSrcWait;
+          uint64_t dSnk = curSnkWait - prevSnkWait;
+          uint64_t dTotal = dWork + dSrc + dSnk;
+          if (dTotal > 0) {
+            double snkRatio = (double)dSnk / (double)dTotal;
+            double srcRatio = (double)dSrc / (double)dTotal;
+            double workRatio = (double)dWork / (double)dTotal;
+            auto mapPressure = [](double ratio) -> double {
+              if (ratio <= 0.5) return 0.0;
+              double p = (ratio - 0.5) * 2.0; // linear: 0.5 -> 0, 1.0 -> 1.0
+              if (p < 0.0) p = 0.0;
+              if (p > 1.0) p = 1.0;
+              return p;
+            };
+            // Pick the dominant bottleneck signal.
+            if (snkRatio >= workRatio && snkRatio > 0.5) {
+              reason = PRC_REASON_SINK_WAIT;
+              pressureQ = (uint16_t)(mapPressure(snkRatio) * 65535.0);
+            } else if (workRatio > 0.5) {
+              reason = PRC_REASON_CPU;
+              pressureQ = (uint16_t)(mapPressure(workRatio) * 65535.0);
+            } else if (srcRatio > 0.5) {
+              reason = PRC_REASON_SOURCE_WAIT;
+              pressureQ = 0;
+            }
+          }
+
+          // Observed speed: sink media advanced vs wallclock advanced
+          uint32_t obsSpeedQ = 0;
+          uint64_t wallDeltaMs = (nowBootMs > prevUpdateBootMs) ? (nowBootMs - prevUpdateBootMs) : 0;
+          if (wallDeltaMs > 0 && statSinkMs > prevSinkMsForRate) {
+            double rtf = (double)(statSinkMs - prevSinkMsForRate) / (double)wallDeltaMs;
+            if (rtf < 0) rtf = 0;
+            if (rtf > 65535.0) rtf = 65535.0;
+            obsSpeedQ = (uint32_t)(rtf * 65536.0);
+          }
+
+          s->totalWork = curWork;
+          s->totalSourceWait = curSrcWait;
+          s->totalSinkWait = curSnkWait;
+          s->totalExternalWait = 0;
           s->frameCount = (uint64_t)outputFrameCount;
-          s->lastUpdateMs = Util::bootMS();
+          s->lastUpdateMs = nowBootMs;
+          s->observedSpeedQ16_16 = obsSpeedQ;
+          s->pressureQ0_16 = pressureQ;
+          s->canAcceptMore = 1;
+          s->reasonCode = reason;
+          s->queueDepth = 0;
+          s->inflight = 0;
+          s->retryCount = 0;
+          // Publish negotiated kind so the controller picks the right cap.
+          // Audio bypasses HW concerns; video uses real backend after init.
+          s->negotiatedKind = isVideo ? (hwEncodeActive ? PRC_KIND_AV_HW_VIDEO : PRC_KIND_AV_SW_VIDEO) : PRC_KIND_AUDIO;
+
+          prevWork = curWork;
+          prevSrcWait = curSrcWait;
+          prevSnkWait = curSnkWait;
+          prevSinkMsForRate = statSinkMs;
+          prevUpdateBootMs = nowBootMs;
         }
         lastProcUpdate = Util::bootSecs();
         fireVirtualSegmentTrigger(false);
@@ -2155,7 +2239,7 @@ int main(int argc, char *argv[]){
     char shmName[NAME_BUFFER_SIZE];
     snprintf(shmName, NAME_BUFFER_SIZE, SHM_PROC_STATE, getpid());
     procStatsPage.init(shmName, sizeof(ProcState), true, false);
-    if (procStatsPage.mapped) { memset(procStatsPage.mapped, 0, sizeof(ProcState)); }
+    ProcState::initPage(procStatsPage);
   }
 
   JSON::Value capa;

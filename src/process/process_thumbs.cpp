@@ -803,6 +803,10 @@ namespace Mist{
       pStat["proc_status_update"]["proc"] = "Thumbs";
     }
     uint64_t startTime = Util::bootSecs();
+    // Previous-window snapshots for pressure derivation
+    uint64_t prevWork = 0, prevSrcWait = 0;
+    uint64_t prevBufferLastMs = 0; // last published source-clock high-water mark
+    uint64_t prevUpdateBootMs = Util::bootMS();
     while (conf.is_active && co.is_active){
       Util::sleep(200);
       if (lastProcUpdate + 5 <= Util::bootSecs()){
@@ -812,14 +816,67 @@ namespace Mist{
         pData["ainfo"]["buffer_first_ms"] = bufferFirstMs;
         pData["ainfo"]["buffer_last_ms"] = bufferLastMs;
         Util::sendUDPApi(pStat);
-        // Write timing stats to shm for InputBuffer rate control
-        if (procStatsPage.mapped){
+        // Write timing stats + normalized pressure to shm for InputBuffer rate control
+        if (procStatsPage.mapped && ProcState::isValid(procStatsPage)) {
           ProcState *s = (ProcState *)procStatsPage.mapped;
-          s->totalWork = thumbTotalWork.load(std::memory_order_relaxed);
-          s->totalSourceSleep = thumbTotalSourceSleep.load(std::memory_order_relaxed);
-          s->totalSinkSleep = 0;
-          s->frameCount = thumbFrameCount.load(std::memory_order_relaxed);
-          s->lastUpdateMs = Util::bootMS();
+          uint64_t curWork = thumbTotalWork.load(std::memory_order_relaxed);
+          uint64_t curSrcWait = thumbTotalSourceSleep.load(std::memory_order_relaxed);
+          uint64_t curFrames = thumbFrameCount.load(std::memory_order_relaxed);
+          uint64_t nowBootMs = Util::bootMS();
+
+          // Pressure: thumbs is rarely a bottleneck. Decode-dominated -> cpu;
+          // otherwise source-wait (no real backpressure).
+          uint8_t reason = PRC_REASON_UNKNOWN;
+          uint16_t pressureQ = 0;
+          uint64_t dWork = curWork - prevWork;
+          uint64_t dSrc = curSrcWait - prevSrcWait;
+          uint64_t dTotal = dWork + dSrc;
+          if (dTotal > 0) {
+            double workRatio = (double)dWork / (double)dTotal;
+            double srcRatio = (double)dSrc / (double)dTotal;
+            if (workRatio > 0.9) {
+              reason = PRC_REASON_CPU;
+              pressureQ = (uint16_t)(workRatio * 0.5 * 65535.0);
+            } else if (srcRatio > 0.5) {
+              reason = PRC_REASON_SOURCE_WAIT;
+              pressureQ = 0;
+            }
+          }
+
+          // Observed speed: how much source-clock advanced per wall-clock ms,
+          // i.e. a real realtime multiplier in the same unit as the controller's
+          // effectiveSpeed. (Reporting fps here would be a unit mismatch:
+          // controller compares obsSpeed to feederSpeed in realtime-multiples.)
+          // For thumbs the source-clock proxy is bufferLastMs (highest keyframe
+          // timestamp cached so far).
+          uint32_t obsSpeedQ = 0;
+          uint64_t wallDeltaMs = (nowBootMs > prevUpdateBootMs) ? (nowBootMs - prevUpdateBootMs) : 0;
+          if (wallDeltaMs > 0 && prevBufferLastMs && bufferLastMs > prevBufferLastMs) {
+            double rtf = (double)(bufferLastMs - prevBufferLastMs) / (double)wallDeltaMs;
+            if (rtf < 0) rtf = 0;
+            if (rtf > 65535.0) rtf = 65535.0;
+            obsSpeedQ = (uint32_t)(rtf * 65536.0);
+          }
+
+          s->totalWork = curWork;
+          s->totalSourceWait = curSrcWait;
+          s->totalSinkWait = 0;
+          s->totalExternalWait = 0;
+          s->frameCount = curFrames;
+          s->lastUpdateMs = nowBootMs;
+          s->observedSpeedQ16_16 = obsSpeedQ;
+          s->pressureQ0_16 = pressureQ;
+          s->canAcceptMore = 1;
+          s->reasonCode = reason;
+          s->queueDepth = (uint32_t)thumbCache.size();
+          s->inflight = 0;
+          s->retryCount = 0;
+          s->negotiatedKind = PRC_KIND_THUMBS;
+
+          prevWork = curWork;
+          prevSrcWait = curSrcWait;
+          prevBufferLastMs = bufferLastMs;
+          prevUpdateBootMs = nowBootMs;
         }
         lastProcUpdate = Util::bootSecs();
       }
@@ -892,7 +949,7 @@ int main(int argc, char *argv[]){
     char shmName[NAME_BUFFER_SIZE];
     snprintf(shmName, NAME_BUFFER_SIZE, SHM_PROC_STATE, getpid());
     procStatsPage.init(shmName, sizeof(ProcState), true, false);
-    if (procStatsPage.mapped) { memset(procStatsPage.mapped, 0, sizeof(ProcState)); }
+    ProcState::initPage(procStatsPage);
   }
 
   JSON::Value capa;
