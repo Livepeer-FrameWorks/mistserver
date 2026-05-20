@@ -14030,6 +14030,16 @@ context_menu: function(){
                       $td.dynamic = UI.dynamic(layout[i]);
                       $td.html($td.dynamic);
                     }
+                    if (i == "") {
+                      $td.click(function(e){
+                        //redirect to checkbox, do not let it bubble to tr
+                        let checkbox = $(this).find("input[type=\"checkbox\"]");
+                        if (checkbox.length) {
+                          e.stopPropagation();
+                          checkbox.click();
+                        }
+                      });
+                    }
                   }
                   $tr.click(function(e){
                     if (window.getSelection().toString().length) { return; }

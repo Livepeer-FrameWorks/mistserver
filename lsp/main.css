@@ -2732,12 +2732,27 @@ section.pushes [data-pushid] td:has(.deactivated) { padding-right: 0; }
 section.pushes table .statistics { display: flex; flex-direction: column; }
 section.pushes table .statistics .logs { order: 99; }
 
-section.pushes table [data-index=""] { width: 1em; white-space: nowrap; }
-section.pushes table [data-index=""] .toggle-switch:after { display: none; }
-section.pushes table [data-index=""]:focus-within .toggle-switch:after,
-section.pushes table [data-index=""]:hover .toggle-switch:after {
-  display: inline;
+section.pushes table [data-index=""] {
+  width: 1em;
+  white-space: nowrap;
+
+  .toggle-switch:after {
+    display: none;
+    opacity: 0;
+    overflow: hidden;
+    transition: opacity 0.5s 0.5s, display 0s 1s;
+    transition-behavior: allow-discrete;
+  }
+
+  &:focus-within, &:hover {
+    .toggle-switch:after {
+      display: inline;
+      opacity: 1;
+      transition: none;
+    }
+  }
 }
+
 
 .toggle-switch input {
   position: absolute;
