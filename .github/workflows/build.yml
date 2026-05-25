@@ -13,6 +13,7 @@ permissions:
 env:
   REGISTRY_GHCR: ghcr.io/livepeer-frameworks
   REGISTRY_DOCKERHUB: livepeerframeworks
+  DAV1D_REF: 1.5.3
   SVT_AV1_REF: v3.1.2
 
 jobs:
@@ -272,7 +273,22 @@ jobs:
           sudo apt-get install -y \
             build-essential git python3 meson ninja-build pkg-config nasm yasm cmake \
             libmbedtls-dev libcjson-dev zlib1g-dev libfdk-aac-dev libmp3lame-dev \
-            libopus-dev libvpx-dev libx265-dev libdav1d-dev libaom-dev
+            libopus-dev libvpx-dev libx265-dev libaom-dev
+
+      - name: Build static dav1d
+        run: |
+          set -euo pipefail
+          git clone --depth 1 --branch "${DAV1D_REF}" https://code.videolan.org/videolan/dav1d.git /tmp/dav1d-src
+          meson setup /tmp/dav1d-build /tmp/dav1d-src \
+            --default-library=static \
+            --prefix=/tmp/dav1d-static \
+            --libdir=lib \
+            --buildtype=release \
+            -Denable_tools=false \
+            -Denable_tests=false
+          meson compile -C /tmp/dav1d-build
+          meson install -C /tmp/dav1d-build
+          PKG_CONFIG_PATH=/tmp/dav1d-static/lib/pkgconfig pkg-config --exists dav1d
 
       - name: Build static SVT-AV1
         run: |
@@ -291,7 +307,7 @@ jobs:
 
       - name: Build MistServer
         env:
-          PKG_CONFIG_PATH: /tmp/svt-av1-static/lib/pkgconfig:/tmp/svt-av1-static/lib64/pkgconfig
+          PKG_CONFIG_PATH: /tmp/dav1d-static/lib/pkgconfig:/tmp/dav1d-static/lib64/pkgconfig:/tmp/svt-av1-static/lib/pkgconfig:/tmp/svt-av1-static/lib64/pkgconfig
         run: |
           meson setup build \
             --default-library=static \
@@ -311,16 +327,18 @@ jobs:
           failed=0
           for bin in /tmp/mistserver-install/bin/Mist*; do
             [ -x "$bin" ] || continue
-            log="/tmp/ldd-$(basename "$bin").txt"
-            echo "::group::ldd $(basename "$bin")"
-            ldd "$bin" | tee "$log"
+            name="$(basename "$bin")"
+            log="/tmp/needed-${name}.txt"
+            echo "::group::runtime deps ${name}"
+            objdump -p "$bin" | awk '/NEEDED/ {print $2}' | tee "$log"
             echo "::endgroup::"
-            if grep -E 'not found|libSvtAv1Enc\.so' "$log"; then
+            if grep -Ev '^(ld-linux(-x86-64|-aarch64)?\.so\.[0-9]+|libc\.so\.6|libm\.so\.6|libgcc_s\.so\.1|libstdc\+\+\.so\.6)$' "$log"; then
+              echo "Unexpected runtime dependency in ${name}" >&2
               failed=1
             fi
           done
           if [ "$failed" -ne 0 ]; then
-            echo "Native artifact has unresolved or dynamically linked SVT-AV1 dependencies" >&2
+            echo "Native artifact has non-system runtime dependencies" >&2
             exit 1
           fi
 
@@ -371,7 +389,22 @@ jobs:
           sudo apt-get install -y \
             build-essential git python3 meson ninja-build pkg-config nasm yasm cmake \
             libmbedtls-dev libcjson-dev zlib1g-dev libfdk-aac-dev libmp3lame-dev \
-            libopus-dev libvpx-dev libx265-dev libdav1d-dev libaom-dev
+            libopus-dev libvpx-dev libx265-dev libaom-dev
+
+      - name: Build static dav1d
+        run: |
+          set -euo pipefail
+          git clone --depth 1 --branch "${DAV1D_REF}" https://code.videolan.org/videolan/dav1d.git /tmp/dav1d-src
+          meson setup /tmp/dav1d-build /tmp/dav1d-src \
+            --default-library=static \
+            --prefix=/tmp/dav1d-static \
+            --libdir=lib \
+            --buildtype=release \
+            -Denable_tools=false \
+            -Denable_tests=false
+          meson compile -C /tmp/dav1d-build
+          meson install -C /tmp/dav1d-build
+          PKG_CONFIG_PATH=/tmp/dav1d-static/lib/pkgconfig pkg-config --exists dav1d
 
       - name: Build static SVT-AV1
         run: |
@@ -390,7 +423,7 @@ jobs:
 
       - name: Build MistServer
         env:
-          PKG_CONFIG_PATH: /tmp/svt-av1-static/lib/pkgconfig:/tmp/svt-av1-static/lib64/pkgconfig
+          PKG_CONFIG_PATH: /tmp/dav1d-static/lib/pkgconfig:/tmp/dav1d-static/lib64/pkgconfig:/tmp/svt-av1-static/lib/pkgconfig:/tmp/svt-av1-static/lib64/pkgconfig
         run: |
           meson setup build \
             --default-library=static \
@@ -410,16 +443,18 @@ jobs:
           failed=0
           for bin in /tmp/mistserver-install/bin/Mist*; do
             [ -x "$bin" ] || continue
-            log="/tmp/ldd-$(basename "$bin").txt"
-            echo "::group::ldd $(basename "$bin")"
-            ldd "$bin" | tee "$log"
+            name="$(basename "$bin")"
+            log="/tmp/needed-${name}.txt"
+            echo "::group::runtime deps ${name}"
+            objdump -p "$bin" | awk '/NEEDED/ {print $2}' | tee "$log"
             echo "::endgroup::"
-            if grep -E 'not found|libSvtAv1Enc\.so' "$log"; then
+            if grep -Ev '^(ld-linux(-x86-64|-aarch64)?\.so\.[0-9]+|libc\.so\.6|libm\.so\.6|libgcc_s\.so\.1|libstdc\+\+\.so\.6)$' "$log"; then
+              echo "Unexpected runtime dependency in ${name}" >&2
               failed=1
             fi
           done
           if [ "$failed" -ne 0 ]; then
-            echo "Native artifact has unresolved or dynamically linked SVT-AV1 dependencies" >&2
+            echo "Native artifact has non-system runtime dependencies" >&2
             exit 1
           fi
 
