@@ -495,29 +495,23 @@ namespace Mist{
   void OutCMAF::generateSegmentlist(size_t idx, std::stringstream &s,
                                     void dashSegmentCallBack(uint64_t, uint64_t,
                                                              std::stringstream &, bool)){
-    // NOTE: Weirdly making the 0th track as the reference track fixed everything.
-    // Looks like a nomenclature issue.
-    // TODO: Investigate with spec and refactor stuff appropriately.
-
-    size_t mainTrack = *M.getValidTracks().begin(); // M.mainTrack();
-
-    if (mainTrack == INVALID_TRACK_ID){return;}
-    DTSC::Fragments fragments(M.fragments(mainTrack));
+    if (idx == INVALID_TRACK_ID || !M.getValidTracks().count(idx)) { return; }
+    DTSC::Fragments fragments(M.fragments(idx));
     uint32_t firstFragment = fragments.getFirstValid();
     uint32_t lastFragment = fragments.getEndValid();
     bool first = true;
     // skip the first two fragments if live
     if (M.getLive() && (lastFragment - firstFragment) > 6){firstFragment += 2;}
 
-    DTSC::Keys keys(M.getKeys(mainTrack));
+    DTSC::Keys keys(M.getKeys(idx));
     for (; firstFragment < lastFragment; ++firstFragment){
       uint32_t duration = fragments.getDuration(firstFragment);
       uint64_t starttime = keys.getTime(fragments.getFirstKey(firstFragment));
       if (!duration){
         if (M.getLive()){continue;}// skip last fragment when live
-        duration = M.getLastms(mainTrack) - starttime;
+        duration = M.getLastms(idx) - starttime;
       }
-      if (M.getVod()){starttime -= M.getFirstms(mainTrack);}
+      if (M.getVod()) { starttime -= M.getFirstms(idx); }
       dashSegmentCallBack(starttime, duration, s, first);
       first = false;
     }
