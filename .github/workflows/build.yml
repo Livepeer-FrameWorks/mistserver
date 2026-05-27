@@ -342,20 +342,40 @@ jobs:
             exit 1
           fi
 
-      - name: Strip binaries
+      - name: Extract debug symbols
         run: |
-          strip /tmp/mistserver-install/bin/Mist*
+          set -euo pipefail
+          mkdir -p /tmp/mistserver-debug/bin
+          for bin in /tmp/mistserver-install/bin/Mist*; do
+            [ -x "$bin" ] || continue
+            name="$(basename "$bin")"
+            objcopy --only-keep-debug "$bin" "/tmp/mistserver-debug/bin/${name}.debug"
+            objcopy --strip-debug --strip-unneeded "$bin"
+            objcopy --add-gnu-debuglink="/tmp/mistserver-debug/bin/${name}.debug" "$bin"
+          done
 
       - name: Package binaries
         run: |
           cd /tmp/mistserver-install
           tar czf ${{ github.workspace }}/mistserver-linux-amd64-${{ steps.version.outputs.tag }}.tar.gz bin/ lib/
 
+      - name: Package debug symbols
+        run: |
+          cd /tmp/mistserver-debug
+          tar czf ${{ github.workspace }}/mistserver-linux-amd64-debug-${{ steps.version.outputs.tag }}.tar.gz bin/
+
       - name: Upload artifact
         uses: actions/upload-artifact@v7
         with:
           name: mistserver-linux-amd64
           path: mistserver-linux-amd64-${{ steps.version.outputs.tag }}.tar.gz
+          compression-level: 0
+
+      - name: Upload debug symbols
+        uses: actions/upload-artifact@v7
+        with:
+          name: mistserver-linux-amd64-debug
+          path: mistserver-linux-amd64-debug-${{ steps.version.outputs.tag }}.tar.gz
           compression-level: 0
 
   # ---------------------------------------------------------------------------
@@ -458,20 +478,40 @@ jobs:
             exit 1
           fi
 
-      - name: Strip binaries
+      - name: Extract debug symbols
         run: |
-          strip /tmp/mistserver-install/bin/Mist*
+          set -euo pipefail
+          mkdir -p /tmp/mistserver-debug/bin
+          for bin in /tmp/mistserver-install/bin/Mist*; do
+            [ -x "$bin" ] || continue
+            name="$(basename "$bin")"
+            objcopy --only-keep-debug "$bin" "/tmp/mistserver-debug/bin/${name}.debug"
+            objcopy --strip-debug --strip-unneeded "$bin"
+            objcopy --add-gnu-debuglink="/tmp/mistserver-debug/bin/${name}.debug" "$bin"
+          done
 
       - name: Package binaries
         run: |
           cd /tmp/mistserver-install
           tar czf ${{ github.workspace }}/mistserver-linux-arm64-${{ steps.version.outputs.tag }}.tar.gz bin/ lib/
 
+      - name: Package debug symbols
+        run: |
+          cd /tmp/mistserver-debug
+          tar czf ${{ github.workspace }}/mistserver-linux-arm64-debug-${{ steps.version.outputs.tag }}.tar.gz bin/
+
       - name: Upload artifact
         uses: actions/upload-artifact@v7
         with:
           name: mistserver-linux-arm64
           path: mistserver-linux-arm64-${{ steps.version.outputs.tag }}.tar.gz
+          compression-level: 0
+
+      - name: Upload debug symbols
+        uses: actions/upload-artifact@v7
+        with:
+          name: mistserver-linux-arm64-debug
+          path: mistserver-linux-arm64-debug-${{ steps.version.outputs.tag }}.tar.gz
           compression-level: 0
 
   # ---------------------------------------------------------------------------
@@ -640,6 +680,18 @@ jobs:
         uses: actions/download-artifact@v8
         with:
           name: mistserver-linux-arm64
+          path: dist/
+
+      - name: Download linux/amd64 debug symbols
+        uses: actions/download-artifact@v8
+        with:
+          name: mistserver-linux-amd64-debug
+          path: dist/
+
+      - name: Download linux/arm64 debug symbols
+        uses: actions/download-artifact@v8
+        with:
+          name: mistserver-linux-arm64-debug
           path: dist/
 
       - name: Download signed darwin/arm64 binary
