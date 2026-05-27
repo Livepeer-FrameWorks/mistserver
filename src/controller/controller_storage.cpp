@@ -686,10 +686,8 @@ namespace Controller{
     }
     if (proxy_written != tmpProxy){
       proxy_written = tmpProxy;
-      static IPC::sharedPage mistProxOut(SHM_PROXY, proxy_written.size() + 100, true, false);
+      static IPC::sharedPage mistProxOut(SHM_PROXY, proxy_written.size() + 100, false, false);
       addShmPage(SHM_PROXY);
-      mistProxOut.close();
-      mistProxOut.init(SHM_PROXY, proxy_written.size() + 100, false, false);
       if (mistProxOut){
         Util::RelAccX tmpA(mistProxOut.mapped, false);
         if (tmpA.isReady()){tmpA.setReload();}
@@ -703,12 +701,12 @@ namespace Controller{
         return;
       }else{
         Util::RelAccX A(mistProxOut.mapped, false);
-        A.addField("proxy_data", RAX_STRING, proxy_written.size());
-        // write config
-        memcpy(A.getPointer("proxy_data"), proxy_written.data(), proxy_written.size());
+        A.addField("proxy_data", RAX_STRING, proxy_written.size() + 1);
+        A.setString("proxy_data", proxy_written);
         A.setRCount(1);
         A.setEndPos(1);
         A.setReady();
+        mistProxOut.master = false;
       }
     }
     static JSON::Value proto_written;
