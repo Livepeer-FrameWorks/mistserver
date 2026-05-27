@@ -1099,14 +1099,19 @@ namespace Mist{
       IPC::sharedPage rPage(SHM_PROXY, 0, false, false);
       if (rPage){
         Util::RelAccX rAcc(rPage.mapped);
-        std::string trustedList(rAcc.getPointer("proxy_data"), rAcc.getSize("proxy_data"));
-        size_t pos = 0;
-        size_t endPos;
-        while (pos != std::string::npos){
-          endPos = trustedList.find(" ", pos);
-          trustedProxies.insert(trustedList.substr(pos, endPos - pos));
-          pos = endPos;
-          if (pos != std::string::npos){pos++;}
+        if (rAcc.isReady() && rAcc.hasField("proxy_data")) {
+          char *proxyData = rAcc.getPointer("proxy_data");
+          if (proxyData) {
+            std::string trustedList(proxyData, rAcc.getSize("proxy_data"));
+            size_t pos = 0;
+            size_t endPos;
+            while (pos != std::string::npos) {
+              endPos = trustedList.find(" ", pos);
+              trustedProxies.insert(trustedList.substr(pos, endPos - pos));
+              pos = endPos;
+              if (pos != std::string::npos) { pos++; }
+            }
+          }
         }
       }
     }
