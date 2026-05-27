@@ -510,6 +510,10 @@ void segmentRejectedTrigger(Mist::preparedSegment & mySeg, const std::string & b
   insertTurn = (insertTurn + 1) % PRESEG_COUNT;
 }
 
+bool fatalUploadStatus(uint32_t status) {
+  return status == 401 || status == 403 || status == 503;
+}
+
 void uploadThread(size_t myNum){
   Mist::preparedSegment & mySeg = Mist::presegs[myNum];
   HTTP::Downloader upper;
@@ -643,6 +647,12 @@ void uploadThread(size_t myNum){
           //Failure due to non-200/422 status code
           ++statFailN200;
           WARN_MSG("Failed to upload %zu bytes to %s in %.2f ms: %" PRIu32 " %s", mySeg.data.size(), target.getUrl().c_str(), uplTime/1000.0, upper.getStatusCode(), upper.getStatusText().c_str());
+          if (fatalUploadStatus(upper.getStatusCode())) {
+            procExit.log(ER_FORMAT_SPECIFIC, 2, "Livepeer upload fatal HTTP status %" PRIu32 " %s",
+                         upper.getStatusCode(), upper.getStatusText().c_str());
+            conf.is_active = false;
+            return;
+          }
         }
       } else {
         //other failures and aborted uploads
