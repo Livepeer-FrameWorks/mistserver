@@ -90,7 +90,11 @@ namespace MP4{
     uint32_t sampleDuration;
     uint32_t sampleSize;
     uint32_t sampleFlags;
-    uint32_t sampleOffset;
+    // Per ISO/IEC 14496-12 trun version 1, sample_composition_time_offset is
+    // a signed 32-bit int; version 0 is unsigned but in practice values never
+    // exceed int32 max. Storing as signed lets negative composition offsets
+    // (PTS-earlier-than-DTS) propagate correctly instead of becoming huge.
+    int32_t sampleOffset;
   };
   enum trunflags{
     trundataOffset = 0x00000001,

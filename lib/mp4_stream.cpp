@@ -62,6 +62,7 @@ namespace MP4{
     hasOffsets = false;
     hasKeys = false;
     isVideo = false;
+    cttsRebaseShift = 0;
     sttsBox.clear();
     cttsBox.clear();
     stszBox.clear();
@@ -122,6 +123,30 @@ namespace MP4{
 
     cttsBox.copyFrom(stblBox.getChild<CTTS>());
     hasOffsets = cttsBox.isType("ctts");
+    cttsRebaseShift = 0;
+    if (hasOffsets) {
+      // CTTSv1 allows negative sample_composition_time_offset (e.g. QuickTime
+      // screen recordings, B-frame-reordered streams where the first sample is
+      // intended to display before its DTS). MPEG-TS PES requires PTS >= DTS,
+      // so we compute the minimum offset across the track and bias all sample
+      // offsets uniformly so the output never sees a negative. This is the
+      // same "uniform shift" approach ffmpeg's avoid_negative_ts=auto and
+      // GStreamer's GstSegment offset use; relative timing between frames is
+      // preserved, only the absolute presentation timeline shifts forward.
+      uint32_t eCnt = cttsBox.getEntryCount();
+      int32_t minOff = 0;
+      for (uint32_t i = 0; i < eCnt; ++i) {
+        int32_t off = cttsBox.getCTTSEntry(i).sampleOffset;
+        if (off < minOff) { minOff = off; }
+      }
+      if (minOff < 0 && minOff > INT32_MIN) {
+        cttsRebaseShift = -minOff;
+        uint64_t shiftMs = ((int64_t)cttsRebaseShift * 1000) / (int64_t)timeScale;
+        INFO_MSG("Track %zu has negative composition offsets (min=%" PRId32 " in timeScale=%" PRIu64
+                 "); rebasing all PTS forward by %" PRIu64 " ms",
+                 trackId, minOff, timeScale, shiftMs);
+      }
+    }
 
     stszBox.copyFrom(stblBox.getChild<STSZ>());
 
@@ -358,7 +383,12 @@ namespace MP4{
             offsetSample = nextSampleIndex;
             ++offsetIndex;
           }
-          *timeOffset = (entry.sampleOffset * 1000) / timeScale;
+          // timeScale is uint64_t; cast it to signed so a negative sampleOffset
+          // doesn't get reinterpreted as a huge unsigned value during division.
+          // cttsRebaseShift is added in timeScale units so the converted ms
+          // value is also rebased; combined result is guaranteed >= 0 since
+          // cttsRebaseShift == -min(sampleOffset) over the whole track.
+          *timeOffset = (((int64_t)entry.sampleOffset + cttsRebaseShift) * 1000) / (int64_t)timeScale;
         }else{
           // Default to zero if there are no offsets for this track
           *timeOffset = 0;
@@ -515,7 +545,16 @@ namespace MP4{
             *byteLen = si.sampleSize;
           }
           if (timeOffset){
-            *timeOffset = (si.sampleOffset * 1000) / timeScale;
+            // Same signedness fix as the non-fragmented CTTS path above:
+            // si.sampleOffset can be negative (trun v1), and uint64_t timeScale
+            // would otherwise cause sign-extending reinterpretation.
+            // NOTE: unlike the moov branch, no rebase happens here. fmp4 has no
+            // global lookahead (next moof's offsets are not yet known in live
+            // ingest, and pre-scanning every moof at startup is expensive for
+            // VOD). Negative offsets that survive to the muxer are caught and
+            // clamped (with WARN) at the TS output layer — see
+            // src/output/output_ts_base.cpp.
+            *timeOffset = ((int64_t)si.sampleOffset * 1000) / (int64_t)timeScale;
           }
           if (keyFrame){
             *keyFrame = !(si.sampleFlags & MP4::noKeySample);

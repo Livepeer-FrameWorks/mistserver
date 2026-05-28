@@ -94,6 +94,12 @@ namespace MP4{
     std::deque<TRAF> trafs; ///< Current traf boxes, if any
     bool stco64; // 64 bit chunk offsets?
     bool hasOffsets; ///< Are time offsets present?
+    /// Most-negative sample_composition_time_offset in the CTTS box, in
+    /// timeScale units. Used to rebase all sample offsets to non-negative
+    /// values so the output can produce spec-valid MPEG-TS PES timestamps
+    /// (PES requires PTS >= DTS, MP4 CTTSv1 doesn't). Zero or positive when
+    /// no rebase is required.
+    int32_t cttsRebaseShift;
     bool hasKeys; ///< Are keyframes listed?
     bool isVideo; ///< Is this a video track?
     bool isCompatible; ///< True if Mist supports this track type
