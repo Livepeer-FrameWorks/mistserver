@@ -266,8 +266,7 @@ namespace Mist{
       myPos.duration = trunBox.getSampleInformation(i).sampleDuration;
       myPos.size = trunBox.getSampleInformation(i).sampleSize;
       if (trunBox.getFlags() & MP4::trunsampleOffsets){
-        unsigned int offsetConv = trunBox.getSampleInformation(i).sampleOffset;
-        myPos.offset = *(int *)&offsetConv;
+        myPos.offset = trunBox.getSampleInformation(i).sampleOffset;
       }else{
         myPos.offset = 0;
       }
