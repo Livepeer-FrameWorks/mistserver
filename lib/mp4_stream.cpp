@@ -62,6 +62,10 @@ namespace MP4{
     hasOffsets = false;
     hasKeys = false;
     isVideo = false;
+    isCompatible = false;
+    // 0 is also the sentinel value our read() guards on: any TrackHeader that
+    // was never read() into stays unusable rather than dividing by zero.
+    timeScale = 0;
     cttsRebaseShift = 0;
     sttsBox.clear();
     cttsBox.clear();
@@ -105,6 +109,9 @@ namespace MP4{
   void TrackHeader::read(TRAK &trakBox){
     vidWidth = vidHeight = audChannels = audRate = audSize = 0;
     codec.clear();
+    // Default to incompatible — codec-detection blocks below promote to true.
+    // Also ensures we stay incompatible if we early-return below.
+    isCompatible = false;
 
     MDIA mdiaBox = trakBox.getChild<MDIA>();
     timeScale = mdiaBox.getChild<MDHD>().getTimeScale();
@@ -115,6 +122,14 @@ namespace MP4{
     if (tkhd.getWidth()){
       vidWidth = tkhd.getWidth();
       vidHeight = tkhd.getHeight();
+    }
+
+    // All time/offset math in this file divides by timeScale; a zero value
+    // (MDHD missing or malformed) would crash later with SIGFPE. Reject the
+    // track up front so input_mp4's compatible() check skips it cleanly.
+    if (!timeScale) {
+      WARN_MSG("Track %zu has timeScale=0 (MDHD missing or malformed); marking track as unusable", trackId);
+      return;
     }
 
     STBL stblBox = mdiaBox.getChild<MINF>().getChild<STBL>();
@@ -174,8 +189,6 @@ namespace MP4{
     }else{
       INFO_MSG("Unsupported handler: %s", handler.c_str());
     }
-
-    isCompatible = false;
 
     if (sType == "avc1" || sType == "h264" || sType == "mp4v"){
       codec = "H264";
