@@ -14,6 +14,7 @@ const char * getStateString(uint8_t state){
   case STRMSTAT_WAIT: return "Stream is waiting for data";
   case STRMSTAT_READY: return "Stream is online";
   case STRMSTAT_SHUTDOWN: return "Stream is shutting down";
+  case STRMSTAT_OFFLINE: return "Stream is offline";
   case STRMSTAT_INVALID: return "Stream status is invalid?!";
   default: return "Stream status is unknown?!";
   }
@@ -112,8 +113,8 @@ int main(int argc, char **argv){
   uint8_t state = Util::getStreamStatus(Util::streamName);
   INFO_MSG("Current stream status: %s", getStateString(state));
   uint64_t startTime = Util::bootMS();
-  if (state != STRMSTAT_OFF){INFO_MSG("Attempting clean shutdown...");}
-  while (state != STRMSTAT_OFF && Util::bootMS() < startTime + 5000) {
+  if (state != STRMSTAT_OFF && state != STRMSTAT_OFFLINE) { INFO_MSG("Attempting clean shutdown..."); }
+  while (state != STRMSTAT_OFF && state != STRMSTAT_OFFLINE && Util::bootMS() < startTime + 5000) {
     uint64_t pid;
     pid = getPidFromPage(SHM_STREAM_IPID);
     if (pid > 1) {

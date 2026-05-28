@@ -492,12 +492,13 @@ namespace Mist{
       json_resp["redirected"].append(streamName);
     }
     // Boot stream if not alive (matches websocket handler behavior at line 1184)
-    if (!Util::streamAlive(streamName)){Util::startInput(streamName, "", true, false);}
+    bool wasOffline = false;
+    if (!Util::streamAlive(streamName)) { Util::startInput(streamName, "", true, false, {}, NULL, &wasOffline); }
     uint8_t streamStatus = Util::getStreamStatus(streamName);
     uint8_t streamStatusPerc = Util::getStreamStatusPercentage(streamName);
     if (streamStatus != STRMSTAT_READY){
-      // If we haven't rewritten the stream name yet to a fallback, attempt to do so
-      if (origStreamName == streamName){
+      // wasOffline bypasses the fallback chain; see STRMSTAT_OFFLINE in defines.h.
+      if (!wasOffline && origStreamName == streamName) {
         // If stream is configured, use fallback stream setting, if set.
         JSON::Value strCnf = Util::getStreamConfig(streamName);
         if (strCnf && strCnf["fallback_stream"].asStringRef().size()){
@@ -537,12 +538,14 @@ namespace Mist{
         }
         origStreamName.clear(); // no fallback, don't check again
       }
+      if (wasOffline) { streamStatus = STRMSTAT_OFFLINE; }
       switch (streamStatus){
       case STRMSTAT_OFF: json_resp["error"] = "Stream is offline"; break;
       case STRMSTAT_INIT: json_resp["error"] = "Stream is initializing"; break;
       case STRMSTAT_BOOT: json_resp["error"] = "Stream is booting"; break;
       case STRMSTAT_WAIT: json_resp["error"] = "Stream is waiting for data"; break;
       case STRMSTAT_SHUTDOWN: json_resp["error"] = "Stream is shutting down"; break;
+      case STRMSTAT_OFFLINE: json_resp["error"] = "Stream is offline"; break;
       case STRMSTAT_INVALID: json_resp["error"] = "Stream status is invalid?!"; break;
       default: json_resp["error"] = "Stream status is unknown?!"; break;
       }

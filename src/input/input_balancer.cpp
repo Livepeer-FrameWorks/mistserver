@@ -128,11 +128,25 @@ namespace Mist{
     }
 
     if (dl.get(url)){
-      HTTP::URL newUrl(dl.data());
+      std::string response = dl.data();
+      if (response.substr(0, 8) == "offline:") {
+        INFO_MSG("Load balancer reports stream %s offline", streamName.c_str());
+        Util::setStreamOffline(streamName);
+        Util::reportAttemptOffline();
+        return 0;
+      }
+      // Empty body is treated as offline (forward-compatible signal).
+      if (response.empty()) {
+        INFO_MSG("Load balancer returned empty response for %s - marking offline", streamName.c_str());
+        Util::setStreamOffline(streamName);
+        Util::reportAttemptOffline();
+        return 0;
+      }
+      HTTP::URL newUrl(response);
       if (Socket::isLocalhost(newUrl.host)){
         WARN_MSG("Load balancer returned a local address - ignoring");
       }else{
-        source = dl.data();
+        source = response;
       }
     }
 
@@ -141,8 +155,24 @@ namespace Mist{
       return 1;
     }
 
+    // Distinguish "viewer can't boot a provider-only input (e.g. push://)" -
+    // a legitimate offline outcome - from "no matching input at all" - a
+    // genuine failure that should fall through to fallback_stream.
+    bool isProv = (getenv("MISTPROVIDER") != NULL);
+    if (!Util::getInputBySource(source, isProv)) {
+      if (!isProv && Util::getInputBySource(source, true)) {
+        INFO_MSG("Source %s only bootable as provider; marking %s offline for non-provider context", source.c_str(),
+                 streamName.c_str());
+        Util::setStreamOffline(streamName);
+        Util::reportAttemptOffline();
+        return 0;
+      }
+      FAIL_MSG("No compatible input for source %s - falling back", source.c_str());
+      return 1;
+    }
+
     // Attempt to boot the source we got
-    Util::startInput(streamName, source, false, getenv("MISTPROVIDER"));
+    Util::startInput(streamName, source, false, isProv);
     return 1;
   }
 

@@ -128,6 +128,9 @@ namespace Controller{
       data["online"] = 2;
       data["error"] = "Shutting down...";
       return;
+    case STRMSTAT_OFFLINE:
+      // Fall through to URL/always_on restart, same as OFF.
+      break;
     default:
       // Unknown state?
       data["error"] = "Unrecognized stream state";

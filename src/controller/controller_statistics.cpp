@@ -1624,6 +1624,7 @@ void Controller::fillActive(JSON::Value &req, JSON::Value &rep){
             case STRMSTAT_WAIT: F = "Waiting for data"; break;
             case STRMSTAT_READY: F = "Online"; break;
             case STRMSTAT_SHUTDOWN: F = "Shutting down"; break;
+            case STRMSTAT_OFFLINE: F = "Offline"; break;
             default: F = "Invalid / Unknown"; break;
           }
         } else if (j->asStringRef() == "pid") {

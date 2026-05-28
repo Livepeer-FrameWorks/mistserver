@@ -987,7 +987,7 @@ int main(int argc, char *argv[]){
     }
     uint8_t streamStat = Util::getStreamStatus(srcStrm);
     size_t sleeps = 0;
-    while (++sleeps < 2400 && streamStat != STRMSTAT_OFF && streamStat != STRMSTAT_READY){
+    while (++sleeps < 2400 && streamStat != STRMSTAT_OFF && streamStat != STRMSTAT_OFFLINE && streamStat != STRMSTAT_READY) {
       if (sleeps >= 16 && (sleeps % 4) == 0){
         INFO_MSG("Waiting for stream to boot... (" PRETTY_PRINT_TIME " / " PRETTY_PRINT_TIME ")", PRETTY_ARG_TIME(sleeps/4), PRETTY_ARG_TIME(2400/4));
       }
