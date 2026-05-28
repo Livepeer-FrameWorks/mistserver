@@ -1,0 +1,38 @@
+# Local pre-commit hooks. Mirrors the formatting check from
+# .github/workflows/lint.yml so CI doesn't catch what could've been caught
+# locally.
+#
+# Setup (one-time, per clone):
+#   brew install lefthook         # macOS
+#   apt install lefthook          # Debian/Ubuntu
+#   lefthook install              # writes .git/hooks/* in this repo
+#
+# Bypass for a single commit if absolutely needed:
+#   LEFTHOOK=0 git commit ...
+#
+# CI runs clang-format-21; local versions may differ slightly. If you see
+# disagreements between local and CI, install clang-format-21 explicitly.
+
+pre-commit:
+  parallel: true
+  commands:
+    clang-format:
+      tags: format
+      # Only run on tracked C/C++ sources, exclude vendored/generated trees.
+      glob: "*.{cpp,h,hpp}"
+      exclude:
+        - "lsp/**"
+        - "embed/**"
+        - "subprojects/**"
+        - "**/*.js.h"
+        - "**/*.css.h"
+      # git clang-format (no <commit> arg) formats only the lines in the
+      # staged diff against HEAD, not whole files. Matches what CI checks at
+      # lint.yml:150. --force allows it to run even with unstaged changes
+      # present in the working tree.
+      run: git clang-format --force --extensions cpp,h,hpp -- {staged_files}
+      # lefthook re-stages any files the command modified.
+      stage_fixed: true
+      fail_text: |
+        clang-format reformatted staged lines. Review with `git diff --cached`
+        and re-commit. To skip (not recommended): LEFTHOOK=0 git commit ...
