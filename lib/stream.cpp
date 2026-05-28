@@ -603,13 +603,38 @@ bool Util::checkStreamKey(std::string & streamName) {
 /// If no, loads up the server configuration and attempts to start the given stream according to
 /// current configuration. At this point, fails and aborts if MistController isn't running.
 bool Util::startInput(std::string streamname, std::string filename, bool forkFirst, bool isProvider,
-                      const std::map<std::string, std::string> &overrides, pid_t *spawn_pid){
+                      const std::map<std::string, std::string> & overrides, pid_t *spawn_pid, bool *outOffline) {
   sanitizeName(streamname);
   if (streamname.size() > 100){
     FAIL_MSG("Stream opening denied: %s is longer than 100 characters (%zu).", streamname.c_str(),
              streamname.size());
     return false;
   }
+  clearStreamOffline(streamname);
+
+  // Per-attempt offline signal via SHM page advertised in env var. Race-free
+  // alternative to reading STRMSTAT_OFFLINE post-call; see Util::reportAttemptOffline.
+  struct AttemptResultGuard {
+      IPC::sharedPage page;
+      bool *flag = NULL;
+      ~AttemptResultGuard() {
+        if (flag) {
+          if (page && page.mapped[0] == 1) { *flag = true; }
+          unsetenv("MIST_OFFLINE_RESULT_PAGE");
+          page.master = true;
+        }
+      }
+  } attempt;
+  attempt.flag = outOffline;
+  if (outOffline) {
+    *outOffline = false;
+    char attemptPageName[NAME_BUFFER_SIZE];
+    snprintf(attemptPageName, NAME_BUFFER_SIZE, "/MstAttRes_%d_%s", getpid(), streamname.c_str());
+    attempt.page.init(attemptPageName, 1, true, false);
+    if (attempt.page) { attempt.page.mapped[0] = 0; }
+    setenv("MIST_OFFLINE_RESULT_PAGE", attemptPageName, 1);
+  }
+
   // Check if the stream is already active.
   // If yes, don't activate again to prevent duplicate inputs.
   // It's still possible a duplicate starts anyway, this is caught in the inputs initializer.
@@ -618,8 +643,8 @@ bool Util::startInput(std::string streamname, std::string filename, bool forkFir
   uint8_t streamStat = getStreamStatus(streamname);
   // Wait for a maximum of 240 x 250ms sleeps = 60 seconds
   size_t sleeps = 0;
-  while (++sleeps < 240 && streamStat != STRMSTAT_OFF && streamStat != STRMSTAT_READY &&
-         (!isProvider || streamStat != STRMSTAT_WAIT)){
+  while (++sleeps < 240 && streamStat != STRMSTAT_OFF && streamStat != STRMSTAT_OFFLINE &&
+         streamStat != STRMSTAT_READY && (!isProvider || streamStat != STRMSTAT_WAIT)) {
     if (streamStat == STRMSTAT_BOOT && overrides.count("throughboot")){break;}
     Util::sleep(250);
     streamStat = getStreamStatus(streamname);
@@ -1067,6 +1092,39 @@ uint8_t Util::getStreamStatusPercentage(const std::string &streamname){
   IPC::sharedPage streamStatus(pageName, 2, false, false);
   if (!streamStatus || streamStatus.len < 2){return 0;}
   return streamStatus.mapped[1];
+}
+
+/// Writes the status byte and clears the progress-percentage byte. Creates
+/// the page if missing.
+static void writeStreamState(const std::string & streamname, uint8_t status) {
+  char pageName[NAME_BUFFER_SIZE];
+  snprintf(pageName, NAME_BUFFER_SIZE, SHM_STREAM_STATE, streamname.c_str());
+  IPC::sharedPage p(pageName, 16, false, false);
+  if (!p) { p.init(pageName, 16, true, false); }
+  if (p) {
+    p.mapped[0] = status;
+    if (p.len >= 2) { p.mapped[1] = 0; }
+    p.master = false;
+  }
+}
+
+/// See STRMSTAT_OFFLINE in defines.h.
+void Util::setStreamOffline(const std::string & streamname) {
+  writeStreamState(streamname, STRMSTAT_OFFLINE);
+}
+
+/// Idempotent reset of STRMSTAT_OFFLINE back to STRMSTAT_OFF.
+void Util::clearStreamOffline(const std::string & streamname) {
+  if (Util::getStreamStatus(streamname) == STRMSTAT_OFFLINE) { writeStreamState(streamname, STRMSTAT_OFF); }
+}
+
+/// Child-side counterpart to startInput's outOffline parameter: writes to the
+/// per-attempt SHM page named in MIST_OFFLINE_RESULT_PAGE. No-op if unset.
+void Util::reportAttemptOffline() {
+  const char *pageName = getenv("MIST_OFFLINE_RESULT_PAGE");
+  if (!pageName || !*pageName) { return; }
+  IPC::sharedPage p(pageName, 1, false, false);
+  if (p) { p.mapped[0] = 1; }
 }
 
 /// Checks if a given user agent is allowed according to the given exception.

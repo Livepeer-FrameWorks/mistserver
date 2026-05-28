@@ -159,6 +159,7 @@ namespace Mist{
     virtual bool isRecording();
     virtual bool isFileTarget();
     virtual bool isPushing(){return pushing;};
+    virtual void serveOfflineResponse();
     std::string getExitTriggerPayload();
     void recEndTrigger();
     void outputEndTrigger();

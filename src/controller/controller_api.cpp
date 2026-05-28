@@ -102,6 +102,7 @@ void Controller::callStreamMeta(const std::string & stream, const DTSC::Meta & M
       case STRMSTAT_INIT: J["error"] = "Stream is initializing"; break;
       case STRMSTAT_WAIT: J["error"] = "Stream is waiting for data"; break;
       case STRMSTAT_SHUTDOWN: J["error"] = "Stream is shutting down"; break;
+      case STRMSTAT_OFFLINE: J["error"] = "Stream is offline"; break;
       case STRMSTAT_INVALID: J["error"] = "Stream status is invalid?!"; break;
       default: J["error"] = "Stream status is unknown?!"; break;
     }

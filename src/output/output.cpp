@@ -192,6 +192,21 @@ namespace Mist{
     return config->hasOption("target") && config->getString("target").size() && !pushing;
   }
 
+  /// Cleanly ends a connection when the stream is intentionally offline.
+  /// Differs from onFail() in that this is not an error: the stream exists
+  /// and may become available later. Connectors that can give the client a
+  /// protocol-level "retry later" hint (e.g. HLS) may override this; the
+  /// default just closes the connection so the player's own retry logic kicks
+  /// in.
+  void Output::serveOfflineResponse() {
+    INFO_MSG("Stream %s offline; ending connection cleanly", streamName.c_str());
+    Util::logExitReason(ER_CLEAN_EOF, "Stream offline");
+    isInitialized = false;
+    wantRequest = false;
+    parseData = false;
+    myConn.close();
+  }
+
   /// Called when stream initialization has failed.
   /// The standard implementation will set isInitialized to false and close the client connection,
   /// thus causing the process to exit cleanly.
@@ -255,6 +270,8 @@ namespace Mist{
       return; // abort - no stream to initialize...
     }
     reconnect();
+    // reconnect closes myConn on any internal termination; avoid double-failing.
+    if (!myConn) { return; }
     // if the connection failed, fail
     if (!meta || streamName.size() < 1){
       onFail("Could not connect to stream", true);
@@ -379,7 +396,12 @@ namespace Mist{
         return;
       }
     } else {
-      if (!Util::startInput(streamName, sourceOverride, true, isPushing())) {
+      bool wasOffline = false;
+      if (!Util::startInput(streamName, sourceOverride, true, isPushing(), {}, NULL, &wasOffline)) {
+        if (wasOffline) {
+          serveOfflineResponse();
+          return;
+        }
         // If stream is configured, use fallback stream setting, if set.
         JSON::Value strCnf = Util::getStreamConfig(streamName);
         if (strCnf && strCnf["fallback_stream"].asStringRef().size()){
@@ -419,7 +441,12 @@ namespace Mist{
         std::string origStream = streamName;
         streamName = newStrm;
         Util::setStreamName(streamName);
-        if (!Util::startInput(streamName, sourceOverride, true, isPushing())) {
+        bool fallbackWasOffline = false;
+        if (!Util::startInput(streamName, sourceOverride, true, isPushing(), {}, NULL, &fallbackWasOffline)) {
+          if (fallbackWasOffline) {
+            serveOfflineResponse();
+            return;
+          }
           onFail("Stream open failed (fallback stream for '" + origStream + "')", true);
           return;
         }
@@ -2687,15 +2714,31 @@ namespace Mist{
         return 1;
       }
       //every ~1 second, check if the stream is not offline
-      if (lastReceive + 1000 < thisBootMs && Util::getStreamStatus(streamName) == STRMSTAT_OFF){
-        if (M.getLive()){
-          Util::logExitReason(ER_CLEAN_EOF, "Live stream source shut down");
+      if (lastReceive + 1000 < thisBootMs) {
+        uint8_t s = Util::getStreamStatus(streamName);
+        if (s == STRMSTAT_OFFLINE) {
+          serveOfflineResponse();
           thisPacket.null();
           return 0;
-        }else if (!Util::startInput(streamName)){
-          Util::logExitReason(ER_UNKNOWN, "VoD stream source shut down and could not be restarted");
-          thisPacket.null();
-          return 0;
+        }
+        if (s == STRMSTAT_OFF) {
+          if (M.getLive()) {
+            Util::logExitReason(ER_CLEAN_EOF, "Live stream source shut down");
+            thisPacket.null();
+            return 0;
+          } else {
+            bool restartWasOffline = false;
+            if (!Util::startInput(streamName, "", true, false, {}, NULL, &restartWasOffline)) {
+              if (restartWasOffline) {
+                serveOfflineResponse();
+                thisPacket.null();
+                return 0;
+              }
+              Util::logExitReason(ER_UNKNOWN, "VoD stream source shut down and could not be restarted");
+              thisPacket.null();
+              return 0;
+            }
+          }
         }
       }
 
@@ -3058,7 +3101,7 @@ namespace Mist{
       if (twoTime <= oneTime + 100) {
         disconnect();
         INFO_MSG("Waiting for stream reset before attempting push input accept (%" PRIu64 " <= %" PRIu64 "+100)", twoTime, oneTime);
-        while (streamStatus != STRMSTAT_OFF && keepGoing()){
+        while (streamStatus != STRMSTAT_OFF && streamStatus != STRMSTAT_OFFLINE && keepGoing()) {
           userSelect.clear();
           trackSelectionChanged();
           Util::wait(250);
@@ -3071,10 +3114,11 @@ namespace Mist{
       INFO_MSG("Waiting for %s buffer to be ready... (%u)", streamName.c_str(), streamStatus);
       disconnect();
       streamStatus = Util::getStreamStatus(streamName);
-      if (streamStatus == STRMSTAT_OFF || streamStatus == STRMSTAT_WAIT || streamStatus == STRMSTAT_READY){
+      if (streamStatus == STRMSTAT_OFF || streamStatus == STRMSTAT_OFFLINE || streamStatus == STRMSTAT_WAIT ||
+          streamStatus == STRMSTAT_READY) {
         INFO_MSG("Reconnecting to %s buffer... (%u)", streamName.c_str(), streamStatus);
         reconnect();
-        if (streamStatus == STRMSTAT_OFF && !M) { break; }
+        if ((streamStatus == STRMSTAT_OFF || streamStatus == STRMSTAT_OFFLINE) && !M) { break; }
         streamStatus = Util::getStreamStatus(streamName);
       }
       if (((streamStatus != STRMSTAT_WAIT && streamStatus != STRMSTAT_READY) || !meta) && keepGoing()){

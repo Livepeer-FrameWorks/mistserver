@@ -224,12 +224,20 @@ static inline void show_stackframe(){}
 #define SHM_STREAM_PPID "/MstPPID%s"   //%s stream name
 #define SHM_GLOBAL_CONF "/MstGlobalConfig"
 #define SHM_STREAMKEYS "/MstStrmKeys"
+// Stream state values stored at SHM_STREAM_STATE byte 0.
+// OFF vs OFFLINE:
+//   OFF      = generic inactive (no input running, never booted, page absent).
+//              Outputs may try fallback_stream / DEFAULT_STREAM / restart.
+//   OFFLINE  = deliberate "configured but not currently servable" result from
+//              a start attempt. Outputs clean-disconnect and skip the fallback
+//              chain for that attempt.
 #define STRMSTAT_OFF 0
 #define STRMSTAT_INIT 1
 #define STRMSTAT_BOOT 2
 #define STRMSTAT_WAIT 3
 #define STRMSTAT_READY 4
 #define STRMSTAT_SHUTDOWN 5
+#define STRMSTAT_OFFLINE 6
 #define STRMSTAT_INVALID 255
 
 #define SHM_JWK "/MstJWK"
