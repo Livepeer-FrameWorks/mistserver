@@ -514,10 +514,19 @@ bool fatalUploadStatus(uint32_t status) {
   return status == 401 || status == 403 || status == 503;
 }
 
+// Trip the existing PROCESS_EXIT fallback if Livepeer rejects this many
+// consecutive segments. A single 422 is a normal "this broadcaster doesn't
+// want this segment" signal; the existing per-segment retry handles that.
+// Sustained 422s mean Mist is producing input the network universally
+// rejects (e.g. a TS encoder bug or an unsupported codec) — exiting here
+// lets the orchestrator fall back to local transcoding instead of spinning.
+static const uint32_t MAX_CONSECUTIVE_422 = 5;
+
 void uploadThread(size_t myNum){
   Mist::preparedSegment & mySeg = Mist::presegs[myNum];
   HTTP::Downloader upper;
   bool was422 = false;
+  uint32_t consecutive422 = 0;
   std::string prevURL;
   while (conf.is_active){
     // Block until source thread has prepared this slot. Time spent here counts
@@ -557,6 +566,7 @@ void uploadThread(size_t myNum){
         if (upper.getStatusCode() == 200){
           MEDIUM_MSG("Uploaded %zu bytes (time %" PRIu64 "-%" PRIu64 " = %" PRIu64 " ms) to %s in %.2f ms", mySeg.data.size(), mySeg.time, mySeg.time+mySeg.segDuration, mySeg.segDuration, target.getUrl().c_str(), uplTime/1000.0);
           was422 = false;
+          consecutive422 = 0;
           prevURL.clear();
           mySeg.fullyWritten = false;
           {
@@ -632,7 +642,14 @@ void uploadThread(size_t myNum){
         }else if (upper.getStatusCode() == 422){
           //segment rejected by broadcaster node; try a different broadcaster at most once and keep track
           ++statFailN200;
+          ++consecutive422;
           WARN_MSG("Rejected upload of %zu bytes to %s after %.2f ms: %" PRIu32 " %s", mySeg.data.size(), target.getUrl().c_str(), uplTime/1000.0, upper.getStatusCode(), upper.getStatusText().c_str());
+          if (consecutive422 >= MAX_CONSECUTIVE_422) {
+            procExit.log(ER_FORMAT_SPECIFIC, 2,
+                         "Livepeer: %" PRIu32 " consecutive segment rejections (422) — falling back", consecutive422);
+            conf.is_active = false;
+            return;
+          }
           if (was422){
             //second error in a row, fire off LIVEPEER_SEGMENT_REJECTED trigger
             segmentRejectedTrigger(mySeg, prevURL, target.getUrl());
