@@ -203,7 +203,26 @@ namespace Mist{
         const uint32_t MAX_PES_SIZE = 65490 - 13;
         uint32_t ThisNaluSize = 0;
         uint32_t i = 0;
-        uint64_t offset = thisPacket.getInt("offset") * 90;
+        // MPEG-TS PES requires PTS >= DTS. The input layer is expected to have
+        // rebased any negative composition offsets to non-negative before they
+        // reach us (see TrackHeader::cttsRebaseShift in lib/mp4_stream.cpp for
+        // the non-fragmented MP4 path). For inputs that don't preflight — e.g.
+        // fragmented MP4 in live ingest where future fragments aren't visible
+        // yet — we clamp negatives here and WARN loudly so the gap is
+        // discoverable rather than silent. DTSC's getInt returns uint64_t but
+        // the field is populated from a signed int64, so cast back.
+        int64_t sOffset = (int64_t)thisPacket.getInt("offset");
+        if (sOffset < 0) {
+          static bool warnedNegOffset = false;
+          if (!warnedNegOffset) {
+            warnedNegOffset = true;
+            WARN_MSG("Negative PES offset %" PRId64
+                     " ms on track %zu — clamping to 0 (input layer did not rebase; further occurrences suppressed)",
+                     sOffset, thisIdx);
+          }
+          sOffset = 0;
+        }
+        uint64_t offset = (uint64_t)sOffset * 90;
 
         bs.clear();
         TS::Packet::getPESVideoLeadIn(bs,
