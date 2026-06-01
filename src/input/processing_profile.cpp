@@ -4,12 +4,6 @@
 
 namespace Mist {
 
-  bool isProcessingStreamName(const std::string & streamName) {
-    if (streamName == "processing") { return true; }
-    // "processing+<hash>" wildcard variant
-    return streamName.rfind("processing+", 0) == 0;
-  }
-
   ProcessingProfile defaultProcessingProfile() {
     return {1, 1, PP_KIND_UNKNOWN, "default"};
   }
