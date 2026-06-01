@@ -1,6 +1,6 @@
-# Local pre-commit hooks. Mirrors the formatting check from
-# .github/workflows/lint.yml so CI doesn't catch what could've been caught
-# locally.
+# Local hooks for formatting. Pre-commit formats the staged C/C++ lines.
+# Pre-push runs the same changed-line diff gate as .github/workflows/lint.yml
+# so CI doesn't catch what could've been caught locally.
 #
 # Setup (one-time, per clone):
 #   brew install lefthook         # macOS
@@ -27,12 +27,42 @@ pre-commit:
         - "**/*.js.h"
         - "**/*.css.h"
       # git clang-format (no <commit> arg) formats only the lines in the
-      # staged diff against HEAD, not whole files. Matches what CI checks at
-      # lint.yml:150. --force allows it to run even with unstaged changes
-      # present in the working tree.
+      # staged diff against HEAD, not whole files. The pre-push hook below is
+      # the CI-equivalent guard over the full pushed commit range.
       run: git clang-format --force --extensions cpp,h,hpp -- {staged_files}
       # lefthook re-stages any files the command modified.
       stage_fixed: true
       fail_text: |
         clang-format reformatted staged lines. Review with `git diff --cached`
         and re-commit. To skip (not recommended): LEFTHOOK=0 git commit ...
+
+pre-push:
+  parallel: true
+  commands:
+    clang-format:
+      tags: format
+      run: |
+        base="${LEFTHOOK_FORMAT_BASE:-}"
+        if [ -z "$base" ]; then
+          branch="$(git symbolic-ref -q HEAD)"
+          upstream="$(git for-each-ref --format='%(upstream:short)' "$branch")"
+          if [ -n "$upstream" ]; then
+            base="$(git merge-base HEAD "$upstream")"
+          else
+            base="HEAD~1"
+          fi
+        fi
+
+        output="$(git clang-format --diff "$base" HEAD --extensions cpp,h,hpp -- \
+          ':!lsp/' ':!embed/' ':!subprojects/' 2>&1 || true)"
+
+        if [ "$output" = "no modified files to format" ] || \
+           [ "$output" = "clang-format did not modify any files" ] || \
+           [ -z "$output" ]; then
+          exit 0
+        fi
+
+        printf '%s\n\n' "$output"
+        printf '%s\n' "clang-format found formatting issues in changed lines."
+        printf '%s\n' "Fix with: git clang-format --force $base --extensions cpp,h,hpp -- ':!lsp/' ':!embed/' ':!subprojects/'"
+        exit 1
