@@ -174,7 +174,7 @@ namespace Mist{
     if (readyTracks) { *readyTracks = 0; }
     if (totalTracks) { *totalTracks = 0; }
     if (!M || !M.getLive() || !isRecording() || !isFileTarget() || !clusterEnd) { return true; }
-    if (processingControlledRealtimeSelectionEnded()) { return true; }
+    bool processControlledRealtimeEnded = processingControlledRealtimeSelectionEnded();
 
     meta.reloadReplacedPagesIfNeeded();
     for (std::map<size_t, Comms::Users>::iterator it = userSelect.begin(); it != userSelect.end(); ++it) {
@@ -191,6 +191,10 @@ namespace Mist{
         continue;
       }
       if (!M.isClaimed(tid) && M.getLastms(tid) < clusterEnd) {
+        if (readyTracks) { ++(*readyTracks); }
+        continue;
+      }
+      if (processControlledRealtimeEnded && M.getLastms(tid) < clusterEnd) {
         if (readyTracks) { ++(*readyTracks); }
         continue;
       }

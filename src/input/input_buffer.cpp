@@ -947,6 +947,7 @@ namespace Mist{
   }
   void InputBuffer::userOnDisconnect(size_t id){
     if (processUsers.count(id)) {
+      pid_t procPid = users.getPid(id);
       if (meta.isClaimed(processUsers[id])) {
         INFO_MSG("Track %zu lost its process, but is still claimed! Reclaiming for resume...", processUsers[id]);
         meta.breakClaim(processUsers[id]);
@@ -954,6 +955,7 @@ namespace Mist{
         INFO_MSG("Track %zu lost its process and is now unclaimed, keeping it around for resume", processUsers[id]);
       }
       processUsers.erase(id);
+      processPidsWithUsers.erase(procPid);
       return;
     }
     if (sourceUsers.count(id)) {
@@ -1226,6 +1228,7 @@ namespace Mist{
     if (runningProcs.size()){
       for (it = runningProcs.begin(); it != runningProcs.end(); it++){
         if (!newProcs.count(it->first)){
+          processPidsWithUsers.erase(it->second);
           if (Util::Procs::isActive(it->second)){
             INFO_MSG("Stopping process %d: %s", it->second, it->first.c_str());
             Util::Procs::ignoreExitCode(it->second);
@@ -1335,12 +1338,14 @@ namespace Mist{
             WARN_MSG("Process `%s` (PID %d) exited with unrecoverable error (code %d: %s), disabling restart",
                      procType.c_str(), deadPid, exitCode, longReason.c_str());
             procHardFailed.insert(config);
+            processPidsWithUsers.erase(deadPid);
             runningProcs.erase(config);
             newProcs.erase(newProcs.begin());
             continue;
           }
 
           // Clean or retryable; clear the old PID entry and fall through to restart logic.
+          processPidsWithUsers.erase(deadPid);
           runningProcs.erase(config);
         }
 
