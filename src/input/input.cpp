@@ -1144,33 +1144,26 @@ namespace Mist{
     size_t idx;
     Comms::Connections statComm;
 
-    // Default feeder speed. For processing streams the InputBuffer-side
-    // controller is authoritative and publishes the real per-tick speed via
-    // streamStatus[8..15]; we trust whatever it writes there (read each
-    // iteration below). For non-processing streams that happen to set
-    // realtime=true, the operator's realtime_speed config is the cap.
-    //
-    // Default of 1x for processing streams is fine: the controller's first
-    // tick (within ~200ms of MistInBuffer starting) writes the profile's
-    // startSpeed and the feeder picks it up immediately on the next packet.
     uint64_t realtimeSpeed = 1;
-    bool isProcessing = isProcessingStreamName(streamName);
+    bool processControlledRealtime = false;
     {
       std::string strName = streamName.substr(0, (streamName.find_first_of("+ ")));
       char tmpBuf[NAME_BUFFER_SIZE];
       snprintf(tmpBuf, NAME_BUFFER_SIZE, SHM_STREAM_CONF, strName.c_str());
       Util::DTSCShmReader rStrmConf(tmpBuf);
       DTSC::Scan streamCfg = rStrmConf.getScan();
+      if (streamCfg && streamCfg.getMember("process_controlled_realtime")){
+        processControlledRealtime = streamCfg.getMember("process_controlled_realtime").asBool();
+      }
       if (streamCfg && streamCfg.getMember("realtime_speed")){
         realtimeSpeed = streamCfg.getMember("realtime_speed").asInt();
+        if (!processControlledRealtime && realtimeSpeed < 1){realtimeSpeed = 1;}
       }
     }
     if (realtimeSpeed > 1){
       INFO_MSG("Realtime speed set to %" PRIu64 "x", realtimeSpeed);
-    }else if (realtimeSpeed == 0){
-      INFO_MSG("Realtime speed set to uncapped");
-    } else if (isProcessing) {
-      INFO_MSG("Processing stream: deferring speed to controller (effectiveSpeed via streamStatus)");
+    }else if (processControlledRealtime) {
+      INFO_MSG("Process-controlled realtime: deferring speed to InputBuffer effectiveSpeed");
     }
 
     DTSC::Meta liveMeta(config->getString("streamname"), false);
@@ -1302,17 +1295,9 @@ namespace Mist{
         Util::logExitReason(ER_CLEAN_LIVE_BUFFER_REQ, "buffer requested shutdown");
         break;
       }
-      // Always pace processing streams via the controller's effectiveSpeed.
-      // realtime_speed=0 on a processing stream means "no operator-imposed
-      // cap on top of profile.maxSpeed"; NOT "feed as fast as possible and
-      // ignore the controller". For non-processing realtime streams the
-      // legacy semantic stands: realtime_speed=0 bypasses pacing entirely.
-      if (realtimeSpeed != 0 || isProcessing) {
-        // The InputBuffer-side controller is authoritative for processing
-        // streams: trust whatever it writes to streamStatus[8..15] regardless
-        // of whether it's higher or lower than the local fallback.
+      {
         uint64_t activeSpeed = (realtimeSpeed != 0) ? realtimeSpeed : 1;
-        if (streamStatus && streamStatus.len >= 16){
+        if (processControlledRealtime && streamStatus && streamStatus.len >= 16){
           uint64_t effectiveSpeed = 0;
           memcpy(&effectiveSpeed, streamStatus.mapped + 8, sizeof(uint64_t));
           if (effectiveSpeed > 0) { activeSpeed = effectiveSpeed; }

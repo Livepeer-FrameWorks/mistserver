@@ -55,7 +55,7 @@ namespace Mist{
     void userOnActive(size_t id);
     void userOnDisconnect(size_t id);
     void userLeadOut();
-    bool hasProcessingDrainConsumers() const;
+    bool hasProcessDrainConsumers() const;
     // This is used for an ugly fix to prevent metadata from disappearing in some cases.
     std::map<size_t, std::string> initData;
 
@@ -84,7 +84,6 @@ namespace Mist{
 
     // Per-instance processing profile (resolved from this stream's processes
     // array at startup; never mutates shared `processing.*` config).
-    bool isProcessing; ///< stream name is "processing" or "processing+<hash>"
     bool procProfileResolved; ///< true once classifier has run
     bool negotiatedFullyResolved; ///< true once every running proc has reported its negotiatedKind at least once
     ProcessingProfile procProfile;

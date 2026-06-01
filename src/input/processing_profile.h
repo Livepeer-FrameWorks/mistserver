@@ -43,11 +43,6 @@ namespace Mist {
       const char *name; ///< short label for logs (static string, do not free)
   };
 
-  /// Return true if the stream name is a processing job (base "processing" or
-  /// "processing+<hash>" wildcard variant). Used as a guard before applying
-  /// processing-specific speed semantics.
-  bool isProcessingStreamName(const std::string & streamName);
-
   /// Classify the resolved processes array (as stored in stream config
   /// `processes`) into a ProcessingProfile. Pure: no SHM access, no logging.
   /// Empty array / unrecognized contents return the conservative default

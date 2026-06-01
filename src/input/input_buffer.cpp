@@ -40,7 +40,6 @@ namespace Mist{
     effectiveSpeed = 0;
     lastRateUpdateMs = 0;
     rampLockoutTicks = 0;
-    isProcessing = false;
     procProfileResolved = false;
     negotiatedFullyResolved = false;
     procProfile = defaultProcessingProfile();
@@ -561,17 +560,13 @@ namespace Mist{
     //   non-processing stream:
     //     legacy semantic: return early below unless opCap > 1.
     uint64_t realtimeSpeed;
-    if (isProcessing && procProfileResolved) {
+    if (procProfileResolved) {
       if (!opCapWasSet || opCap == 0) {
         realtimeSpeed = procProfile.maxSpeed;
       } else {
         realtimeSpeed = std::min(opCap, procProfile.maxSpeed);
       }
-    } else {
-      realtimeSpeed = opCap;
-      // Non-processing streams: legacy semantic. Bail unless operator set a real >1 cap.
-      if (realtimeSpeed <= 1) { return; }
-    }
+    } else { return; }
 
     // Read normalized pressure from every running proc and aggregate to a
     // single verdict for this stream. Tightest bottleneck wins:
@@ -762,7 +757,7 @@ namespace Mist{
     // After everyone has reported once (sticky flag), trust negotiated
     // fully. That's the only path that lets HW-AV legitimately raise the
     // cap above the SW-video static guess.
-    if (isProcessing && !negotiatedKinds.empty()) {
+    if (procProfileResolved && !negotiatedKinds.empty()) {
       ProcessingProfile fromKinds = classifyFromNegotiatedKinds(negotiatedKinds);
       // Denominator: non-inconsequential procs only. Inconsequential procs
       // that never publish a kind would otherwise block authoritative
@@ -808,7 +803,7 @@ namespace Mist{
     // profile.maxSpeed (>=1) above, and non-processing streams with cap <=1
     // early-returned at the top of the function.
     if (!effectiveSpeed) {
-      if (isProcessing && procProfileResolved) {
+      if (procProfileResolved) {
         effectiveSpeed = procProfile.startSpeed;
         if (effectiveSpeed > realtimeSpeed) { effectiveSpeed = realtimeSpeed; }
         if (effectiveSpeed < 1) { effectiveSpeed = 1; }
@@ -876,7 +871,6 @@ namespace Mist{
       lastProcTime = Util::bootMS();
       std::string fullName = config->getString("streamname");
       Util::sanitizeName(fullName);
-      if (!procProfileResolved) { isProcessing = isProcessingStreamName(fullName); }
       std::string strName = fullName.substr(0, fullName.find_first_of("+ "));
       char tmpBuf[NAME_BUFFER_SIZE];
       snprintf(tmpBuf, NAME_BUFFER_SIZE, SHM_STREAM_CONF, strName.c_str());
@@ -907,7 +901,8 @@ namespace Mist{
         // Stored on this InputBuffer instance, never written back to shared
         // `processing.*` config. That would be global across all processing+<hash>
         // jobs on the node.
-        if (isProcessing && !procProfileResolved && configuredProcesses.isArray() && configuredProcesses.size()) {
+        bool processControlledRealtime = streamCfg.getMember("process_controlled_realtime").asBool();
+        if (processControlledRealtime && !procProfileResolved && configuredProcesses.isArray() && configuredProcesses.size()) {
           procProfile = classifyProcessingProfile(configuredProcesses);
           procProfileResolved = true;
           INFO_MSG("Processing profile resolved: %s (start=%" PRIu64 "x, max=%" PRIu64 "x)",
@@ -959,7 +954,7 @@ namespace Mist{
       return;
     }
     if (sourceUsers.count(id)) {
-      if (!resumeMode && !isProcessing){
+      if (!resumeMode && !hasProcessDrainConsumers()){
         INFO_MSG("Disconnected track %zu", sourceUsers[id]);
         meta.reloadReplacedPagesIfNeeded();
         removeTrack(sourceUsers[id]);
@@ -974,8 +969,7 @@ namespace Mist{
       sourceUsers.erase(id);
     }
   }
-  bool InputBuffer::hasProcessingDrainConsumers() const{
-    if (!isProcessing){return false;}
+  bool InputBuffer::hasProcessDrainConsumers() const{
     if (processUsers.size()){return true;}
     return connectedUsers > sourceUsers.size();
   }
@@ -985,7 +979,7 @@ namespace Mist{
     }
     if (hasPush){everHadPush = true;}
     if (!hasPush && everHadPush && !resumeMode && config->is_active){
-      if (hasProcessingDrainConsumers()){
+      if (hasProcessDrainConsumers()){
         if (streamStatus){streamStatus.mapped[0] = STRMSTAT_WAIT;}
       }else{
         Util::logExitReason(ER_CLEAN_EOF, "source disconnected for non-resumable stream");
