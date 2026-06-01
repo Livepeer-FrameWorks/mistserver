@@ -27,5 +27,9 @@ namespace EBML{
 
   void sendSimpleBlock(Socket::Connection & C, const char *dataPointer, const size_t dataLen, size_t trackId,
                        uint64_t time, bool keyFrame, uint64_t clusterTime);
+  void appendElemHead(std::string & buffer, uint32_t ID, const uint64_t size);
+  void appendElemUInt(std::string & buffer, uint32_t ID, const uint64_t val);
+  void appendSimpleBlock(std::string & buffer, const char *dataPointer, const size_t dataLen, size_t trackId,
+                         uint64_t time, bool keyFrame, uint64_t clusterTime);
   uint32_t sizeSimpleBlock(uint64_t trackId, uint32_t dataSize);
 }// namespace EBML

@@ -1977,6 +1977,9 @@ namespace Mist{
       // Always loop at least every 2s, no matter what
       if (maxWait > 2000) { maxWait = 2000; }
 
+      bool processControlledRealtimeEnded = processingControlledRealtimeSelectionEnded();
+      if (processControlledRealtimeEnded && maxWait > 50) { maxWait = 50; }
+
       size_t task = evLp.await(maxWait);
       thisBootMs = Util::bootMS();
       stats();
@@ -1992,7 +1995,8 @@ namespace Mist{
         }
       }
       //if (task == std::string::npos){} // Continue signal received; no special handling needed
-      if (parseData && (!realTime || !nTime || nTime <= targetTime())) {
+      processControlledRealtimeEnded = processingControlledRealtimeSelectionEnded();
+      if (parseData && (processControlledRealtimeEnded || !realTime || !nTime || nTime <= targetTime())) {
         if (!isInitialized){
           initialize();
           if (!isInitialized){
@@ -2002,6 +2006,11 @@ namespace Mist{
         }
         if (!sought){initialSeek();}
         if (!sentHeader && keepGoing()){
+          if (!processingRecordingTracksReady()) {
+            suggestedWait = 100;
+            ++prepFalse;
+            continue;
+          }
           DONTEVEN_MSG("sendHeader");
           sendHeader();
         }
@@ -2474,8 +2483,11 @@ namespace Mist{
         return 2000;
       }
 
-      // Ensure we have the lookahead available
-      if (needsLookAhead && M.getLive() && M.getNowms(nxt.tid) < nxt.time + needsLookAhead){
+      bool processControlledRealtimeEnded = processingControlledRealtimeSelectionEnded();
+
+      // Ensure we have the lookahead available. Once a process-controlled source has ended,
+      // no more lookahead can arrive; drain the packets already present instead.
+      if (!processControlledRealtimeEnded && needsLookAhead && M.getLive() && M.getNowms(nxt.tid) < nxt.time + needsLookAhead) {
         int64_t waitTime = (nxt.time + needsLookAhead) - M.getNowms(nxt.tid);
         if (meta.reloadReplacedPagesIfNeeded()) { return 1; }
         return waitTime > 0 ? waitTime : 1;
@@ -2693,6 +2705,21 @@ namespace Mist{
       // If now-ms is higher than current, we know we can safely return this packet at least
       if (M.getNowms(nxt.tid) > nxt.time) { break; }
 
+      processControlledRealtimeEnded = processingControlledRealtimeSelectionEnded();
+      if (processControlledRealtimeEnded) {
+        INFO_MSG("Process-controlled realtime selected tracks reached end of stream");
+        thisPacket.null();
+        return 0;
+      }
+
+      if (M.getLive() && processingControlledRealtime() && !M.isClaimed(nxt.tid)) {
+        uint8_t streamState = Util::getStreamStatus(streamName);
+        if (streamState == STRMSTAT_WAIT || streamState == STRMSTAT_SHUTDOWN || streamState == STRMSTAT_OFF) {
+          dropTrack(nxt.tid, "process-controlled realtime track ended", false);
+          return 1;
+        }
+      }
+
       //In non-sync mode, shuffle the just-tried packet to the end of queue and retry
       if (!buffer.getSyncMode()){
         buffer.moveFirstToEnd();
@@ -2721,7 +2748,7 @@ namespace Mist{
           thisPacket.null();
           return 0;
         }
-        if (s == STRMSTAT_OFF) {
+        if (s == STRMSTAT_SHUTDOWN || s == STRMSTAT_OFF) {
           if (M.getLive()) {
             Util::logExitReason(ER_CLEAN_EOF, "Live stream source shut down");
             thisPacket.null();
@@ -3137,5 +3164,102 @@ namespace Mist{
       userSelect[*it].reload(streamName, *it);
     }
     trackSelectionChanged();
+  }
+
+  bool Output::processingProcessMatchesSource(const JSON::Value & proc) const {
+    if (!proc.isObject()) { return false; }
+
+    if (proc.isMember("tags_inhibit")) {
+      std::set<std::string> tags = Util::streamTags(streamName);
+      auto matchesTag = [&tags](const JSON::Value & J) {
+        if (!J.isString()) { return false; }
+        const std::string & tag = J.asStringRef();
+        if (tag.size() && tag[0] == '#') { return tags.count(tag.substr(1)) != 0; }
+        return tags.count(tag) != 0;
+      };
+      const JSON::Value & inhib = proc["tags_inhibit"];
+      if (inhib.isString() && matchesTag(inhib)) { return false; }
+      if (inhib.isArray()) {
+        jsonForEachConst (inhib, it) {
+          if (matchesTag(*it)) { return false; }
+        }
+      }
+    }
+
+    if (proc.isMember("source_track")) {
+      std::set<size_t> tracks = Util::findTracks(M, JSON::Value(), "", proc["source_track"].asStringRef());
+      if (!tracks.size()) { return false; }
+    }
+    if (proc.isMember("track_select")) {
+      std::set<size_t> tracks = Util::wouldSelect(M, proc["track_select"].asStringRef());
+      if (!tracks.size()) { return false; }
+    }
+    if (proc.isMember("track_inhibit")) {
+      std::set<size_t> tracks = Util::wouldSelect(
+        M, std::string("audio=none&video=none&subtitle=none&meta=none&") + proc["track_inhibit"].asStringRef());
+      if (tracks.size()) { return false; }
+    }
+    return true;
+  }
+
+  bool Output::processingControlledRealtime() const {
+    std::string strName = streamName.substr(0, streamName.find_first_of("+ "));
+    char tmpBuf[NAME_BUFFER_SIZE];
+    snprintf(tmpBuf, NAME_BUFFER_SIZE, SHM_STREAM_CONF, strName.c_str());
+    Util::DTSCShmReader rStrmConf(tmpBuf);
+    DTSC::Scan streamCfg = rStrmConf.getScan();
+    return streamCfg && streamCfg.getMember("process_controlled_realtime").asBool();
+  }
+
+  bool Output::processingControlledRealtimeSelectionEnded() {
+    if (!M || !M.getLive()) { return false; }
+
+    uint8_t streamState = Util::getStreamStatus(streamName);
+    return streamState == STRMSTAT_SHUTDOWN || streamState == STRMSTAT_OFF;
+  }
+
+  bool Output::processingRecordingTracksReady() {
+    if (!isRecordingToFile || !M) { return true; }
+    if (!processingControlledRealtime()) { return true; }
+
+    std::string strName = streamName.substr(0, streamName.find_first_of("+ "));
+    char tmpBuf[NAME_BUFFER_SIZE];
+    snprintf(tmpBuf, NAME_BUFFER_SIZE, SHM_STREAM_CONF, strName.c_str());
+    Util::DTSCShmReader rStrmConf(tmpBuf);
+    DTSC::Scan streamCfg = rStrmConf.getScan();
+    JSON::Value processes = streamCfg.getMember("processes").asJSON();
+    if (!processes.isArray() || !processes.size()) { return true; }
+
+    size_t expectedProcs = 0;
+    std::set<size_t> sourceTracks;
+    jsonForEachConst (processes, it) {
+      if (!it->isObject() || !it->isMember("process")) { continue; }
+      const std::string procName = (*it)["process"].asString();
+      if (procName != "AV" && procName != "Livepeer" && procName != "Thumbs" && procName != "FFmpeg") { continue; }
+      if (!processingProcessMatchesSource(*it)) { continue; }
+      ++expectedProcs;
+      if (it->isMember("source_track")) {
+        std::set<size_t> tracks = Util::findTracks(M, JSON::Value(), "", (*it)["source_track"].asStringRef());
+        sourceTracks.insert(tracks.begin(), tracks.end());
+      } else if (it->isMember("track_select")) {
+        std::set<size_t> tracks = Util::wouldSelect(M, (*it)["track_select"].asStringRef());
+        sourceTracks.insert(tracks.begin(), tracks.end());
+      }
+    }
+    if (!expectedProcs) { return true; }
+
+    meta.reloadReplacedPagesIfNeeded();
+    selectDefaultTracks();
+
+    size_t readyTracks = 0;
+    const size_t expectedTracks = sourceTracks.size() + expectedProcs;
+    std::set<size_t> validTracksWithData = M.getValidTracks(true);
+    for (std::map<size_t, Comms::Users>::iterator it = userSelect.begin(); it != userSelect.end(); ++it) {
+      if (validTracksWithData.count(it->first)) { ++readyTracks; }
+    }
+
+    if (readyTracks >= expectedTracks) { return true; }
+    INFO_MSG("Waiting for processing tracks before recording header: %zu/%zu selected tracks ready", readyTracks, expectedTracks);
+    return false;
   }
 }// namespace Mist

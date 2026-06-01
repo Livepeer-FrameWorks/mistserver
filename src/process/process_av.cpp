@@ -281,7 +281,10 @@ namespace Mist{
           std::unique_lock<std::mutex> lk(avMutex);
           avCV.wait(lk,[](){return frameReady || !config->is_active;});
           totalSinkSleep += Util::getMicros(sleepTime);
-          if (!config->is_active){return;}
+          if (!config->is_active) {
+            Util::logExitReason(ER_CLEAN_EOF, "source thread finished");
+            return;
+          }
           thisTime = frameTimes.front();
           frameTimes.pop_front();
           if (thisTime >= statSinkMs){statSinkMs = thisTime;}

@@ -33,6 +33,7 @@ namespace Mist{
     bool everHadPush;//Was there ever a push received?
     bool allProcsRunning;
     bool resumeMode;
+    bool processControlledRealtime;
     uint64_t maxKeepAway;
 
   protected:
@@ -91,6 +92,7 @@ namespace Mist{
     std::set<size_t> generatePids;
     std::map<size_t, size_t> sourceUsers;
     std::map<size_t, size_t> processUsers;
+    std::set<pid_t> processPidsWithUsers;
     size_t lastBPS; ///< Used for STREAM_BANDWIDTH trigger
   };
 }// namespace Mist
