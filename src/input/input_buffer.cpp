@@ -959,7 +959,7 @@ namespace Mist{
       return;
     }
     if (sourceUsers.count(id)) {
-      if (!resumeMode){
+      if (!resumeMode && !isProcessing){
         INFO_MSG("Disconnected track %zu", sourceUsers[id]);
         meta.reloadReplacedPagesIfNeeded();
         removeTrack(sourceUsers[id]);
@@ -974,17 +974,26 @@ namespace Mist{
       sourceUsers.erase(id);
     }
   }
+  bool InputBuffer::hasProcessingDrainConsumers() const{
+    if (!isProcessing){return false;}
+    if (processUsers.size()){return true;}
+    return connectedUsers > sourceUsers.size();
+  }
   void InputBuffer::userLeadOut(){
     if (config->is_active && streamStatus){
       streamStatus.mapped[0] = (hasPush && allProcsRunning) ? STRMSTAT_READY : STRMSTAT_WAIT;
     }
     if (hasPush){everHadPush = true;}
     if (!hasPush && everHadPush && !resumeMode && config->is_active){
-      Util::logExitReason(ER_CLEAN_EOF, "source disconnected for non-resumable stream");
-      if (streamStatus){streamStatus.mapped[0] = STRMSTAT_SHUTDOWN;}
-      config->is_active = false;
-      canCancelUnload = false;
-      userSelect.clear();
+      if (hasProcessingDrainConsumers()){
+        if (streamStatus){streamStatus.mapped[0] = STRMSTAT_WAIT;}
+      }else{
+        Util::logExitReason(ER_CLEAN_EOF, "source disconnected for non-resumable stream");
+        if (streamStatus){streamStatus.mapped[0] = STRMSTAT_SHUTDOWN;}
+        config->is_active = false;
+        canCancelUnload = false;
+        userSelect.clear();
+      }
     }
     /*LTS-START*/
     static std::set<size_t> prevValidTracks;
