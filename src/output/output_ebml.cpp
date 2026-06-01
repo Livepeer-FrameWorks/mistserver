@@ -17,6 +17,7 @@ namespace Mist{
     cuesSize = 0;
     seekheadSize = 0;
     seekSize = 0;
+    liveFileClusterOpen = false;
     doctype = "matroska";
     if (config->getString("target").size()){
       if (config->getString("target").substr(0, 9) == "mkv-exec:"){
@@ -169,9 +170,82 @@ namespace Mist{
     return sendLen;
   }
 
+  bool OutEBML::liveClusterBoundaryReady(uint64_t clusterEnd, size_t *readyTracks, size_t *totalTracks) {
+    if (readyTracks) { *readyTracks = 0; }
+    if (totalTracks) { *totalTracks = 0; }
+    if (!M || !M.getLive() || !isRecording() || !isFileTarget() || !clusterEnd) { return true; }
+    if (processingControlledRealtimeSelectionEnded()) { return true; }
+
+    meta.reloadReplacedPagesIfNeeded();
+    for (std::map<size_t, Comms::Users>::iterator it = userSelect.begin(); it != userSelect.end(); ++it) {
+      const size_t tid = it->first;
+      if (!M.trackLoaded(tid) || !M.getValidTracks().count(tid)) { continue; }
+      if (totalTracks) { ++(*totalTracks); }
+
+      if (M.getFirstms(tid) >= clusterEnd) {
+        if (readyTracks) { ++(*readyTracks); }
+        continue;
+      }
+      if (M.getNowms(tid) >= clusterEnd) {
+        if (readyTracks) { ++(*readyTracks); }
+        continue;
+      }
+      if (!M.isClaimed(tid) && M.getLastms(tid) < clusterEnd) {
+        if (readyTracks) { ++(*readyTracks); }
+        continue;
+      }
+      return false;
+    }
+    return true;
+  }
+
+  void OutEBML::waitForLiveClusterBoundary(uint64_t clusterEnd) {
+    if (liveClusterBoundaryReady(clusterEnd)) { return; }
+    uint64_t lastLog = 0;
+    while (keepGoing()) {
+      size_t readyTracks = 0;
+      size_t totalTracks = 0;
+      if (liveClusterBoundaryReady(clusterEnd, &readyTracks, &totalTracks)) { return; }
+      uint64_t now = Util::bootSecs();
+      if (now != lastLog) {
+        INFO_MSG("Waiting for EBML cluster boundary %" PRIu64 "ms: %zu/%zu selected tracks ready", clusterEnd, readyTracks, totalTracks);
+        lastLog = now;
+      }
+      stats();
+      Util::sleep(50);
+    }
+  }
+
+  bool OutEBML::bufferedLiveFileClusters() {
+    return M && M.getLive() && isRecording() && isFileTarget();
+  }
+
+  void OutEBML::startLiveFileCluster() {
+    liveFileClusterBuffer.clear();
+    EBML::appendElemUInt(liveFileClusterBuffer, EBML::EID_TIMECODE, currentClusterTime - subtractTime);
+    liveFileClusterOpen = true;
+  }
+
+  void OutEBML::flushLiveFileCluster() {
+    if (!liveFileClusterOpen) { return; }
+    EBML::sendElemHead(myConn, EBML::EID_CLUSTER, liveFileClusterBuffer.size());
+    myConn.SendNow(liveFileClusterBuffer);
+    liveFileClusterBuffer.clear();
+    liveFileClusterOpen = false;
+  }
+
+  bool OutEBML::onFinish() {
+    flushLiveFileCluster();
+    return false;
+  }
+
   void OutEBML::sendNext(){
     if (thisTime >= newClusterTime) {
       if (liveSeek()){return;}
+      if (bufferedLiveFileClusters() && liveFileClusterOpen) {
+        waitForLiveClusterBoundary(newClusterTime);
+        flushLiveFileCluster();
+      }
       currentClusterTime = thisTime;
       if (!M.getLive()){
         // In case of VoD, clusters are aligned with the main track fragments
@@ -200,12 +274,28 @@ namespace Mist{
           newClusterTime = 0;
         }
       }
-      EBML::sendElemHead(myConn, EBML::EID_CLUSTER, clusterSize(currentClusterTime, newClusterTime));
-      EBML::sendElemUInt(myConn, EBML::EID_TIMECODE, currentClusterTime-subtractTime);
+      if (bufferedLiveFileClusters()) {
+        startLiveFileCluster();
+      } else {
+        waitForLiveClusterBoundary(newClusterTime);
+        EBML::sendElemHead(myConn, EBML::EID_CLUSTER, clusterSize(currentClusterTime, newClusterTime));
+        EBML::sendElemUInt(myConn, EBML::EID_TIMECODE, currentClusterTime - subtractTime);
+      }
     }
 
     bool isKey = (M.getType(thisIdx) != "video") || M.hasEmbeddedFrames(thisIdx) || thisPacket.getFlag("keyframe");
-    EBML::sendSimpleBlock(myConn, thisData, thisDataLen, thisIdx + 1, thisTime, isKey, currentClusterTime);
+    uint64_t blockTime = thisTime;
+    int64_t packetOffset = thisPacket.getInt("offset");
+    if (packetOffset < 0 && (uint64_t)(-packetOffset) > blockTime) {
+      blockTime = 0;
+    } else {
+      blockTime += packetOffset;
+    }
+    if (bufferedLiveFileClusters()) {
+      EBML::appendSimpleBlock(liveFileClusterBuffer, thisData, thisDataLen, thisIdx + 1, blockTime, isKey, currentClusterTime);
+    } else {
+      EBML::sendSimpleBlock(myConn, thisData, thisDataLen, thisIdx + 1, blockTime, isKey, currentClusterTime);
+    }
   }
 
   std::string OutEBML::trackCodecID(size_t idx){

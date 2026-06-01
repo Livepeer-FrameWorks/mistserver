@@ -166,6 +166,7 @@ namespace Mist{
     hasPush = false;
     everHadPush = false;
     resumeMode = false;
+    processControlledRealtime = false;
   }
 
   InputBuffer::~InputBuffer(){
@@ -901,7 +902,7 @@ namespace Mist{
         // Stored on this InputBuffer instance, never written back to shared
         // `processing.*` config. That would be global across all processing+<hash>
         // jobs on the node.
-        bool processControlledRealtime = streamCfg.getMember("process_controlled_realtime").asBool();
+        processControlledRealtime = streamCfg.getMember("process_controlled_realtime").asBool();
         if (processControlledRealtime && !procProfileResolved && configuredProcesses.isArray() && configuredProcesses.size()) {
           procProfile = classifyProcessingProfile(configuredProcesses);
           procProfileResolved = true;
@@ -910,6 +911,7 @@ namespace Mist{
         }
         checkProcesses(configuredProcesses);
       }else{
+        processControlledRealtime = false;
         //If there is no config, we assume all processes are running, since, well, there can't be any
         allProcsRunning = true;
       }
@@ -933,6 +935,7 @@ namespace Mist{
       bool isProcess = generatePids.count(users.getPid(id));
       if (isProcess) {
         processUsers[id] = users.getTrack(id);
+        processPidsWithUsers.insert(users.getPid(id));
       } else {
         sourceUsers[id] = users.getTrack(id);
       }
@@ -954,11 +957,11 @@ namespace Mist{
       return;
     }
     if (sourceUsers.count(id)) {
-      if (!resumeMode && !hasProcessDrainConsumers()){
+      if (!resumeMode && !processControlledRealtime && !hasProcessDrainConsumers()) {
         INFO_MSG("Disconnected track %zu", sourceUsers[id]);
         meta.reloadReplacedPagesIfNeeded();
         removeTrack(sourceUsers[id]);
-      }else{
+      } else {
         if (meta.isClaimed(sourceUsers[id])) {
           INFO_MSG("Track %zu lost its source, but is still claimed! Reclaiming for resume...", sourceUsers[id]);
           meta.breakClaim(sourceUsers[id]);
@@ -971,17 +974,30 @@ namespace Mist{
   }
   bool InputBuffer::hasProcessDrainConsumers() const{
     if (processUsers.size()){return true;}
-    return connectedUsers > sourceUsers.size();
+    for (std::map<std::string, pid_t>::const_iterator it = runningProcs.begin(); it != runningProcs.end(); ++it) {
+      if (processPidsWithUsers.count(it->second)) { continue; }
+      if (Util::Procs::isActive(it->second)) { return true; }
+    }
+    return false;
   }
   void InputBuffer::userLeadOut(){
     if (config->is_active && streamStatus){
-      streamStatus.mapped[0] = (hasPush && allProcsRunning) ? STRMSTAT_READY : STRMSTAT_WAIT;
+      if (!processControlledRealtime || streamStatus.mapped[0] != STRMSTAT_SHUTDOWN) {
+        streamStatus.mapped[0] = (hasPush && allProcsRunning) ? STRMSTAT_READY : STRMSTAT_WAIT;
+      }
     }
     if (hasPush){everHadPush = true;}
     if (!hasPush && everHadPush && !resumeMode && config->is_active){
       if (hasProcessDrainConsumers()){
         if (streamStatus){streamStatus.mapped[0] = STRMSTAT_WAIT;}
-      }else{
+      } else if (processControlledRealtime) {
+        if (streamStatus) {
+          if (streamStatus.mapped[0] != STRMSTAT_SHUTDOWN) {
+            INFO_MSG("Process-controlled realtime producers finished; signalling output drain");
+          }
+          streamStatus.mapped[0] = STRMSTAT_SHUTDOWN;
+        }
+      } else {
         Util::logExitReason(ER_CLEAN_EOF, "source disconnected for non-resumable stream");
         if (streamStatus){streamStatus.mapped[0] = STRMSTAT_SHUTDOWN;}
         config->is_active = false;
@@ -1380,8 +1396,10 @@ namespace Mist{
         }
         // Only count process as not-running if it's not inconsequential
         if (!args.isMember("inconsequential") || !args["inconsequential"].asBool()) { allProcsRunning = false; }
-        runningProcs[*newProcs.begin()] = Util::Procs::StartPiped(argarr, 0, 0, &err);
-        INFO_MSG("Started process %zu: %s %s", (size_t)runningProcs[*newProcs.begin()], argarr[0], argarr[1]);
+        pid_t newPid = Util::Procs::StartPiped(argarr, 0, 0, &err);
+        processPidsWithUsers.erase(newPid);
+        runningProcs[*newProcs.begin()] = newPid;
+        INFO_MSG("Started process %zu: %s %s", (size_t)newPid, argarr[0], argarr[1]);
         // Increment per-process boot counter
         procBoots[*newProcs.begin()]++;
         // Remove the delayed start counter
