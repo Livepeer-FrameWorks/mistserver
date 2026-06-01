@@ -2541,6 +2541,11 @@ namespace Mist{
       const bool atPageEnd =
         !pageNotOpen && (nxt.offset >= cPageIt->second.len || !*(uint32_t *)(cPageIt->second.mapped + nxt.offset));
       if (pageNotOpen || atPageEnd) {
+        if (processControlledRealtimeEnded && M.getLive() && processingControlledRealtime() &&
+            M.getLastms(nxt.tid) <= nxt.time) {
+          dropTrack(nxt.tid, "process-controlled realtime track drained", false);
+          return 1;
+        }
         // For non-live, we may have just reached the end of the track. That's normal and fine, drop it.
         if (!M.getLive() && nxt.time >= M.getLastms(nxt.tid)){
           dropTrack(nxt.tid, "end of VoD track reached", false);
@@ -2706,11 +2711,7 @@ namespace Mist{
       if (M.getNowms(nxt.tid) > nxt.time) { break; }
 
       processControlledRealtimeEnded = processingControlledRealtimeSelectionEnded();
-      if (processControlledRealtimeEnded) {
-        INFO_MSG("Process-controlled realtime selected tracks reached end of stream");
-        thisPacket.null();
-        return 0;
-      }
+      if (processControlledRealtimeEnded) { break; }
 
       if (M.getLive() && processingControlledRealtime() && !M.isClaimed(nxt.tid)) {
         uint8_t streamState = Util::getStreamStatus(streamName);
@@ -2749,6 +2750,7 @@ namespace Mist{
           return 0;
         }
         if (s == STRMSTAT_SHUTDOWN || s == STRMSTAT_OFF) {
+          if (M.getLive() && processingControlledRealtime()) { break; }
           if (M.getLive()) {
             Util::logExitReason(ER_CLEAN_EOF, "Live stream source shut down");
             thisPacket.null();
