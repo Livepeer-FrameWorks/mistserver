@@ -123,6 +123,7 @@ namespace Mist{
     void closeMyConn();
     bool pushing;
     std::map<std::string, std::string> targetParams; /*LTS*/
+    bool recordingSourceWasLive; ///< True when a file recording started from a live source before limiters.
     std::string UA;                                  ///< User Agent string, if known.
     uint64_t uaDelay;                                ///< Seconds to wait before setting the UA.
     uint64_t lastRecv;

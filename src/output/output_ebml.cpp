@@ -47,7 +47,7 @@ namespace Mist{
         int64_t utcTime = M.packetTimeToUnixMs(currentTime());
         if (utcTime){subtractTime = currentTime() - utcTime;}
       }
-      if (M && !M.getLive()){calcVodSizes();}
+      if (M && !liveEBMLMode()) { calcVodSizes(); }
     }
   }
 
@@ -173,7 +173,7 @@ namespace Mist{
   bool OutEBML::liveClusterBoundaryReady(uint64_t clusterEnd, size_t *readyTracks, size_t *totalTracks) {
     if (readyTracks) { *readyTracks = 0; }
     if (totalTracks) { *totalTracks = 0; }
-    if (!M || !M.getLive() || !isRecording() || !isFileTarget() || !clusterEnd) { return true; }
+    if (!M || !liveEBMLMode() || !isRecording() || !isFileTarget() || !clusterEnd) { return true; }
     bool processControlledRealtimeEnded = processingControlledRealtimeSelectionEnded();
 
     meta.reloadReplacedPagesIfNeeded();
@@ -220,8 +220,14 @@ namespace Mist{
     }
   }
 
+  bool OutEBML::liveEBMLMode() {
+    if (!M) { return false; }
+    if (M.getLive()) { return true; }
+    return isRecording() && isFileTarget() && recordingSourceWasLive;
+  }
+
   bool OutEBML::bufferedLiveFileClusters() {
-    return M && M.getLive() && isRecording() && isFileTarget();
+    return liveEBMLMode() && isRecording() && isFileTarget();
   }
 
   void OutEBML::startLiveFileCluster() {
@@ -251,7 +257,7 @@ namespace Mist{
         flushLiveFileCluster();
       }
       currentClusterTime = thisTime;
-      if (!M.getLive()){
+      if (!liveEBMLMode()) {
         // In case of VoD, clusters are aligned with the main track fragments
         // EXCEPT when they are more than 30 seconds long, because clusters are limited to -32 to 32
         // seconds.
@@ -266,7 +272,7 @@ namespace Mist{
         EXTREME_MSG("Cluster: %" PRIu64 " - %" PRIu64 " (%" PRIu32 "/%zu) = %zu",
                     currentClusterTime, newClusterTime, fragIndice, fragments.getEndValid(),
                     clusterSize(currentClusterTime, newClusterTime));
-      }else{
+      } else {
         // In live, clusters are aligned with the lookAhead time
         newClusterTime = currentClusterTime + needsLookAhead;
         // EXCEPT if there's a keyframe within the lookAhead window, then align to that keyframe
@@ -464,15 +470,16 @@ namespace Mist{
   void OutEBML::sendHeader(){
     double duration = 0;
     size_t idx = getMainSelectedTrack();
-    if (!M.getLive()){
+    bool liveMode = liveEBMLMode();
+    if (!liveMode) {
       duration = M.getLastms(idx) - M.getFirstms(idx);
-    }else{
+    } else {
       needsLookAhead = 250;
     }
     // EBML header and Segment
     EBML::sendElemEBML(myConn, doctype);
-    EBML::sendElemHead(myConn, EBML::EID_SEGMENT, segmentSize); // Default = Unknown size
-    if (!M.getLive()){
+    EBML::sendElemHead(myConn, EBML::EID_SEGMENT, liveMode ? 0xFFFFFFFFFFFFFFFFull : segmentSize);
+    if (!liveMode) {
       // SeekHead
       EBML::sendElemHead(myConn, EBML::EID_SEEKHEAD, seekSize);
       EBML::sendElemSeek(myConn, EBML::EID_INFO, seekheadSize);
@@ -486,13 +493,13 @@ namespace Mist{
     size_t trackSizes = 0;
     for (std::map<size_t, Comms::Users>::iterator it = userSelect.begin(); it != userSelect.end(); it++){
       trackSizes += sizeElemTrackEntry(it->first);
-      if (M.hasEmbeddedFrames(idx) && M.getLive()) { needsLookAhead = 0; }
+      if (M.hasEmbeddedFrames(idx) && liveMode) { needsLookAhead = 0; }
     }
     EBML::sendElemHead(myConn, EBML::EID_TRACKS, trackSizes);
     for (std::map<size_t, Comms::Users>::iterator it = userSelect.begin(); it != userSelect.end(); it++){
       sendElemTrackEntry(it->first);
     }
-    if (!M.getLive()){
+    if (!liveMode) {
       EBML::sendElemHead(myConn, EBML::EID_CUES, cuesSize);
       uint64_t tmpsegSize = infoSize + tracksSize + seekheadSize + cuesSize +
                             EBML::sizeElemHead(EBML::EID_CUES, cuesSize);

@@ -135,6 +135,7 @@ namespace Mist{
     outputStartMs = thisBootMs;
     totalPlaytime = 0;
     lastSeekPos = 0;
+    recordingSourceWasLive = false;
     if (myConn){
       setBlocking(true);
       //Make sure that if the socket is a non-stdio socket, we close it when forking
@@ -1186,6 +1187,7 @@ namespace Mist{
   void Output::initialSeek(bool dryRun) {
     if (!meta) { return; }
     meta.removeLimiter();
+    if (isRecordingToFile && M) { recordingSourceWasLive = M.getLive(); }
     uint64_t seekPos = getInitialSeekPosition();
     /*LTS-START*/
     if (isRecordingToFile){
