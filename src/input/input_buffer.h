@@ -55,6 +55,7 @@ namespace Mist{
     void userOnActive(size_t id);
     void userOnDisconnect(size_t id);
     void userLeadOut();
+    bool hasProcessingDrainConsumers() const;
     // This is used for an ugly fix to prevent metadata from disappearing in some cases.
     std::map<size_t, std::string> initData;
 
