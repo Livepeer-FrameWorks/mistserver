@@ -1216,23 +1216,15 @@ namespace Mist{
       return true;
     }
 
-    /// \brief Decode frame using the configured decoding context
-    bool decodeFrame(char *dataPointer, size_t dataLen){
-      // Allocate packet
-      AVPacket *packet_in = av_packet_alloc();
-      av_new_packet(packet_in, dataLen);
-      // Copy buffer to packet
-      memcpy(packet_in->data, dataPointer, dataLen);
-      // Send packet to decoding context
-      int ret = avcodec_send_packet(context_in, packet_in);
-      av_packet_free(&packet_in);
-      if (ret < 0) {
-        printError("Error sending a packet for decoding", ret);
-        return false;
-      }
-      // Retrieve RAW packet from decoding context
+    bool receiveDecodedFrame() {
+      int ret;
       if (frameDecodeHW){
         ret = avcodec_receive_frame(context_in, frameDecodeHW);
+        if (ret == AVERROR(EAGAIN) || ret == AVERROR_EOF) { return false; }
+        if (ret < 0) {
+          printError("Error during decoding", ret);
+          return false;
+        }
         if (!frameDecodeHW->width || !frameDecodeHW->height) {
           INFO_MSG("Ignoring invalid frame");
           return false;
@@ -1272,14 +1264,33 @@ namespace Mist{
           }
         }
         ret = avcodec_receive_frame(context_in, frame_RAW);
+        if (ret == AVERROR(EAGAIN) || ret == AVERROR_EOF) { return false; }
+        if (ret < 0) {
+          printError("Error during decoding", ret);
+          return false;
+        }
         // Set the pixel format to whatever the decoder detected
         pixelFormat = (AVPixelFormat)frame_RAW->format;
       }
+      return true;
+    }
+
+    /// \brief Decode frame using the configured decoding context
+    bool decodeFrame(char *dataPointer, size_t dataLen) {
+      // Allocate packet
+      AVPacket *packet_in = av_packet_alloc();
+      av_new_packet(packet_in, dataLen);
+      // Copy buffer to packet
+      memcpy(packet_in->data, dataPointer, dataLen);
+      // Send packet to decoding context
+      int ret = avcodec_send_packet(context_in, packet_in);
+      av_packet_free(&packet_in);
       if (ret < 0) {
-        printError("Error during decoding", ret);
+        printError("Error sending a packet for decoding", ret);
         return false;
       }
-      return true;
+      // Retrieve RAW packet from decoding context
+      return receiveDecodedFrame();
     }
 
     /// \brief Decode video frame, given packet data
@@ -1655,6 +1666,81 @@ namespace Mist{
     }
 
     /// @brief Takes raw video buffer and encode it to create an output packet
+    bool waitForSinkPacketSlot() {
+      uint64_t sleepTime = Util::getMicros();
+      std::unique_lock<std::mutex> lk(avMutex);
+      avCV.wait(lk, []() { return !frameReady || !conf.is_active || !co.is_active; });
+      totalSourceSleep += Util::getMicros(sleepTime);
+      return conf.is_active && co.is_active;
+    }
+
+    void queueFrameTime(uint64_t frameTime) {
+      std::lock_guard<std::mutex> lk(avMutex);
+      frameTimes.push_back(frameTime);
+    }
+
+    bool receiveEncodedVideoPackets() {
+      while (conf.is_active && co.is_active) {
+        if (!waitForSinkPacketSlot()) { return false; }
+        int ret = avcodec_receive_packet(context_out, packet_out);
+        if (ret == AVERROR(EAGAIN) || ret == AVERROR_EOF) { return true; }
+        if (ret < 0) {
+          printError("Unable to receive encoded video packet", ret);
+          return false;
+        }
+        {
+          std::lock_guard<std::mutex> lk(avMutex);
+          if (frameTimes.empty()) {
+            uint64_t frameDuration = inFpks ? (1000000 / inFpks) : 0;
+            frameTimes.push_back(statSinkMs + frameDuration);
+          }
+          ++outputFrameCount;
+          frameReady = true;
+        }
+        avCV.notify_all();
+      }
+      return false;
+    }
+
+    void flushVideoEncoder() {
+      if (!isVideo || !context_out || !codec_out) { return; }
+      INFO_MSG("Flushing %s encoder", codecOut.c_str());
+      int ret = avcodec_send_frame(context_out, NULL);
+      if (ret == AVERROR_EOF) { return; }
+      if (ret < 0 && ret != AVERROR(EAGAIN)) {
+        printError("Unable to flush video encoder", ret);
+        return;
+      }
+      receiveEncodedVideoPackets();
+    }
+
+    void flushVideoDecoder() {
+      if (!isVideo || !context_in) { return; }
+      INFO_MSG("Flushing %s decoder", codecIn.c_str());
+      int ret = avcodec_send_packet(context_in, NULL);
+      if (ret == AVERROR_EOF) { return; }
+      if (ret < 0 && ret != AVERROR(EAGAIN)) {
+        printError("Unable to flush video decoder", ret);
+        return;
+      }
+
+      uint64_t frameDuration = inFpks ? (1000000 / inFpks) : 0;
+      uint64_t flushTime = statSinkMs ? statSinkMs : statSourceMs;
+      while (conf.is_active && co.is_active) {
+        uint64_t decodeStart = Util::getMicros();
+        if (!receiveDecodedFrame()) { break; }
+        uint64_t transformStart = Util::getMicros();
+        if (frameDuration) { flushTime += frameDuration; }
+        thisTime = flushTime;
+        if (!transformVideoFrame()) { break; }
+        uint64_t encodeStart = Util::getMicros();
+        encodeVideo();
+        totalDecode += transformStart - decodeStart;
+        totalTransform += encodeStart - transformStart;
+        totalEncode += Util::getMicros(encodeStart);
+      }
+    }
+
     void encodeVideo(){
       // Encode to target codec. Force P frame to prevent keyframe-only outputs from appearing
       int ret;
@@ -1701,21 +1787,8 @@ namespace Mist{
         }
       }
 
-      {
-        uint64_t sleepTime = Util::getMicros();
-        std::unique_lock<std::mutex> lk(avMutex);
-        avCV.wait(lk, [this]() { return !frameReady || !config->is_active; });
-        totalSourceSleep += Util::getMicros(sleepTime);
-        frameTimes.push_back(thisTime);
-        ++outputFrameCount;
-        // Retrieve encoded packet
-        ret = avcodec_receive_packet(context_out, packet_out);
-        if (ret < 0){
-          return;
-        }
-        frameReady = true;
-      }
-      avCV.notify_all();
+      queueFrameTime(thisTime);
+      receiveEncodedVideoPackets();
     }
 
     /// @brief Takes raw audio buffer and encode it to create an output packet
@@ -2210,6 +2283,8 @@ void sourceThread(){
   Mist::ProcessSource out(S, conf, capa);
   MEDIUM_MSG("Running source thread...");
   int rc = out.run();
+  out.flushVideoDecoder();
+  out.flushVideoEncoder();
   if (rc == 0) {
     procExit.log(ER_CLEAN_EOF, 0, "Source thread finished");
   } else {
