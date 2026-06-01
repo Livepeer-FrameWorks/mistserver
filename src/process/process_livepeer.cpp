@@ -108,6 +108,8 @@ namespace Mist{
     }
     inline virtual bool keepGoing() { return config->is_active; }
     virtual bool onFinish(){
+      bool ret = TSOutput::onFinish();
+      finishCurrentSegment();
       if (opt.isMember("exit_unmask") && opt["exit_unmask"].asBool()){
         if (userSelect.size()){
           for (std::map<size_t, Comms::Users>::iterator it = userSelect.begin(); it != userSelect.end(); it++){
@@ -116,7 +118,7 @@ namespace Mist{
           }
         }
       }
-      return TSOutput::onFinish();
+      return ret;
     }
     virtual void dropTrack(size_t trackId, const std::string &reason, bool probablyBad = true){
       if (opt.isMember("exit_unmask") && opt["exit_unmask"].asBool()){
@@ -132,6 +134,33 @@ namespace Mist{
       }
       presegs[currPreSeg].data.append(tsData, len);
     };
+    bool finishCurrentSegment() {
+      Mist::preparedSegment & cur = presegs[currPreSeg];
+      if (!conf.is_active || cur.fullyWritten || cur.data.size() <= 187) { return false; }
+      size_t mainIdx = getMainSelectedTrack();
+      if (mainIdx == INVALID_TRACK_ID) { mainIdx = sourceIndex; }
+      if (mainIdx == INVALID_TRACK_ID) { mainIdx = thisIdx; }
+      uint64_t endTime = statSourceMs;
+      if (thisTime > endTime) { endTime = thisTime; }
+      if (mainIdx != INVALID_TRACK_ID) {
+        sourceIndex = mainIdx;
+        uint64_t trackEnd = M.getNowms(mainIdx);
+        if (M.getLastms(mainIdx) > trackEnd) { trackEnd = M.getLastms(mainIdx); }
+        if (trackEnd > endTime) { endTime = trackEnd; }
+      }
+      cur.keyNo = keyCount;
+      cur.width = mainIdx == INVALID_TRACK_ID ? 0 : M.getWidth(mainIdx);
+      cur.height = mainIdx == INVALID_TRACK_ID ? 0 : M.getHeight(mainIdx);
+      cur.segDuration = endTime > cur.time ? endTime - cur.time : 1;
+      cur.fullyRead = false;
+      cur.fullyWritten = true;
+      statQueueDepth.fetch_add(1, std::memory_order_relaxed);
+      INFO_MSG("Finalizing Livepeer tail segment %" PRIu64 " (%" PRIu64 "-%" PRIu64 " = %" PRIu64 " ms, %zu bytes)",
+               cur.keyNo, cur.time, cur.time + cur.segDuration, cur.segDuration, cur.data.size());
+      currPreSeg = (currPreSeg + 1) % PRESEG_COUNT;
+      ++keyCount;
+      return true;
+    }
     virtual void initialSeek(bool dryRun = false){
       if (!meta){return;}
       if (!dryRun){
@@ -337,7 +366,37 @@ namespace Mist{
 
 }// namespace Mist
 
+namespace Mist {
+  bool livepeerQueuesDrained() {
+    if (statQueueDepth.load(std::memory_order_relaxed) || statActiveUploads.load(std::memory_order_relaxed)) {
+      return false;
+    }
+    std::lock_guard<std::mutex> guard(segMutex);
+    for (std::map<std::string, readySegment>::iterator it = segs.begin(); it != segs.end(); ++it) {
+      if (it->second.fullyWritten || !it->second.fullyRead) { return false; }
+    }
+    return true;
+  }
 
+  void waitForLivepeerDrain() {
+    uint64_t start = Util::bootMS();
+    uint64_t lastLog = start;
+    while (conf.is_active && !livepeerQueuesDrained()) {
+      uint64_t now = Util::bootMS();
+      if (now > start + 60000) {
+        WARN_MSG("Timed out waiting for Livepeer segment drain; shutting down with queueDepth=%u activeUploads=%u",
+                 statQueueDepth.load(std::memory_order_relaxed), statActiveUploads.load(std::memory_order_relaxed));
+        return;
+      }
+      if (now > lastLog + 1000) {
+        lastLog = now;
+        INFO_MSG("Waiting for Livepeer segment drain: queueDepth=%u activeUploads=%u",
+                 statQueueDepth.load(std::memory_order_relaxed), statActiveUploads.load(std::memory_order_relaxed));
+      }
+      Util::sleep(25);
+    }
+  }
+} // namespace Mist
 
 void sinkThread(){
   Mist::ProcessSink in(&co);
@@ -392,6 +451,7 @@ void sourceThread(){
       procExit.log(Util::mRExitReason ? Util::mRExitReason : ER_UNKNOWN, rc, "%s",
                    Util::exitReason[0] ? Util::exitReason : "Source thread failed");
     }
+    Mist::waitForLivepeerDrain();
     INFO_MSG("Stopping source thread");
   }else{
     procExit.log(ER_READ_START_FAILURE, 2, "Source thread failed to initialize");
