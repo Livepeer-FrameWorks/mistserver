@@ -3737,7 +3737,7 @@ namespace DTSC{
     if (!Util::externalWriter(uri, outFile, false)) { return; }
     if (outFile){
       send(outFile, false, getValidTracks(), false);
-      outFile.close();
+      Util::finishExternalWriter(uri, outFile);
     }
   }
 

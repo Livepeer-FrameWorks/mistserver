@@ -23,6 +23,7 @@ namespace Util{
   void splitString(const std::string & val, char delim, std::deque<std::string> & result);
   void shellSplit(const std::string & val, std::deque<std::string> & result);
   bool externalWriter(const std::string & file, Socket::Connection & conn, bool append = false);
+  void finishExternalWriter(const std::string & file, Socket::Connection & conn);
 
   bool atomicWriteFile(const std::string & filename, const std::string & contents);
 
