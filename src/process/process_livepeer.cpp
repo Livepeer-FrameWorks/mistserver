@@ -12,6 +12,10 @@
 #include <mist/triggers.h>
 #include <mist/util.h>
 
+#ifdef SSL
+#include <psa/crypto.h>
+#endif
+
 #include <atomic>
 #include <mutex>
 #include <ostream>
@@ -978,6 +982,14 @@ int main(int argc, char *argv[]){
     Util::setStreamName(Mist::opt["source"].asString() + "→" + streamName);
   }
 
+#ifdef SSL
+  psa_status_t psaStatus = psa_crypto_init();
+  if (psaStatus != PSA_SUCCESS) {
+    procExit.log(ER_FORMAT_SPECIFIC, 2, "Failed to initialize PSA crypto before Livepeer upload threads");
+    FAIL_MSG("Failed to initialize PSA crypto before Livepeer upload threads: %d", (int)psaStatus);
+    return procExit.flush(procStatePage);
+  }
+#endif
 
   const std::string & srcStrm = Mist::opt["source"].asStringRef();
   if (config.getBool("kickoff")){
