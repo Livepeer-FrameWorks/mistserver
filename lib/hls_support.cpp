@@ -49,12 +49,14 @@ namespace HLS{
                      const size_t trackIdx, const uint64_t streamStartTime){
     std::map<size_t, Comms::Users>::const_iterator it = userSelect.begin();
     uint64_t maxJitter = 0;
-    u_int64_t minKeepAway = 0;
     for (; it != userSelect.end(); it++){
-      minKeepAway = M.getMinKeepAway(it->first);
+      uint64_t minKeepAway = M.getMinKeepAway(it->first);
       if (minKeepAway > maxJitter){maxJitter = minKeepAway;}
     }
-    return std::min(M.getLastms(trackIdx), Util::unixMS() - streamStartTime - minKeepAway);
+    uint64_t now = Util::unixMS();
+    uint64_t wallClockLastMs = 0;
+    if (now > streamStartTime + maxJitter) { wallClockLastMs = now - streamStartTime - maxJitter; }
+    return std::min(M.getLastms(trackIdx), wallClockLastMs);
   }
 
   /// Calculate HLS media playlist version compatibility
@@ -107,26 +109,33 @@ namespace HLS{
 
       uint64_t hlsMsnNr = atol(hlsSpecData.hlsMsn.c_str());
       uint64_t hlsPartNr = atol(hlsSpecData.hlsPart.c_str()) + 1; // base 1
+      int64_t bprTimeLimit = (4 * trackData.targetDurationMax * 1000) +
+        std::max(M.getMinKeepAway(trackData.timingTrackId), M.getMinKeepAway(trackData.requestTrackId));
 
       // if hlsPart empty (HLS spec) OR if fragment hlsMsn is complete
       // THEN request part 1 of MSN++
       if (hlsSpecData.hlsPart.empty()){hlsPartNr = 1;}
+      if (hlsMsnNr < fragments.getFirstValid()) { return 0; }
+      while (hlsMsnNr >= fragments.getEndValid()) {
+        if (bprTimeLimit < 1) { return 503; }
+        Util::wait(partDurationMaxMs + 25);
+        bprTimeLimit -= (partDurationMaxMs + 25);
+      }
       if (fragments.getDuration(hlsMsnNr)){
         hlsMsnNr++;
         hlsPartNr = 1;
       }
+      while (hlsMsnNr >= fragments.getEndValid()) {
+        if (bprTimeLimit < 1) { return 503; }
+        Util::wait(partDurationMaxMs + 25);
+        bprTimeLimit -= (partDurationMaxMs + 25);
+      }
 
       uint64_t lastFragmentDur = getLastFragDur(M, userSelect, trackData, hlsMsnNr, fragments, keys);
       std::ldiv_t res = std::ldiv(lastFragmentDur, partDurationMaxMs);
-      DEBUG_MSG(5, "req MSN %" PRIu64 " fin MSN %zu, req Part %" PRIu64 " fin Part %ld", hlsMsnNr,
-                (fragments.getEndValid() - 2), hlsPartNr, res.quot);
-
-      // BPR Time limit = 3x Target Duration (per HLS spec)
-      // + Jitter duration (per Mist feature)
-      // + 1x Target Duration (extra margin of safety for jitters)
-      int64_t bprTimeLimit = (4 * trackData.targetDurationMax * 1000) +
-                             std::max(M.getMinKeepAway(trackData.timingTrackId),
-                                      M.getMinKeepAway(trackData.requestTrackId));
+      size_t finalMsn = fragments.getEndValid() > 1 ? fragments.getEndValid() - 2 : 0;
+      DEBUG_MSG(5, "req MSN %" PRIu64 " fin MSN %zu, req Part %" PRIu64 " fin Part %ld", hlsMsnNr, finalMsn, hlsPartNr,
+                res.quot);
 
       while (hlsPartNr > res.quot){
         if (bprTimeLimit < 1){return 503;}
@@ -143,9 +152,13 @@ namespace HLS{
   /// Populate FragmentData struct to be used for media manifest generation
   void populateFragmentData(const DTSC::Meta &M, const std::map<size_t, Comms::Users> &userSelect, FragmentData &fragData, const TrackData &trackData,
                             const DTSC::Fragments &fragments, const DTSC::Keys &keys){
-    fragData.lastMs = std::min(
-        getLastms(M, userSelect, trackData.requestTrackId, trackData.systemBoot + trackData.bootMsOffset),
-        getLastms(M, userSelect, trackData.timingTrackId, trackData.systemBoot + trackData.bootMsOffset));
+    if (trackData.isLive) {
+      fragData.lastMs =
+        std::min(getLastms(M, userSelect, trackData.requestTrackId, trackData.systemBoot + trackData.bootMsOffset),
+                 getLastms(M, userSelect, trackData.timingTrackId, trackData.systemBoot + trackData.bootMsOffset));
+    } else {
+      fragData.lastMs = std::min(M.getLastms(trackData.requestTrackId), M.getLastms(trackData.timingTrackId));
+    }
     fragData.firstFrag = fragments.getFirstValid();
     if (trackData.isLive){
       fragData.lastFrag = M.getFragmentIndexForTime(trackData.timingTrackId, fragData.lastMs);
@@ -154,11 +167,12 @@ namespace HLS{
       }
     }else{
       // Override to last fragment if VOD
-      fragData.lastFrag = fragments.getEndValid() - 1;
+      fragData.lastFrag = fragments.getEndValid();
     }
     fragData.currentFrag = fragData.firstFrag;
     fragData.startTime = keys.getTime(fragments.getFirstKey(fragData.currentFrag));
     fragData.duration = fragments.getDuration(fragData.currentFrag);
+    fragData.partNum = 0;
 
     // Playlist length limit logic:
     // Part 1: Limit any playlist with listlimit config
@@ -420,14 +434,18 @@ namespace HLS{
   void addAltRenditionReports(std::stringstream &result, const DTSC::Meta &M,
                               const std::map<size_t, Comms::Users> &userSelect,
                               const FragmentData &fragData, const TrackData &trackData){
+    if (fragData.currentFrag < 2) { return; }
     DTSC::Fragments fragments(M.fragments(trackData.timingTrackId));
     std::ldiv_t altPart =
         std::ldiv(fragments.getDuration(fragData.currentFrag - 2), partDurationMaxMs);
-    std::map<size_t, Comms::Users>::const_iterator it = userSelect.end();
+    std::map<size_t, Comms::Users>::const_iterator it = userSelect.begin();
     for (; it != userSelect.end(); it++){
-      if (it->first == trackData.timingTrackId){continue;}
+      if (it->first == trackData.requestTrackId) { continue; }
       result << "#EXT-X-RENDITION-REPORT:";
-      result << "URI=\"" << it->first << "/index.m3u8\"";
+      result << "URI=\"" << it->first << "/index.m3u8?mTrack=" << trackData.timingTrackId;
+      if (trackData.sessionId.size()) { result << "&tkn=" << trackData.sessionId; }
+      if (trackData.noLLHLS) { result << "&llhls=0"; }
+      result << "\"";
       if (fragData.partNum){
         result << ",LAST-MSN=" << fragData.currentFrag - 1;
         result << ",LAST-PART=" << fragData.partNum - 1 << "\r\n";
@@ -441,6 +459,7 @@ namespace HLS{
   /// Append result with hinted part, only for LLHLS
   void addPreloadHintTag(std::stringstream &result, const FragmentData &fragData,
                          const TrackData &trackData){
+    if (!fragData.currentFrag) { return; }
     result << "#EXT-X-PRELOAD-HINT:TYPE=PART,URI=\"" << trackData.urlPrefix << "chunk_";
     result << fragData.startTime << "." << fragData.partNum << trackData.mediaFormat;
     result << "?msn=" << fragData.currentFrag - 1;
@@ -751,6 +770,7 @@ namespace HLS{
   uint64_t getPartTargetTime(const DTSC::Meta &M, const uint32_t idx, const uint32_t mTrack,
                              const uint64_t startTime, const uint64_t msn, const uint32_t part){
     DTSC::Fragments fragments(M.fragments(mTrack));
+    if (msn < fragments.getFirstValid() || msn >= fragments.getEndValid()) { return 0; }
 
     // Estimate the target end time for a given part
     // 50 ms is margin of safety to accommodate inconsistencies

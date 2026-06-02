@@ -4315,9 +4315,9 @@ namespace DTSC{
     uint64_t t2Firstms = t2.track.getInt(t2.trackFirstmsField);
     uint64_t firstms = t1Firstms > t2Firstms ? t1Firstms : t2Firstms;
 
-    uint64_t t1Lastms = t1.track.getInt(t1.trackFirstmsField);
-    uint64_t t2Lastms = t2.track.getInt(t2.trackFirstmsField);
-    uint64_t lastms = t1Lastms > t2Lastms ? t1Lastms : t2Lastms;
+    uint64_t t1Lastms = t1.track.getInt(t1.trackLastmsField);
+    uint64_t t2Lastms = t2.track.getInt(t2.trackLastmsField);
+    uint64_t lastms = t1Lastms < t2Lastms ? t1Lastms : t2Lastms;
 
     if (firstms > lastms) {
       WARN_MSG("Cannot check for timing alignment for tracks %zu and %zu: No overlap", idx1, idx2);
@@ -4330,9 +4330,11 @@ namespace DTSC{
     DTSC::Keys keys1(tracks.at(idx1).keys);
     DTSC::Keys keys2(tracks.at(idx2).keys);
 
-    while(true) {
-      if (lastms < keys1.getTime(keyIdx1) || lastms < keys2.getTime(keyIdx2)) {return true;}
-      if (keys1.getTime(keyIdx1) != keys2.getTime(keyIdx2)) {return false;}
+    while (keyIdx1 < keys1.getEndValid() && keyIdx2 < keys2.getEndValid()) {
+      uint64_t time1 = keys1.getTime(keyIdx1);
+      uint64_t time2 = keys2.getTime(keyIdx2);
+      if (lastms < time1 || lastms < time2) { return true; }
+      if (time1 != time2) { return false; }
       keyIdx1++;
       keyIdx2++;
     }

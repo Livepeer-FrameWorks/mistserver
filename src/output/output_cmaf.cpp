@@ -250,6 +250,11 @@ namespace Mist{
   /// \brief Builds media playlist to (LL)HLS
   ///\return The media playlist file to (LL)HLS
   void OutCMAF::sendHlsMediaManifest(const size_t requestTid){
+    if (!M.getValidTracks().count(requestTid)) {
+      H.SendResponse("404", "Track not found", myConn);
+      return;
+    }
+
     const HLS::HlsSpecData hlsSpec ={H.GetVar("_HLS_skip"), H.GetVar("_HLS_msn"),
                                       H.GetVar("_HLS_part")};
 
@@ -266,21 +271,24 @@ namespace Mist{
     // override if valid header forces "no low latency"
     noLLHLS = H.GetHeader("X-Mist-LLHLS").size() ? H.GetHeader("X-Mist-LLHLS") == "0" : noLLHLS;
 
-    const HLS::TrackData trackData ={
-        M.getLive(),
-        M.getType(requestTid) == "video",
-        noLLHLS,
-        hlsMediaFormat,
-        M.getEncryption(requestTid),
-        (Comms::tknMode & 0x04)?tkn:"",
-        timingTid,
-        requestTid,
-        M.biggestFragment(timingTid) / 1000,
-        (uint64_t)atol(H.GetVar("iMsn").c_str()),
-        (uint64_t)(M.getLive() ? config->getInteger("listlimit") : 0),
-        urlPrefix,
-        systemBoot,
-        bootMsOffset,
+    uint32_t targetDurationMax = (M.biggestFragment(timingTid) + 999) / 1000;
+    if (!targetDurationMax) { targetDurationMax = 1; }
+
+    const HLS::TrackData trackData = {
+      M.getLive(),
+      M.getType(requestTid) == "video",
+      noLLHLS,
+      hlsMediaFormat,
+      M.getEncryption(requestTid),
+      (Comms::tknMode & 0x04) ? tkn : "",
+      timingTid,
+      requestTid,
+      targetDurationMax,
+      (uint64_t)atol(H.GetVar("iMsn").c_str()),
+      (uint64_t)(M.getLive() ? config->getInteger("listlimit") : 0),
+      urlPrefix,
+      systemBoot,
+      bootMsOffset,
     };
 
     // Fragment & Key handlers
@@ -369,7 +377,8 @@ namespace Mist{
 
     const uint64_t msn = atoll(H.GetVar("msn").c_str());
     const uint64_t dur = atoll(H.GetVar("dur").c_str());
-    const uint64_t mTrack = atoll(H.GetVar("mTrack").c_str());
+    const std::string mTrackParam = H.GetVar("mTrack");
+    const uint64_t requestedMTrack = atoll(mTrackParam.c_str());
 
     H.SetHeader("Content-Type", "video/mp4"); // For .m4s
     if (hasSessionIDs() && !config->getOption("chunkpath")){
@@ -395,6 +404,12 @@ namespace Mist{
     if (!M.getValidTracks().count(idx)){
       H.SendResponse("404", "Track not found", myConn);
       return;
+    }
+
+    const uint64_t mTrack = (mTrackParam.size() && M.getValidTracks().count(requestedMTrack)) ? requestedMTrack : idx;
+    if (requestedMTrack != mTrack) {
+      DEBUG_MSG(5, "CMAF segment request %s has no valid mTrack=%s, using request track %zu", url.c_str(),
+                mTrackParam.size() ? mTrackParam.c_str() : "(missing)", idx);
     }
 
     if (url.find(hlsMediaFormat) == std::string::npos){
@@ -435,17 +450,50 @@ namespace Mist{
       if (M.getVod()){startTime += M.getFirstms(idx);}
       fragmentIndex = M.getFragmentIndexForTime(mTrack, startTime);
       targetTime = dur ? startTime + dur : M.getTimeForFragmentIndex(mTrack, fragmentIndex + 1);
-      DEBUG_MSG(5, "full segment requested: %s st %" PRIu64 " et %" PRIu64 " asd", url.c_str(),
-                startTime, targetTime);
+      DEBUG_MSG(5,
+                "full segment requested: %s track=%zu mTrack=%" PRIu64 " msn=%" PRIu64 " dur=%" PRIu64 " st=%" PRIu64
+                " et=%" PRIu64 " fragment=%" PRIu64,
+                url.c_str(), idx, mTrack, msn, dur, startTime, targetTime, fragmentIndex);
     }else{
       H.SendResponse("400", "Bad Request: Could not parse the url", myConn);
+      return;
+    }
+
+    const uint64_t requestedStartTime = startTime;
+    DTSC::Parts parts(M.parts(idx));
+    size_t firstPart = M.getPartIndex(startTime, idx);
+    size_t endPart = M.getPartIndex(targetTime, idx);
+    if (firstPart < parts.getEndValid()) {
+      startTime = M.getPartTime(firstPart, idx);
+      if (startTime != requestedStartTime) {
+        DEBUG_MSG(5,
+                  "CMAF segment snapped to media boundary track=%zu requested=%" PRIu64 " mediaStart=%" PRIu64
+                  " target=%" PRIu64 " firstPart=%zu endPart=%zu url=%s",
+                  idx, requestedStartTime, startTime, targetTime, firstPart, endPart, url.c_str());
+      }
+    }
+
+    if (targetTime <= startTime) {
+      WARN_MSG("Refusing invalid CMAF segment for track %zu: start=%" PRIu64 " target=%" PRIu64 " url=%s", idx,
+               startTime, targetTime, url.c_str());
+      H.SendResponse("404", "Segment does not exist", myConn);
+      return;
+    }
+
+    uint64_t payloadSize = CMAF::payloadSize(M, idx, startTime, targetTime);
+    if (!payloadSize) {
+      WARN_MSG("Refusing empty CMAF segment for track %zu: start=%" PRIu64 " target=%" PRIu64 " url=%s", idx, startTime,
+               targetTime, url.c_str());
+      H.SendResponse("404", "Segment has no media data", myConn);
       return;
     }
 
     std::string headerData =
         CMAF::keyHeader(M, idx, startTime, targetTime, fragmentIndex, false, false);
 
-    uint64_t mdatSize = 8 + CMAF::payloadSize(M, idx, startTime, targetTime);
+    uint64_t mdatSize = 8 + payloadSize;
+    DEBUG_MSG(5, "CMAF segment payload track=%zu start=%" PRIu64 " target=%" PRIu64 " header=%zu payload=%" PRIu64, idx,
+              startTime, targetTime, headerData.size(), payloadSize);
     char mdatHeader[] ={0x00, 0x00, 0x00, 0x00, 'm', 'd', 'a', 't'};
     Bit::htobl(mdatHeader, mdatSize);
 
@@ -640,7 +688,7 @@ namespace Mist{
     for (std::set<size_t>::iterator it = tracks.begin(); it != tracks.end(); it++){
       std::string codec = M.getCodec(*it);
       std::string type = M.getType(*it);
-      dashAdaptationSet(id, *tracks.begin(), r);
+      dashAdaptationSet(id, *it, r);
       dashSegmentTemplate(r);
       generateSegmentlist(*it, r, dashSegment);
       r << "</SegmentTimeline></SegmentTemplate>" << std::endl;
