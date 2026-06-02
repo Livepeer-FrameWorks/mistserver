@@ -1604,6 +1604,13 @@ namespace Mist{
           frameConverted->nb_samples = context_out->frame_size;
         }
         resampledSampleCount = swr_get_out_samples(resampleContext, frame_RAW->nb_samples) * 3 + frame_RAW->nb_samples;
+        int reqSize = 0;
+        if (context_out->frame_size) {
+          reqSize = context_out->frame_size;
+        } else {
+          reqSize = context_out->time_base.den / 50;
+        }
+        if (reqSize > resampledSampleCount) { resampledSampleCount = reqSize; }
         frameConverted->nb_samples = resampledSampleCount;
 
         // Allocate buffers
@@ -1679,6 +1686,99 @@ namespace Mist{
       frameTimes.push_back(frameTime);
     }
 
+    int audioOutputChannels() {
+      if (!context_out) { return 0; }
+#if (LIBAVUTIL_VERSION_MAJOR < 57 || (LIBAVUTIL_VERSION_MAJOR == 57 && LIBAVUTIL_VERSION_MINOR < 24))
+      return context_out->channels;
+#else
+      return context_out->ch_layout.nb_channels;
+#endif
+    }
+
+    int audioEncoderFrameSize() {
+      if (!context_out) { return 0; }
+      if (context_out->frame_size) { return context_out->frame_size; }
+      return context_out->time_base.den / 50;
+    }
+
+    bool audioEncoderAcceptsPartialFrame() {
+      if (!codec_out) { return false; }
+      uint32_t caps = codec_out->capabilities;
+#ifdef AV_CODEC_CAP_VARIABLE_FRAME_SIZE
+      if (caps & AV_CODEC_CAP_VARIABLE_FRAME_SIZE) { return true; }
+#endif
+#ifdef AV_CODEC_CAP_SMALL_LAST_FRAME
+      if (caps & AV_CODEC_CAP_SMALL_LAST_FRAME) { return true; }
+#endif
+      return false;
+    }
+
+    void queueEncodedAudioPacket() {
+      uint64_t outputTime = sendPacketTime;
+      if (packet_out->pts != AV_NOPTS_VALUE) {
+        int64_t offsetMs = (packet_out->pts * 1000 * context_out->time_base.num) / context_out->time_base.den;
+        if (offsetMs < 0) {
+          uint64_t negOffset = (uint64_t)(-offsetMs);
+          outputTime = negOffset > sendPacketTime ? 0 : sendPacketTime - negOffset;
+        } else {
+          outputTime = sendPacketTime + (uint64_t)offsetMs;
+        }
+      }
+      {
+        std::lock_guard<std::mutex> lk(avMutex);
+        frameTimes.push_back(outputTime);
+        outputFrameCount = (char *)packet_out->pts;
+        frameReady = true;
+      }
+      avCV.notify_all();
+    }
+
+    bool receiveEncodedAudioPackets() {
+      while (conf.is_active && co.is_active) {
+        if (!waitForSinkPacketSlot()) { return false; }
+        int ret = avcodec_receive_packet(context_out, packet_out);
+        if (ret == AVERROR(EAGAIN) || ret == AVERROR_EOF) { return true; }
+        if (ret < 0) {
+          printError("Unable to receive encoded audio packet", ret);
+          return false;
+        }
+        queueEncodedAudioPacket();
+      }
+      return false;
+    }
+
+    bool sendAudioFrameFromFifo(int samplesToRead, int frameSamples) {
+      if (!audioBuffer || !frameConverted || !context_out || samplesToRead <= 0 || frameSamples <= 0) { return false; }
+      int channels = audioOutputChannels();
+      if (!channels) { return false; }
+      int ret = av_frame_make_writable(frameConverted);
+      if (ret < 0) {
+        printError("Could not make audio frame writable", ret);
+        return false;
+      }
+      frameConverted->nb_samples = frameSamples;
+      if (av_audio_fifo_read(audioBuffer, (void **)frameConverted->data, samplesToRead) < samplesToRead) {
+        FAIL_MSG("Could not read data from audio buffer");
+        return false;
+      }
+      if (frameSamples > samplesToRead) {
+        ret = av_samples_set_silence(frameConverted->data, samplesToRead, frameSamples - samplesToRead, channels,
+                                     context_out->sample_fmt);
+        if (ret < 0) {
+          printError("Could not pad final audio frame", ret);
+          return false;
+        }
+      }
+      frameConverted->pts = pts;
+      pts += samplesToRead;
+      ret = avcodec_send_frame(context_out, frameConverted);
+      if (ret < 0) {
+        printError("Unable to send frame to the encoder", ret);
+        return false;
+      }
+      return receiveEncodedAudioPackets();
+    }
+
     bool receiveEncodedVideoPackets() {
       while (conf.is_active && co.is_active) {
         if (!waitForSinkPacketSlot()) { return false; }
@@ -1741,6 +1841,80 @@ namespace Mist{
       }
     }
 
+    void flushAudioResampler() {
+      if (isVideo || !resampleContext || !audioBuffer || !frameConverted || !context_out) { return; }
+      INFO_MSG("Flushing audio resampler");
+      while (conf.is_active && co.is_active) {
+        int samplesConverted = swr_convert(resampleContext, frameConverted->data, resampledSampleCount, NULL, 0);
+        if (samplesConverted == 0) { return; }
+        if (samplesConverted < 0) {
+          printError("Could not flush audio resampler", samplesConverted);
+          return;
+        }
+        if (av_audio_fifo_write(audioBuffer, (void **)frameConverted->data, samplesConverted) < samplesConverted) {
+          FAIL_MSG("Could not write resampler tail to audio buffer");
+          return;
+        }
+        encodeAudio();
+      }
+    }
+
+    void flushAudioEncoder() {
+      if (isVideo || !context_out || !codec_out || !audioBuffer || !frameConverted) { return; }
+      int reqSize = audioEncoderFrameSize();
+      if (reqSize <= 0) { return; }
+
+      while (av_audio_fifo_size(audioBuffer) >= reqSize) {
+        if (!sendAudioFrameFromFifo(reqSize, reqSize)) { return; }
+      }
+
+      int remaining = av_audio_fifo_size(audioBuffer);
+      if (remaining > 0) {
+        int frameSamples = remaining;
+        if (!audioEncoderAcceptsPartialFrame() && remaining < reqSize) { frameSamples = reqSize; }
+        if (!sendAudioFrameFromFifo(remaining, frameSamples)) { return; }
+      }
+
+      INFO_MSG("Flushing %s encoder", codecOut.c_str());
+      int ret = avcodec_send_frame(context_out, NULL);
+      if (ret == AVERROR_EOF) { return; }
+      if (ret < 0 && ret != AVERROR(EAGAIN)) {
+        printError("Unable to flush audio encoder", ret);
+        return;
+      }
+      receiveEncodedAudioPackets();
+    }
+
+    void flushAudioDecoder() {
+      if (isVideo || !context_in) { return; }
+      INFO_MSG("Flushing %s decoder", codecIn.c_str());
+      int ret = avcodec_send_packet(context_in, NULL);
+      if (ret == AVERROR_EOF) { return; }
+      if (ret < 0 && ret != AVERROR(EAGAIN)) {
+        printError("Unable to flush audio decoder", ret);
+        return;
+      }
+
+      while (conf.is_active && co.is_active) {
+        uint64_t decodeStart = Util::getMicros();
+        if (!receiveDecodedFrame()) { break; }
+        inputFrameCount += frame_RAW->nb_samples;
+        if (sourceTrackIdx != INVALID_TRACK_ID && M.getRate(sourceTrackIdx) &&
+            sendPacketTime + (((size_t)inputFrameCount) * 1000) / M.getRate(sourceTrackIdx) < statSourceMs) {
+          sendPacketTime += statSourceMs - (sendPacketTime + (((size_t)inputFrameCount) * 1000) / M.getRate(sourceTrackIdx));
+        }
+        uint64_t transformStart = Util::getMicros();
+        allocateAudioEncoder();
+        if (!transformAudioFrame()) { break; }
+        uint64_t encodeStart = Util::getMicros();
+        encodeAudio();
+        totalDecode += transformStart - decodeStart;
+        totalTransform += encodeStart - transformStart;
+        totalEncode += Util::getMicros(encodeStart);
+      }
+      flushAudioResampler();
+    }
+
     void encodeVideo(){
       // Encode to target codec. Force P frame to prevent keyframe-only outputs from appearing
       int ret;
@@ -1793,68 +1967,15 @@ namespace Mist{
 
     /// @brief Takes raw audio buffer and encode it to create an output packet
     void encodeAudio(){
-      int ret;
-      int reqSize = 0;
-      if (context_out->frame_size){
-        reqSize = context_out->frame_size;
-      }else{
-        reqSize = context_out->time_base.den / 50;
-      }
-      frameConverted->nb_samples = reqSize;
+      int reqSize = audioEncoderFrameSize();
+      if (reqSize <= 0) { return; }
       // Check if we have enough samples to fill a frame
       if (av_audio_fifo_size(audioBuffer) < reqSize){
         HIGH_MSG("Encoder requires more audio samples...");
         return;
       }
       while (av_audio_fifo_size(audioBuffer) >= reqSize){
-        // Buffer audio samples into frame
-        if (av_audio_fifo_read(audioBuffer, (void **)frameConverted->data, reqSize) < reqSize) {
-          FAIL_MSG("Could not read data from audio buffer");
-          return;
-        }
-        // Update PTS
-        frameConverted->pts = pts;
-        pts += reqSize;
-        // Encode frame
-        ret = avcodec_send_frame(context_out, frameConverted);
-        if (!ret){
-        }
-        if (ret < 0) {
-          printError("Unable to send frame to the encoder", ret);
-          return;
-        }
-        {
-          uint64_t sleepTime = Util::getMicros();
-          std::unique_lock<std::mutex> lk(avMutex);
-          avCV.wait(lk, [this]() { return !frameReady || !config->is_active; });
-          totalSourceSleep += Util::getMicros(sleepTime);
-
-          // Retrieve encoded packet
-          ret = avcodec_receive_packet(context_out, packet_out);
-          if (ret == AVERROR(EAGAIN) || ret == AVERROR_EOF){
-            HIGH_MSG("Encoder requires more input samples...");
-            return;
-          }else if (ret < 0) {
-            printError("Unable to encode", ret);
-            return;
-          }
-
-          uint64_t outputTime = sendPacketTime;
-          if (packet_out->pts != AV_NOPTS_VALUE) {
-            int64_t offsetMs = (packet_out->pts * 1000 * context_out->time_base.num) / context_out->time_base.den;
-            if (offsetMs < 0) {
-              uint64_t negOffset = (uint64_t)(-offsetMs);
-              outputTime = negOffset > sendPacketTime ? 0 : sendPacketTime - negOffset;
-            } else {
-              outputTime = sendPacketTime + (uint64_t)offsetMs;
-            }
-          }
-          frameTimes.push_back(outputTime);
-          outputFrameCount = (char*)packet_out->pts;
-          
-          frameReady = true;
-        }
-        avCV.notify_all();
+        if (!sendAudioFrameFromFifo(reqSize, reqSize)) { return; }
       }
     }
 
@@ -2285,6 +2406,8 @@ void sourceThread(){
   int rc = out.run();
   out.flushVideoDecoder();
   out.flushVideoEncoder();
+  out.flushAudioDecoder();
+  out.flushAudioEncoder();
   if (rc == 0) {
     procExit.log(ER_CLEAN_EOF, 0, "Source thread finished");
   } else {

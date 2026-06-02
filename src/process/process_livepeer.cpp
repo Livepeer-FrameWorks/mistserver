@@ -67,6 +67,15 @@ ProcExitState procExit;
 size_t insertTurn = 0;
 bool isStuck = false;
 size_t sourceIndex = INVALID_TRACK_ID;
+std::atomic<bool> livepeerSourceEOF{false};
+std::atomic<bool> livepeerStopRequested{false};
+std::string livepeerThreadStreamName;
+
+inline void requestLivepeerStop() {
+  livepeerStopRequested.store(true, std::memory_order_release);
+  conf.is_active = false;
+  co.is_active = false;
+}
 
 namespace Mist{
 
@@ -110,6 +119,15 @@ namespace Mist{
     virtual bool onFinish(){
       bool ret = TSOutput::onFinish();
       finishCurrentSegment();
+      if (!ret) {
+        livepeerSourceEOF.store(true, std::memory_order_release);
+        if (!livepeerStopRequested.load(std::memory_order_acquire)) {
+          // Output::run may drop the shared active flag immediately after
+          // onFinish returns. Enter drain mode before the sink observes that.
+          conf.is_active = true;
+          co.is_active = true;
+        }
+      }
       if (opt.isMember("exit_unmask") && opt["exit_unmask"].asBool()){
         if (userSelect.size()){
           for (std::map<size_t, Comms::Users>::iterator it = userSelect.begin(); it != userSelect.end(); it++){
@@ -136,7 +154,9 @@ namespace Mist{
     };
     bool finishCurrentSegment() {
       Mist::preparedSegment & cur = presegs[currPreSeg];
-      if (!conf.is_active || cur.fullyWritten || cur.data.size() <= 187) { return false; }
+      if (livepeerStopRequested.load(std::memory_order_acquire) || cur.fullyWritten || cur.data.size() <= 187) {
+        return false;
+      }
       size_t mainIdx = getMainSelectedTrack();
       if (mainIdx == INVALID_TRACK_ID) { mainIdx = sourceIndex; }
       if (mainIdx == INVALID_TRACK_ID) { mainIdx = thisIdx; }
@@ -234,7 +254,9 @@ namespace Mist{
             statQueueDepth.fetch_add(1, std::memory_order_relaxed);
             currPreSeg = (currPreSeg + 1) % PRESEG_COUNT;
           }
-          while (!presegs[currPreSeg].fullyRead && conf.is_active) { Util::sleep(100); }
+          while (!presegs[currPreSeg].fullyRead && conf.is_active && !livepeerStopRequested.load(std::memory_order_acquire)) {
+            Util::sleep(100);
+          }
           presegs[currPreSeg].data.assign(0, 0);
           selectDefaultTracks();
           needsLookAhead = 0;
@@ -287,7 +309,9 @@ namespace Mist{
           }
         }
       }
-      while (!thisPacket && conf.is_active){
+      while (!thisPacket &&
+             (conf.is_active ||
+              (livepeerSourceEOF.load(std::memory_order_acquire) && !livepeerStopRequested.load(std::memory_order_acquire)))) {
         {
           std::lock_guard<std::mutex> guard(segMutex);
           std::string oRend;
@@ -378,15 +402,16 @@ namespace Mist {
     return true;
   }
 
-  void waitForLivepeerDrain() {
+  bool waitForLivepeerDrain() {
     uint64_t start = Util::bootMS();
     uint64_t lastLog = start;
-    while (conf.is_active && !livepeerQueuesDrained()) {
+    while (!livepeerStopRequested.load(std::memory_order_acquire) && !livepeerQueuesDrained()) {
       uint64_t now = Util::bootMS();
       if (now > start + 60000) {
-        WARN_MSG("Timed out waiting for Livepeer segment drain; shutting down with queueDepth=%u activeUploads=%u",
-                 statQueueDepth.load(std::memory_order_relaxed), statActiveUploads.load(std::memory_order_relaxed));
-        return;
+        procExit.log(ER_FORMAT_SPECIFIC, 2, "Timed out waiting for Livepeer segment drain; queueDepth=%u activeUploads=%u",
+                     statQueueDepth.load(std::memory_order_relaxed), statActiveUploads.load(std::memory_order_relaxed));
+        livepeerStopRequested.store(true, std::memory_order_release);
+        return false;
       }
       if (now > lastLog + 1000) {
         lastLog = now;
@@ -395,10 +420,12 @@ namespace Mist {
       }
       Util::sleep(25);
     }
+    return livepeerQueuesDrained();
   }
 } // namespace Mist
 
 void sinkThread(){
+  Util::setStreamName(livepeerThreadStreamName);
   Mist::ProcessSink in(&co);
   co.activate();
   co.is_active = true;
@@ -411,11 +438,13 @@ void sinkThread(){
                  Util::exitReason[0] ? Util::exitReason : "Sink thread failed");
   }
   INFO_MSG("Sink thread shutting down");
-  conf.is_active = false;
-  co.is_active = false;
+  if (!livepeerSourceEOF.load(std::memory_order_acquire) || livepeerStopRequested.load(std::memory_order_acquire)) {
+    requestLivepeerStop();
+  }
 }
 
 void sourceThread(){
+  Util::setStreamName(livepeerThreadStreamName);
   conf.addOption("streamname", JSON::fromString("{\"arg\":\"string\",\"short\":\"s\",\"long\":"
                                                   "\"stream\",\"help\":\"The name of the stream "
                                                   "that this connector will transmit.\"}"));
@@ -445,19 +474,32 @@ void sourceThread(){
   if (conf.is_active){
     INFO_MSG("Running source thread...");
     int rc = out.run();
-    if (rc == 0) {
-      procExit.log(ER_CLEAN_EOF, 0, "Source thread finished");
+    std::string sourceExitReason = Util::mRExitReason ? Util::mRExitReason : "";
+    bool cleanExit = (sourceExitReason.compare(0, 5, "CLEAN") == 0);
+    if (rc == 0 && cleanExit) {
+      livepeerSourceEOF.store(true, std::memory_order_release);
+      procExit.log(sourceExitReason.size() ? sourceExitReason.c_str() : ER_CLEAN_EOF, 0, "Source thread finished");
+      if (!livepeerStopRequested.load(std::memory_order_acquire)) {
+        // Output::run uses Util::Config::is_active as a process-wide flag and
+        // may clear it on clean VOD EOF. Keep the process alive long enough for
+        // Livepeer uploads, retries and sink insertion to drain.
+        conf.is_active = true;
+        co.is_active = true;
+      }
     } else {
       procExit.log(Util::mRExitReason ? Util::mRExitReason : ER_UNKNOWN, rc, "%s",
                    Util::exitReason[0] ? Util::exitReason : "Source thread failed");
+      livepeerStopRequested.store(true, std::memory_order_release);
     }
-    Mist::waitForLivepeerDrain();
+    if (cleanExit) {
+      if (!Mist::waitForLivepeerDrain()) { WARN_MSG("Livepeer drain did not complete cleanly"); }
+    }
     INFO_MSG("Stopping source thread");
   }else{
     procExit.log(ER_READ_START_FAILURE, 2, "Source thread failed to initialize");
+    livepeerStopRequested.store(true, std::memory_order_release);
   }
-  conf.is_active = false;
-  co.is_active = false;
+  requestLivepeerStop();
 }
 
 /// Structure to hold per-rendition information
@@ -477,7 +519,7 @@ struct MultipartResult {
 void insertPart(const Mist::preparedSegment & mySeg, const std::string & rendition, void * ptr, size_t len){
   uint64_t waitTime = Util::bootMS();
   uint64_t lastAlert = waitTime;
-  while (conf.is_active){
+  while (!livepeerStopRequested.load(std::memory_order_acquire)) {
     {
       std::lock_guard<std::mutex> guard(segMutex);
       if (Mist::segs[rendition].fullyRead){
@@ -587,18 +629,31 @@ bool fatalUploadStatus(uint32_t status) {
 static const uint32_t MAX_CONSECUTIVE_422 = 5;
 
 void uploadThread(size_t myNum){
+  Util::setStreamName(livepeerThreadStreamName);
   Mist::preparedSegment & mySeg = Mist::presegs[myNum];
   HTTP::Downloader upper;
   bool was422 = false;
   uint32_t consecutive422 = 0;
   std::string prevURL;
-  while (conf.is_active){
+  while (!livepeerStopRequested.load(std::memory_order_acquire)) {
     // Block until source thread has prepared this slot. Time spent here counts
     // as "source wait"; we are starved for input.
     uint64_t srcWaitStart = Util::getMicros();
-    while (conf.is_active && !mySeg.fullyWritten){Util::sleep(100);}
+    while (!livepeerStopRequested.load(std::memory_order_acquire) && !mySeg.fullyWritten) {
+      if (livepeerSourceEOF.load(std::memory_order_acquire)) {
+        statTotalSourceWaitUs.fetch_add(Util::getMicros(srcWaitStart), std::memory_order_relaxed);
+        return;
+      }
+      if (!conf.is_active) {
+        statTotalSourceWaitUs.fetch_add(Util::getMicros(srcWaitStart), std::memory_order_relaxed);
+        return;
+      }
+      Util::sleep(100);
+    }
     statTotalSourceWaitUs.fetch_add(Util::getMicros(srcWaitStart), std::memory_order_relaxed);
-    if (!conf.is_active){return;}//Exit early on shutdown
+    if (livepeerStopRequested.load(std::memory_order_acquire) || !mySeg.fullyWritten) {
+      return;
+    } // Exit early on shutdown
     size_t attempts = 0;
     do{
       HTTP::URL target;
@@ -641,9 +696,9 @@ void uploadThread(size_t myNum){
           // Sink wait: blocked waiting for our insertion turn (serialized
           // across uploadThreads).
           uint64_t sinkWaitStart = Util::getMicros();
-          while (myNum != insertTurn && conf.is_active){Util::sleep(100);}
+          while (myNum != insertTurn && !livepeerStopRequested.load(std::memory_order_acquire)) { Util::sleep(100); }
           statTotalSinkWaitUs.fetch_add(Util::getMicros(sinkWaitStart), std::memory_order_relaxed);
-          if (!conf.is_active){return;}//Exit early on shutdown
+          if (livepeerStopRequested.load(std::memory_order_acquire)) { return; } // Exit early on shutdown
           // Local work: multipart parse + per-rendition insert. Whatever
           // happens here is CPU we're spending on this proc.
           uint64_t workStart = Util::getMicros();
@@ -711,7 +766,7 @@ void uploadThread(size_t myNum){
           if (consecutive422 >= MAX_CONSECUTIVE_422) {
             procExit.log(ER_FORMAT_SPECIFIC, 2,
                          "Livepeer: %" PRIu32 " consecutive segment rejections (422) — falling back", consecutive422);
-            conf.is_active = false;
+            requestLivepeerStop();
             return;
           }
           if (was422){
@@ -731,13 +786,13 @@ void uploadThread(size_t myNum){
           if (fatalUploadStatus(upper.getStatusCode())) {
             procExit.log(ER_FORMAT_SPECIFIC, 2, "Livepeer upload fatal HTTP status %" PRIu32 " %s",
                          upper.getStatusCode(), upper.getStatusText().c_str());
-            conf.is_active = false;
+            requestLivepeerStop();
             return;
           }
         }
       } else {
         //other failures and aborted uploads
-        if (!conf.is_active){return;}//Exit early on shutdown
+        if (!conf.is_active && !livepeerSourceEOF.load(std::memory_order_acquire)) { return; } // Exit early on shutdown
         uplTime = Util::getMicros(uplTime);
         statTotalExternalUs.fetch_add(uplTime, std::memory_order_relaxed);
         ++statFailTimeout;
@@ -748,7 +803,7 @@ void uploadThread(size_t myNum){
       Util::sleep(100);//Rate-limit retries
       if (attempts > 4){
         procExit.log(ER_FORMAT_SPECIFIC, 2, "too many upload failures");
-        conf.is_active = false;
+        requestLivepeerStop();
         return;
       }
       bool switchSuccess = false;
@@ -760,7 +815,7 @@ void uploadThread(size_t myNum){
         if (!Mist::currBroadAddr.size()){
           FAIL_MSG("Cannot switch to new broadcaster: none available");
           procExit.log(ER_FORMAT_SPECIFIC, 2, "no Livepeer broadcasters available");
-          conf.is_active = false;
+          requestLivepeerStop();
           return;
         }
         if (Mist::currBroadAddr != prevBroadAddr){
@@ -778,7 +833,7 @@ void uploadThread(size_t myNum){
         prevURL.clear();
         break;
       }
-    }while(conf.is_active);
+    } while (!livepeerStopRequested.load(std::memory_order_acquire));
   }
 }
 
@@ -1039,7 +1094,8 @@ int main(int argc, char *argv[]){
     std::string streamName = Mist::opt["sink"].asString();
     if (!streamName.size()){streamName = Mist::opt["source"].asString();}
     Util::streamVariables(streamName, Mist::opt["source"].asString());
-    Util::setStreamName(Mist::opt["source"].asString() + "→" + streamName);
+    livepeerThreadStreamName = Mist::opt["source"].asString() + "→" + streamName;
+    Util::setStreamName(livepeerThreadStreamName);
   }
 
 #ifdef SSL
@@ -1256,7 +1312,8 @@ int main(int argc, char *argv[]){
 
   // Previous-window snapshots for pressure derivation.
   uint64_t prevTotalFails = 0;
-  while (conf.is_active && co.is_active){
+  while (!livepeerStopRequested.load(std::memory_order_acquire) &&
+         (conf.is_active || (livepeerSourceEOF.load(std::memory_order_acquire) && !Mist::livepeerQueuesDrained()))) {
     Util::sleep(200);
     if (lastProcUpdate + 5 <= Util::bootSecs()){
       std::lock_guard<std::mutex> guard(statsMutex);
