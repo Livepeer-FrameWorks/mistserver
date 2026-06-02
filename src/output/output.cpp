@@ -3172,6 +3172,12 @@ namespace Mist{
 
   bool Output::processingProcessMatchesSource(const JSON::Value & proc) const {
     if (!proc.isObject()) { return false; }
+    auto hasOriginalTrack = [this](const std::set<size_t> & tracks) {
+      for (std::set<size_t>::const_iterator it = tracks.begin(); it != tracks.end(); ++it) {
+        if (M.getSourceTrack(*it) == INVALID_TRACK_ID) { return true; }
+      }
+      return false;
+    };
 
     if (proc.isMember("tags_inhibit")) {
       std::set<std::string> tags = Util::streamTags(streamName);
@@ -3201,7 +3207,7 @@ namespace Mist{
     if (proc.isMember("track_inhibit")) {
       std::set<size_t> tracks = Util::wouldSelect(
         M, std::string("audio=none&video=none&subtitle=none&meta=none&") + proc["track_inhibit"].asStringRef());
-      if (tracks.size()) { return false; }
+      if (hasOriginalTrack(tracks)) { return false; }
     }
     return true;
   }
@@ -3234,36 +3240,59 @@ namespace Mist{
     JSON::Value processes = streamCfg.getMember("processes").asJSON();
     if (!processes.isArray() || !processes.size()) { return true; }
 
-    size_t expectedProcs = 0;
-    std::set<size_t> sourceTracks;
+    size_t expectedOutputTracks = 0;
     jsonForEachConst (processes, it) {
       if (!it->isObject() || !it->isMember("process")) { continue; }
       const std::string procName = (*it)["process"].asString();
       if (procName != "AV" && procName != "Livepeer" && procName != "Thumbs" && procName != "FFmpeg") { continue; }
       if (!processingProcessMatchesSource(*it)) { continue; }
-      ++expectedProcs;
-      if (it->isMember("source_track")) {
-        std::set<size_t> tracks = Util::findTracks(M, JSON::Value(), "", (*it)["source_track"].asStringRef());
-        sourceTracks.insert(tracks.begin(), tracks.end());
-      } else if (it->isMember("track_select")) {
-        std::set<size_t> tracks = Util::wouldSelect(M, (*it)["track_select"].asStringRef());
-        sourceTracks.insert(tracks.begin(), tracks.end());
+      if (procName == "Livepeer" && it->isMember("target_profiles") && (*it)["target_profiles"].isArray()) {
+        jsonForEachConst ((*it)["target_profiles"], prof) {
+          if (!prof->isObject()) { continue; }
+          if (prof->isMember("track_inhibit")) {
+            std::set<size_t> tracks = Util::wouldSelect(
+              M, std::string("audio=none&video=none&subtitle=none&meta=none&") + (*prof)["track_inhibit"].asStringRef());
+            bool hasOriginalTrack = false;
+            for (std::set<size_t>::const_iterator trackIt = tracks.begin(); trackIt != tracks.end(); ++trackIt) {
+              if (M.getSourceTrack(*trackIt) == INVALID_TRACK_ID) {
+                hasOriginalTrack = true;
+                break;
+              }
+            }
+            if (hasOriginalTrack) { continue; }
+          }
+          ++expectedOutputTracks;
+        }
+      } else {
+        ++expectedOutputTracks;
       }
     }
-    if (!expectedProcs) { return true; }
+    if (!expectedOutputTracks) { return true; }
 
     meta.reloadReplacedPagesIfNeeded();
     selectDefaultTracks();
 
-    size_t readyTracks = 0;
-    const size_t expectedTracks = sourceTracks.size() + expectedProcs;
-    std::set<size_t> validTracksWithData = M.getValidTracks(true);
+    size_t selectedOriginalTracks = 0;
     for (std::map<size_t, Comms::Users>::iterator it = userSelect.begin(); it != userSelect.end(); ++it) {
-      if (validTracksWithData.count(it->first)) { ++readyTracks; }
+      if (M.getSourceTrack(it->first) == INVALID_TRACK_ID) { ++selectedOriginalTracks; }
     }
 
-    if (readyTracks >= expectedTracks) { return true; }
-    INFO_MSG("Waiting for processing tracks before recording header: %zu/%zu selected tracks ready", readyTracks, expectedTracks);
+    size_t readyOriginalTracks = 0;
+    size_t readyOutputTracks = 0;
+    std::set<size_t> validTracksWithData = M.getValidTracks(true);
+    for (std::map<size_t, Comms::Users>::iterator it = userSelect.begin(); it != userSelect.end(); ++it) {
+      if (!validTracksWithData.count(it->first)) { continue; }
+      if (M.getSourceTrack(it->first) == INVALID_TRACK_ID) {
+        ++readyOriginalTracks;
+      } else {
+        ++readyOutputTracks;
+      }
+    }
+
+    if (readyOriginalTracks >= selectedOriginalTracks && readyOutputTracks >= expectedOutputTracks) { return true; }
+    INFO_MSG("Waiting for processing tracks before recording header: %zu/%zu original tracks, %zu/%zu processing "
+             "outputs ready",
+             readyOriginalTracks, selectedOriginalTracks, readyOutputTracks, expectedOutputTracks);
     return false;
   }
 }// namespace Mist
