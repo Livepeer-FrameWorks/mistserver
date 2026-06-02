@@ -72,7 +72,7 @@ namespace Mist{
     uint32_t mainTrack = M.mainTrack();
     if (mainTrack == INVALID_TRACK_ID){return false;}
     DTSC::Fragments fragments(M.fragments(mainTrack));
-    return fragments.getValidCount() > 6;
+    return fragments.getValidCount() > 1;
   }
 
   OutCMAF::OutCMAF(Socket::Connection & conn, Util::Config & _cfg, JSON::Value & _capa)

@@ -184,7 +184,9 @@ namespace HLS{
     // Part 2: Limit a playlist depending on initial MSN data
     // see the NOTE at HLS::getLiveLengthLimit(args)
     if (trackData.isLive && (fragData.lastFrag - fragData.currentFrag) > 2){
-      fragData.currentFrag = std::max(trackData.initMsn, fragData.currentFrag + 2);
+      const uint64_t defaultStart = fragData.currentFrag + 2;
+      const uint64_t maxStart = fragData.lastFrag - 2;
+      fragData.currentFrag = std::min(std::max(trackData.initMsn, defaultStart), maxStart);
     }
   }
 
@@ -718,16 +720,19 @@ namespace HLS{
   }
 
   /// Get the first fragment number to be printed in the playlist
-  u_int64_t getInitFragment(const DTSC::Meta &M, const MasterData &masterData){
+  uint64_t getInitFragment(const DTSC::Meta & M, const MasterData & masterData) {
     if (M.getLive()){
       DTSC::Fragments fragments(M.fragments(masterData.mainTrack));
       DTSC::Keys keys(M.getKeys(masterData.mainTrack));
-      u_int64_t iFrag = std::max(fragments.getEndValid() -
-                                     (masterData.noLLHLS ? 10 : getLiveLengthLimit(masterData)),
-                                 fragments.getFirstValid());
-      uint64_t minDur =
-          M.getLastms(masterData.mainTrack) - keys.getTime(fragments.getFirstKey(iFrag));
-      if (minDur < HLS::partDurationMaxMs * 3){iFrag--;}
+      const uint64_t firstFrag = fragments.getFirstValid();
+      const uint64_t endFrag = fragments.getEndValid();
+      if (endFrag <= firstFrag) { return firstFrag; }
+      const uint64_t liveLength = masterData.noLLHLS ? 10 : getLiveLengthLimit(masterData);
+      uint64_t iFrag = (endFrag > firstFrag + liveLength) ? endFrag - liveLength : firstFrag;
+      const uint64_t lastMs = M.getLastms(masterData.mainTrack);
+      const uint64_t firstMs = keys.getTime(fragments.getFirstKey(iFrag));
+      const uint64_t minDur = lastMs > firstMs ? lastMs - firstMs : 0;
+      if (minDur < HLS::partDurationMaxMs * 3 && iFrag > firstFrag) { iFrag--; }
       return iFrag;
     }else{
       return 0;
