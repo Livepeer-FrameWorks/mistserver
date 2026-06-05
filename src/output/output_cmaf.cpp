@@ -547,6 +547,11 @@ namespace Mist{
     DTSC::Fragments fragments(M.fragments(idx));
     uint32_t firstFragment = fragments.getFirstValid();
     uint32_t lastFragment = fragments.getEndValid();
+    if (M.getLive()) {
+      const uint64_t liveEdge = HLS::getLiveEdgeMs(M, userSelect, idx, idx, systemBoot + bootMsOffset);
+      lastFragment = std::min<uint32_t>(lastFragment, M.getFragmentIndexForTime(idx, liveEdge));
+      if (lastFragment < firstFragment) { lastFragment = firstFragment; }
+    }
     bool first = true;
     // skip the first two fragments if live
     if (M.getLive() && (lastFragment - firstFragment) > 6){firstFragment += 2;}
@@ -725,9 +730,13 @@ namespace Mist{
       r << "type=\"static\" mediaPresentationDuration=\"" << dashTime(mainDuration)
         << "\" minBufferTime=\"PT1.5S\" ";
     }else{
+      const uint64_t liveEdge = HLS::getLiveEdgeMs(M, userSelect, mainTrack, mainTrack, systemBoot + bootMsOffset);
+      const uint64_t firstMs = M.getFirstms(mainTrack);
+      mainDuration = liveEdge > firstMs ? liveEdge - firstMs : 0;
+      const uint64_t streamStartMs = M.packetTimeToUnixMs(0, systemBoot);
+      const uint64_t availabilityStart = streamStartMs ? streamStartMs / 1000 : Util::epoch() - liveEdge / 1000;
       r << "type=\"dynamic\" minimumUpdatePeriod=\"PT2.0S\" availabilityStartTime=\""
-        << Util::getUTCString(Util::epoch() - M.getLastms(mainTrack) / 1000)
-        << "\" timeShiftBufferDepth=\"" << dashTime(mainDuration)
+        << Util::getUTCString(availabilityStart) << "\" timeShiftBufferDepth=\"" << dashTime(mainDuration)
         << "\" suggestedPresentationDelay=\"PT5.0S\" minBufferTime=\"PT2.0S\" publishTime=\""
         << Util::getUTCString(Util::epoch()) << "\" ";
     }

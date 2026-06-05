@@ -43,20 +43,35 @@ namespace HLS{
 #endif
   };
 
-  /// lastms calculation incorporating jitter duration
-  /// Always ensures the (lastms <= current time - jitter duration)
-  uint64_t getLastms(const DTSC::Meta &M, const std::map<size_t, Comms::Users> &userSelect,
-                     const size_t trackIdx, const uint64_t streamStartTime){
+  uint64_t getLastmsForJitter(const DTSC::Meta & M, const size_t trackIdx, const uint64_t streamStartTime, const uint64_t maxJitter) {
+    uint64_t now = Util::unixMS();
+    uint64_t wallClockLastMs = 0;
+    if (now > streamStartTime + maxJitter) { wallClockLastMs = now - streamStartTime - maxJitter; }
+    return std::min(M.getLastms(trackIdx), wallClockLastMs);
+  }
+
+  uint64_t getMaxJitter(const DTSC::Meta & M, const std::map<size_t, Comms::Users> & userSelect) {
     std::map<size_t, Comms::Users>::const_iterator it = userSelect.begin();
     uint64_t maxJitter = 0;
     for (; it != userSelect.end(); it++){
       uint64_t minKeepAway = M.getMinKeepAway(it->first);
       if (minKeepAway > maxJitter){maxJitter = minKeepAway;}
     }
-    uint64_t now = Util::unixMS();
-    uint64_t wallClockLastMs = 0;
-    if (now > streamStartTime + maxJitter) { wallClockLastMs = now - streamStartTime - maxJitter; }
-    return std::min(M.getLastms(trackIdx), wallClockLastMs);
+    return maxJitter;
+  }
+
+  /// lastms calculation incorporating jitter duration
+  /// Always ensures the (lastms <= current time - jitter duration)
+  uint64_t getLastms(const DTSC::Meta & M, const std::map<size_t, Comms::Users> & userSelect, const size_t trackIdx,
+                     const uint64_t streamStartTime) {
+    return getLastmsForJitter(M, trackIdx, streamStartTime, getMaxJitter(M, userSelect));
+  }
+
+  uint64_t getLiveEdgeMs(const DTSC::Meta & M, const std::map<size_t, Comms::Users> & userSelect,
+                         const size_t requestTrackId, const size_t timingTrackId, const uint64_t streamStartTime) {
+    const uint64_t requestLastMs = getLastms(M, userSelect, requestTrackId, streamStartTime);
+    if (requestTrackId == timingTrackId) { return requestLastMs; }
+    return std::min(requestLastMs, getLastms(M, userSelect, timingTrackId, streamStartTime));
   }
 
   /// Calculate HLS media playlist version compatibility
@@ -81,11 +96,10 @@ namespace HLS{
   /// Return live edge fragment duration
   uint64_t getLastFragDur(const DTSC::Meta &M, const std::map<size_t, Comms::Users> &userSelect, const TrackData &trackData, const uint64_t hlsMsnNr,
                           const DTSC::Fragments &fragments, const DTSC::Keys &keys){
-    return std::min(
-               getLastms(M, userSelect, trackData.timingTrackId, trackData.systemBoot + trackData.bootMsOffset),
-               getLastms(M, userSelect, trackData.requestTrackId,
-                         trackData.systemBoot + trackData.bootMsOffset)) -
-           keys.getTime(fragments.getFirstKey(hlsMsnNr));
+    const uint64_t liveEdge = getLiveEdgeMs(M, userSelect, trackData.requestTrackId, trackData.timingTrackId,
+                                            trackData.systemBoot + trackData.bootMsOffset);
+    const uint64_t fragmentStart = keys.getTime(fragments.getFirstKey(hlsMsnNr));
+    return liveEdge > fragmentStart ? liveEdge - fragmentStart : 0;
   }
 
   /// Waits until the requested fragment & partial fragment are available
@@ -153,18 +167,16 @@ namespace HLS{
   void populateFragmentData(const DTSC::Meta &M, const std::map<size_t, Comms::Users> &userSelect, FragmentData &fragData, const TrackData &trackData,
                             const DTSC::Fragments &fragments, const DTSC::Keys &keys){
     if (trackData.isLive) {
-      fragData.lastMs =
-        std::min(getLastms(M, userSelect, trackData.requestTrackId, trackData.systemBoot + trackData.bootMsOffset),
-                 getLastms(M, userSelect, trackData.timingTrackId, trackData.systemBoot + trackData.bootMsOffset));
+      fragData.lastMs = getLiveEdgeMs(M, userSelect, trackData.requestTrackId, trackData.timingTrackId,
+                                      trackData.systemBoot + trackData.bootMsOffset);
     } else {
       fragData.lastMs = std::min(M.getLastms(trackData.requestTrackId), M.getLastms(trackData.timingTrackId));
     }
     fragData.firstFrag = fragments.getFirstValid();
     if (trackData.isLive){
-      fragData.lastFrag = M.getFragmentIndexForTime(trackData.timingTrackId, fragData.lastMs);
-      if (fragments.getEndValid() > fragData.lastFrag){
-        fragData.lastFrag = fragments.getEndValid();
-      }
+      const uint64_t edgeFrag = M.getFragmentIndexForTime(trackData.timingTrackId, fragData.lastMs);
+      fragData.lastFrag = std::min<uint64_t>(fragments.getEndValid(), edgeFrag + 1);
+      if (fragData.lastFrag < fragData.firstFrag) { fragData.lastFrag = fragData.firstFrag; }
     }else{
       // Override to last fragment if VOD
       fragData.lastFrag = fragments.getEndValid();
@@ -380,9 +392,14 @@ namespace HLS{
 
     // if fragment is last-but-4th or later
     // OR if fragment is 3 target durations from the end
-    if ((fragData.lastFrag - fragData.currentFrag < 5) ||
-        ((fragData.lastMs - fragData.startTime) <= 3 * trackData.targetDurationMax * 1000)){
-      std::ldiv_t durationData = std::ldiv(fragData.duration, partDurationMaxMs);
+    const uint64_t liveEdgeDistance = fragData.lastMs > fragData.startTime ? fragData.lastMs - fragData.startTime : 0;
+    uint64_t availableDuration = fragData.duration;
+    if (fragData.currentFrag == fragData.lastFrag - 1) {
+      availableDuration = std::min(availableDuration, liveEdgeDistance);
+    }
+
+    if ((fragData.lastFrag - fragData.currentFrag < 5) || (liveEdgeDistance <= 3 * trackData.targetDurationMax * 1000)) {
+      std::ldiv_t durationData = std::ldiv(availableDuration, partDurationMaxMs);
 
       // General case: all partial segments with duration equal to partDurationMax
       uint32_t partCount = 0;
@@ -424,7 +441,9 @@ namespace HLS{
       fragData.duration = fragments.getDuration(fragData.currentFrag);
       // NOTE: If duration invalid, it's the last fragment, so calculate duration from live edge
       // Needed for LLHLS
-      if (!fragData.duration){fragData.duration = fragData.lastMs - fragData.startTime;}
+      if (!fragData.duration) {
+        fragData.duration = fragData.lastMs > fragData.startTime ? fragData.lastMs - fragData.startTime : 0;
+      }
 
       addMediaTags(result, M, fragData, trackData, keys);
     }
@@ -433,11 +452,10 @@ namespace HLS{
   void addVodEndingTags(std::stringstream &result){result << "#EXT-X-ENDLIST\r\n";}
 
   /// Append result with information on alternate renditions, only for LLHLS
-  void addAltRenditionReports(std::stringstream &result, const DTSC::Meta &M,
-                              const std::map<size_t, Comms::Users> &userSelect,
-                              const FragmentData &fragData, const TrackData &trackData){
-    if (fragData.currentFrag < 2) { return; }
+  void addAltRenditionReports(std::stringstream & result, const DTSC::Meta & M, const std::map<size_t, Comms::Users> & userSelect,
+                              const FragmentData & fragData, const TrackData & trackData) {
     DTSC::Fragments fragments(M.fragments(trackData.timingTrackId));
+    if (fragData.currentFrag < fragments.getFirstValid() + 2) { return; }
     std::ldiv_t altPart =
         std::ldiv(fragments.getDuration(fragData.currentFrag - 2), partDurationMaxMs);
     std::map<size_t, Comms::Users>::const_iterator it = userSelect.begin();
@@ -477,7 +495,7 @@ namespace HLS{
                          const FragmentData &fragData, const TrackData &trackData){
     if (trackData.noLLHLS){return;}
     if (serverSupport.tags && serverSupport.parts){
-      addPreloadHintTag(result, fragData, trackData);
+      if (fragData.currentFrag > fragData.firstFrag) { addPreloadHintTag(result, fragData, trackData); }
       addAltRenditionReports(result, M, userSelect, fragData, trackData);
     }
   }
@@ -720,7 +738,7 @@ namespace HLS{
   }
 
   /// Get the first fragment number to be printed in the playlist
-  uint64_t getInitFragment(const DTSC::Meta & M, const MasterData & masterData) {
+  uint64_t getInitFragment(const DTSC::Meta & M, const std::map<size_t, Comms::Users> & userSelect, const MasterData & masterData) {
     if (M.getLive()){
       DTSC::Fragments fragments(M.fragments(masterData.mainTrack));
       DTSC::Keys keys(M.getKeys(masterData.mainTrack));
@@ -728,8 +746,12 @@ namespace HLS{
       const uint64_t endFrag = fragments.getEndValid();
       if (endFrag <= firstFrag) { return firstFrag; }
       const uint64_t liveLength = masterData.noLLHLS ? 10 : getLiveLengthLimit(masterData);
-      uint64_t iFrag = (endFrag > firstFrag + liveLength) ? endFrag - liveLength : firstFrag;
-      const uint64_t lastMs = M.getLastms(masterData.mainTrack);
+      const uint64_t lastMs = getLiveEdgeMs(M, userSelect, masterData.mainTrack, masterData.mainTrack,
+                                            masterData.systemBoot + masterData.bootMsOffset);
+      const uint64_t edgeFrag = M.getFragmentIndexForTime(masterData.mainTrack, lastMs);
+      const uint64_t safeEndFrag = std::min<uint64_t>(endFrag, edgeFrag + 1);
+      if (safeEndFrag <= firstFrag) { return firstFrag; }
+      uint64_t iFrag = (safeEndFrag > firstFrag + liveLength) ? safeEndFrag - liveLength : firstFrag;
       const uint64_t firstMs = keys.getTime(fragments.getFirstKey(iFrag));
       const uint64_t minDur = lastMs > firstMs ? lastMs - firstMs : 0;
       if (minDur < HLS::partDurationMaxMs * 3 && iFrag > firstFrag) { iFrag--; }
@@ -752,7 +774,7 @@ namespace HLS{
 
     sortTracks(M, userSelect, grpid, vTracks, aTracks, sTracks, vidGroups);
 
-    const uint64_t iFrag = getInitFragment(M, masterData);
+    const uint64_t iFrag = getInitFragment(M, userSelect, masterData);
 
     addMasterBasicTags(result);
 

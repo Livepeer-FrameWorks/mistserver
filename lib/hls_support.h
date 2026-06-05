@@ -68,6 +68,9 @@ namespace HLS{
 
   size_t getTimingTrackId(const DTSC::Meta &M, const std::string &mTrack, const size_t mSelTrack);
 
+  uint64_t getLiveEdgeMs(const DTSC::Meta & M, const std::map<size_t, Comms::Users> & userSelect,
+                         const size_t requestTrackId, const size_t timingTrackId, const uint64_t streamStartTime);
+
   void addStartingMetaTags(std::stringstream &result, FragmentData &fragData,
                            const TrackData &trackData, const HlsSpecData &hlsSpecData);
 
