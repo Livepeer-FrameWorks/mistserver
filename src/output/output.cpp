@@ -1024,11 +1024,19 @@ namespace Mist{
       return false;
     }
     uint64_t actualKeyTime = keys.getTime(keyNum);
+    uint64_t packetSeekPos = pos;
+    if (M.getType(tid) == "video" && M.hasBFrames(tid) && !M.hasEmbeddedFrames(tid)) {
+      // B-frame tracks may need decode packets that present before the seek timestamp.
+      const size_t firstPart = keys.getFirstPart(keyNum);
+      const uint64_t firstPartTime = M.getPartTime(firstPart, tid);
+      if (firstPartTime < packetSeekPos) { packetSeekPos = firstPartTime; }
+    }
     HIGH_MSG("Seeking to track %zu key %" PRIu32 " => time %" PRIu64, tid, keyNum, pos);
     lastReceive = thisBootMs;
     if (actualKeyTime > pos){
       pos = actualKeyTime;
       userSelect[tid].setKeyNum(keyNum);
+      if (actualKeyTime > packetSeekPos) { packetSeekPos = actualKeyTime; }
     }
     if (M.hasEmbeddedFrames(tid)){
       Util::sortedPageInfo tmp;
@@ -1060,7 +1068,7 @@ namespace Mist{
     tmp.time = tmpPack.getTime();
     char *mpd = curPage[tid].mapped;
     uint64_t nowMs = M.getNowms(tid);
-    while (tmp.time < pos && tmpPack){
+    while (tmp.time < packetSeekPos && tmpPack) {
       tmp.offset += tmpPack.getDataLen();
       tmpPack.reInit(mpd + tmp.offset, 0, true);
       if (!tmpPack){
