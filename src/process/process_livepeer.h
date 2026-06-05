@@ -28,6 +28,7 @@ namespace Mist{
       TS::Stream S;
       Util::ResizeablePointer data;
       readySegment(){
+        S.delay(true);
         ID = nextFreeID++;
         time = 0;
         timeOffset = 0;
@@ -74,5 +75,4 @@ namespace Mist{
   std::string currBroadAddr;
   std::string lpID;
 
-}// namespace Mist
-
+} // namespace Mist
