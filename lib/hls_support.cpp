@@ -274,7 +274,8 @@ namespace HLS{
       }
       if (serverSupport.pduV2){result << "CAN-SKIP-DATERANGES=YES,";}
       if (serverSupport.parts){
-        result << "PART-HOLD-BACK=" << partDurationMax * 3; // atleast 3x
+        const float partHoldBack = std::max(partDurationMax * 3, (float)trackData.targetDurationMax * 2);
+        result << "PART-HOLD-BACK=" << partHoldBack;
         result << "\r\n#EXT-X-PART-INF:PART-TARGET=" << partDurationMax;
       }
       result << "\r\n";
@@ -318,7 +319,10 @@ namespace HLS{
   /// Append result with media meta tags that are in the beginning of the manifest
   void addStartingMetaTags(std::stringstream &result, FragmentData &fragData,
                            const TrackData &trackData, const HlsSpecData &hlsSpecData){
-    const uint16_t version = calcManifestVersion(hlsSpecData.hlsSkip);
+    uint16_t version = calcManifestVersion(hlsSpecData.hlsSkip);
+    if (trackData.isLive && !trackData.noLLHLS && serverSupport.tags && serverSupport.parts) {
+      version = std::max<uint16_t>(version, 9);
+    }
     addMediaBasicTags(result, version);
     addServerSupportTags(result, trackData);
     addInitTags(result, trackData);
