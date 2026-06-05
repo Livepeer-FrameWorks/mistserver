@@ -2265,15 +2265,6 @@ namespace Mist{
       std::string payload = streamName + "\n" + getConnectedHost() + "\n" + capa["name"].asStringRef() + "\n" + reqUrl;
       Triggers::doTrigger("CONN_CLOSE", payload, streamName);
     }
-    if (isRecordingToFile){
-      recEndTrigger();
-    }
-    outputEndTrigger();
-
-    disconnect();
-    stats(true);
-    userSelect.clear();
-    trackSelectionChanged();
     if (myConn && myConn.isChunkedMode()) {
       myConn.SendNow(0, 0);
       HTTP::Parser response;
@@ -2301,6 +2292,13 @@ namespace Mist{
       if (!gotResponse) { WARN_MSG("No reply from remote server to PUT request"); }
     }
     myConn.close();
+    if (isRecordingToFile) { recEndTrigger(); }
+    outputEndTrigger();
+
+    disconnect();
+    stats(true);
+    userSelect.clear();
+    trackSelectionChanged();
     return 0;
   }
 
