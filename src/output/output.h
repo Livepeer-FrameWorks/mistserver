@@ -165,7 +165,7 @@ namespace Mist{
     virtual bool isFileTarget();
     virtual bool isPushing(){return pushing;};
     virtual void serveOfflineResponse();
-    std::string getExitTriggerPayload();
+    std::string getExitTriggerPayload(bool includeTrackSummary = false);
     void recEndTrigger();
     void outputEndTrigger();
     bool allowPush(const std::string &passwd);
