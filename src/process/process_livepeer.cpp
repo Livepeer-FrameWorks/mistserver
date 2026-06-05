@@ -19,6 +19,7 @@
 #include <atomic>
 #include <mutex>
 #include <ostream>
+#include <set>
 #include <sys/stat.h> //for stat
 #include <sys/types.h> //for stat
 #include <thread>
@@ -295,6 +296,7 @@ namespace Mist{
     bool isSingular(){return false;}
   private:
     std::map<std::string, readySegment>::iterator segIt;
+    std::set<uint64_t> startedTracks;
     bool needHeader(){return false;}
     virtual void getNext(size_t idx = INVALID_TRACK_ID){
       thisPacket.null();
@@ -353,6 +355,15 @@ namespace Mist{
                 thisIdx = M.trackIDToIndex(trackId, getpid());
                 meta.setSourceTrack(thisIdx, sourceIndex);
                 if (M.getType(thisIdx) == "audio") { meta.validateTrack(thisIdx, 0); }
+              }
+              if (thisIdx != INVALID_TRACK_ID && M.getType(thisIdx) == "video" && !startedTracks.count(trackId)) {
+                if (!thisPacket.getFlag("keyframe")) {
+                  thisPacket.null();
+                  continue;
+                }
+                startedTracks.insert(trackId);
+              } else if (thisIdx != INVALID_TRACK_ID && M.getType(thisIdx) != "video") {
+                startedTracks.insert(trackId);
               }
             }
             if (S.byteOffset >= S.data.size() && !S.S.hasPacket()){

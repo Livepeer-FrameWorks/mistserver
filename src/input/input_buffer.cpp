@@ -428,10 +428,12 @@ namespace Mist{
       std::set<std::string> activeTypes;
 
       std::set<size_t> tracks = M.getValidTracks();
+      std::set<size_t> tracksWithData = M.getValidTracks(true);
       // for tracks that were updated in the last 5 seconds, get the first and last ms edges.
       for (std::set<size_t>::iterator idx = tracks.begin(); idx != tracks.end(); idx++){
         size_t i = *idx;
         if ((time - M.getLastUpdated(i)) > 5){continue;}
+        if (!tracksWithData.count(i)) { continue; }
         activeTypes.insert(M.getType(i));
         if (M.getLastms(i) > compareLast){compareLast = M.getLastms(i);}
         if (M.getFirstms(i) < compareFirst){compareFirst = M.getFirstms(i);}
@@ -453,12 +455,13 @@ namespace Mist{
         std::string type = M.getType(i);
         uint64_t firstms = M.getFirstms(i);
         uint64_t lastms = M.getLastms(i);
+        bool hasData = tracksWithData.count(i);
         // if not updated for an entire buffer duration, or last updated track and this track differ
         // by an entire buffer duration, erase the track.
-        if ((time - lastUp > (idleTime / 1000) ||
-             (compareLast && activeTypes.count(type) && (time - lastUp) > 5 &&
-              ((compareLast < firstms && (firstms - compareLast) > idleTime) ||
-               (compareFirst > lastms && (compareFirst - lastms) > idleTime))))){
+        if (time - lastUp > (idleTime / 1000) ||
+            (hasData && compareLast && activeTypes.count(type) && (time - lastUp) > 5 &&
+             ((compareLast < firstms && (firstms - compareLast) > idleTime) ||
+              (compareFirst > lastms && (compareFirst - lastms) > idleTime)))) {
           // erase this track
           if ((time - lastUp) > (idleTime / 1000)){
             WARN_MSG("Erasing %s track %zu (%s/%s) because not updated for %" PRIu64 "s (> %" PRIu64 "s)",
