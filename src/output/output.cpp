@@ -2968,7 +2968,7 @@ namespace Mist{
     sentHeader = true;
   }
 
-  std::string Output::getExitTriggerPayload(){
+  std::string Output::getExitTriggerPayload(bool includeTrackSummary) {
     uint64_t rightNow = Util::epoch();
     std::stringstream payl;
     payl << streamName << '\n';
@@ -2987,12 +2987,42 @@ namespace Mist{
     payl << lastPacketTime << '\n';
     payl << Util::mRExitReason << '\n';
     payl << Util::exitReason << '\n';
+    if (includeTrackSummary) {
+      JSON::Value tracks;
+      std::set<size_t> selectedTracks;
+      for (const auto & it : userSelect) { selectedTracks.insert(it.first); }
+      std::set<size_t> finalTracks;
+      if (M) { finalTracks = M.getValidTracks(true); }
+      if (!finalTracks.size()) {
+        for (const auto & it : userSelect) { finalTracks.insert(it.first); }
+      }
+      for (const auto & trackIdx : finalTracks) {
+        JSON::Value & T = tracks.append();
+        T["idx"] = trackIdx;
+        T["selected"] = (bool)selectedTracks.count(trackIdx);
+        if (M.trackValid(trackIdx)) {
+          T["id"] = M.getID(trackIdx);
+          T["type"] = M.getType(trackIdx);
+          T["codec"] = M.getCodec(trackIdx);
+          T["firstms"] = M.getFirstms(trackIdx);
+          T["lastms"] = M.getLastms(trackIdx);
+          T["bps"] = M.getBps(trackIdx);
+          T["rate"] = M.getRate(trackIdx);
+          if (M.getWidth(trackIdx)) { T["width"] = M.getWidth(trackIdx); }
+          if (M.getHeight(trackIdx)) { T["height"] = M.getHeight(trackIdx); }
+          if (M.getChannels(trackIdx)) { T["channels"] = M.getChannels(trackIdx); }
+        }
+      }
+      JSON::Value trackSummary;
+      trackSummary["tracks"] = tracks;
+      payl << trackSummary.toString() << '\n';
+    }
     return payl.str();
   }
-  
+
   void Output::recEndTrigger(){
     if (Util::Config::binaryType == Util::OUTPUT && config->hasOption("target") && Triggers::shouldTrigger("RECORDING_END", streamName)){
-      Triggers::doTrigger("RECORDING_END", getExitTriggerPayload(), streamName);
+      Triggers::doTrigger("RECORDING_END", getExitTriggerPayload(true), streamName);
     }
   }
 

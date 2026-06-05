@@ -505,11 +505,13 @@ namespace Controller{
     trgs["RECORDING_END"]["when"] = "When a push to file finishes";
     trgs["RECORDING_END"]["stream_specific"] = true;
     trgs["RECORDING_END"]["payload"] =
-        "stream name (string)\npush target (string)\nconnector / filetype (string)\nbytes recorded "
-        "(integer)\nseconds spent recording (integer)\nunix time recording started (integer)\nunix "
-        "time recording stopped (integer)\ntotal milliseconds of media data recorded "
-        "(integer)\nmillisecond timestamp of first media packet (integer)\nmillisecond timestamp "
-        "of last media packet (integer)\nmachine-readable reason for exit (string, enum)\nhuman-readable reason for exit (string)";
+      "stream name (string)\npush target (string)\nconnector / filetype (string)\nbytes recorded "
+      "(integer)\nseconds spent recording (integer)\nunix time recording started (integer)\nunix "
+      "time recording stopped (integer)\ntotal milliseconds of media data recorded "
+      "(integer)\nmillisecond timestamp of first media packet (integer)\nmillisecond timestamp "
+      "of last media packet (integer)\nmachine-readable reason for exit (string, enum)\nhuman-readable reason for exit "
+      "(string)"
+      "\nrecorded track summary (JSON object, optional)";
     trgs["RECORDING_END"]["response"] = "ignored";
     trgs["RECORDING_END"]["response_action"] = "None.";
 
