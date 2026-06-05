@@ -3281,7 +3281,13 @@ namespace DTSC{
       if (t.frames.isReady()) {
         k.applyLimiter(limitMin, limitMax);
       } else {
-        k.applyLimiter(limitMin, limitMax, DTSC::Parts(t.parts));
+        uint64_t limiterMin = limitMin;
+        if (getType(trackIdx) == "video" && hasBFrames(trackIdx)) {
+          DTSC::Keys rawKeys(t);
+          const uint32_t keyIdx = rawKeys.getIndexForTime(limitMin);
+          if (keyIdx < rawKeys.getEndValid()) { limiterMin = rawKeys.getTime(keyIdx); }
+        }
+        k.applyLimiter(limiterMin, limitMax, DTSC::Parts(t.parts));
       }
     }
     return k;
