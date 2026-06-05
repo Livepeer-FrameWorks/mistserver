@@ -640,6 +640,35 @@ namespace Mist{
     return r.str();
   }
 
+  static uint64_t selectedMaxFragmentDurationMs(const DTSC::Meta & M, const std::set<size_t> & vTracks,
+                                                const std::set<size_t> & aTracks) {
+    uint64_t targetDurationMs = 0;
+    for (std::set<size_t>::const_iterator it = vTracks.begin(); it != vTracks.end(); ++it) {
+      targetDurationMs = std::max<uint64_t>(targetDurationMs, M.biggestFragment(*it));
+    }
+    for (std::set<size_t>::const_iterator it = aTracks.begin(); it != aTracks.end(); ++it) {
+      targetDurationMs = std::max<uint64_t>(targetDurationMs, M.biggestFragment(*it));
+    }
+    return std::max<uint64_t>(targetDurationMs, 2000);
+  }
+
+  static uint64_t selectedKeepAwayMs(const DTSC::Meta & M, const std::map<size_t, Comms::Users> & userSelect) {
+    uint64_t keepAwayMs = 0;
+    for (std::map<size_t, Comms::Users>::const_iterator it = userSelect.begin(); it != userSelect.end(); ++it) {
+      if (it->first == INVALID_TRACK_ID) { continue; }
+      keepAwayMs = std::max<uint64_t>(keepAwayMs, M.getMinKeepAway(it->first));
+    }
+    const uint64_t maxKeepAwayMs = M.getMaxKeepAway();
+    if (maxKeepAwayMs && keepAwayMs > maxKeepAwayMs) { keepAwayMs = maxKeepAwayMs; }
+    return keepAwayMs;
+  }
+
+  static uint64_t dashSuggestedPresentationDelayMs(const DTSC::Meta & M, const std::map<size_t, Comms::Users> & userSelect,
+                                                   const std::set<size_t> & vTracks, const std::set<size_t> & aTracks) {
+    const uint64_t targetDurationMs = selectedMaxFragmentDurationMs(M, vTracks, aTracks);
+    return std::max<uint64_t>(targetDurationMs * 3, targetDurationMs * 2 + selectedKeepAwayMs(M, userSelect));
+  }
+
   void OutCMAF::dashAdaptationSet(size_t id, size_t idx, std::stringstream &r){
     std::string type = M.getType(idx);
     r << "<AdaptationSet group=\"" << id << "\" mimeType=\"" << type << "/mp4\" ";
@@ -735,10 +764,11 @@ namespace Mist{
       mainDuration = liveEdge > firstMs ? liveEdge - firstMs : 0;
       const uint64_t streamStartMs = M.packetTimeToUnixMs(0, systemBoot);
       const uint64_t availabilityStart = streamStartMs ? streamStartMs / 1000 : Util::epoch() - liveEdge / 1000;
+      const uint64_t suggestedPresentationDelay = dashSuggestedPresentationDelayMs(M, userSelect, vTracks, aTracks);
       r << "type=\"dynamic\" minimumUpdatePeriod=\"PT2.0S\" availabilityStartTime=\""
         << Util::getUTCString(availabilityStart) << "\" timeShiftBufferDepth=\"" << dashTime(mainDuration)
-        << "\" suggestedPresentationDelay=\"PT5.0S\" minBufferTime=\"PT2.0S\" publishTime=\""
-        << Util::getUTCString(Util::epoch()) << "\" ";
+        << "\" suggestedPresentationDelay=\"" << dashTime(suggestedPresentationDelay)
+        << "\" minBufferTime=\"PT2.0S\" publishTime=\"" << Util::getUTCString(Util::epoch()) << "\" ";
     }
 
     r << "xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\" ";
