@@ -19,6 +19,9 @@ test('blocking', downloadertest, args: ['AUTO'], suite: 'Downloader')
 tspackettest = executable('tspackettest', 'ts_packet_unit.cpp', header_tgts, dependencies: libmist_dep)
 test('Opus MPEG-TS descriptor payload', tspackettest, suite: 'MPEG-TS')
 
+nalclassifiertest = executable('nalclassifiertest', 'nal_classifier_unit.cpp', header_tgts, dependencies: libmist_dep)
+test('Droppable leading-slice classification (H264/HEVC)', nalclassifiertest, suite: 'NAL')
+
 
 # The only argument is simply the 'alg' parameter value as defined in the JWA spec (RFC7518)
 jwttest = executable('jwttest', 'jwt.cpp', header_tgts, dependencies: libmist_dep)

@@ -43,6 +43,21 @@ namespace h265{
     return (nalType >= 16 && nalType <= 21);
   }
 
+  bool isDroppableLeadingSlice(const char *data, uint32_t len) {
+    size_t offset = 0;
+    // Walk the length-prefixed NAL units. VCL slice NAL types are 0-31; non-VCL
+    // units (VPS/SPS/PPS 32-34, AUD 35, SEI 39-40, ...) are >= 32 and precede the
+    // slice, so the first type <= 31 is this picture's coded slice. RASL leading
+    // pictures (8-9) reference pre-RAP frames and must be dropped at a boundary.
+    while (offset + 5 < len && Bit::btohl(data + offset) + offset + 4 <= len) {
+      uint32_t nalSize = Bit::btohl(data + offset);
+      uint8_t nalType = ((data + offset)[4] & 0x7E) >> 1;
+      if (nalType <= 31) { return nalType == 8 || nalType == 9; }
+      offset += nalSize + 4;
+    }
+    return false;
+  }
+
   std::deque<nalu::nalData> analysePackets(const char *data, unsigned long len){
     std::deque<nalu::nalData> res;
 

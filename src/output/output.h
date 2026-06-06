@@ -50,6 +50,8 @@ namespace Mist{
     uint32_t currTrackCount() const;
     virtual bool isReadyForPlay();
     virtual bool reachedPlannedStop();
+    void armRandomAccessBoundary(size_t tid, uint64_t keyTime);
+    bool atDroppableLeadingPicture();
     // virtuals. The optional virtuals have default implementations that do as little as possible.
     /// This function is called whenever a packet is ready for sending.
     /// Inside it, thisPacket is guaranteed to contain a valid packet.
@@ -102,6 +104,11 @@ namespace Mist{
     Util::packetSorter buffer; ///< A sorted list of next-to-be-loaded packets.
     bool sought;          ///< If a seek has been done, this is set to true. Used for seeking on
                           ///< prepareNext().
+    std::map<size_t, uint64_t> raBoundaryKeyTime; ///< Per-track actual keyframe time after a
+                                                  ///< random-access seek. While armed, leading pictures presenting
+                                                  ///< before this time that a codec classifier proves undecodable from
+                                                  ///< a fresh boundary are dropped before sendNext(). Cleared once the
+                                                  ///< boundary is passed or the track leaves play.
     std::string prevHost; ///< Old value for getConnectedBinHost, for caching
     uint64_t lastReceive;
     bool recursingSync;

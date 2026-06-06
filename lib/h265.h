@@ -13,6 +13,12 @@ namespace h265{
   const char *typeToStr(uint8_t type);
   bool isKeyframe(const char *data, uint32_t len);
 
+  /// Reports whether the packet's first VCL NAL is a RASL leading picture (types
+  /// 8-9), which references frames before the random-access point and cannot
+  /// decode at a fresh boundary. Returns false (keep) for RADL (6-7), trailing
+  /// and keyframe slices, non-VCL units, and malformed data.
+  bool isDroppableLeadingSlice(const char *data, uint32_t len);
+
   void updateProfileTierLevel(Utils::bitstream &bs, MP4::HVCC &hvccBox, unsigned long maxSubLayersMinus1);
   std::string printProfileTierLevel(Utils::bitstream &bs, unsigned long maxSubLayersMinus1, size_t indent);
 
