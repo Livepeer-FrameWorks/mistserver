@@ -367,7 +367,9 @@ namespace HLS{
     addTargetDuration(result, trackData.targetDurationMax);
     addMsnTag(result, trackData.isLive ? fragData.currentFrag : fragData.firstFrag);
     // NOTE: DO NOT move the SKIP tag. Order must be respected per HLS spec.
-    addMediaSkipTag(result, fragData, trackData, version);
+    if (hlsSpecData.hlsSkip == "YES" || hlsSpecData.hlsSkip == "v2") {
+      addMediaSkipTag(result, fragData, trackData, version);
+    }
   }
 
   /// Appends result with prependStr and timestamp calculated from current time in ms
