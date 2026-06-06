@@ -99,9 +99,17 @@ namespace HLS{
     if (targetTime <= startTime) { return false; }
 
     DTSC::Parts parts(M.parts(trackData.requestTrackId));
+    const size_t firstValidPart = parts.getFirstValid();
+    const size_t endValidPart = parts.getEndValid();
+    if (firstValidPart >= endValidPart) { return false; }
+    const uint64_t firstValidPartTime = M.getPartTime(firstValidPart, trackData.requestTrackId);
+    if (startTime < firstValidPartTime) { return false; }
+
     size_t firstPart = M.getPartIndex(startTime, trackData.requestTrackId);
     size_t endPart = M.getPartIndex(targetTime, trackData.requestTrackId);
-    if (firstPart >= endPart || firstPart >= parts.getEndValid() || endPart > parts.getEndValid()) { return false; }
+    if (firstPart < firstValidPart || firstPart >= endPart || firstPart >= endValidPart || endPart > endValidPart) {
+      return false;
+    }
 
     for (size_t partIdx = firstPart; partIdx < endPart; ++partIdx) {
       if (parts.getSize(partIdx)) { return true; }
