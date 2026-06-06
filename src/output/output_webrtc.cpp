@@ -23,6 +23,14 @@ namespace Mist{
   bool volkswagenMode = false;
   std::string ctrlKey;
 
+  static bool isWebRTCVideoCodec(const std::string & codec) {
+    return codec == "H264" || codec == "VP8" || codec == "VP9" || codec == "AV1" || codec == "HEVC";
+  }
+
+  static bool isWebRTCAudioCodec(const std::string & codec) {
+    return codec == "opus" || codec == "ALAW" || codec == "ULAW";
+  }
+
 #ifdef WITH_DATACHANNELS
   void sctp_debug_cb(const char * format, ...){
     char msg[1024];
@@ -1189,19 +1197,26 @@ namespace Mist{
     capa["codecs"][0u][1u].null();
 
     for (std::map<size_t, Comms::Users>::iterator it = userSelect.begin(); it != userSelect.end(); it++){
-      if (M.getType(it->first) == "video"){
+      const std::string type = M.getType(it->first);
+      const std::string codec = M.getCodec(it->first);
+      if (type == "video") {
+        if (!isWebRTCVideoCodec(codec)) { continue; }
+        if (vidTrack != INVALID_TRACK_ID) { continue; }
         vidTrack = it->first;
-        videoCodec = M.getCodec(it->first);
+        videoCodec = codec;
         capa["codecs"][0u][0u].append(videoCodec);
       }
-      if (M.getType(it->first) == "audio"){
+      if (type == "audio") {
+        if (!isWebRTCAudioCodec(codec)) { continue; }
+        if (audTrack != INVALID_TRACK_ID) { continue; }
         audTrack = it->first;
-        audioCodec = M.getCodec(it->first);
+        audioCodec = codec;
         capa["codecs"][0u][1u].append(audioCodec);
       }
-      if (M.getType(it->first) == "meta"){
+      if (type == "meta" && codec == "JSON") {
+        if (metaTrack != INVALID_TRACK_ID) { continue; }
         metaTrack = it->first;
-        metaCodec = M.getCodec(it->first);
+        metaCodec = codec;
         capa["codecs"][0u][2u].append(std::string("+") + metaCodec);
       }
     }
@@ -1211,9 +1226,12 @@ namespace Mist{
     std::string localIceUfrag = Util::getRandomAlphanumeric(16);
     std::string localIcePwd = Util::getRandomAlphanumeric(32);
 
+    bool mediaEnabled = false;
+
     // setup video WebRTC Track.
     if (vidTrack != INVALID_TRACK_ID){
       if (sdpAnswer.enableMedia("video", videoCodec, localIceUfrag, localIcePwd)) {
+        mediaEnabled = true;
         WebRTCTrack & trk = webrtcTracks[vidTrack];
 
         trk.payloadType = sdpAnswer.answerVideoFormat.getPayloadType();
@@ -1237,6 +1255,7 @@ namespace Mist{
     // setup audio WebRTC Track
     if (audTrack != INVALID_TRACK_ID){
       if (sdpAnswer.enableMedia("audio", audioCodec, localIceUfrag, localIcePwd)) {
+        mediaEnabled = true;
         WebRTCTrack & trk = webrtcTracks[audTrack];
 
         trk.payloadType = sdpAnswer.answerAudioFormat.getPayloadType();
@@ -1253,14 +1272,21 @@ namespace Mist{
 
     // setup meta WebRTC Track
     if (metaTrack != INVALID_TRACK_ID || sdpSession.getMediaForType("meta")){
+      if (!metaCodec.size()) { metaCodec = "JSON"; }
       if (sdpAnswer.enableMedia("meta", metaCodec, localIceUfrag, localIcePwd)) {
-        WebRTCTrack & trk = webrtcTracks[metaTrack];
-        trk.payloadType = sdpAnswer.answerMetaFormat.getPayloadType();
-        trk.localIcePwd = localIcePwd;
-        trk.localIceUFrag = localIceUfrag;
-        trk.remoteIcePwd = sdpSession.icePwd;
-        trk.remoteIceUFrag = sdpSession.iceUFrag;
+        if (metaTrack != INVALID_TRACK_ID) {
+          WebRTCTrack & trk = webrtcTracks[metaTrack];
+          trk.payloadType = sdpAnswer.answerMetaFormat.getPayloadType();
+          trk.localIcePwd = localIcePwd;
+          trk.localIceUFrag = localIceUfrag;
+          trk.remoteIcePwd = sdpSession.icePwd;
+          trk.remoteIceUFrag = sdpSession.iceUFrag;
+        }
       }
+    }
+    if (!mediaEnabled) {
+      FAIL_MSG("Could not negotiate any WHEP output media");
+      return false;
     }
     return true;
   }
@@ -2687,7 +2713,8 @@ namespace Mist{
 
     WebRTCTrack *trackPointer = 0;
 
-    // If we see this is audio or video, use the webrtc track we negotiated
+    // If we see the negotiated audio or video track, use the WebRTC track we negotiated.
+    if (M.getType(tid) == "video" && tid != vidTrack) { return; }
     if (M.getType(tid) == "video" && webrtcTracks.count(vidTrack)){
       trackPointer = &webrtcTracks[vidTrack];
 
@@ -2699,6 +2726,7 @@ namespace Mist{
 
 
     }
+    if (M.getType(tid) == "audio" && tid != audTrack) { return; }
     if (M.getType(tid) == "audio" && webrtcTracks.count(audTrack)){
       trackPointer = &webrtcTracks[audTrack];
     }
