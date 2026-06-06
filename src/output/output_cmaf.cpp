@@ -461,8 +461,30 @@ namespace Mist{
 
     const uint64_t requestedStartTime = startTime;
     DTSC::Parts parts(M.parts(idx));
+    const size_t firstValidPart = parts.getFirstValid();
+    const size_t endValidPart = parts.getEndValid();
+    if (firstValidPart >= endValidPart) {
+      WARN_MSG("Refusing CMAF segment for track %zu: no media parts available url=%s", idx, url.c_str());
+      H.SendResponse("404", "Segment has no media data", myConn);
+      return;
+    }
+    const uint64_t firstValidPartTime = M.getPartTime(firstValidPart, idx);
+    if (requestedStartTime < firstValidPartTime) {
+      WARN_MSG("Refusing expired CMAF segment for track %zu: requested=%" PRIu64 " first=%" PRIu64 " url=%s", idx,
+               requestedStartTime, firstValidPartTime, url.c_str());
+      H.SendResponse("404", "Segment expired", myConn);
+      return;
+    }
+
     size_t firstPart = M.getPartIndex(startTime, idx);
     size_t endPart = M.getPartIndex(targetTime, idx);
+    if (firstPart < firstValidPart || firstPart >= endValidPart || endPart > endValidPart) {
+      WARN_MSG("Refusing out-of-range CMAF segment for track %zu: start=%" PRIu64 " target=%" PRIu64
+               " firstPart=%zu endPart=%zu valid=%zu-%zu url=%s",
+               idx, startTime, targetTime, firstPart, endPart, firstValidPart, endValidPart, url.c_str());
+      H.SendResponse("404", "Segment outside live window", myConn);
+      return;
+    }
     if (firstPart < parts.getEndValid()) {
       startTime = M.getPartTime(firstPart, idx);
       if (startTime != requestedStartTime) {
