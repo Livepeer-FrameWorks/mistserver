@@ -19,6 +19,7 @@ namespace HTTP{
     connectedPort = 0;
     dataTimeout = 5;
     retryCount = 5;
+    reqSent = false;
     ssl = false;
     proxied = false;
     sPtr = 0;
@@ -504,8 +505,10 @@ namespace HTTP{
   bool Downloader::post(const HTTP::URL &link, const void *payload, const size_t payloadLen,
                         bool sync, uint8_t maxRecursiveDepth){
     if (!canRequest(link)){return false;}
+    reqSent = false;
     size_t loop = 0;
     while (++loop <= retryCount){// loop while we are unsuccessful
+      reqSent = false;
       MEDIUM_MSG("Posting to %s (%zu/%" PRIu32 ")", link.getUrl().c_str(), loop, retryCount);
       uint64_t prerequest = Util::getMicros();
       char attemptNo[11];
@@ -541,6 +544,10 @@ namespace HTTP{
         s.setBlocking(wasBlocking);
       }
       if (!s){continue;}
+      // Request body fully sent: from here a failure is a response-phase timeout
+      // (the endpoint accepted the upload), which callers treat differently from
+      // a send/connect failure.
+      reqSent = true;
       uint64_t postrequest = Util::getMicros();
       uint64_t preresponse = 0;
       // Not synced? Ignore the response and immediately return true.

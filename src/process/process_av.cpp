@@ -117,6 +117,34 @@ void fireVirtualSegmentTrigger(bool isFinal);
 
 namespace Mist{
 
+  static uint64_t evenDimension(uint64_t value) {
+    if (value > 2 && (value % 2)) { --value; }
+    return value;
+  }
+
+  static void applyRequestedResolution(uint64_t srcWidth, uint64_t srcHeight, uint64_t & reqWidth, uint64_t & reqHeight) {
+    if (!opt.isMember("resolution") || !opt["resolution"]) { return; }
+    std::string res = opt["resolution"].asString();
+    size_t xPos = res.find("x");
+    if (xPos == std::string::npos) { return; }
+    uint64_t parsedWidth = strtoull(res.substr(0, xPos).c_str(), NULL, 0);
+    uint64_t parsedHeight = strtoull(res.substr(xPos + 1).c_str(), NULL, 0);
+    if (!parsedWidth && !parsedHeight) { return; }
+    if (!parsedWidth && parsedHeight && srcWidth && srcHeight) {
+      if (srcWidth < srcHeight) {
+        parsedWidth = parsedHeight;
+        parsedHeight = srcHeight * parsedWidth / srcWidth;
+      } else {
+        parsedWidth = srcWidth * parsedHeight / srcHeight;
+      }
+    }
+    if (parsedWidth && !parsedHeight && srcWidth && srcHeight) { parsedHeight = srcHeight * parsedWidth / srcWidth; }
+    if (parsedWidth && parsedHeight) {
+      reqWidth = evenDimension(parsedWidth);
+      reqHeight = evenDimension(parsedHeight);
+    }
+  }
+
   class ProcessSink : public Input{
   private:
     size_t trkIdx;
@@ -621,10 +649,7 @@ namespace Mist{
       }
       uint64_t reqWidth = M.getWidth(getMainSelectedTrack());
       uint64_t reqHeight = M.getHeight(getMainSelectedTrack());
-      if (opt.isMember("resolution") && opt["resolution"]){
-        reqWidth = strtol(opt["resolution"].asString().substr(0, opt["resolution"].asString().find("x")).c_str(), NULL, 0);
-        reqHeight = strtol(opt["resolution"].asString().substr(opt["resolution"].asString().find("x") + 1).c_str(), NULL, 0);
-      }
+      applyRequestedResolution(reqWidth, reqHeight, reqWidth, reqHeight);
       tmpCtx->bit_rate = Mist::opt["bitrate"].asInt();
       tmpCtx->rc_max_rate = Mist::opt["bitrate"].asInt();
       tmpCtx->rc_min_rate = 0;
@@ -1488,10 +1513,7 @@ namespace Mist{
           INFO_MSG("Allocating scaling context for %s -> %s...", av_get_pix_fmt_name((enum AVPixelFormat)frame_RAW->format), av_get_pix_fmt_name(convertToPixFmt));
           uint64_t reqWidth = frame_RAW->width;
           uint64_t reqHeight = frame_RAW->height;
-          if (opt.isMember("resolution") && opt["resolution"]){
-            reqWidth = strtol(opt["resolution"].asString().substr(0, opt["resolution"].asString().find("x")).c_str(), NULL, 0);
-            reqHeight = strtol(opt["resolution"].asString().substr(opt["resolution"].asString().find("x") + 1).c_str(), NULL, 0);\
-          }
+          applyRequestedResolution(frame_RAW->width, frame_RAW->height, reqWidth, reqHeight);
           convertCtx = sws_getContext(frame_RAW->width, frame_RAW->height, (enum AVPixelFormat)frame_RAW->format, reqWidth, reqHeight, convertToPixFmt, SWS_FAST_BILINEAR | SWS_FULL_CHR_H_INT | SWS_ACCURATE_RND, NULL, NULL, NULL);
           if (!convertCtx) {
             FAIL_MSG("Could not allocate scaling context");
@@ -1510,10 +1532,7 @@ namespace Mist{
           }
           uint64_t reqWidth = frame_RAW->width;
           uint64_t reqHeight = frame_RAW->height;
-          if (opt.isMember("resolution") && opt["resolution"]){
-            reqWidth = strtol(opt["resolution"].asString().substr(0, opt["resolution"].asString().find("x")).c_str(), NULL, 0);
-            reqHeight = strtol(opt["resolution"].asString().substr(opt["resolution"].asString().find("x") + 1).c_str(), NULL, 0);
-          }
+          applyRequestedResolution(frame_RAW->width, frame_RAW->height, reqWidth, reqHeight);
           frameConverted->format = convertToPixFmt;
           frameConverted->width  = reqWidth;
           frameConverted->height = reqHeight;

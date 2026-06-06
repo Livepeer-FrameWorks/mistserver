@@ -57,12 +57,20 @@ namespace HTTP{
     const Socket::Connection &getSocket() const;
     void clean();
     void setSocket(Socket::Connection * socketPtr);
+    /// True if the most recent post() finished writing its request body locally
+    /// and was awaiting/reading the response when it returned. This does not prove
+    /// the server received or accepted the upload — only that Mist sent it — but
+    /// it lets callers distinguish a send/connect failure (safe to retry
+    /// elsewhere) from a response-phase timeout, where a re-send should go to the
+    /// same endpoint so an idempotent server can join the in-flight work.
+    bool requestWasSent() const { return reqSent; }
     uint32_t retryCount, dataTimeout;
     bool isProxied() const;
     const HTTP::URL &lastURL();
 
   private:
     bool isComplete;
+    bool reqSent; ///< True once post() has fully sent its request body; see requestWasSent().
     std::map<std::string, std::string> extraHeaders; ///< Holds extra headers to sent with request
     std::string connectedHost;                       ///< Currently connected host name
     uint32_t connectedPort;                          ///< Currently connected port number
