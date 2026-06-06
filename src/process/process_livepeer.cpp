@@ -639,6 +639,12 @@ bool fatalUploadStatus(uint32_t status) {
 // lets the orchestrator fall back to local transcoding instead of spinning.
 static const uint32_t MAX_CONSECUTIVE_422 = 5;
 
+// Socket margin added on top of the gateway response budget (deadline_ms) when
+// the workload contract supplies one. Mist's HTTP timeout becomes "gateway
+// response budget + margin", so the gateway always returns or self-falls-back
+// before Mist's socket gives up — Mist no longer sets transcode policy.
+static const uint64_t LIVEPEER_SOCKET_MARGIN_S = 5;
+
 void uploadThread(size_t myNum){
   Util::setStreamName(livepeerThreadStreamName);
   Mist::preparedSegment & mySeg = Mist::presegs[myNum];
@@ -673,8 +679,27 @@ void uploadThread(size_t myNum){
         target = HTTP::URL(Mist::currBroadAddr+"/live/"+Mist::lpID+"/"+JSON::Value(mySeg.keyNo).asString()+".ts");
         upper.setHeader("Cookie", cookie);
       }
-      upper.dataTimeout = mySeg.segDuration/1000 + 2;
-      upper.retryCount = 2;
+      // Mist's HTTP timeout is "gateway response budget + socket margin", not
+      // transcode policy. When the workload contract supplies a deadline the
+      // gateway owns selection/retry/fallback and returns within it; Mist only
+      // needs to outlast that. Without a deadline (e.g. live) keep the legacy
+      // segment-duration timeout.
+      // Read as signed and clamp: a negative/invalid override must not wrap into
+      // a huge unsigned timeout.
+      int64_t deadlineMsRaw = Mist::opt.isMember("deadline_ms") ? Mist::opt["deadline_ms"].asInt() : 0;
+      uint64_t deadlineMs = deadlineMsRaw > 0 ? (uint64_t)deadlineMsRaw : 0;
+      if (deadlineMs > 0) {
+        upper.dataTimeout = deadlineMs / 1000 + LIVEPEER_SOCKET_MARGIN_S;
+        // Under the workload contract the gateway owns retry policy, so make a
+        // single deliberate attempt per outer iteration: the explicit retry logic
+        // below decides same-broadcaster (idempotent join) vs switch, and the
+        // total stays within the advertised deadline wall instead of the
+        // downloader silently re-sending and multiplying the response budget.
+        upper.retryCount = 1;
+      } else {
+        upper.dataTimeout = mySeg.segDuration / 1000 + 2;
+        upper.retryCount = 2;
+      }
       upper.setHeader("Accept", "multipart/mixed");
       upper.setHeader("Content-Duration", JSON::Value(mySeg.segDuration).asString());
       upper.setHeader("Content-Resolution", JSON::Value(mySeg.width).asString()+"x"+JSON::Value(mySeg.height).asString());
@@ -683,6 +708,13 @@ void uploadThread(size_t myNum){
       if (!Mist::opt.isMember("access_token") || !Mist::opt["access_token"] || !Mist::opt["access_token"].isString()) {
         JSON::Value tc;
         tc["profiles"] = Mist::opt["target_profiles"];
+        // Workload-aware transcode contract: the gateway parses these (camelCase)
+        // keys from the same header to own deadline/selection/retry policy.
+        if (Mist::opt.isMember("workload") && Mist::opt["workload"].isString()) {
+          tc["workload"] = Mist::opt["workload"];
+        }
+        if (deadlineMs > 0) { tc["deadlineMs"] = Mist::opt["deadline_ms"]; }
+        if (Mist::opt.isMember("min_speed")) { tc["minSpeed"] = Mist::opt["min_speed"]; }
         upper.setHeader("Livepeer-Transcode-Configuration", tc.toString());
       }
 
@@ -816,6 +848,18 @@ void uploadThread(size_t myNum){
         procExit.log(ER_FORMAT_SPECIFIC, 2, "too many upload failures");
         requestLivepeerStop();
         return;
+      }
+      // We finished writing the request body but got no response in time (the
+      // gateway is likely still transcoding). Do NOT switch broadcasters: re-POST
+      // the same segment to the SAME gateway, which dedups by (seq, payload hash)
+      // and joins the in-flight transcode rather than starting a duplicate.
+      // Switching here would spawn a duplicate transcode on another orchestrator
+      // and poison state — the original prod failure mode. Only a send/connect
+      // failure (request body never fully sent) switches.
+      if (!postOk && upper.requestWasSent()) {
+        WARN_MSG("Upload of seg %s accepted but response timed out; retrying same broadcaster",
+                 JSON::Value(mySeg.keyNo).asString().c_str());
+        continue;
       }
       bool switchSuccess = false;
       {
