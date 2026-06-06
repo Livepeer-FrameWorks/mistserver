@@ -564,6 +564,7 @@ namespace Mist{
         if (M.getLive()){continue;}// skip last fragment when live
         duration = M.getLastms(idx) - starttime;
       }
+      if (!CMAF::payloadSize(M, idx, starttime, starttime + duration)) { continue; }
       if (M.getVod()) { starttime -= M.getFirstms(idx); }
       dashSegmentCallBack(starttime, duration, s, first);
       first = false;

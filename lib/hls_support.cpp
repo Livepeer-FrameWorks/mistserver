@@ -93,6 +93,41 @@ namespace HLS{
                : mSelTrack;
   }
 
+  bool hasMediaPayload(const DTSC::Meta & M, const TrackData & trackData, const uint64_t startTime, const uint64_t targetTime) {
+    if (trackData.mediaFormat == ".ts") { return true; }
+    if (!M.getValidTracks().count(trackData.requestTrackId)) { return false; }
+    if (targetTime <= startTime) { return false; }
+
+    DTSC::Parts parts(M.parts(trackData.requestTrackId));
+    size_t firstPart = M.getPartIndex(startTime, trackData.requestTrackId);
+    size_t endPart = M.getPartIndex(targetTime, trackData.requestTrackId);
+    if (firstPart >= endPart || firstPart >= parts.getEndValid() || endPart > parts.getEndValid()) { return false; }
+
+    for (size_t partIdx = firstPart; partIdx < endPart; ++partIdx) {
+      if (parts.getSize(partIdx)) { return true; }
+    }
+    return false;
+  }
+
+  bool hasFragmentPayload(const DTSC::Meta & M, const TrackData & trackData, const DTSC::Fragments & fragments,
+                          const DTSC::Keys & keys, const uint64_t fragIdx) {
+    if (fragIdx < fragments.getFirstValid() || fragIdx >= fragments.getEndValid()) { return false; }
+    uint64_t duration = fragments.getDuration(fragIdx);
+    if (!duration) { return false; }
+    uint64_t startTime = keys.getTime(fragments.getFirstKey(fragIdx));
+    if (!trackData.isLive) { startTime -= M.getFirstms(trackData.timingTrackId); }
+    return hasMediaPayload(M, trackData, trackData.isLive ? startTime : startTime + M.getFirstms(trackData.requestTrackId),
+                           trackData.isLive ? startTime + duration : startTime + M.getFirstms(trackData.requestTrackId) + duration);
+  }
+
+  void advanceToPayloadFragment(const DTSC::Meta & M, FragmentData & fragData, const TrackData & trackData,
+                                const DTSC::Fragments & fragments, const DTSC::Keys & keys) {
+    if (trackData.mediaFormat == ".ts") { return; }
+    while (fragData.currentFrag + 1 < fragData.lastFrag && !hasFragmentPayload(M, trackData, fragments, keys, fragData.currentFrag)) {
+      ++fragData.currentFrag;
+    }
+  }
+
   /// Return live edge fragment duration
   uint64_t getLastFragDur(const DTSC::Meta &M, const std::map<size_t, Comms::Users> &userSelect, const TrackData &trackData, const uint64_t hlsMsnNr,
                           const DTSC::Fragments &fragments, const DTSC::Keys &keys){
@@ -200,6 +235,8 @@ namespace HLS{
       const uint64_t maxStart = fragData.lastFrag - 2;
       fragData.currentFrag = std::min(std::max(trackData.initMsn, defaultStart), maxStart);
     }
+
+    advanceToPayloadFragment(M, fragData, trackData, fragments, keys);
   }
 
   /// Encryption logic to LLHLS playlist
@@ -408,13 +445,20 @@ namespace HLS{
       // General case: all partial segments with duration equal to partDurationMax
       uint32_t partCount = 0;
       for (partCount = 0; partCount < durationData.quot; partCount++){
+        if (!hasMediaPayload(M, trackData, fragData.startTime + partCount * partDurationMaxMs,
+                             fragData.startTime + (partCount + 1) * partDurationMaxMs)) {
+          break;
+        }
         addPartialTag(result, M, keys, fragData, trackData, partCount, partDurationMaxMs);
       }
 
       // Special case: last partial segment (duration < partDurationMaxMs) in any fragment not at
       // live edge
       if (durationData.rem && (fragData.lastFrag - fragData.currentFrag > 1)){
-        addPartialTag(result, M, keys, fragData, trackData, partCount, durationData.rem);
+        if (hasMediaPayload(M, trackData, fragData.startTime + partCount * partDurationMaxMs,
+                            fragData.startTime + partCount * partDurationMaxMs + durationData.rem)) {
+          addPartialTag(result, M, keys, fragData, trackData, partCount, durationData.rem);
+        }
       }
       fragData.partNum = partCount;
     }
@@ -428,6 +472,10 @@ namespace HLS{
 
     // do not add the last fragment media tag for the live streams
     if (trackData.isLive && (fragData.currentFrag == fragData.lastFrag - 1)){return;}
+
+    uint64_t payloadStart = fragData.startTime;
+    if (!trackData.isLive) { payloadStart += M.getFirstms(trackData.requestTrackId); }
+    if (!hasMediaPayload(M, trackData, payloadStart, payloadStart + fragData.duration)) { return; }
 
     addFragmentTag(result, fragData, trackData);
   }
@@ -759,6 +807,23 @@ namespace HLS{
       const uint64_t firstMs = keys.getTime(fragments.getFirstKey(iFrag));
       const uint64_t minDur = lastMs > firstMs ? lastMs - firstMs : 0;
       if (minDur < HLS::partDurationMaxMs * 3 && iFrag > firstFrag) { iFrag--; }
+      HLS::TrackData trackData = {
+        true,
+        M.getType(masterData.mainTrack) == "video",
+        masterData.noLLHLS,
+        masterData.isTS ? ".ts" : ".m4s",
+        M.getEncryption(masterData.mainTrack),
+        masterData.sessId,
+        masterData.mainTrack,
+        masterData.mainTrack,
+        1,
+        iFrag,
+        0,
+        "",
+        masterData.systemBoot,
+        masterData.bootMsOffset,
+      };
+      while (iFrag + 1 < safeEndFrag && !hasFragmentPayload(M, trackData, fragments, keys, iFrag)) { ++iFrag; }
       return iFrag;
     }else{
       return 0;
