@@ -894,27 +894,29 @@ namespace SDP{
 
     std::set<std::string> seenTypes;
 
-    // session: bundle (audio and video use same candidate)
-    if (isVideoEnabled && isAudioEnabled){
-      if (answerVideoMedia.mediaID.empty()){
-        FAIL_MSG("video media has no media id; necessary for BUNDLE.");
-        return "";
-      }
-      if (answerAudioMedia.mediaID.empty()){
-        FAIL_MSG("audio media has no media id; necessary for BUNDLE.");
-        return "";
-      }
+    // session: bundle all enabled media that share the same candidate
+    {
       std::string bundled;
       for (size_t i = 0; i < sdpOffer.medias.size(); ++i){
-        if (sdpOffer.medias[i].type == "audio" || sdpOffer.medias[i].type == "video"){
-          if (!seenTypes.count(sdpOffer.medias[i].type)){
-            if (!bundled.empty()){bundled += " ";}
-            bundled += sdpOffer.medias[i].mediaID;
-            seenTypes.insert(sdpOffer.medias[i].type);
-          }
+        const std::string & type = sdpOffer.medias[i].type;
+        bool isEnabled = false;
+        if (type == "audio") {
+          isEnabled = isAudioEnabled;
+        } else if (type == "video") {
+          isEnabled = isVideoEnabled;
+        } else if (type == "meta") {
+          isEnabled = isMetaEnabled;
         }
+        if (!isEnabled || seenTypes.count(type)) { continue; }
+        if (sdpOffer.medias[i].mediaID.empty()) {
+          FAIL_MSG("%s media has no media id; necessary for BUNDLE.", type.c_str());
+          return "";
+        }
+        if (!bundled.empty()) { bundled += " "; }
+        bundled += sdpOffer.medias[i].mediaID;
+        seenTypes.insert(type);
       }
-      o << "a=group:BUNDLE " << bundled << "\r\n";
+      if (!bundled.empty()) { o << "a=group:BUNDLE " << bundled << "\r\n"; }
     }
     seenTypes.clear();
 
@@ -989,6 +991,7 @@ namespace SDP{
 
       o << "c=IN IP4 0.0.0.0\r\n";
       o << "a=" << direction << "\r\n";
+      if (!mediaOffer.mediaID.empty()) { o << "a=mid:" << mediaOffer.mediaID << "\r\n"; }
 
       if (!isEnabled) { continue; }
 
@@ -1012,8 +1015,6 @@ namespace SDP{
       }
       if (videoLossPrevention & SDP_LOSS_PREVENTION_NACK) { o << "a=rtcp-fb:" << mFmt->payloadType << " nack\r\n"; }
       if (type == "video") { o << "a=rtcp-fb:" << mFmt->payloadType << " goog-remb\r\n"; }
-
-      if (!media->mediaID.empty()) { o << "a=mid:" << media->mediaID << "\r\n"; }
 
       if (mFmt->encodingName == "H264") {
         std::string usedProfile = mFmt->getFormatParameterForName("profile-level-id");
