@@ -574,11 +574,23 @@ namespace Mist{
       lastFragment = std::min<uint32_t>(lastFragment, M.getFragmentIndexForTime(idx, liveEdge));
       if (lastFragment < firstFragment) { lastFragment = firstFragment; }
     }
+    DTSC::Keys keys(M.getKeys(idx));
+    if (M.getLive()) {
+      DTSC::Parts parts(M.parts(idx));
+      const size_t firstValidPart = parts.getFirstValid();
+      const size_t endValidPart = parts.getEndValid();
+      if (firstValidPart < endValidPart) {
+        const uint64_t firstValidPartTime = M.getPartTime(firstValidPart, idx);
+        while (firstFragment < lastFragment && keys.getTime(fragments.getFirstKey(firstFragment)) < firstValidPartTime) {
+          ++firstFragment;
+        }
+      }
+    }
+
     bool first = true;
     // skip the first two fragments if live
     if (M.getLive() && (lastFragment - firstFragment) > 6){firstFragment += 2;}
 
-    DTSC::Keys keys(M.getKeys(idx));
     for (; firstFragment < lastFragment; ++firstFragment){
       uint32_t duration = fragments.getDuration(firstFragment);
       uint64_t starttime = keys.getTime(fragments.getFirstKey(firstFragment));

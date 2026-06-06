@@ -236,6 +236,8 @@ namespace HLS{
       fragData.currentFrag = fragData.lastFrag - trackData.listLimit;
     }
 
+    advanceToPayloadFragment(M, fragData, trackData, fragments, keys);
+
     // Part 2: Limit a playlist depending on initial MSN data
     // see the NOTE at HLS::getLiveLengthLimit(args)
     if (trackData.isLive && (fragData.lastFrag - fragData.currentFrag) > 2){
