@@ -8,8 +8,16 @@ namespace CMAF{
   /// Function to determine the payload size of a CMAF fragment.
   size_t payloadSize(const DTSC::Meta &M, size_t track, uint64_t startTime, uint64_t endTime){
     DTSC::Parts parts(M.parts(track));
+    size_t firstValidPart = parts.getFirstValid();
+    size_t endValidPart = parts.getEndValid();
+    if (firstValidPart >= endValidPart) { return 0; }
+    if (startTime < M.getPartTime(firstValidPart, track)) { return 0; }
+
     size_t firstPart = M.getPartIndex(startTime, track);
     size_t endPart = M.getPartIndex(endTime, track);
+    if (firstPart < firstValidPart || firstPart >= endPart || firstPart >= endValidPart || endPart > endValidPart) {
+      return 0;
+    }
     size_t payloadSize = 0;
     for (size_t i = firstPart; i < endPart; i++){payloadSize += parts.getSize(i);}
     return payloadSize;
