@@ -78,6 +78,13 @@ inline void requestLivepeerStop() {
   co.is_active = false;
 }
 
+static uint32_t evenScaledDimension(uint32_t numerator, uint32_t requested, uint32_t denominator) {
+  if (!denominator || !requested) { return 0; }
+  uint64_t scaled = ((uint64_t)numerator * requested + (denominator / 2)) / denominator;
+  if (scaled & 1) { ++scaled; }
+  return (uint32_t)scaled;
+}
+
 namespace Mist{
 
   void pickRandomBroadcaster(){
@@ -1237,23 +1244,20 @@ int main(int argc, char *argv[]){
         //portrait mode
         uint32_t heightSetting = (*prof)["height"].asInt();
         (*prof)["width"] = heightSetting;
-        (*prof)["height"] = M.getHeight(sourceIdx) * heightSetting / M.getWidth(sourceIdx);
+        (*prof)["height"] = evenScaledDimension(M.getHeight(sourceIdx), heightSetting, M.getWidth(sourceIdx));
       }else{
         //landscape mode
         uint32_t heightSetting = (*prof)["height"].asInt();
-        (*prof)["width"] = M.getWidth(sourceIdx) * heightSetting / M.getHeight(sourceIdx);
+        (*prof)["width"] = evenScaledDimension(M.getWidth(sourceIdx), heightSetting, M.getHeight(sourceIdx));
       }
     }
     if (!prof->isMember("height") || !(*prof)["height"].asInt()){
       //no height, but we have width
       //No portrait/landscape check, as per documentation
       uint32_t widthSetting = (*prof)["width"].asInt();
-      (*prof)["height"] = M.getHeight(sourceIdx) * widthSetting / M.getWidth(sourceIdx);
+      (*prof)["height"] = evenScaledDimension(M.getHeight(sourceIdx), widthSetting, M.getWidth(sourceIdx));
     }
-    //force width/height to multiples of 16
-    (*prof)["width"] = ((*prof)["width"].asInt() / 16) * 16;
-    (*prof)["height"] = ((*prof)["height"].asInt() / 16) * 16;
-    
+
     if (prof->isMember("track_inhibit")){
       std::set<size_t> wouldSelect = Util::wouldSelect(
           M, std::string("audio=none&video=none&subtitle=none&") + (*prof)["track_inhibit"].asStringRef());
