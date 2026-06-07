@@ -262,6 +262,10 @@ namespace HTTP{
 
   // seek to pos, return true if succeeded.
   bool URIReader::seek(const uint64_t pos){
+    if (stateType == HTTP::Closed && (myURI.protocol == "http" || myURI.protocol == "https") && supportRangeRequest &&
+        totalSize != std::string::npos) {
+      stateType = HTTP::HTTP;
+    }
     //Seeking in a non-seekable source? No-op, always fails.
     if (!isSeekable()){return false;}
 
