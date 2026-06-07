@@ -11,3 +11,41 @@ index f32b5a4..eb847d7 100644
            found = found and dep.found()
            extra_deps += dep
          endforeach
+@@ -2507,16 +2507,25 @@ endif
+ # Manual check for libx264
+ if conf.get('libx264') == 1
+-  if is_msvc
++  libx264_internal_dep = false
++  foreach dep : libx264_extra_deps
++    libx264_internal_dep = libx264_internal_dep or dep.type_name() == 'internal'
++  endforeach
++  if libx264_internal_dep
++    conf.set10('libx264_hdr10', true)
++    conf.set10('libx262', false)
++  elif is_msvc
+-    if not cc.links('#include <stdint.h>\n' + cpp_cond.format('x264.h', 'X264_BUILD >= 155'), name: 'libx264 version')
++    if not cc.links('#include <stdint.h>\n' + cpp_cond.format('x264.h', 'X264_BUILD >= 155'), dependencies: libx264_extra_deps, name: 'libx264 version')
+       warning('libx264 version must be >= 1.55')
+       conf.set('libx264', 0)
+     endif
+   else
+-    if not cc.links('#include <stdint.h>\n' + cpp_cond.format('x264.h', 'X264_BUILD >= 158'), name: 'libx264 version')
++    if not cc.links('#include <stdint.h>\n' + cpp_cond.format('x264.h', 'X264_BUILD >= 158'), dependencies: libx264_extra_deps, name: 'libx264 version')
+       warning('libx264 version must be >= 1.58')
+       conf.set('libx264', 0)
+     endif
+   endif
+-  conf.set10('libx264_hdr10', cc.links('#include <stdint.h>\n' + cpp_cond.format('x264.h', 'X264_BUILD >= 163'), name: 'libx264 version'))
+-  conf.set10('libx262', cc.links('#include <stdint.h>\n' + cpp_cond.format('x264.h', 'X264_MPEG2'), name: 'supports MPEG2 inside x264'))
++  if not libx264_internal_dep
++    conf.set10('libx264_hdr10', cc.links('#include <stdint.h>\n' + cpp_cond.format('x264.h', 'X264_BUILD >= 163'), dependencies: libx264_extra_deps, name: 'libx264 version'))
++    conf.set10('libx262', cc.links('#include <stdint.h>\n' + cpp_cond.format('x264.h', 'X264_MPEG2'), dependencies: libx264_extra_deps, name: 'supports MPEG2 inside x264'))
++  endif
+ endif
+@@ -2524,5 +2533,5 @@ if conf.get('libx265') == 1
+ if conf.get('libx265') == 1
+-  if not cc.links(cpp_cond.format('x265.h', 'X265_BUILD >= 89'), name: 'libx265 version')
++  if not cc.links(cpp_cond.format('x265.h', 'X265_BUILD >= 89'), dependencies: libx265_extra_deps, name: 'libx265 version')
+     warning('X265_BUILD too old, disabling')
+     conf.set('libx265', 0)
+   endif
