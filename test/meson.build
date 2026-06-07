@@ -19,6 +19,11 @@ test('Opus MPEG-TS descriptor payload', tspackettest, suite: 'MPEG-TS')
 nalclassifiertest = executable('nalclassifiertest', 'nal_classifier_unit.cpp', header_tgts, dependencies: libmist_dep)
 test('Droppable leading-slice classification (H264/HEVC)', nalclassifiertest, suite: 'NAL')
 
+if get_option('WITH_AV')
+  avcodecregistrytest = executable('avcodecregistrytest', 'av_codec_registry.cpp', header_tgts, dependencies: av_libs)
+  test('Required FFmpeg codec registry for MistProcAV', avcodecregistrytest, suite: 'AV')
+endif
+
 
 # The only argument is simply the 'alg' parameter value as defined in the JWA spec (RFC7518)
 jwttest = executable('jwttest', 'jwt.cpp', header_tgts, dependencies: libmist_dep)
