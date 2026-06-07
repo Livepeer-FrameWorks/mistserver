@@ -87,6 +87,8 @@ static uint32_t evenScaledDimension(uint32_t numerator, uint32_t requested, uint
 
 namespace Mist{
 
+  bool livepeerQueuesDrained();
+
   void pickRandomBroadcaster(){
     std::string prevBroad = currBroadAddr;
     currBroadAddr.clear();
@@ -318,9 +320,8 @@ namespace Mist{
           }
         }
       }
-      while (!thisPacket &&
-             (conf.is_active ||
-              (livepeerSourceEOF.load(std::memory_order_acquire) && !livepeerStopRequested.load(std::memory_order_acquire)))) {
+      while (!thisPacket && !livepeerStopRequested.load(std::memory_order_acquire) &&
+             (conf.is_active || !Mist::livepeerQueuesDrained())) {
         {
           std::lock_guard<std::mutex> guard(segMutex);
           std::string oRend;
@@ -1371,8 +1372,7 @@ int main(int argc, char *argv[]){
 
   // Previous-window snapshots for pressure derivation.
   uint64_t prevTotalFails = 0;
-  while (!livepeerStopRequested.load(std::memory_order_acquire) &&
-         (conf.is_active || (livepeerSourceEOF.load(std::memory_order_acquire) && !Mist::livepeerQueuesDrained()))) {
+  while (!livepeerStopRequested.load(std::memory_order_acquire) && (conf.is_active || !Mist::livepeerQueuesDrained())) {
     Util::sleep(200);
     if (lastProcUpdate + 5 <= Util::bootSecs()){
       std::lock_guard<std::mutex> guard(statsMutex);

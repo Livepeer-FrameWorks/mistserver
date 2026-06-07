@@ -540,20 +540,20 @@ namespace Mist{
       inFile.readSome((pos+len) - (readPos+readBuffer.size()), *this);
     }
     if (readPos+readBuffer.size() < pos+len){
-      if (inFile.getSize() != std::string::npos || inFile.getSize() > readPos+readBuffer.size()){
-        FAIL_MSG("Read unsuccessful at %" PRIu64 ", seeking to retry...", readPos+readBuffer.size());
-        readBuffer.truncate(0);
-        if (!inFile.seek(pos)){
-          return false;
+      if (inFile.getSize() == std::string::npos || inFile.getSize() > readPos + readBuffer.size()) {
+        for (size_t attempts = 0; attempts < 3 && keepRunning(); ++attempts) {
+          WARN_MSG("Read unsuccessful at %" PRIu64 ", seeking to retry (%zu/3)...", readPos + readBuffer.size(), attempts + 1);
+          readBuffer.truncate(0);
+          if (!inFile.seek(pos)) { return false; }
+          readPos = inFile.getPos();
+          while (readPos + readBuffer.size() < pos + len && inFile && keepRunning()) {
+            inFile.readSome((pos + len) - (readPos + readBuffer.size()), *this);
+          }
+          if (readPos + readBuffer.size() >= pos + len) { return true; }
+          Util::sleep(100);
         }
-        readPos = inFile.getPos();
-        while (readPos+readBuffer.size() < pos+len && inFile && keepRunning()){
-          inFile.readSome((pos+len) - (readPos+readBuffer.size()), *this);
-        }
-        if (readPos+readBuffer.size() < pos+len){
-          return false;
-        }
-      }else{
+        return false;
+      } else {
         WARN_MSG("Attempt to read past end of file!");
         return false;
       }
