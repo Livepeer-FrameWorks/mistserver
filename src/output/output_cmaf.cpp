@@ -271,7 +271,7 @@ namespace Mist{
     // override if valid header forces "no low latency"
     noLLHLS = H.GetHeader("X-Mist-LLHLS").size() ? H.GetHeader("X-Mist-LLHLS") == "0" : noLLHLS;
 
-    uint32_t targetDurationMax = (M.biggestFragment(timingTid) + 999) / 1000;
+    uint32_t targetDurationMax = (M.biggestFragment(timingTid) + 500) / 1000;
     if (!targetDurationMax) { targetDurationMax = 1; }
 
     const HLS::TrackData trackData = {

@@ -320,7 +320,8 @@ namespace HLS{
       }
       if (serverSupport.pduV2){result << "CAN-SKIP-DATERANGES=YES,";}
       if (serverSupport.parts){
-        const float partHoldBack = std::max(partDurationMax * 3, (float)trackData.targetDurationMax * 2);
+        result << "HOLD-BACK=" << (trackData.targetDurationMax * 3) << ",";
+        const float partHoldBack = partDurationMax * 3;
         result << "PART-HOLD-BACK=" << partHoldBack;
         result << "\r\n#EXT-X-PART-INF:PART-TARGET=" << partDurationMax;
       }
