@@ -4065,10 +4065,11 @@ namespace DTSC{
     if (idx == INVALID_TRACK_ID){return 0;}
     DTSC::Keys Keys(getKeys(idx));
     DTSC::Parts Parts(parts(idx));
-    size_t kId = 0;
-    for (kId = 0; kId < Keys.getEndValid(); ++kId){
+    if (partIndex < Parts.getFirstValid() || partIndex >= Parts.getEndValid()) { return 0; }
+    for (size_t kId = Keys.getFirstValid(); kId < Keys.getEndValid(); ++kId) {
       size_t keyPartId = Keys.getFirstPart(kId);
-      if (keyPartId+Keys.getParts(kId) > partIndex){
+      if (partIndex < keyPartId) { return 0; }
+      if (keyPartId + Keys.getParts(kId) > partIndex) {
         //It's inside this key. Step through.
         uint64_t res = Keys.getTime(kId);
         while (keyPartId < partIndex){
