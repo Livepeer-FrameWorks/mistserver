@@ -3235,17 +3235,17 @@ namespace Mist{
       return false;
     }
 
-    uint16_t expected16 = 0;
-    memcpy(&expected16, processingState.mapped + STRMSTATE_PROCESS_OUTPUTS_EXPECTED_OFFSET, sizeof(uint16_t));
-    size_t expectedOutputTracks = expected16;
-    if (!expectedOutputTracks) { return true; }
-
     meta.reloadReplacedPagesIfNeeded();
     selectDefaultTracks();
 
     size_t selectedOriginalTracks = 0;
+    size_t selectedOutputTracks = 0;
     for (std::map<size_t, Comms::Users>::iterator it = userSelect.begin(); it != userSelect.end(); ++it) {
-      if (M.getSourceTrack(it->first) == INVALID_TRACK_ID) { ++selectedOriginalTracks; }
+      if (M.getSourceTrack(it->first) == INVALID_TRACK_ID) {
+        ++selectedOriginalTracks;
+      } else {
+        ++selectedOutputTracks;
+      }
     }
 
     size_t readyOriginalTracks = 0;
@@ -3260,10 +3260,10 @@ namespace Mist{
       }
     }
 
-    if (readyOriginalTracks >= selectedOriginalTracks && readyOutputTracks >= expectedOutputTracks) { return true; }
+    if (readyOriginalTracks >= selectedOriginalTracks && readyOutputTracks >= selectedOutputTracks) { return true; }
     INFO_MSG("Waiting for processing tracks before recording header: %zu/%zu original tracks, %zu/%zu processing "
              "outputs ready",
-             readyOriginalTracks, selectedOriginalTracks, readyOutputTracks, expectedOutputTracks);
+             readyOriginalTracks, selectedOriginalTracks, readyOutputTracks, selectedOutputTracks);
     return false;
   }
 }// namespace Mist
