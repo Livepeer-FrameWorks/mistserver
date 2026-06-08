@@ -333,6 +333,13 @@ namespace Mist{
     }
   }
 
+  void OutCMAF::sendCmafError(const std::string & code, const std::string & message) {
+    H.SetHeader("Content-Type", "text/plain; charset=utf-8");
+    H.SetHeader("Cache-Control", "no-store");
+    H.SetBody(message + "\n");
+    H.SendResponse(code, message, myConn);
+  }
+
   void OutCMAF::onHTTP(){
     initialize();
     bootMsOffset = 0;
@@ -402,7 +409,7 @@ namespace Mist{
       idx = atoll(url.c_str() + url.find("Q(") + 2) % 100;
     }
     if (!M.getValidTracks().count(idx)){
-      H.SendResponse("404", "Track not found", myConn);
+      sendCmafError("404", "Track not found");
       return;
     }
 
@@ -413,7 +420,7 @@ namespace Mist{
     }
 
     if (url.find(hlsMediaFormat) == std::string::npos){
-      H.SendResponse("404", "File not found", myConn);
+      sendCmafError("404", "File not found");
       return;
     }
 
@@ -438,7 +445,7 @@ namespace Mist{
       // Logic: calculate targetTime for partial segments
       targetTime = HLS::getPartTargetTime(M, idx, mTrack, startTime, msn, part);
       if (!targetTime){
-        H.SendResponse("404", "Partial fragment does not exist", myConn);
+        sendCmafError("404", "Partial fragment does not exist");
         return;
       }
       startTime += part * HLS::partDurationMaxMs;
@@ -455,7 +462,7 @@ namespace Mist{
                 " et=%" PRIu64 " fragment=%" PRIu64,
                 url.c_str(), idx, mTrack, msn, dur, startTime, targetTime, fragmentIndex);
     }else{
-      H.SendResponse("400", "Bad Request: Could not parse the url", myConn);
+      sendCmafError("400", "Bad Request: Could not parse the url");
       return;
     }
 
@@ -465,14 +472,14 @@ namespace Mist{
     const size_t endValidPart = parts.getEndValid();
     if (firstValidPart >= endValidPart) {
       WARN_MSG("Refusing CMAF segment for track %zu: no media parts available url=%s", idx, url.c_str());
-      H.SendResponse("404", "Segment has no media data", myConn);
+      sendCmafError("404", "Segment has no media data");
       return;
     }
     const uint64_t firstValidPartTime = M.getPartTime(firstValidPart, idx);
     if (requestedStartTime < firstValidPartTime) {
       WARN_MSG("Refusing expired CMAF segment for track %zu: requested=%" PRIu64 " first=%" PRIu64 " url=%s", idx,
                requestedStartTime, firstValidPartTime, url.c_str());
-      H.SendResponse("404", "Segment expired", myConn);
+      sendCmafError("404", "Segment expired");
       return;
     }
 
@@ -482,7 +489,7 @@ namespace Mist{
       WARN_MSG("Refusing out-of-range CMAF segment for track %zu: start=%" PRIu64 " target=%" PRIu64
                " firstPart=%zu endPart=%zu valid=%zu-%zu url=%s",
                idx, startTime, targetTime, firstPart, endPart, firstValidPart, endValidPart, url.c_str());
-      H.SendResponse("404", "Segment outside live window", myConn);
+      sendCmafError("404", "Segment outside live window");
       return;
     }
     if (firstPart < parts.getEndValid()) {
@@ -498,7 +505,7 @@ namespace Mist{
     if (targetTime <= startTime) {
       WARN_MSG("Refusing invalid CMAF segment for track %zu: start=%" PRIu64 " target=%" PRIu64 " url=%s", idx,
                startTime, targetTime, url.c_str());
-      H.SendResponse("404", "Segment does not exist", myConn);
+      sendCmafError("404", "Segment does not exist");
       return;
     }
 
@@ -506,7 +513,7 @@ namespace Mist{
     if (!payloadSize) {
       WARN_MSG("Refusing empty CMAF segment for track %zu: start=%" PRIu64 " target=%" PRIu64 " url=%s", idx, startTime,
                targetTime, url.c_str());
-      H.SendResponse("404", "Segment has no media data", myConn);
+      sendCmafError("404", "Segment has no media data");
       return;
     }
 
@@ -562,10 +569,11 @@ namespace Mist{
     return true;
   }
 
-  void OutCMAF::generateSegmentlist(size_t idx, std::stringstream &s,
-                                    void dashSegmentCallBack(uint64_t, uint64_t,
-                                                             std::stringstream &, bool)){
-    if (idx == INVALID_TRACK_ID || !M.getValidTracks().count(idx)) { return; }
+  OutCMAF::DashSegmentWindow OutCMAF::generateSegmentlist(size_t idx, std::stringstream & s,
+                                                          void dashSegmentCallBack(uint64_t, uint64_t, std::stringstream &, bool),
+                                                          uint64_t minStartTime, uint64_t maxEndTime) {
+    DashSegmentWindow window;
+    if (idx == INVALID_TRACK_ID || !M.getValidTracks().count(idx)) { return window; }
     DTSC::Fragments fragments(M.fragments(idx));
     uint32_t firstFragment = fragments.getFirstValid();
     uint32_t lastFragment = fragments.getEndValid();
@@ -600,9 +608,15 @@ namespace Mist{
       }
       if (!CMAF::payloadSize(M, idx, starttime, starttime + duration)) { continue; }
       if (M.getVod()) { starttime -= M.getFirstms(idx); }
+      if (minStartTime && starttime + duration <= minStartTime) { continue; }
+      if (maxEndTime && starttime >= maxEndTime) { continue; }
+      if (!window.count) { window.start = starttime; }
+      window.end = starttime + duration;
+      ++window.count;
       dashSegmentCallBack(starttime, duration, s, first);
       first = false;
     }
+    return window;
 
     /*LTS-START
     // remove lines to reduce size towards listlimit setting - but keep at least 4X target
@@ -655,7 +669,15 @@ namespace Mist{
       H.Clean();
       return;
     }
-    H.SetBody(dashManifest());
+    const std::string manifest = dashManifest();
+    if (!manifest.size()) {
+      H.SetHeader("Content-Type", "text/plain; charset=utf-8");
+      H.SetBody("DASH manifest not ready\n");
+      H.SendResponse("503", "DASH manifest not ready", myConn);
+      H.Clean();
+      return;
+    }
+    H.SetBody(manifest);
     H.SendResponse("200", "OK", myConn);
     H.Clean();
   }
@@ -665,6 +687,8 @@ namespace Mist{
     if (first){s << "t=\"" << start << "\" ";}
     s << "d=\"" << duration << "\" />" << std::endl;
   }
+
+  void dashSegmentNoop(uint64_t, uint64_t, std::stringstream &, bool) {}
 
   std::string OutCMAF::dashTime(uint64_t time){
     std::stringstream r;
@@ -739,14 +763,14 @@ namespace Mist{
       << std::endl;
   }
 
-  void OutCMAF::dashAdaptation(size_t id, std::set<size_t> tracks, bool aligned,
-                               std::stringstream &r){
+  void OutCMAF::dashAdaptation(size_t id, std::set<size_t> tracks, bool aligned, std::stringstream & r,
+                               uint64_t minStartTime, uint64_t maxEndTime) {
     if (!tracks.size()){return;}
     if (aligned){
       size_t firstTrack = *tracks.begin();
       dashAdaptationSet(id, *tracks.begin(), r);
       dashSegmentTemplate(r);
-      generateSegmentlist(firstTrack, r, dashSegment);
+      generateSegmentlist(firstTrack, r, dashSegment, minStartTime, maxEndTime);
       r << "</SegmentTimeline></SegmentTemplate>" << std::endl;
       for (std::set<size_t>::iterator it = tracks.begin(); it != tracks.end(); it++){
         dashRepresentation(id, *it, r);
@@ -759,7 +783,7 @@ namespace Mist{
       std::string type = M.getType(*it);
       dashAdaptationSet(id, *it, r);
       dashSegmentTemplate(r);
-      generateSegmentlist(*it, r, dashSegment);
+      generateSegmentlist(*it, r, dashSegment, minStartTime, maxEndTime);
       r << "</SegmentTimeline></SegmentTemplate>" << std::endl;
       dashRepresentation(id, *it, r);
       r << "</AdaptationSet>" << std::endl;
@@ -782,24 +806,63 @@ namespace Mist{
 
     if (!vTracks.size() && !aTracks.size()){return "";}
 
-    bool videoAligned = checkAlignment && tracksAligned(vTracks);
-    bool audioAligned = checkAlignment && tracksAligned(aTracks);
+    std::set<size_t> dashVTracks = vTracks;
+    std::set<size_t> dashATracks = aTracks;
 
     std::stringstream r;
     r << "<?xml version=\"1.0\" encoding=\"UTF-8\"?>" << std::endl;
     r << "<MPD ";
     size_t mainTrack = getMainSelectedTrack();
     size_t mainDuration = M.getDuration(mainTrack);
+    uint64_t dashWindowStart = 0;
+    uint64_t dashWindowEnd = 0;
     if (M.getVod()){
       r << "type=\"static\" mediaPresentationDuration=\"" << dashTime(mainDuration)
         << "\" minBufferTime=\"PT1.5S\" ";
     }else{
-      const uint64_t liveEdge = HLS::getLiveEdgeMs(M, userSelect, mainTrack, mainTrack, systemBoot + bootMsOffset);
-      const uint64_t firstMs = M.getFirstms(mainTrack);
-      mainDuration = liveEdge > firstMs ? liveEdge - firstMs : 0;
-      const uint64_t streamStartMs = M.packetTimeToUnixMs(0, systemBoot);
-      const uint64_t availabilityStart = streamStartMs ? streamStartMs / 1000 : Util::epoch() - liveEdge / 1000;
-      const uint64_t suggestedPresentationDelay = dashSuggestedPresentationDelayMs(M, userSelect, vTracks, aTracks);
+      bool hasDashWindow = false;
+      std::stringstream ignoredSegments;
+      dashVTracks.clear();
+      dashATracks.clear();
+      for (std::set<size_t>::iterator it = vTracks.begin(); it != vTracks.end(); ++it) {
+        DashSegmentWindow trackWindow = generateSegmentlist(*it, ignoredSegments, dashSegmentNoop);
+        if (trackWindow.count) {
+          dashVTracks.insert(*it);
+          if (!hasDashWindow || trackWindow.start > dashWindowStart) { dashWindowStart = trackWindow.start; }
+          if (!hasDashWindow || trackWindow.end < dashWindowEnd) { dashWindowEnd = trackWindow.end; }
+          hasDashWindow = true;
+        }
+      }
+      for (std::set<size_t>::iterator it = aTracks.begin(); it != aTracks.end(); ++it) {
+        DashSegmentWindow trackWindow = generateSegmentlist(*it, ignoredSegments, dashSegmentNoop);
+        if (trackWindow.count) {
+          dashATracks.insert(*it);
+          if (!hasDashWindow || trackWindow.start > dashWindowStart) { dashWindowStart = trackWindow.start; }
+          if (!hasDashWindow || trackWindow.end < dashWindowEnd) { dashWindowEnd = trackWindow.end; }
+          hasDashWindow = true;
+        }
+      }
+      if (!hasDashWindow || dashWindowEnd <= dashWindowStart) { return ""; }
+      std::set<size_t> filteredVTracks;
+      std::set<size_t> filteredATracks;
+      for (std::set<size_t>::iterator it = dashVTracks.begin(); it != dashVTracks.end(); ++it) {
+        if (generateSegmentlist(*it, ignoredSegments, dashSegmentNoop, dashWindowStart, dashWindowEnd).count) {
+          filteredVTracks.insert(*it);
+        }
+      }
+      for (std::set<size_t>::iterator it = dashATracks.begin(); it != dashATracks.end(); ++it) {
+        if (generateSegmentlist(*it, ignoredSegments, dashSegmentNoop, dashWindowStart, dashWindowEnd).count) {
+          filteredATracks.insert(*it);
+        }
+      }
+      dashVTracks.swap(filteredVTracks);
+      dashATracks.swap(filteredATracks);
+      if (!dashVTracks.size() && !dashATracks.size()) { return ""; }
+      mainDuration = dashWindowEnd - dashWindowStart;
+      const uint64_t streamStartMs =
+        M.getUTCOffset() ? M.packetTimeToUnixMs(0) : M.getBootMsOffset() + (Util::unixMS() - Util::bootMS());
+      const uint64_t availabilityStart = streamStartMs ? streamStartMs / 1000 : Util::epoch() - dashWindowEnd / 1000;
+      const uint64_t suggestedPresentationDelay = dashSuggestedPresentationDelayMs(M, userSelect, dashVTracks, dashATracks);
       r << "type=\"dynamic\" minimumUpdatePeriod=\"PT2.0S\" availabilityStartTime=\""
         << Util::getUTCString(availabilityStart) << "\" timeShiftBufferDepth=\"" << dashTime(mainDuration)
         << "\" suggestedPresentationDelay=\"" << dashTime(suggestedPresentationDelay)
@@ -818,8 +881,10 @@ namespace Mist{
       << std::endl;
     r << "<Period " << (M.getLive() ? "start=\"PT0.0S\"" : "") << ">" << std::endl;
 
-    dashAdaptation(1, vTracks, videoAligned, r);
-    dashAdaptation(2, aTracks, audioAligned, r);
+    bool videoAligned = checkAlignment && tracksAligned(dashVTracks);
+    bool audioAligned = checkAlignment && tracksAligned(dashATracks);
+    dashAdaptation(1, dashVTracks, videoAligned, r, dashWindowStart, dashWindowEnd);
+    dashAdaptation(2, dashATracks, audioAligned, r, dashWindowStart, dashWindowEnd);
 
     if (sTracks.size()){
       for (std::set<size_t>::iterator it = sTracks.begin(); it != sTracks.end(); it++){
