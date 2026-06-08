@@ -89,12 +89,6 @@ namespace h264{
 
   bool isKeyframe(const char *data, uint32_t len);
 
-  /// Reports whether the packet's primary coded picture is a droppable leading
-  /// slice: a non-IDR VCL slice marked non-reference (nal_ref_idc == 0). At a
-  /// random-access boundary such a picture references frames outside the new
-  /// artifact and cannot decode. Returns false (keep) on anything uncertain.
-  bool isDroppableLeadingSlice(const char *data, uint32_t len);
-
   class nalUnit{
   public:
     nalUnit(const char *data, size_t len) : payload(data, len){}
