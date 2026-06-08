@@ -853,7 +853,7 @@ namespace Mist{
     }
 
     if (streamStatus && streamStatus.len >= 16){
-      memcpy(streamStatus.mapped + 8, &effectiveSpeed, sizeof(uint64_t));
+      memcpy(streamStatus.mapped + STRMSTATE_EFFECTIVE_SPEED_OFFSET, &effectiveSpeed, sizeof(uint64_t));
     }
   }
 
@@ -906,6 +906,7 @@ namespace Mist{
         // `processing.*` config. That would be global across all processing+<hash>
         // jobs on the node.
         processControlledRealtime = streamCfg.getMember("process_controlled_realtime").asBool();
+        if (processControlledRealtime) { publishProcessingOutputExpectation(configuredProcesses); }
         if (processControlledRealtime && !procProfileResolved && configuredProcesses.isArray() && configuredProcesses.size()) {
           procProfile = classifyProcessingProfile(configuredProcesses);
           procProfileResolved = true;
@@ -985,6 +986,96 @@ namespace Mist{
     }
     return false;
   }
+
+  bool InputBuffer::processingProcessMatchesSource(const JSON::Value & proc) const {
+    if (!proc.isObject()) { return false; }
+    auto hasOriginalTrack = [this](const std::set<size_t> & tracks) {
+      for (std::set<size_t>::const_iterator it = tracks.begin(); it != tracks.end(); ++it) {
+        if (M.getSourceTrack(*it) == INVALID_TRACK_ID) { return true; }
+      }
+      return false;
+    };
+
+    if (proc.isMember("tags_inhibit")) {
+      std::set<std::string> tags = Util::streamTags(streamName);
+      auto matchesTag = [&tags](const JSON::Value & J) {
+        if (!J.isString()) { return false; }
+        const std::string & tag = J.asStringRef();
+        if (tag.size() && tag[0] == '#') { return tags.count(tag.substr(1)) != 0; }
+        return tags.count(tag) != 0;
+      };
+      const JSON::Value & inhib = proc["tags_inhibit"];
+      if (inhib.isString() && matchesTag(inhib)) { return false; }
+      if (inhib.isArray()) {
+        jsonForEachConst (inhib, it) {
+          if (matchesTag(*it)) { return false; }
+        }
+      }
+    }
+
+    if (proc.isMember("source_track")) {
+      std::set<size_t> tracks = Util::findTracks(M, JSON::Value(), "", proc["source_track"].asStringRef());
+      if (!tracks.size()) { return false; }
+    }
+    if (proc.isMember("track_select")) {
+      std::set<size_t> tracks = Util::wouldSelect(M, proc["track_select"].asStringRef());
+      if (!tracks.size()) { return false; }
+    }
+    if (proc.isMember("track_inhibit")) {
+      std::set<size_t> tracks = Util::wouldSelect(
+        M, std::string("audio=none&video=none&subtitle=none&meta=none&") + proc["track_inhibit"].asStringRef());
+      if (hasOriginalTrack(tracks)) { return false; }
+    }
+    return true;
+  }
+
+  size_t InputBuffer::expectedProcessingOutputTracks(const JSON::Value & procs) const {
+    if (!procs.isArray() || !procs.size()) { return 0; }
+    size_t expectedOutputTracks = 0;
+    jsonForEachConst (procs, it) {
+      if (!it->isObject() || !it->isMember("process")) { continue; }
+      const std::string procName = (*it)["process"].asString();
+      if (procName != "AV" && procName != "Livepeer" && procName != "Thumbs" && procName != "FFmpeg") { continue; }
+      if (!processingProcessMatchesSource(*it)) { continue; }
+      if (procName == "Livepeer" && it->isMember("target_profiles") && (*it)["target_profiles"].isArray()) {
+        jsonForEachConst ((*it)["target_profiles"], prof) {
+          if (!prof->isObject()) { continue; }
+          if (prof->isMember("track_inhibit")) {
+            std::set<size_t> tracks = Util::wouldSelect(
+              M, std::string("audio=none&video=none&subtitle=none&meta=none&") + (*prof)["track_inhibit"].asStringRef());
+            bool hasOriginalTrack = false;
+            for (std::set<size_t>::const_iterator trackIt = tracks.begin(); trackIt != tracks.end(); ++trackIt) {
+              if (M.getSourceTrack(*trackIt) == INVALID_TRACK_ID) {
+                hasOriginalTrack = true;
+                break;
+              }
+            }
+            if (hasOriginalTrack) { continue; }
+          }
+          ++expectedOutputTracks;
+        }
+      } else {
+        ++expectedOutputTracks;
+      }
+    }
+    return expectedOutputTracks;
+  }
+
+  void InputBuffer::publishProcessingOutputExpectation(const JSON::Value & procs) {
+    if (!streamStatus || streamStatus.len < 16) { return; }
+    if (!M.getValidTracks().size()) {
+      streamStatus.mapped[STRMSTATE_PROCESS_OUTPUTS_RESOLVED_OFFSET] = 0;
+      uint16_t expected16 = 0;
+      memcpy(streamStatus.mapped + STRMSTATE_PROCESS_OUTPUTS_EXPECTED_OFFSET, &expected16, sizeof(uint16_t));
+      return;
+    }
+    size_t expected = expectedProcessingOutputTracks(procs);
+    if (expected > 0xFFFF) { expected = 0xFFFF; }
+    uint16_t expected16 = (uint16_t)expected;
+    streamStatus.mapped[STRMSTATE_PROCESS_OUTPUTS_RESOLVED_OFFSET] = 1;
+    memcpy(streamStatus.mapped + STRMSTATE_PROCESS_OUTPUTS_EXPECTED_OFFSET, &expected16, sizeof(uint16_t));
+  }
+
   void InputBuffer::userLeadOut(){
     if (config->is_active && streamStatus){
       if (!processControlledRealtime || streamStatus.mapped[0] != STRMSTAT_SHUTDOWN) {
