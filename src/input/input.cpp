@@ -11,6 +11,7 @@
 #include <mist/urireader.h>
 
 #include <algorithm>
+#include <cstring>
 #include <fcntl.h>
 #include <fstream>
 #include <iomanip>
@@ -481,7 +482,10 @@ namespace Mist{
         snprintf(pageName, NAME_BUFFER_SIZE, SHM_STREAM_STATE, streamName.c_str());
         streamStatus.init(pageName, 16, false, false);
         if (!streamStatus){streamStatus.init(pageName, 16, true, false);}
-        if (streamStatus){streamStatus.mapped[0] = STRMSTAT_INIT;}
+        if (streamStatus) {
+          memset(streamStatus.mapped, 0, streamStatus.len);
+          streamStatus.mapped[0] = STRMSTAT_INIT;
+        }
         streamStatus.master = false;
         streamStatus.close();
         //Set stream input PID to current PID
@@ -529,7 +533,10 @@ namespace Mist{
         streamStatus.init(pageName, 16, false, false);
         if (!streamStatus){streamStatus.init(pageName, 16, true, false);}
         streamStatus.master = false;
-        if (streamStatus){streamStatus.mapped[0] = STRMSTAT_INIT;}
+        if (streamStatus) {
+          memset(streamStatus.mapped, 0, streamStatus.len);
+          streamStatus.mapped[0] = STRMSTAT_INIT;
+        }
       }
       int ret = 1;
       if (preRun()){
@@ -1299,7 +1306,7 @@ namespace Mist{
         uint64_t activeSpeed = (realtimeSpeed != 0) ? realtimeSpeed : 1;
         if (processControlledRealtime && streamStatus && streamStatus.len >= 16){
           uint64_t effectiveSpeed = 0;
-          memcpy(&effectiveSpeed, streamStatus.mapped + 8, sizeof(uint64_t));
+          memcpy(&effectiveSpeed, streamStatus.mapped + STRMSTATE_EFFECTIVE_SPEED_OFFSET, sizeof(uint64_t));
           if (effectiveSpeed > 0) { activeSpeed = effectiveSpeed; }
         }
         // True sustained N x rate: the deadline is the packet's intended live-clock

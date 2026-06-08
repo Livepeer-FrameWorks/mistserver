@@ -240,6 +240,12 @@ static inline void show_stackframe(){}
 #define STRMSTAT_OFFLINE 6
 #define STRMSTAT_INVALID 255
 
+// Extra bytes in SHM_STREAM_STATE for process-controlled realtime streams.
+// byte 0 remains stream status, byte 1 remains startup progress.
+#define STRMSTATE_PROCESS_OUTPUTS_RESOLVED_OFFSET 2
+#define STRMSTATE_PROCESS_OUTPUTS_EXPECTED_OFFSET 4
+#define STRMSTATE_EFFECTIVE_SPEED_OFFSET 8
+
 #define SHM_JWK "/MstJWK"
 #define JWK_PERM_ADMIN 1
 #define JWK_PERM_INPUT 2

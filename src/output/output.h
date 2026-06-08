@@ -82,7 +82,6 @@ namespace Mist{
     bool processingControlledRealtime() const;
     bool processingControlledRealtimeSelectionEnded();
     bool processingRecordingTracksReady();
-    bool processingProcessMatchesSource(const JSON::Value & proc) const;
 
     /// Accessors for buffer SyncMode.
     void setSyncMode(bool synced){buffer.setSyncMode(synced);}

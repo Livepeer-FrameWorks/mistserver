@@ -17,6 +17,7 @@
 
 #include <algorithm>
 #include <arpa/inet.h>
+#include <cstring>
 #include <fcntl.h>
 #include <fstream>
 #include <iomanip>
@@ -3206,48 +3207,6 @@ namespace Mist{
     trackSelectionChanged();
   }
 
-  bool Output::processingProcessMatchesSource(const JSON::Value & proc) const {
-    if (!proc.isObject()) { return false; }
-    auto hasOriginalTrack = [this](const std::set<size_t> & tracks) {
-      for (std::set<size_t>::const_iterator it = tracks.begin(); it != tracks.end(); ++it) {
-        if (M.getSourceTrack(*it) == INVALID_TRACK_ID) { return true; }
-      }
-      return false;
-    };
-
-    if (proc.isMember("tags_inhibit")) {
-      std::set<std::string> tags = Util::streamTags(streamName);
-      auto matchesTag = [&tags](const JSON::Value & J) {
-        if (!J.isString()) { return false; }
-        const std::string & tag = J.asStringRef();
-        if (tag.size() && tag[0] == '#') { return tags.count(tag.substr(1)) != 0; }
-        return tags.count(tag) != 0;
-      };
-      const JSON::Value & inhib = proc["tags_inhibit"];
-      if (inhib.isString() && matchesTag(inhib)) { return false; }
-      if (inhib.isArray()) {
-        jsonForEachConst (inhib, it) {
-          if (matchesTag(*it)) { return false; }
-        }
-      }
-    }
-
-    if (proc.isMember("source_track")) {
-      std::set<size_t> tracks = Util::findTracks(M, JSON::Value(), "", proc["source_track"].asStringRef());
-      if (!tracks.size()) { return false; }
-    }
-    if (proc.isMember("track_select")) {
-      std::set<size_t> tracks = Util::wouldSelect(M, proc["track_select"].asStringRef());
-      if (!tracks.size()) { return false; }
-    }
-    if (proc.isMember("track_inhibit")) {
-      std::set<size_t> tracks = Util::wouldSelect(
-        M, std::string("audio=none&video=none&subtitle=none&meta=none&") + proc["track_inhibit"].asStringRef());
-      if (hasOriginalTrack(tracks)) { return false; }
-    }
-    return true;
-  }
-
   bool Output::processingControlledRealtime() const {
     std::string strName = streamName.substr(0, streamName.find_first_of("+ "));
     char tmpBuf[NAME_BUFFER_SIZE];
@@ -3268,41 +3227,17 @@ namespace Mist{
     if (!isRecordingToFile || !M) { return true; }
     if (!processingControlledRealtime()) { return true; }
 
-    std::string strName = streamName.substr(0, streamName.find_first_of("+ "));
     char tmpBuf[NAME_BUFFER_SIZE];
-    snprintf(tmpBuf, NAME_BUFFER_SIZE, SHM_STREAM_CONF, strName.c_str());
-    Util::DTSCShmReader rStrmConf(tmpBuf);
-    DTSC::Scan streamCfg = rStrmConf.getScan();
-    JSON::Value processes = streamCfg.getMember("processes").asJSON();
-    if (!processes.isArray() || !processes.size()) { return true; }
-
-    size_t expectedOutputTracks = 0;
-    jsonForEachConst (processes, it) {
-      if (!it->isObject() || !it->isMember("process")) { continue; }
-      const std::string procName = (*it)["process"].asString();
-      if (procName != "AV" && procName != "Livepeer" && procName != "Thumbs" && procName != "FFmpeg") { continue; }
-      if (!processingProcessMatchesSource(*it)) { continue; }
-      if (procName == "Livepeer" && it->isMember("target_profiles") && (*it)["target_profiles"].isArray()) {
-        jsonForEachConst ((*it)["target_profiles"], prof) {
-          if (!prof->isObject()) { continue; }
-          if (prof->isMember("track_inhibit")) {
-            std::set<size_t> tracks = Util::wouldSelect(
-              M, std::string("audio=none&video=none&subtitle=none&meta=none&") + (*prof)["track_inhibit"].asStringRef());
-            bool hasOriginalTrack = false;
-            for (std::set<size_t>::const_iterator trackIt = tracks.begin(); trackIt != tracks.end(); ++trackIt) {
-              if (M.getSourceTrack(*trackIt) == INVALID_TRACK_ID) {
-                hasOriginalTrack = true;
-                break;
-              }
-            }
-            if (hasOriginalTrack) { continue; }
-          }
-          ++expectedOutputTracks;
-        }
-      } else {
-        ++expectedOutputTracks;
-      }
+    snprintf(tmpBuf, NAME_BUFFER_SIZE, SHM_STREAM_STATE, streamName.c_str());
+    IPC::sharedPage processingState(tmpBuf, 16, false, false);
+    if (!processingState || processingState.len < 16 || !processingState.mapped[STRMSTATE_PROCESS_OUTPUTS_RESOLVED_OFFSET]) {
+      INFO_MSG("Waiting for processing process expectations before recording header");
+      return false;
     }
+
+    uint16_t expected16 = 0;
+    memcpy(&expected16, processingState.mapped + STRMSTATE_PROCESS_OUTPUTS_EXPECTED_OFFSET, sizeof(uint16_t));
+    size_t expectedOutputTracks = expected16;
     if (!expectedOutputTracks) { return true; }
 
     meta.reloadReplacedPagesIfNeeded();
