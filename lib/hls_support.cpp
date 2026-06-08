@@ -238,8 +238,7 @@ namespace HLS{
 
     advanceToPayloadFragment(M, fragData, trackData, fragments, keys);
 
-    // Part 2: Limit a playlist depending on initial MSN data
-    // see the NOTE at HLS::getLiveLengthLimit(args)
+    // Part 2: Limit explicit media playlist requests to the requested MSN window.
     if (trackData.isLive && (fragData.lastFrag - fragData.currentFrag) > 2){
       const uint64_t defaultStart = fragData.currentFrag + 2;
       const uint64_t maxStart = fragData.lastFrag - 2;
@@ -588,10 +587,8 @@ namespace HLS{
   }
 
   /// Adds EXT-X-MEDIA tag for a given trackId
-  void addExtXMediaTags(std::stringstream &result, const DTSC::Meta &M,
-                        const MasterData &masterData, const size_t trackId,
-                        const std::string &mediaType, const std::string &grpid,
-                        const uint64_t iFrag){
+  void addExtXMediaTags(std::stringstream & result, const DTSC::Meta & M, const MasterData & masterData,
+                        const size_t trackId, const std::string & mediaType, const std::string & grpid) {
     std::string lang = "";
     lang = M.getLang(trackId).empty() ? "und" : M.getLang(trackId);
     std::string name = M.getCodec(trackId) + "-";
@@ -609,7 +606,6 @@ namespace HLS{
     result << "\"";
     result << ",NAME=\"" << name << "\",URI=\"" << trackId << "/index.m3u8";
     result << "?mTrack=" << masterData.mainTrack;
-    result << "&iMsn=" << iFrag;
     if (masterData.sessId.size()){result << "&tkn=" << masterData.sessId;}
     if (masterData.noLLHLS){result << "&llhls=0";}
     result << "\"\r\n";
@@ -621,15 +617,13 @@ namespace HLS{
     result << "#EXTM3U\r\n#EXT-X-INDEPENDENT-SEGMENTS\r\n";
   }
 
-  void addInfTrackTag(std::stringstream &result, const MasterData &masterData,
-                      const std::set<size_t> &aTracks, const size_t tid, const uint64_t iFrag,
-                      const bool keyFramesAligned, const bool isVideo){
+  void addInfTrackTag(std::stringstream & result, const MasterData & masterData, const std::set<size_t> & aTracks,
+                      const size_t tid, const bool keyFramesAligned, const bool isVideo) {
     result << (keyFramesAligned ? "" : "## DISABLED: ");
     result << tid;
     if (isVideo && masterData.isTS && aTracks.size() == 1){result << "_" << *aTracks.begin();}
     result << "/index.m3u8";
     result << "?mTrack=" << masterData.mainTrack;
-    result << "&iMsn=" << iFrag;
     if (masterData.sessId.size()){result << "&tkn=" << masterData.sessId;}
     if (masterData.noLLHLS){result << "&llhls=0";}
     result << "\r\n";
@@ -661,9 +655,8 @@ namespace HLS{
   void addInfMainTag(std::stringstream &result){result << "#EXT-X-STREAM-INF:";}
 
   /// add #EXT-X-STREAM-INF for audio only streams
-  void addAudInfStreamTags(std::stringstream &result, const DTSC::Meta &M,
-                           const MasterData &masterData, const std::set<size_t> &aTracks,
-                           const uint64_t iFrag){
+  void addAudInfStreamTags(std::stringstream & result, const DTSC::Meta & M, const MasterData & masterData,
+                           const std::set<size_t> & aTracks) {
     if (aTracks.size()){
       for (std::set<size_t>::iterator ita = aTracks.begin(); ita != aTracks.end(); ita++){
         uint64_t bWidth = M.getBps(*ita);
@@ -671,19 +664,16 @@ namespace HLS{
         addInfMainTag(result);
         addInfCodecsTag(result, M, *ita, "");
         addInfBWidthTag(result, bWidth);
-        addInfTrackTag(result, masterData, aTracks, *ita, iFrag, true, false);
+        addInfTrackTag(result, masterData, aTracks, *ita, true, false);
       }
     }
   }
 
   /// Add #EXT-X-STREAM-INF tags for video groups
-  void addVidInfStreamTags(std::stringstream &result, const DTSC::Meta &M,
-                           const MasterData &masterData, const std::set<std::string> &aCodecs,
-                           const std::set<size_t, std::less<size_t> > &vTracks,
-                           const std::set<size_t> &aTracks,
-                           const std::multimap<std::string, size_t> &vidGroups,
-                           const uint64_t asBWidth, const uint64_t iFrag,
-                           const uint32_t sTracksSize){
+  void addVidInfStreamTags(std::stringstream & result, const DTSC::Meta & M, const MasterData & masterData,
+                           const std::set<std::string> & aCodecs, const std::set<size_t, std::less<size_t>> & vTracks,
+                           const std::set<size_t> & aTracks, const std::multimap<std::string, size_t> & vidGroups,
+                           const uint64_t asBWidth, const uint32_t sTracksSize) {
     // Create a comma separated string containing all audio codecs
     std::string audCodecsStr = ""; // comma separated string of "audioCodecs"
     if (aCodecs.size()){
@@ -718,33 +708,31 @@ namespace HLS{
         addInfCodecsTag(result, M, it->second, audCodecsStr);
         addInfResolFrameRate(result, M, it->first.substr(groupIdPrefix.size()), it->second);
         addInfBWidthTag(result, bWidth);
-        addInfTrackTag(result, masterData, aTracks, it->second, iFrag, keyFramesAligned, true);
+        addInfTrackTag(result, masterData, aTracks, it->second, keyFramesAligned, true);
       }
     }
   }
 
   /// Adds EXT-X-MEDIA:TYPE=SUBTITLES tags to the manifest
-  uint64_t addSubTags(std::stringstream &result, const DTSC::Meta &M, const MasterData &masterData,
-                      const std::set<size_t> &sTracks, const uint64_t iFrag){
+  uint64_t addSubTags(std::stringstream & result, const DTSC::Meta & M, const MasterData & masterData,
+                      const std::set<size_t> & sTracks) {
     uint64_t subBWidth = 0;
     for (std::set<size_t>::iterator its = sTracks.begin(); its != sTracks.end(); its++){
-      addExtXMediaTags(result, M, masterData, *its, "SUBTITLES", "sub", iFrag);
+      addExtXMediaTags(result, M, masterData, *its, "SUBTITLES", "sub");
       subBWidth = std::max(subBWidth, M.getBps(*its));
     }
     return subBWidth;
   }
 
   /// Adds EXT-X-MEDIA:TYPE=AUDIO tags to the manifest
-  uint64_t addAudTags(std::stringstream &result, std::set<std::string> &aCodecs,
-                      const DTSC::Meta &M, const MasterData &masterData,
-                      const std::set<size_t> &aTracks, const uint64_t iFrag,
-                      const uint32_t vTracksLength){
+  uint64_t addAudTags(std::stringstream & result, std::set<std::string> & aCodecs, const DTSC::Meta & M,
+                      const MasterData & masterData, const std::set<size_t> & aTracks, const uint32_t vTracksLength) {
     // if video tracks available, audio tracks as EXT-X-MEDIA, else as EXT-X-STREAM-INF
     uint64_t audBWidth = 0;
     if (vTracksLength){
       for (std::set<size_t>::iterator ita = aTracks.begin(); ita != aTracks.end(); ita++){
         if (!masterData.isTS || (masterData.isTS && aTracks.size() > 1)){
-          addExtXMediaTags(result, M, masterData, *ita, "AUDIO", "aud", iFrag);
+          addExtXMediaTags(result, M, masterData, *ita, "AUDIO", "aud");
         }
         aCodecs.insert(Util::codecString(M.getCodec(*ita), M.getInit(*ita)));
         audBWidth = std::max(audBWidth, M.getBps(*ita));
@@ -754,10 +742,9 @@ namespace HLS{
   }
 
   /// Adds EXT-X-MEDIA:TYPE=VIDEO tags to the manifest
-  void addVidTags(std::stringstream &result, std::stringstream &grpid, const DTSC::Meta &M,
-                  const MasterData &masterData, const std::set<size_t, std::less<size_t> > &vTracks,
-                  const std::multimap<std::string, size_t> &vidGroups, const uint64_t iFrag,
-                  const uint32_t aTracksSize){
+  void addVidTags(std::stringstream & result, std::stringstream & grpid, const DTSC::Meta & M,
+                  const MasterData & masterData, const std::set<size_t, std::less<size_t>> & vTracks,
+                  const std::multimap<std::string, size_t> & vidGroups, const uint32_t aTracksSize) {
     // if audio tracks available, video tracks are EXT-X-STREAM-INF
     std::set<size_t>::iterator itv = aTracksSize ? vTracks.end() : vTracks.begin();
     for (; itv != vTracks.end(); itv++){
@@ -767,7 +754,7 @@ namespace HLS{
       }
 
       if (checkFramesAlignment(result, M, masterData, *itv)){
-        addExtXMediaTags(result, M, masterData, *itv, "VIDEO", grpid.str(), iFrag);
+        addExtXMediaTags(result, M, masterData, *itv, "VIDEO", grpid.str());
       }
     }
   }
@@ -789,59 +776,6 @@ namespace HLS{
     }
   }
 
-  /// This is a hack to ensure the LLHLS playback starts as close as possible to the live edge
-  u_int16_t getLiveLengthLimit(const MasterData &masterData){
-    // NOTE:
-    // TL;DR: Apple cleints receive the shortest media playlist to ensure a consistent playback at
-    // least possible latency.
-    // Long story: After experimentation, it was found that Apple clients start streaming
-    // consistently at least latency when the first playlist is short, i.e., ~1 full fragment (+
-    // partial fragment if any) short. From that point, the playlist can grow with the stream.
-    // TODO: remove this when the above issue with apple clients is observed no more.
-    return (masterData.userAgent.find(" Mac OS ") != std::string::npos) ? 3 : 6;
-  }
-
-  /// Get the first fragment number to be printed in the playlist
-  uint64_t getInitFragment(const DTSC::Meta & M, const std::map<size_t, Comms::Users> & userSelect, const MasterData & masterData) {
-    if (M.getLive()){
-      DTSC::Fragments fragments(M.fragments(masterData.mainTrack));
-      DTSC::Keys keys(M.getKeys(masterData.mainTrack));
-      const uint64_t firstFrag = fragments.getFirstValid();
-      const uint64_t endFrag = fragments.getEndValid();
-      if (endFrag <= firstFrag) { return firstFrag; }
-      const uint64_t liveLength = masterData.noLLHLS ? 10 : getLiveLengthLimit(masterData);
-      const uint64_t lastMs = getLiveEdgeMs(M, userSelect, masterData.mainTrack, masterData.mainTrack,
-                                            masterData.systemBoot + masterData.bootMsOffset);
-      const uint64_t edgeFrag = M.getFragmentIndexForTime(masterData.mainTrack, lastMs);
-      const uint64_t safeEndFrag = std::min<uint64_t>(endFrag, edgeFrag + 1);
-      if (safeEndFrag <= firstFrag) { return firstFrag; }
-      uint64_t iFrag = (safeEndFrag > firstFrag + liveLength) ? safeEndFrag - liveLength : firstFrag;
-      const uint64_t firstMs = keys.getTime(fragments.getFirstKey(iFrag));
-      const uint64_t minDur = lastMs > firstMs ? lastMs - firstMs : 0;
-      if (minDur < HLS::partDurationMaxMs * 3 && iFrag > firstFrag) { iFrag--; }
-      HLS::TrackData trackData = {
-        true,
-        M.getType(masterData.mainTrack) == "video",
-        masterData.noLLHLS,
-        masterData.isTS ? ".ts" : ".m4s",
-        M.getEncryption(masterData.mainTrack),
-        masterData.sessId,
-        masterData.mainTrack,
-        masterData.mainTrack,
-        1,
-        iFrag,
-        0,
-        "",
-        masterData.systemBoot,
-        masterData.bootMsOffset,
-      };
-      while (iFrag + 1 < safeEndFrag && !hasFragmentPayload(M, trackData, fragments, keys, iFrag)) { ++iFrag; }
-      return iFrag;
-    }else{
-      return 0;
-    }
-  }
-
   /// Appends master manifest to result
   void addMasterManifest(std::stringstream &result, const DTSC::Meta &M,
                          const std::map<size_t, Comms::Users> &userSelect,
@@ -855,21 +789,18 @@ namespace HLS{
 
     sortTracks(M, userSelect, grpid, vTracks, aTracks, sTracks, vidGroups);
 
-    const uint64_t iFrag = getInitFragment(M, userSelect, masterData);
-
     addMasterBasicTags(result);
 
-    addVidTags(result, grpid, M, masterData, vTracks, vidGroups, iFrag, aTracks.size());
+    addVidTags(result, grpid, M, masterData, vTracks, vidGroups, aTracks.size());
 
-    uint64_t audBWidth = addAudTags(result, aCodecs, M, masterData, aTracks, iFrag, vTracks.size());
+    uint64_t audBWidth = addAudTags(result, aCodecs, M, masterData, aTracks, vTracks.size());
 
-    uint64_t subBWidth = addSubTags(result, M, masterData, sTracks, iFrag);
+    uint64_t subBWidth = addSubTags(result, M, masterData, sTracks);
 
     if (vidGroups.size()){
-      addVidInfStreamTags(result, M, masterData, aCodecs, vTracks, aTracks, vidGroups,
-                          audBWidth + subBWidth, iFrag, sTracks.size());
+      addVidInfStreamTags(result, M, masterData, aCodecs, vTracks, aTracks, vidGroups, audBWidth + subBWidth, sTracks.size());
     }else{
-      addAudInfStreamTags(result, M, masterData, aTracks, iFrag);
+      addAudInfStreamTags(result, M, masterData, aTracks);
     }
   }
 
