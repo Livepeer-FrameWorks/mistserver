@@ -47,7 +47,8 @@ namespace Mist{
     void dashAdaptationSet(size_t id, size_t idx, std::stringstream &r);
     void dashRepresentation(size_t id, size_t idx, std::stringstream &r);
     void dashSegmentTemplate(std::stringstream &r);
-    void dashAdaptation(size_t id, std::set<size_t> tracks, bool aligned, std::stringstream &r);
+    void dashAdaptation(size_t id, std::set<size_t> tracks, bool aligned, std::stringstream & r,
+                        uint64_t minStartTime = 0, uint64_t maxEndTime = 0);
     std::string dashTime(uint64_t time);
     std::string dashManifest(bool checkAlignment = true);
 
@@ -59,8 +60,16 @@ namespace Mist{
     std::string smoothManifest(bool checkAlignment = true);
     void smoothAdaptation(const std::string &type, std::set<size_t> tracks, std::stringstream &r);
 
-    void generateSegmentlist(size_t idx, std::stringstream &s,
-                             void callBack(uint64_t, uint64_t, std::stringstream &, bool));
+    struct DashSegmentWindow {
+        DashSegmentWindow() : start(0), end(0), count(0) {}
+        uint64_t start;
+        uint64_t end;
+        uint64_t count;
+    };
+    DashSegmentWindow generateSegmentlist(size_t idx, std::stringstream & s,
+                                          void callBack(uint64_t, uint64_t, std::stringstream &, bool),
+                                          uint64_t minStartTime = 0, uint64_t maxEndTime = 0);
+    void sendCmafError(const std::string & code, const std::string & message);
     bool tracksAligned(const std::set<size_t> &trackList);
     std::string buildNalUnit(size_t len, const char *data);
     uint64_t targetTime;
