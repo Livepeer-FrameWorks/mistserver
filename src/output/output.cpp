@@ -5,8 +5,6 @@
 #include <mist/bitfields.h>
 #include <mist/defines.h>
 #include <mist/encode.h>
-#include <mist/h264.h>
-#include <mist/h265.h>
 #include <mist/http_parser.h>
 #include <mist/jwt.h>
 #include <mist/langcodes.h>
@@ -119,7 +117,6 @@ namespace Mist{
     parseData = false;
     wantRequest = true;
     sought = false;
-    raBoundaryKeyTime.clear();
     isInitialized = false;
     isBlocking = false;
     needsLookAhead = 0;
@@ -282,7 +279,6 @@ namespace Mist{
       return;
     }
     sought = false;
-    raBoundaryKeyTime.clear();
     if (Triggers::shouldTrigger("CONN_PLAY", streamName)){
       std::string payload = streamName + "\n" + getConnectedHost() + "\n" + capa["name"].asStringRef() + "\n" + reqUrl;
       if (!Triggers::doTrigger("CONN_PLAY", payload, streamName)){
@@ -989,10 +985,7 @@ namespace Mist{
     return ret;
   }
 
-  bool Output::seek(size_t tid, uint64_t pos, bool getNextKey){
-    // A new seek redefines this track's random-access boundary; clear any stale
-    // armed state up front so a failed/aborted seek can never leave one behind.
-    raBoundaryKeyTime.erase(tid);
+  bool Output::seek(size_t tid, uint64_t pos, bool getNextKey) {
     if (!M.trackValid(tid)){
       MEDIUM_MSG("Aborting seek to %" PRIu64 "ms in track %zu: Invalid track id.", pos, tid);
       userSelect.erase(tid);
@@ -1045,11 +1038,6 @@ namespace Mist{
       userSelect[tid].setKeyNum(keyNum);
       if (actualKeyTime > packetSeekPos) { packetSeekPos = actualKeyTime; }
     }
-    // Arm the random-access boundary filter at the actual selected keyframe time.
-    // Only plain seeks land on keyNum; with getNextKey the served key is keyNum+1,
-    // so skip arming there. armRandomAccessBoundary self-limits to reordered,
-    // non-embedded video tracks.
-    if (!getNextKey) { armRandomAccessBoundary(tid, actualKeyTime); }
     if (M.hasEmbeddedFrames(tid)){
       Util::sortedPageInfo tmp;
       tmp.tid = tid;
@@ -1067,7 +1055,6 @@ namespace Mist{
       if (keepGoing()){
         WARN_MSG("Aborting seek to %" PRIu64 "ms in track %zu: not available.", pos, tid);
         userSelect.erase(tid);
-        raBoundaryKeyTime.erase(tid);
         trackSelectionChanged();
       }
       return false;
@@ -1098,7 +1085,6 @@ namespace Mist{
         if (!tmpPack){
           WARN_MSG("Aborting seek to %" PRIu64 "ms in track %zu: timeout", pos, tid);
           userSelect.erase(tid);
-          raBoundaryKeyTime.erase(tid);
           trackSelectionChanged();
           return false;
         }
@@ -1660,44 +1646,6 @@ namespace Mist{
     return false;
   }
 
-  /// Arms the random-access boundary filter for a track sought to a keyframe at
-  /// `keyTime`. Only reordered (B-frame) video tracks that are not embedded-frame
-  /// tracks qualify; everything else is left untouched so the filter stays inert.
-  void Output::armRandomAccessBoundary(size_t tid, uint64_t keyTime) {
-    if (!M.trackValid(tid)) { return; }
-    if (M.getType(tid) != "video") { return; }
-    if (!M.hasBFrames(tid) || M.hasEmbeddedFrames(tid)) { return; }
-    raBoundaryKeyTime[tid] = keyTime;
-  }
-
-  /// Called right before sendNext(). Returns true when the current packet is a
-  /// leading picture that a codec classifier proves cannot decode from the armed
-  /// random-access boundary, so it must not be written into a fresh output
-  /// artifact (the read cursor may start before the presentation boundary, but the
-  /// written boundary must start clean). Inert unless the track was armed by
-  /// armRandomAccessBoundary(); only an affirmative, codec-certain match drops —
-  /// anything uncertain is kept.
-  bool Output::atDroppableLeadingPicture() {
-    std::map<size_t, uint64_t>::iterator it = raBoundaryKeyTime.find(thisIdx);
-    if (it == raBoundaryKeyTime.end()) { return false; }
-    // At or past the boundary keyframe time the leading region is over: the
-    // keyframe itself and all trailing pictures are kept, and the track disarms.
-    if (thisTime >= it->second) {
-      raBoundaryKeyTime.erase(it);
-      return false;
-    }
-    // A leading picture (presents before the keyframe). Ask the codec classifier;
-    // unknown codecs are never guessed.
-    std::string codec = M.getCodec(thisIdx);
-    if (codec == "H264") { return h264::isDroppableLeadingSlice(thisData, (uint32_t)thisDataLen); }
-    if (codec == "HEVC" || codec == "H265") { return h265::isDroppableLeadingSlice(thisData, (uint32_t)thisDataLen); }
-    // No classifier for this codec (VP9/AV1/...): keep everything and disarm so we
-    // don't re-check. Erasing here makes the log fire at most once per seek.
-    INFO_MSG("No random-access leading-picture classifier for codec %s on track %zu; keeping leading packets", codec.c_str(), thisIdx);
-    raBoundaryKeyTime.erase(it);
-    return false;
-  }
-
   /// Closes myConn and also removes it from the event loop
   void Output::closeMyConn(){
     if (!myConn){return;}
@@ -2107,13 +2055,6 @@ namespace Mist{
             continue;
           }
 
-          // Drop leading pictures that cannot decode from a fresh random-access
-          // boundary (e.g. a clip cut): the read cursor may begin before the
-          // presentation boundary, but the written artifact must start clean.
-          // prepareNext() already advanced the buffer cursor, so this packet is
-          // consumed — just fetch the next one without sending or counting it.
-          if (atDroppableLeadingPicture()) { continue; }
-
           // Store new timestamp
           lastPacketTime = thisTime;
           if (firstPacketTime == 0xFFFFFFFFFFFFFFFFull){
@@ -2372,9 +2313,6 @@ namespace Mist{
   void Output::dropTrack(size_t trackId, const std::string &reason, bool probablyBad){
     //We can drop from the buffer without any checks, it's a no-op if no entry exists
     buffer.dropTrack(trackId);
-    // A dropped track leaves play; its random-access boundary state is no longer
-    // meaningful and must not survive into a later re-selection.
-    raBoundaryKeyTime.erase(trackId);
     // depending on whether this is probably bad and the current debug level, print a message
     size_t printLevel = (probablyBad ? DLVL_WARN : DLVL_INFO);
     //The rest of the operations depends on userSelect, so we ignore it if it doesn't exist.

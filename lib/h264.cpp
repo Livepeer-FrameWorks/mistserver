@@ -44,24 +44,6 @@ namespace h264{
     return false;
   }
 
-  bool isDroppableLeadingSlice(const char *data, uint32_t len) {
-    size_t offset = 0;
-    // Walk the length-prefixed NAL units (same layout as analysePackets). The
-    // first VCL coded slice (types 1-5) decides the picture; parameter sets, SEI
-    // and access-unit delimiters carry no reference info, so step past them.
-    while (offset + 5 < len && Bit::btohl(data + offset) + offset + 4 <= len) {
-      uint32_t nalSize = Bit::btohl(data + offset);
-      uint8_t header = (data + offset)[4];
-      uint8_t nalType = header & 0x1F;
-      if (nalType >= 1 && nalType <= 5) {
-        if (nalType == 5) { return false; } // IDR is a reference keyframe slice
-        return (header & 0x60) == 0; // nal_ref_idc == 0 => non-reference
-      }
-      offset += nalSize + 4;
-    }
-    return false;
-  }
-
   std::deque<nalu::nalData> analysePackets(const char *data, size_t len){
     std::deque<nalu::nalData> res;
 

@@ -19,9 +19,6 @@ test('blocking', downloadertest, args: ['AUTO'], suite: 'Downloader')
 tspackettest = executable('tspackettest', 'ts_packet_unit.cpp', header_tgts, dependencies: libmist_dep)
 test('Opus MPEG-TS descriptor payload', tspackettest, suite: 'MPEG-TS')
 
-nalclassifiertest = executable('nalclassifiertest', 'nal_classifier_unit.cpp', header_tgts, dependencies: libmist_dep)
-test('Droppable leading-slice classification (H264/HEVC)', nalclassifiertest, suite: 'NAL')
-
 if get_option('WITH_AV')
   avcodecregistrytest = executable('avcodecregistrytest', 'av_codec_registry.cpp', header_tgts, dependencies: av_libs)
   test('Required FFmpeg codec registry for MistProcAV', avcodecregistrytest, suite: 'AV')
