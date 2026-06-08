@@ -207,6 +207,9 @@ test('RTSP linking', urltest, suite: 'URL parser',
 dtsc_sizing_test = executable('dtsc_sizing_test', 'dtsc_sizing.cpp', header_tgts, dependencies: libmist_dep)
 test('DTSC Sizing Test', dtsc_sizing_test)
 
+dtsc_part_time_test = executable('dtsc_part_time_test', 'dtsc_part_time_unit.cpp', header_tgts, dependencies: libmist_dep)
+test('DTSC part time skips deleted keys', dtsc_part_time_test)
+
 bitwritertest = executable('bitwritertest', 'bitwriter.cpp', header_tgts, dependencies: libmist_dep)
 test('bitWriter Test', bitwritertest)
 
