@@ -46,9 +46,10 @@ namespace Mist{
     void sendDashManifest();
     void dashAdaptationSet(size_t id, size_t idx, std::stringstream &r);
     void dashRepresentation(size_t id, size_t idx, std::stringstream &r);
-    void dashSegmentTemplate(std::stringstream &r);
-    void dashAdaptation(size_t id, std::set<size_t> tracks, bool aligned, std::stringstream & r,
-                        uint64_t minStartTime = 0, uint64_t maxEndTime = 0);
+    void dashSegmentTemplate(std::stringstream & r, double availabilityTimeOffset = 0.0,
+                             size_t timingTrack = INVALID_TRACK_ID, size_t requestTrack = INVALID_TRACK_ID);
+    void dashAdaptation(size_t id, std::set<size_t> tracks, bool aligned, std::stringstream & r, uint64_t minStartTime = 0,
+                        uint64_t maxEndTime = 0, bool includeForming = false, size_t timingTrack = INVALID_TRACK_ID);
     std::string dashTime(uint64_t time);
     std::string dashManifest(bool checkAlignment = true);
 
@@ -68,11 +69,25 @@ namespace Mist{
     };
     DashSegmentWindow generateSegmentlist(size_t idx, std::stringstream & s,
                                           void callBack(uint64_t, uint64_t, std::stringstream &, bool),
-                                          uint64_t minStartTime = 0, uint64_t maxEndTime = 0);
+                                          uint64_t minStartTime = 0, uint64_t maxEndTime = 0,
+                                          bool includeForming = false, size_t timingTrack = INVALID_TRACK_ID);
     void sendCmafError(const std::string & code, const std::string & message);
     bool tracksAligned(const std::set<size_t> &trackList);
     std::string buildNalUnit(size_t len, const char *data);
     uint64_t targetTime;
+
+    // Low-latency DASH chunked-transfer state. When cmafLLStream is set, sendNext()
+    // streams the in-progress fragment as a sequence of per-part [moof][mdat] CMAF
+    // chunks into one open response (see sendNextLL()).
+    bool cmafLLStream;
+    uint64_t cmafLLFragStart; ///< stream-clock start time of the fragment being streamed
+    uint64_t cmafLLFragEnd; ///< stream-clock end time of the fragment being streamed
+    uint64_t cmafLLMsn; ///< fragment index being streamed
+    uint64_t cmafLLmTrack; ///< timing track for part-availability math
+    uint64_t cmafLLPartEnd; ///< end time of the currently-open part chunk
+    uint64_t cmafLLPartLeft; ///< payload bytes left in the currently-open mdat
+    uint64_t cmafLLSeq; ///< moof sequence number
+    void sendNextLL();
 
     std::string h264init(const std::string &initData);
     std::string h265init(const std::string &initData);

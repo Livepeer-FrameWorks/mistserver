@@ -1,7 +1,9 @@
 #include "output_cmaf.h"
+
 #include <mist/bitfields.h>
 #include <mist/checksum.h>
 #include <mist/cmaf.h>
+#include <mist/cmaf_live.h>
 // #include <mist/defines.h>
 // #include <mist/encode.h>
 #include <mist/hls_support.h>
@@ -84,6 +86,7 @@ namespace Mist{
 
     uaDelay = 0;
     realTime = 0;
+    cmafLLStream = false;
     if (config->getString("target").size()){
       needsLookAhead = 5000;
 
@@ -173,14 +176,32 @@ namespace Mist{
     capa["optional"]["listlimit"]["type"] = "uint";
     capa["optional"]["listlimit"]["option"] = "--list-limit";
 
-    cfg->addOption("nonchunked",
-                   JSON::fromString("{\"short\":\"C\",\"long\":\"nonchunked\",\"help\":\"Do not "
-                                    "send chunked, but buffer whole segments.\"}"));
-    capa["optional"]["nonchunked"]["name"] = "Send whole segments";
-    capa["optional"]["nonchunked"]["help"] =
-        "Disables chunked transfer encoding, forcing per-segment buffering. Reduces performance "
-        "significantly, but increases compatibility somewhat.";
-    capa["optional"]["nonchunked"]["option"] = "--nonchunked";
+    cfg->addOption("chunkedsegments",
+                   JSON::fromString("{\"short\":\"C\",\"long\":\"chunked-segments\","
+                                    "\"help\":\"Use Transfer-Encoding: chunked for completed CMAF "
+                                    "objects instead of buffering whole objects with Content-Length.\"}"));
+    capa["optional"]["chunkedsegments"]["name"] = "Chunked segments";
+    capa["optional"]["chunkedsegments"]["help"] =
+      "Uses Transfer-Encoding: chunked for completed CMAF objects (init segments and finished "
+      "media segments/parts). By default, completed objects are buffered and sent with a "
+      "Content-Length for maximum compatibility. Does not affect the low-latency DASH "
+      "forming-segment path, which is always chunked.";
+    capa["optional"]["chunkedsegments"]["option"] = "--chunked-segments";
+    capa["optional"]["chunkedsegments"]["short"] = "C";
+    capa["optional"]["chunkedsegments"]["default"] = false;
+
+    cfg->addOption("dashlowlatency",
+                   JSON::fromString("{\"short\":\"D\",\"long\":\"dash-low-latency\","
+                                    "\"help\":\"Enable experimental low-latency DASH (LL-DASH).\"}"));
+    capa["optional"]["dashlowlatency"]["name"] = "Low-latency DASH (LL-DASH)";
+    capa["optional"]["dashlowlatency"]["help"] =
+      "Experimental. Enables DASH-IF low-latency DASH: advertises the still-forming segment in the "
+      "MPD (availabilityTimeOffset + availabilityTimeComplete=false) and streams it over HTTP "
+      "chunked transfer. Requires an LL-DASH-capable player. Independent of "
+      "--chunked-segments; the forming segment is always chunked.";
+    capa["optional"]["dashlowlatency"]["option"] = "--dash-low-latency";
+    capa["optional"]["dashlowlatency"]["short"] = "D";
+    capa["optional"]["dashlowlatency"]["default"] = false;
 
     cfg->addOption("mergesessions",
                    JSON::fromString("{\"short\":\"M\",\"long\":\"mergesessions\",\"help\":\"Merge "
@@ -426,7 +447,7 @@ namespace Mist{
 
     if (url.find("init" + hlsMediaFormat) != std::string::npos){
       std::string headerData = CMAF::trackHeader(M, idx);
-      H.StartResponse(H, myConn, config->getBool("nonchunked"));
+      H.StartResponse(H, myConn, !config->getBool("chunkedsegments"));
       H.Chunkify(headerData.c_str(), headerData.size(), myConn);
       H.Chunkify("", 0, myConn);
       return;
@@ -443,20 +464,88 @@ namespace Mist{
     // set targetTime
     if (sscanf(url.c_str(), "%*d/chunk_%" PRIu64 ".%" PRIu32 ".*", &startTime, &part) == 2){
       // Logic: calculate targetTime for partial segments
-      targetTime = HLS::getPartTargetTime(M, idx, mTrack, startTime, msn, part);
+      targetTime = CMAF::Live::getPartTargetTime(M, idx, mTrack, startTime, msn, part);
       if (!targetTime){
         sendCmafError("404", "Partial fragment does not exist");
         return;
       }
-      startTime += part * HLS::partDurationMaxMs;
+      startTime += part * CMAF::Live::partDurationMaxMs;
       fragmentIndex = M.getFragmentIndexForTime(mTrack, startTime);
       DEBUG_MSG(5, "partial segment requested: %s st %" PRIu64 " et %" PRIu64, url.c_str(),
                 startTime, targetTime);
     }else if (sscanf(url.c_str(), "%*d/chunk_%" PRIu64 ".*", &startTime) == 1){
       // Logic: calculate targetTime for full segments
       if (M.getVod()){startTime += M.getFirstms(idx);}
+      DTSC::Fragments fragments(M.fragments(mTrack));
       fragmentIndex = M.getFragmentIndexForTime(mTrack, startTime);
-      targetTime = dur ? startTime + dur : M.getTimeForFragmentIndex(mTrack, fragmentIndex + 1);
+      // A request for the still-forming fragment (duration not yet known) is served
+      // over chunked transfer: the fragment is streamed as a sequence of per-part
+      // [moof][mdat] CMAF chunks into one open response (see sendNextLL). Only the
+      // opt-in low-latency DASH path advertises such requests, and HLS never asks for
+      // an incomplete fragment as a full segment, so complete-segment and HLS serving
+      // are left untouched.
+      if (config->getBool("dashlowlatency") && !dur && M.getLive()) {
+        const uint64_t waitUntil = Util::bootMS() + (CMAF::Live::partDurationMaxMs * 4);
+        while (true) {
+          const bool exactFragment = fragmentIndex >= fragments.getFirstValid() &&
+            fragmentIndex < fragments.getEndValid() && M.getTimeForFragmentIndex(mTrack, fragmentIndex) == startTime;
+          if (exactFragment && !fragments.getDuration(fragmentIndex)) {
+            const uint64_t firstPartEnd = CMAF::Live::getPartTargetTime(M, idx, mTrack, startTime, fragmentIndex, 0);
+            if (firstPartEnd && CMAF::Live::isRangeServable(M, idx, startTime, firstPartEnd).ok) {
+              const uint64_t segmentDuration = M.biggestFragment(mTrack);
+              if (!segmentDuration) { break; }
+              DEBUG_MSG(5, "Low-latency DASH chunked transfer for forming fragment %s track=%zu start=%" PRIu64,
+                        url.c_str(), idx, startTime);
+              cmafLLStream = true;
+              cmafLLFragStart = startTime;
+              cmafLLFragEnd = startTime + segmentDuration;
+              cmafLLMsn = fragmentIndex;
+              cmafLLmTrack = mTrack;
+              cmafLLPartEnd = 0;
+              cmafLLPartLeft = 0;
+              cmafLLSeq = fragmentIndex;
+              // Always chunked, independent of --chunked-segments: the final
+              // Content-Length is unknowable while the segment is still being produced.
+              H.StartResponse(H, myConn, false);
+              seek(startTime);
+              wantRequest = false;
+              parseData = true;
+              return;
+            }
+          }
+          if (exactFragment || fragments.getEndValid() <= fragments.getFirstValid()) { break; }
+          const uint64_t segmentDuration = M.biggestFragment(mTrack);
+          if (!segmentDuration) { break; }
+          const uint32_t previousFragment = fragments.getEndValid() - 1;
+          const uint64_t previousStart = M.getTimeForFragmentIndex(mTrack, previousFragment);
+          const uint64_t previousDuration = fragments.getDuration(previousFragment);
+          const uint64_t expectedStart = previousStart + (previousDuration ? previousDuration : segmentDuration);
+          if (startTime != expectedStart || Util::bootMS() >= waitUntil) { break; }
+          Util::wait(25);
+          meta.reloadReplacedPagesIfNeeded();
+          fragmentIndex = M.getFragmentIndexForTime(mTrack, startTime);
+        }
+      }
+      if (dur) {
+        targetTime = startTime + dur;
+      } else if (fragmentIndex >= fragments.getFirstValid() && fragmentIndex < fragments.getEndValid()) {
+        if (M.getTimeForFragmentIndex(mTrack, fragmentIndex) != startTime) {
+          sendCmafError("404", "Segment does not exist");
+          return;
+        }
+        const uint64_t fragmentDuration = fragments.getDuration(fragmentIndex);
+        if (fragmentDuration) {
+          targetTime = startTime + fragmentDuration;
+        } else if (fragmentIndex + 1 < fragments.getEndValid()) {
+          targetTime = M.getTimeForFragmentIndex(mTrack, fragmentIndex + 1);
+        } else {
+          sendCmafError("404", "Segment does not exist");
+          return;
+        }
+      } else {
+        sendCmafError("404", "Segment outside live window");
+        return;
+      }
       DEBUG_MSG(5,
                 "full segment requested: %s track=%zu mTrack=%" PRIu64 " msn=%" PRIu64 " dur=%" PRIu64 " st=%" PRIu64
                 " et=%" PRIu64 " fragment=%" PRIu64,
@@ -467,55 +556,45 @@ namespace Mist{
     }
 
     const uint64_t requestedStartTime = startTime;
-    DTSC::Parts parts(M.parts(idx));
-    const size_t firstValidPart = parts.getFirstValid();
-    const size_t endValidPart = parts.getEndValid();
-    if (firstValidPart >= endValidPart) {
-      WARN_MSG("Refusing CMAF segment for track %zu: no media parts available url=%s", idx, url.c_str());
-      sendCmafError("404", "Segment has no media data");
-      return;
-    }
-    const uint64_t firstValidPartTime = M.getPartTime(firstValidPart, idx);
-    if (requestedStartTime < firstValidPartTime) {
-      WARN_MSG("Refusing expired CMAF segment for track %zu: requested=%" PRIu64 " first=%" PRIu64 " url=%s", idx,
-               requestedStartTime, firstValidPartTime, url.c_str());
-      sendCmafError("404", "Segment expired");
-      return;
-    }
-
-    size_t firstPart = M.getPartIndex(startTime, idx);
-    size_t endPart = M.getPartIndex(targetTime, idx);
-    if (firstPart < firstValidPart || firstPart >= endValidPart || endPart > endValidPart) {
-      WARN_MSG("Refusing out-of-range CMAF segment for track %zu: start=%" PRIu64 " target=%" PRIu64
-               " firstPart=%zu endPart=%zu valid=%zu-%zu url=%s",
-               idx, startTime, targetTime, firstPart, endPart, firstValidPart, endValidPart, url.c_str());
-      sendCmafError("404", "Segment outside live window");
-      return;
-    }
-    if (firstPart < parts.getEndValid()) {
-      startTime = M.getPartTime(firstPart, idx);
-      if (startTime != requestedStartTime) {
-        DEBUG_MSG(5,
-                  "CMAF segment snapped to media boundary track=%zu requested=%" PRIu64 " mediaStart=%" PRIu64
-                  " target=%" PRIu64 " firstPart=%zu endPart=%zu url=%s",
-                  idx, requestedStartTime, startTime, targetTime, firstPart, endPart, url.c_str());
-      }
+    // Single shared servability check: identical rules to what manifests advertise.
+    CMAF::Live::RangeServability serv = CMAF::Live::isRangeServable(M, idx, startTime, targetTime);
+    switch (serv.reason) {
+      case CMAF::Live::Reason::NO_VALID_PARTS:
+        WARN_MSG("Refusing CMAF segment for track %zu: no media parts available url=%s", idx, url.c_str());
+        sendCmafError("404", "Segment has no media data");
+        return;
+      case CMAF::Live::Reason::EXPIRED:
+        WARN_MSG("Refusing expired CMAF segment for track %zu: requested=%" PRIu64 " first=%" PRIu64 " url=%s", idx,
+                 requestedStartTime, M.getPartTime(serv.firstValidPart, idx), url.c_str());
+        sendCmafError("404", "Segment expired");
+        return;
+      case CMAF::Live::Reason::OUTSIDE_WINDOW:
+        WARN_MSG("Refusing out-of-range CMAF segment for track %zu: start=%" PRIu64 " target=%" PRIu64
+                 " firstPart=%zu endPart=%zu valid=%zu-%zu url=%s",
+                 idx, startTime, targetTime, serv.firstPart, serv.endPart, serv.firstValidPart, serv.endValidPart, url.c_str());
+        sendCmafError("404", "Segment outside live window");
+        return;
+      case CMAF::Live::Reason::EMPTY_RANGE:
+        WARN_MSG("Refusing invalid CMAF segment for track %zu: start=%" PRIu64 " target=%" PRIu64 " url=%s", idx,
+                 serv.snappedStart, targetTime, url.c_str());
+        sendCmafError("404", "Segment does not exist");
+        return;
+      case CMAF::Live::Reason::NO_PAYLOAD:
+        WARN_MSG("Refusing empty CMAF segment for track %zu: start=%" PRIu64 " target=%" PRIu64 " url=%s", idx,
+                 serv.snappedStart, targetTime, url.c_str());
+        sendCmafError("404", "Segment has no media data");
+        return;
+      case CMAF::Live::Reason::OK: break;
     }
 
-    if (targetTime <= startTime) {
-      WARN_MSG("Refusing invalid CMAF segment for track %zu: start=%" PRIu64 " target=%" PRIu64 " url=%s", idx,
-               startTime, targetTime, url.c_str());
-      sendCmafError("404", "Segment does not exist");
-      return;
+    if (serv.snappedStart != requestedStartTime) {
+      DEBUG_MSG(5,
+                "CMAF segment snapped to media boundary track=%zu requested=%" PRIu64 " mediaStart=%" PRIu64
+                " target=%" PRIu64 " firstPart=%zu endPart=%zu url=%s",
+                idx, requestedStartTime, serv.snappedStart, targetTime, serv.firstPart, serv.endPart, url.c_str());
     }
-
-    uint64_t payloadSize = CMAF::payloadSize(M, idx, startTime, targetTime);
-    if (!payloadSize) {
-      WARN_MSG("Refusing empty CMAF segment for track %zu: start=%" PRIu64 " target=%" PRIu64 " url=%s", idx, startTime,
-               targetTime, url.c_str());
-      sendCmafError("404", "Segment has no media data");
-      return;
-    }
+    startTime = serv.snappedStart;
+    uint64_t payloadSize = serv.payloadSize;
 
     std::string headerData =
         CMAF::keyHeader(M, idx, startTime, targetTime, fragmentIndex, false, false);
@@ -526,7 +605,7 @@ namespace Mist{
     char mdatHeader[] ={0x00, 0x00, 0x00, 0x00, 'm', 'd', 'a', 't'};
     Bit::htobl(mdatHeader, mdatSize);
 
-    H.StartResponse(H, myConn, config->getBool("nonchunked"));
+    H.StartResponse(H, myConn, !config->getBool("chunkedsegments"));
     H.Chunkify(headerData.c_str(), headerData.size(), myConn);
     H.Chunkify(mdatHeader, 8, myConn);
 
@@ -536,9 +615,88 @@ namespace Mist{
     parseData = true;
   }
 
+  /// Streams the in-progress fragment as a sequence of per-part [moof][mdat] CMAF
+  /// chunks into one open response (low-latency DASH chunked transfer). The chunk a
+  /// packet belongs to is derived from the packet's own timestamp, so the bytes
+  /// written always land in the chunk whose moof/mdat describe them - robust to gaps
+  /// or packets jumping across part boundaries. A chunk's moof is emitted only once
+  /// the part is complete (getPartTargetTime blocks for it), so every mdat size
+  /// matches its data. The response closes as soon as the final advertised byte of
+  /// the fragment has been written, without waiting for a packet from the next
+  /// fragment to arrive.
+  void OutCMAF::sendNextLL() {
+    const uint64_t t = thisPacket.getTime();
+    // Stop once playback leaves the segment URL we are streaming. The time
+    // boundary is authoritative here: live fragment-index updates may lag the
+    // packet stream, but bytes from the next segment must never be emitted under
+    // the previous segment URL.
+    if (t < cmafLLFragStart || t >= cmafLLFragEnd || M.getFragmentIndexForTime(cmafLLmTrack, t) != cmafLLMsn) {
+      DEBUG_MSG(5, "Low-latency DASH closing fragment at packet boundary track=%zu start=%" PRIu64 " end=%" PRIu64 " packet=%" PRIu64,
+                thisIdx, cmafLLFragStart, cmafLLFragEnd, t);
+      H.Chunkify("", 0, myConn);
+      wantRequest = true;
+      parseData = false;
+      cmafLLStream = false;
+      return;
+    }
+    // Index of the part-grid cell this packet falls in, relative to the fragment.
+    const uint32_t chunkIdx = (uint32_t)((t - cmafLLFragStart) / CMAF::Live::partDurationMaxMs);
+    // Open a new chunk only when this packet belongs to a part we have not opened yet.
+    // Skipped (empty) cells get no chunk; a packet always lands in the chunk that
+    // covers its own timestamp.
+    if (!cmafLLPartEnd || t >= cmafLLPartEnd) {
+      const uint64_t pStart = cmafLLFragStart + (uint64_t)chunkIdx * CMAF::Live::partDurationMaxMs;
+      // Blocks until the part is complete; returns 0 / a clamped end at fragment end.
+      const uint64_t pEnd = CMAF::Live::getPartTargetTime(M, thisIdx, cmafLLmTrack, cmafLLFragStart, cmafLLMsn, chunkIdx);
+      CMAF::Live::RangeServability ps =
+        (pEnd > pStart) ? CMAF::Live::isRangeServable(M, thisIdx, pStart, pEnd) : CMAF::Live::RangeServability();
+      if (!pEnd || pEnd <= pStart || !ps.ok) {
+        DEBUG_MSG(5,
+                  "Low-latency DASH closing fragment on unavailable part track=%zu start=%" PRIu64 " end=%" PRIu64
+                  " part=%u partStart=%" PRIu64 " partEnd=%" PRIu64,
+                  thisIdx, cmafLLFragStart, cmafLLFragEnd, chunkIdx, pStart, pEnd);
+        H.Chunkify("", 0, myConn);
+        wantRequest = true;
+        parseData = false;
+        cmafLLStream = false;
+        return;
+      }
+      std::string moof = CMAF::keyHeader(M, thisIdx, ps.snappedStart, pEnd, cmafLLSeq++, false, false);
+      uint64_t mdatSize = 8 + ps.payloadSize;
+      char mdatHeader[] = {0x00, 0x00, 0x00, 0x00, 'm', 'd', 'a', 't'};
+      Bit::htobl(mdatHeader, mdatSize);
+      H.Chunkify(moof.c_str(), moof.size(), myConn);
+      H.Chunkify(mdatHeader, 8, myConn);
+      cmafLLPartEnd = pEnd;
+      cmafLLPartLeft = ps.payloadSize;
+    }
+    char *data;
+    size_t dataLen;
+    thisPacket.getString("data", data, dataLen);
+    H.Chunkify(data, dataLen, myConn);
+    if (dataLen >= cmafLLPartLeft) {
+      cmafLLPartLeft = 0;
+    } else {
+      cmafLLPartLeft -= dataLen;
+    }
+    if (!cmafLLPartLeft && cmafLLPartEnd >= cmafLLFragEnd) {
+      DEBUG_MSG(5, "Low-latency DASH completed fragment track=%zu start=%" PRIu64 " end=%" PRIu64, thisIdx,
+                cmafLLFragStart, cmafLLFragEnd);
+      H.Chunkify("", 0, myConn);
+      wantRequest = true;
+      parseData = false;
+      cmafLLStream = false;
+      return;
+    }
+  }
+
   void OutCMAF::sendNext(){
     if (isRecording()){
       pushNext();
+      return;
+    }
+    if (cmafLLStream) {
+      sendNextLL();
       return;
     }
     if (thisPacket.getTime() >= targetTime){
@@ -569,20 +727,22 @@ namespace Mist{
     return true;
   }
 
-  OutCMAF::DashSegmentWindow OutCMAF::generateSegmentlist(size_t idx, std::stringstream & s,
-                                                          void dashSegmentCallBack(uint64_t, uint64_t, std::stringstream &, bool),
-                                                          uint64_t minStartTime, uint64_t maxEndTime) {
+  OutCMAF::DashSegmentWindow
+    OutCMAF::generateSegmentlist(size_t idx, std::stringstream & s,
+                                 void dashSegmentCallBack(uint64_t, uint64_t, std::stringstream &, bool),
+                                 uint64_t minStartTime, uint64_t maxEndTime, bool includeForming, size_t timingTrack) {
     DashSegmentWindow window;
     if (idx == INVALID_TRACK_ID || !M.getValidTracks().count(idx)) { return window; }
-    DTSC::Fragments fragments(M.fragments(idx));
+    if (timingTrack == INVALID_TRACK_ID) { timingTrack = idx; }
+    if (!M.getValidTracks().count(timingTrack)) { return window; }
+    DTSC::Fragments fragments(M.fragments(timingTrack));
     uint32_t firstFragment = fragments.getFirstValid();
     uint32_t lastFragment = fragments.getEndValid();
-    if (M.getLive()) {
-      const uint64_t liveEdge = HLS::getLiveEdgeMs(M, userSelect, idx, idx, systemBoot + bootMsOffset);
-      lastFragment = std::min<uint32_t>(lastFragment, M.getFragmentIndexForTime(idx, liveEdge));
-      if (lastFragment < firstFragment) { lastFragment = firstFragment; }
-    }
-    DTSC::Keys keys(M.getKeys(idx));
+    // Do not use jitter/keep-away as a segment-list cutoff. It is playback
+    // delay advice, not media availability. Complete fragments are filtered by
+    // the servability predicate below; LL-DASH additionally lists the forming
+    // fragment for chunked transfer once that fragment exists.
+    DTSC::Keys keys(M.getKeys(timingTrack));
     if (M.getLive()) {
       DTSC::Parts parts(M.parts(idx));
       const size_t firstValidPart = parts.getFirstValid();
@@ -602,11 +762,27 @@ namespace Mist{
     for (; firstFragment < lastFragment; ++firstFragment){
       uint32_t duration = fragments.getDuration(firstFragment);
       uint64_t starttime = keys.getTime(fragments.getFirstKey(firstFragment));
+      bool forming = false;
       if (!duration){
-        if (M.getLive()){continue;}// skip last fragment when live
-        duration = M.getLastms(idx) - starttime;
+        if (M.getVod()) {
+          duration = M.getLastms(idx) - starttime;
+        } else if (includeForming) {
+          // Still-forming fragment (LL-DASH only): its real duration isn't known yet, so use the
+          // largest fragment as a nominal <S d> and let the next publishTime refresh reconcile it.
+          // The caller only sets includeForming when the GOP is fixed (dashFixedGop), so this
+          // nominal matches the actual duration; on variable GOP the forming segment is not listed.
+          forming = true;
+          duration = M.biggestFragment(timingTrack);
+          if (!duration) { continue; }
+        } else {
+          continue; // skip last fragment when live
+        }
       }
-      if (!CMAF::payloadSize(M, idx, starttime, starttime + duration)) { continue; }
+      // A complete fragment must be fully servable. A forming fragment only needs
+      // to exist: the segment endpoint opens a chunked response and waits for the
+      // first part before sending media bytes.
+      const uint64_t checkEnd = forming ? starttime + CMAF::Live::partDurationMaxMs : starttime + duration;
+      if (!forming && !CMAF::Live::isRangeServable(M, idx, starttime, checkEnd).ok) { continue; }
       if (M.getVod()) { starttime -= M.getFirstms(idx); }
       if (minStartTime && starttime + duration <= minStartTime) { continue; }
       if (maxEndTime && starttime >= maxEndTime) { continue; }
@@ -664,6 +840,14 @@ namespace Mist{
     H.SetHeader("Content-Type", "application/dash+xml");
     H.SetHeader("Cache-Control", "no-store");
     H.setCORSHeaders();
+    // The HTTP Date header backs up in-MPD UTCTiming for client clock sync
+    // and keeps MPD responses aligned with normal HTTP cache semantics.
+    {
+      time_t nowSec = (time_t)Util::epoch();
+      struct tm *gmt = gmtime(&nowSec);
+      char dateBuf[40];
+      if (gmt && strftime(dateBuf, sizeof(dateBuf), "%a, %d %b %Y %H:%M:%S GMT", gmt)) { H.SetHeader("Date", dateBuf); }
+    }
     if (method == "OPTIONS" || method == "HEAD"){
       H.SendResponse("200", "OK", myConn);
       H.Clean();
@@ -722,18 +906,56 @@ namespace Mist{
     return keepAwayMs;
   }
 
-  static uint64_t dashSuggestedPresentationDelayMs(const DTSC::Meta & M, const std::map<size_t, Comms::Users> & userSelect,
-                                                   const std::set<size_t> & vTracks, const std::set<size_t> & aTracks) {
-    const uint64_t targetDurationMs = selectedMaxFragmentDurationMs(M, vTracks, aTracks);
-    return std::max<uint64_t>(targetDurationMs * 3, targetDurationMs * 2 + selectedKeepAwayMs(M, userSelect));
+  static double dashAvailabilityTimeOffset(const DTSC::Meta & M, size_t idx, bool includeForming) {
+    if (!includeForming || idx == INVALID_TRACK_ID) { return 0.0; }
+    const uint64_t segmentDurationMs = M.biggestFragment(idx);
+    if (!segmentDurationMs) { return 0.0; }
+    return segmentDurationMs / 1000.0;
+  }
+
+  /// True only if the recent COMPLETE fragments on every given track have near-equal duration
+  /// (a fixed/stable GOP). LL-DASH advertises the still-forming segment with a nominal duration;
+  /// that only stays honest when the GOP is fixed, so this gates that advertisement. Conservative:
+  /// returns false unless there is enough evidence (>=3 complete fragments per track, within 10%).
+  static bool dashFixedGop(const DTSC::Meta & M, const std::set<size_t> & vTracks, const std::set<size_t> & aTracks) {
+    std::set<size_t> tracks = vTracks;
+    tracks.insert(aTracks.begin(), aTracks.end());
+    for (std::set<size_t>::const_iterator it = tracks.begin(); it != tracks.end(); ++it) {
+      DTSC::Fragments fr(M.fragments(*it));
+      const uint32_t first = fr.getFirstValid();
+      const uint32_t end = fr.getEndValid();
+      uint64_t ref = 0;
+      uint32_t checked = 0;
+      for (uint32_t i = end; i > first && checked < 6; --i) {
+        const uint64_t d = fr.getDuration(i - 1);
+        if (!d) { continue; } // skip the still-forming / zero-duration fragment
+        if (!ref) {
+          ref = d;
+        } else if (d > ref + ref / 10 || d + ref / 10 < ref) {
+          return false;
+        } // >10% deviation
+        ++checked;
+      }
+      if (checked < 3) { return false; } // not enough complete fragments to be confident
+    }
+    return true;
   }
 
   void OutCMAF::dashAdaptationSet(size_t id, size_t idx, std::stringstream &r){
     std::string type = M.getType(idx);
     r << "<AdaptationSet group=\"" << id << "\" mimeType=\"" << type << "/mp4\" ";
     if (type == "video"){
-      r << "width=\"" << M.getWidth(idx) << "\" height=\"" << M.getHeight(idx) << "\" frameRate=\""
-        << M.getFpks(idx) / 1000 << "\" ";
+      r << "width=\"" << M.getWidth(idx) << "\" height=\"" << M.getHeight(idx) << "\" ";
+      const uint64_t fpks = M.getFpks(idx);
+      if (fpks) {
+        r << "frameRate=\"";
+        if (fpks % 1000) {
+          r << fpks << "/1000";
+        } else {
+          r << fpks / 1000;
+        }
+        r << "\" ";
+      }
     }
     r << "segmentAlignment=\"true\" id=\"" << idx
       << "\" startWithSAP=\"1\" subsegmentAlignment=\"true\" subsegmentStartsWithSAP=\"1\">"
@@ -756,21 +978,31 @@ namespace Mist{
     }
   }
 
-  void OutCMAF::dashSegmentTemplate(std::stringstream &r){
-    r << "<SegmentTemplate timescale=\"1000"
-         "\" media=\"$RepresentationID$/chunk_$Time$.m4s\" "
+  void OutCMAF::dashSegmentTemplate(std::stringstream & r, double availabilityTimeOffset, size_t timingTrack, size_t requestTrack) {
+    r << "<SegmentTemplate timescale=\"1000\" ";
+    // LL-DASH: signal that segments may be fetched before they are complete, and how
+    // far ahead of nominal completion (in seconds) they first become available.
+    if (availabilityTimeOffset > 0) {
+      r << "availabilityTimeOffset=\"" << availabilityTimeOffset << "\" availabilityTimeComplete=\"false\" ";
+    }
+    r << "media=\"$RepresentationID$/chunk_$Time$.m4s";
+    if (timingTrack != INVALID_TRACK_ID && requestTrack != INVALID_TRACK_ID && timingTrack != requestTrack) {
+      r << "?mTrack=" << timingTrack;
+    }
+    r << "\" "
          "initialization=\"$RepresentationID$/init.m4s\"><SegmentTimeline>"
       << std::endl;
   }
 
   void OutCMAF::dashAdaptation(size_t id, std::set<size_t> tracks, bool aligned, std::stringstream & r,
-                               uint64_t minStartTime, uint64_t maxEndTime) {
+                               uint64_t minStartTime, uint64_t maxEndTime, bool includeForming, size_t timingTrack) {
     if (!tracks.size()){return;}
     if (aligned){
       size_t firstTrack = *tracks.begin();
       dashAdaptationSet(id, *tracks.begin(), r);
-      dashSegmentTemplate(r);
-      generateSegmentlist(firstTrack, r, dashSegment, minStartTime, maxEndTime);
+      const size_t trackTiming = timingTrack == INVALID_TRACK_ID ? firstTrack : timingTrack;
+      dashSegmentTemplate(r, dashAvailabilityTimeOffset(M, trackTiming, includeForming), trackTiming, firstTrack);
+      generateSegmentlist(firstTrack, r, dashSegment, minStartTime, maxEndTime, includeForming, trackTiming);
       r << "</SegmentTimeline></SegmentTemplate>" << std::endl;
       for (std::set<size_t>::iterator it = tracks.begin(); it != tracks.end(); it++){
         dashRepresentation(id, *it, r);
@@ -781,9 +1013,10 @@ namespace Mist{
     for (std::set<size_t>::iterator it = tracks.begin(); it != tracks.end(); it++){
       std::string codec = M.getCodec(*it);
       std::string type = M.getType(*it);
+      const size_t trackTiming = timingTrack == INVALID_TRACK_ID ? *it : timingTrack;
       dashAdaptationSet(id, *it, r);
-      dashSegmentTemplate(r);
-      generateSegmentlist(*it, r, dashSegment, minStartTime, maxEndTime);
+      dashSegmentTemplate(r, dashAvailabilityTimeOffset(M, trackTiming, includeForming), trackTiming, *it);
+      generateSegmentlist(*it, r, dashSegment, minStartTime, maxEndTime, includeForming, trackTiming);
       r << "</SegmentTimeline></SegmentTemplate>" << std::endl;
       dashRepresentation(id, *it, r);
       r << "</AdaptationSet>" << std::endl;
@@ -816,16 +1049,28 @@ namespace Mist{
     size_t mainDuration = M.getDuration(mainTrack);
     uint64_t dashWindowStart = 0;
     uint64_t dashWindowEnd = 0;
+    uint64_t dashLatencyTargetMs = 0; ///< live low-latency target, drives ServiceDescription (0 = none)
+    bool dashLowLatency = false; ///< LL-DASH timing/signalling enabled
+    bool dashForming = false; ///< advertise the still-forming segment (LL + fixed GOP only)
     if (M.getVod()){
       r << "type=\"static\" mediaPresentationDuration=\"" << dashTime(mainDuration)
         << "\" minBufferTime=\"PT1.5S\" ";
     }else{
+      // Low-latency DASH is DASH-specific: it advertises and serves the still-forming
+      // segment over chunked transfer. It is independent of --chunked-segments,
+      // which only governs the framing of completed CMAF objects.
+      const bool dashLowLatencyRequested = config->getBool("dashlowlatency");
+      // Only advertise LL-DASH when the GOP is fixed, so the still-forming segment's nominal <S d>
+      // matches what the endpoint will stream. Variable GOP falls back to standard DASH signalling.
+      dashForming = dashLowLatencyRequested && dashFixedGop(M, vTracks, aTracks);
+      dashLowLatency = dashForming;
+      const size_t dashTimingTrack = vTracks.size() ? *vTracks.begin() : INVALID_TRACK_ID;
       bool hasDashWindow = false;
       std::stringstream ignoredSegments;
       dashVTracks.clear();
       dashATracks.clear();
       for (std::set<size_t>::iterator it = vTracks.begin(); it != vTracks.end(); ++it) {
-        DashSegmentWindow trackWindow = generateSegmentlist(*it, ignoredSegments, dashSegmentNoop);
+        DashSegmentWindow trackWindow = generateSegmentlist(*it, ignoredSegments, dashSegmentNoop, 0, 0, dashForming, *it);
         if (trackWindow.count) {
           dashVTracks.insert(*it);
           if (!hasDashWindow || trackWindow.start > dashWindowStart) { dashWindowStart = trackWindow.start; }
@@ -834,7 +1079,8 @@ namespace Mist{
         }
       }
       for (std::set<size_t>::iterator it = aTracks.begin(); it != aTracks.end(); ++it) {
-        DashSegmentWindow trackWindow = generateSegmentlist(*it, ignoredSegments, dashSegmentNoop);
+        const size_t trackTiming = dashTimingTrack == INVALID_TRACK_ID ? *it : dashTimingTrack;
+        DashSegmentWindow trackWindow = generateSegmentlist(*it, ignoredSegments, dashSegmentNoop, 0, 0, dashForming, trackTiming);
         if (trackWindow.count) {
           dashATracks.insert(*it);
           if (!hasDashWindow || trackWindow.start > dashWindowStart) { dashWindowStart = trackWindow.start; }
@@ -846,12 +1092,14 @@ namespace Mist{
       std::set<size_t> filteredVTracks;
       std::set<size_t> filteredATracks;
       for (std::set<size_t>::iterator it = dashVTracks.begin(); it != dashVTracks.end(); ++it) {
-        if (generateSegmentlist(*it, ignoredSegments, dashSegmentNoop, dashWindowStart, dashWindowEnd).count) {
+        if (generateSegmentlist(*it, ignoredSegments, dashSegmentNoop, dashWindowStart, dashWindowEnd, dashForming, *it).count) {
           filteredVTracks.insert(*it);
         }
       }
       for (std::set<size_t>::iterator it = dashATracks.begin(); it != dashATracks.end(); ++it) {
-        if (generateSegmentlist(*it, ignoredSegments, dashSegmentNoop, dashWindowStart, dashWindowEnd).count) {
+        const size_t trackTiming = dashTimingTrack == INVALID_TRACK_ID ? *it : dashTimingTrack;
+        if (generateSegmentlist(*it, ignoredSegments, dashSegmentNoop, dashWindowStart, dashWindowEnd, dashForming, trackTiming)
+              .count) {
           filteredATracks.insert(*it);
         }
       }
@@ -861,12 +1109,37 @@ namespace Mist{
       mainDuration = dashWindowEnd - dashWindowStart;
       const uint64_t streamStartMs =
         M.getUTCOffset() ? M.packetTimeToUnixMs(0) : M.getBootMsOffset() + (Util::unixMS() - Util::bootMS());
-      const uint64_t availabilityStart = streamStartMs ? streamStartMs / 1000 : Util::epoch() - dashWindowEnd / 1000;
-      const uint64_t suggestedPresentationDelay = dashSuggestedPresentationDelayMs(M, userSelect, dashVTracks, dashATracks);
-      r << "type=\"dynamic\" minimumUpdatePeriod=\"PT2.0S\" availabilityStartTime=\""
-        << Util::getUTCString(availabilityStart) << "\" timeShiftBufferDepth=\"" << dashTime(mainDuration)
-        << "\" suggestedPresentationDelay=\"" << dashTime(suggestedPresentationDelay)
-        << "\" minBufferTime=\"PT2.0S\" publishTime=\"" << Util::getUTCString(Util::epoch()) << "\" ";
+      // Keep availabilityStartTime in milliseconds; whole-second truncation shifts
+      // segment-availability calculations by up to one second at the live edge.
+      const uint64_t availabilityStartMs = streamStartMs ? streamStartMs : (Util::epoch() * 1000 - dashWindowEnd);
+      const uint64_t targetDurationMs = selectedMaxFragmentDurationMs(M, dashVTracks, dashATracks);
+      const uint64_t keepAwayMs = selectedKeepAwayMs(M, userSelect);
+      uint64_t suggestedPresentationDelay;
+      uint64_t minimumUpdatePeriodMs;
+      uint64_t minBufferMs;
+      if (dashLowLatency) {
+        // LL-DASH: the forming segment is delivered over chunked transfer (parts as produced),
+        // signalled with availabilityTimeOffset below. Keep the presentation delay above the
+        // part cadence so the player can read the forming segment without draining its buffer.
+        minBufferMs = CMAF::Live::partDurationMaxMs * 3; // ~1.5s
+        suggestedPresentationDelay = CMAF::Live::partDurationMaxMs * 6 + keepAwayMs; // ~3s, >= minBuffer
+        // Refresh near the part cadence (not targetDur/2) so the timeline / forming-segment info
+        // stays fresh for the player.
+        minimumUpdatePeriodMs = std::max<uint64_t>(CMAF::Live::partDurationMaxMs * 2, 1000); // ~1s
+        dashLatencyTargetMs = suggestedPresentationDelay;
+      } else {
+        // Standard DASH: complete segments only. The newest listed segment is ~1 targetDuration
+        // behind the live edge (the forming segment is never listed), so two durations plus the
+        // stream's keep-away keeps the play point safely behind it without the extra-conservative
+        // 3x delay. No low-latency timing/signalling.
+        suggestedPresentationDelay = targetDurationMs * 2 + keepAwayMs;
+        minimumUpdatePeriodMs = 2000;
+        minBufferMs = 2000;
+      }
+      r << "type=\"dynamic\" minimumUpdatePeriod=\"" << dashTime(minimumUpdatePeriodMs) << "\" availabilityStartTime=\""
+        << Util::getUTCStringMillis(availabilityStartMs) << "\" timeShiftBufferDepth=\"" << dashTime(mainDuration)
+        << "\" suggestedPresentationDelay=\"" << dashTime(suggestedPresentationDelay) << "\" minBufferTime=\""
+        << dashTime(minBufferMs) << "\" publishTime=\"" << Util::getUTCStringMillis(Util::unixMS()) << "\" ";
     }
 
     r << "xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\" ";
@@ -879,12 +1152,24 @@ namespace Mist{
       << std::endl;
     r << "<ProgramInformation><Title>" << streamName << "</Title></ProgramInformation>"
       << std::endl;
+    // Low-latency DASH only: advertise a target latency backed by chunked transfer
+    // of the forming segment. Standard DASH emits no ServiceDescription.
+    if (dashLowLatency) {
+      // target = our SPD; min/max bound how far dash.js may drift while catching up / recovering
+      // after a stall (min ~3 parts, max ~2x target) so it doesn't chase an unachievable edge.
+      const uint64_t latencyMinMs = CMAF::Live::partDurationMaxMs * 3;
+      const uint64_t latencyMaxMs = dashLatencyTargetMs * 2;
+      r << "<ServiceDescription id=\"0\"><Latency target=\"" << dashLatencyTargetMs << "\" min=\"" << latencyMinMs
+        << "\" max=\"" << latencyMaxMs
+        << "\" referenceId=\"0\" /><PlaybackRate min=\"0.96\" max=\"1.04\" /></ServiceDescription>" << std::endl;
+    }
     r << "<Period " << (M.getLive() ? "start=\"PT0.0S\"" : "") << ">" << std::endl;
 
     bool videoAligned = checkAlignment && tracksAligned(dashVTracks);
     bool audioAligned = checkAlignment && tracksAligned(dashATracks);
-    dashAdaptation(1, dashVTracks, videoAligned, r, dashWindowStart, dashWindowEnd);
-    dashAdaptation(2, dashATracks, audioAligned, r, dashWindowStart, dashWindowEnd);
+    const size_t dashTimingTrack = dashVTracks.size() ? *dashVTracks.begin() : INVALID_TRACK_ID;
+    dashAdaptation(1, dashVTracks, videoAligned, r, dashWindowStart, dashWindowEnd, dashForming);
+    dashAdaptation(2, dashATracks, audioAligned, r, dashWindowStart, dashWindowEnd, dashForming, dashTimingTrack);
 
     if (sTracks.size()){
       for (std::set<size_t>::iterator it = sTracks.begin(); it != sTracks.end(); it++){
@@ -896,7 +1181,14 @@ namespace Mist{
       }
     }
 
-    r << "</Period></MPD>" << std::endl;
+    r << "</Period>" << std::endl;
+    // Give the client a server clock to anchor segment-availability math to. The direct
+    // scheme embeds the server's current UTC inline and refreshes on each MPD reload.
+    if (M.getLive()) {
+      r << "<UTCTiming schemeIdUri=\"urn:mpeg:dash:utc:direct:2014\" value=\""
+        << Util::getUTCStringMillis(Util::unixMS()) << "\" />" << std::endl;
+    }
+    r << "</MPD>" << std::endl;
 
     return r.str();
   }
