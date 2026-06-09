@@ -812,6 +812,10 @@ void HTTP::Parser::Chunkify(const char *data, unsigned int size, Socket::Connect
   if (sendingChunks){
     conn.setChunkedMode(true);
     conn.SendNow(data, size);
+    // End of response: reset the parser so a kept-alive connection can parse the next
+    // request. Without this, the stale Transfer-Encoding header makes the parser wait
+    // for a chunked request body that never comes.
+    if (!size) { Clean(); }
   }else{
     // just send the chunk itself
     conn.SendNow(data, size);

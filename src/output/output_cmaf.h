@@ -48,8 +48,9 @@ namespace Mist{
     void dashRepresentation(size_t id, size_t idx, std::stringstream &r);
     void dashSegmentTemplate(std::stringstream & r, double availabilityTimeOffset = 0.0,
                              size_t timingTrack = INVALID_TRACK_ID, size_t requestTrack = INVALID_TRACK_ID);
-    void dashAdaptation(size_t id, std::set<size_t> tracks, bool aligned, std::stringstream & r, uint64_t minStartTime = 0,
-                        uint64_t maxEndTime = 0, bool includeForming = false, size_t timingTrack = INVALID_TRACK_ID);
+    void dashAdaptation(size_t id, std::set<size_t> tracks, bool aligned, std::stringstream & r,
+                        uint64_t minStartTime = 0, uint64_t maxEndTime = 0, bool includeForming = false,
+                        size_t timingTrack = INVALID_TRACK_ID, double availabilityTimeOffset = 0.0);
     std::string dashTime(uint64_t time);
     std::string dashManifest(bool checkAlignment = true);
 
@@ -88,6 +89,11 @@ namespace Mist{
     uint64_t cmafLLPartLeft; ///< payload bytes left in the currently-open mdat
     uint64_t cmafLLSeq; ///< moof sequence number
     void sendNextLL();
+    /// Smoothed distance (ms, 500ms steps) between the wall-clock timeline the MPD
+    /// advertises and the servable media edge; folded into availabilityTimeOffset and
+    /// suggestedPresentationDelay so clients never schedule against media that does
+    /// not exist yet. Rises immediately, decays one step per manifest build.
+    uint64_t dashEdgeLagMs;
 
     std::string h264init(const std::string &initData);
     std::string h265init(const std::string &initData);

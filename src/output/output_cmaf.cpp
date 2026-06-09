@@ -87,6 +87,7 @@ namespace Mist{
     uaDelay = 0;
     realTime = 0;
     cmafLLStream = false;
+    dashEdgeLagMs = 0;
     if (config->getString("target").size()){
       needsLookAhead = 5000;
 
@@ -906,13 +907,6 @@ namespace Mist{
     return keepAwayMs;
   }
 
-  static double dashAvailabilityTimeOffset(const DTSC::Meta & M, size_t idx, bool includeForming) {
-    if (!includeForming || idx == INVALID_TRACK_ID) { return 0.0; }
-    const uint64_t segmentDurationMs = M.biggestFragment(idx);
-    if (!segmentDurationMs) { return 0.0; }
-    return segmentDurationMs / 1000.0;
-  }
-
   /// True only if the recent COMPLETE fragments on every given track have near-equal duration
   /// (a fixed/stable GOP). LL-DASH advertises the still-forming segment with a nominal duration;
   /// that only stays honest when the GOP is fixed, so this gates that advertisement. Conservative:
@@ -994,14 +988,14 @@ namespace Mist{
       << std::endl;
   }
 
-  void OutCMAF::dashAdaptation(size_t id, std::set<size_t> tracks, bool aligned, std::stringstream & r,
-                               uint64_t minStartTime, uint64_t maxEndTime, bool includeForming, size_t timingTrack) {
+  void OutCMAF::dashAdaptation(size_t id, std::set<size_t> tracks, bool aligned, std::stringstream & r, uint64_t minStartTime,
+                               uint64_t maxEndTime, bool includeForming, size_t timingTrack, double availabilityTimeOffset) {
     if (!tracks.size()){return;}
     if (aligned){
       size_t firstTrack = *tracks.begin();
       dashAdaptationSet(id, *tracks.begin(), r);
       const size_t trackTiming = timingTrack == INVALID_TRACK_ID ? firstTrack : timingTrack;
-      dashSegmentTemplate(r, dashAvailabilityTimeOffset(M, trackTiming, includeForming), trackTiming, firstTrack);
+      dashSegmentTemplate(r, availabilityTimeOffset, trackTiming, firstTrack);
       generateSegmentlist(firstTrack, r, dashSegment, minStartTime, maxEndTime, includeForming, trackTiming);
       r << "</SegmentTimeline></SegmentTemplate>" << std::endl;
       for (std::set<size_t>::iterator it = tracks.begin(); it != tracks.end(); it++){
@@ -1015,7 +1009,7 @@ namespace Mist{
       std::string type = M.getType(*it);
       const size_t trackTiming = timingTrack == INVALID_TRACK_ID ? *it : timingTrack;
       dashAdaptationSet(id, *it, r);
-      dashSegmentTemplate(r, dashAvailabilityTimeOffset(M, trackTiming, includeForming), trackTiming, *it);
+      dashSegmentTemplate(r, availabilityTimeOffset, trackTiming, *it);
       generateSegmentlist(*it, r, dashSegment, minStartTime, maxEndTime, includeForming, trackTiming);
       r << "</SegmentTimeline></SegmentTemplate>" << std::endl;
       dashRepresentation(id, *it, r);
@@ -1052,6 +1046,7 @@ namespace Mist{
     uint64_t dashLatencyTargetMs = 0; ///< live low-latency target, drives ServiceDescription (0 = none)
     bool dashLowLatency = false; ///< LL-DASH timing/signalling enabled
     bool dashForming = false; ///< advertise the still-forming segment (LL + fixed GOP only)
+    double dashAtoSecs = 0.0; ///< honest availabilityTimeOffset in seconds (0 = not advertised)
     if (M.getVod()){
       r << "type=\"static\" mediaPresentationDuration=\"" << dashTime(mainDuration)
         << "\" minBufferTime=\"PT1.5S\" ";
@@ -1062,9 +1057,18 @@ namespace Mist{
       const bool dashLowLatencyRequested = config->getBool("dashlowlatency");
       // Only advertise LL-DASH when the GOP is fixed, so the still-forming segment's nominal <S d>
       // matches what the endpoint will stream. Variable GOP falls back to standard DASH signalling.
-      dashForming = dashLowLatencyRequested && dashFixedGop(M, vTracks, aTracks);
-      dashLowLatency = dashForming;
+      // Every DASH segment is cut on its timing track's fragment grid (video when present; audio
+      // only falls back to its own grid without video), so gate on those grids only: audio tracks'
+      // own fragment boundaries are arbitrary and would wrongly disable LL.
       const size_t dashTimingTrack = vTracks.size() ? *vTracks.begin() : INVALID_TRACK_ID;
+      std::set<size_t> dashTimingTracks;
+      if (dashTimingTrack != INVALID_TRACK_ID) {
+        dashTimingTracks.insert(dashTimingTrack);
+      } else {
+        dashTimingTracks = aTracks;
+      }
+      dashForming = dashLowLatencyRequested && dashFixedGop(M, dashTimingTracks, std::set<size_t>());
+      dashLowLatency = dashForming;
       bool hasDashWindow = false;
       std::stringstream ignoredSegments;
       dashVTracks.clear();
@@ -1114,15 +1118,72 @@ namespace Mist{
       const uint64_t availabilityStartMs = streamStartMs ? streamStartMs : (Util::epoch() * 1000 - dashWindowEnd);
       const uint64_t targetDurationMs = selectedMaxFragmentDurationMs(M, dashVTracks, dashATracks);
       const uint64_t keepAwayMs = selectedKeepAwayMs(M, userSelect);
+      // How far the servable media edge trails the wall-clock timeline this MPD advertises
+      // (ingest/encode pipeline delay). Measured against the emitted availabilityStartTime so
+      // clock-mapping disagreements cannot leak in; raw lastms matches the segment endpoint's
+      // serve gate. Quantized up to whole parts and smoothed (rise immediately, decay one part
+      // per build) so the availability math does not flap across manifest refreshes.
+      {
+        uint64_t servableEdgeMs = 0;
+        bool haveEdge = false;
+        for (std::set<size_t>::iterator it = dashVTracks.begin(); it != dashVTracks.end(); ++it) {
+          const uint64_t lastMs = M.getLastms(*it);
+          if (!haveEdge || lastMs < servableEdgeMs) {
+            servableEdgeMs = lastMs;
+            haveEdge = true;
+          }
+        }
+        for (std::set<size_t>::iterator it = dashATracks.begin(); it != dashATracks.end(); ++it) {
+          const uint64_t lastMs = M.getLastms(*it);
+          if (!haveEdge || lastMs < servableEdgeMs) {
+            servableEdgeMs = lastMs;
+            haveEdge = true;
+          }
+        }
+        const uint64_t nowMs = Util::unixMS();
+        uint64_t edgeLagMs = nowMs > availabilityStartMs + servableEdgeMs ? nowMs - (availabilityStartMs + servableEdgeMs) : 0;
+        edgeLagMs = ((edgeLagMs + CMAF::Live::partDurationMaxMs - 1) / CMAF::Live::partDurationMaxMs) * CMAF::Live::partDurationMaxMs;
+        if (edgeLagMs >= dashEdgeLagMs) {
+          dashEdgeLagMs = edgeLagMs;
+        } else {
+          dashEdgeLagMs -= std::min<uint64_t>(dashEdgeLagMs - edgeLagMs, CMAF::Live::partDurationMaxMs);
+        }
+      }
+      if (dashForming) {
+        // Honest availabilityTimeOffset: how far before its nominal completion a segment's first
+        // chunk is actually requestable. DASH-IF bounds it to (0, segDur - chunkDur]; the measured
+        // edge lag shrinks it further. Zero means low latency is not currently achievable, so fall
+        // back to standard DASH signalling entirely rather than advertise an unservable segment.
+        // Durations come from the timing-track grids only - the same grids every segment URL,
+        // nominal <S d> and the segment endpoint itself use.
+        uint64_t segDurMs = 0;
+        for (std::set<size_t>::iterator it = dashTimingTracks.begin(); it != dashTimingTracks.end(); ++it) {
+          const uint64_t frag = M.biggestFragment(*it);
+          if (frag && (!segDurMs || frag < segDurMs)) { segDurMs = frag; }
+        }
+        uint64_t atoMs = 0;
+        if (segDurMs > CMAF::Live::partDurationMaxMs) {
+          const uint64_t atoMaxMs = segDurMs - CMAF::Live::partDurationMaxMs;
+          atoMs = dashEdgeLagMs < atoMaxMs ? atoMaxMs - dashEdgeLagMs : 0;
+        }
+        if (atoMs) {
+          dashAtoSecs = atoMs / 1000.0;
+        } else {
+          dashForming = false;
+          dashLowLatency = false;
+        }
+      }
       uint64_t suggestedPresentationDelay;
       uint64_t minimumUpdatePeriodMs;
       uint64_t minBufferMs;
       if (dashLowLatency) {
         // LL-DASH: the forming segment is delivered over chunked transfer (parts as produced),
-        // signalled with availabilityTimeOffset below. Keep the presentation delay above the
-        // part cadence so the player can read the forming segment without draining its buffer.
+        // signalled with availabilityTimeOffset below.
         minBufferMs = CMAF::Live::partDurationMaxMs * 3; // ~1.5s
-        suggestedPresentationDelay = CMAF::Live::partDurationMaxMs * 6 + keepAwayMs; // ~3s, >= minBuffer
+        // Presentation delay = real pipeline lag + four parts of client buffer + keep-away. The
+        // part term is the buffer the client actually gets regardless of lag: >= minBufferTime
+        // and two manifest refreshes. Anchoring on the lag keeps the target achievable.
+        suggestedPresentationDelay = dashEdgeLagMs + CMAF::Live::partDurationMaxMs * 4 + keepAwayMs;
         // Refresh near the part cadence (not targetDur/2) so the timeline / forming-segment info
         // stays fresh for the player.
         minimumUpdatePeriodMs = std::max<uint64_t>(CMAF::Live::partDurationMaxMs * 2, 1000); // ~1s
@@ -1130,9 +1191,9 @@ namespace Mist{
       } else {
         // Standard DASH: complete segments only. The newest listed segment is ~1 targetDuration
         // behind the live edge (the forming segment is never listed), so two durations plus the
-        // stream's keep-away keeps the play point safely behind it without the extra-conservative
-        // 3x delay. No low-latency timing/signalling.
-        suggestedPresentationDelay = targetDurationMs * 2 + keepAwayMs;
+        // pipeline lag and the stream's keep-away keeps the play point safely behind it without
+        // the extra-conservative 3x delay. No low-latency timing/signalling.
+        suggestedPresentationDelay = targetDurationMs * 2 + keepAwayMs + dashEdgeLagMs;
         minimumUpdatePeriodMs = 2000;
         minBufferMs = 2000;
       }
@@ -1156,8 +1217,9 @@ namespace Mist{
     // of the forming segment. Standard DASH emits no ServiceDescription.
     if (dashLowLatency) {
       // target = our SPD; min/max bound how far dash.js may drift while catching up / recovering
-      // after a stall (min ~3 parts, max ~2x target) so it doesn't chase an unachievable edge.
-      const uint64_t latencyMinMs = CMAF::Live::partDurationMaxMs * 3;
+      // after a stall (min = pipeline lag + 3 parts, max ~2x target) so it doesn't chase an
+      // unachievable edge.
+      const uint64_t latencyMinMs = dashEdgeLagMs + CMAF::Live::partDurationMaxMs * 3;
       const uint64_t latencyMaxMs = dashLatencyTargetMs * 2;
       r << "<ServiceDescription id=\"0\"><Latency target=\"" << dashLatencyTargetMs << "\" min=\"" << latencyMinMs
         << "\" max=\"" << latencyMaxMs
@@ -1168,8 +1230,8 @@ namespace Mist{
     bool videoAligned = checkAlignment && tracksAligned(dashVTracks);
     bool audioAligned = checkAlignment && tracksAligned(dashATracks);
     const size_t dashTimingTrack = dashVTracks.size() ? *dashVTracks.begin() : INVALID_TRACK_ID;
-    dashAdaptation(1, dashVTracks, videoAligned, r, dashWindowStart, dashWindowEnd, dashForming);
-    dashAdaptation(2, dashATracks, audioAligned, r, dashWindowStart, dashWindowEnd, dashForming, dashTimingTrack);
+    dashAdaptation(1, dashVTracks, videoAligned, r, dashWindowStart, dashWindowEnd, dashForming, INVALID_TRACK_ID, dashAtoSecs);
+    dashAdaptation(2, dashATracks, audioAligned, r, dashWindowStart, dashWindowEnd, dashForming, dashTimingTrack, dashAtoSecs);
 
     if (sTracks.size()){
       for (std::set<size_t>::iterator it = sTracks.begin(); it != sTracks.end(); it++){
