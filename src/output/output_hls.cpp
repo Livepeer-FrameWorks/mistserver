@@ -228,14 +228,17 @@ namespace Mist{
     capa["optional"]["listlimit"]["type"] = "uint";
     capa["optional"]["listlimit"]["option"] = "--list-limit";
 
-    cfg->addOption("nonchunked",
-                   JSON::fromString("{\"short\":\"C\",\"long\":\"nonchunked\",\"help\":\"Do not "
-                                    "send chunked, but buffer whole segments.\"}"));
-    capa["optional"]["nonchunked"]["name"] = "Send whole segments";
-    capa["optional"]["nonchunked"]["help"] =
-        "Disables chunked transfer encoding, forcing per-segment buffering. Reduces performance "
-        "significantly, but increases compatibility somewhat.";
-    capa["optional"]["nonchunked"]["option"] = "--nonchunked";
+    cfg->addOption("chunkedsegments",
+                   JSON::fromString("{\"short\":\"C\",\"long\":\"chunked-segments\","
+                                    "\"help\":\"Use Transfer-Encoding: chunked for completed HLS "
+                                    "segments instead of buffering whole segments with Content-Length.\"}"));
+    capa["optional"]["chunkedsegments"]["name"] = "Chunked segments";
+    capa["optional"]["chunkedsegments"]["help"] =
+      "Uses Transfer-Encoding: chunked for completed HLS media segments. By default, completed "
+      "segments are buffered and sent with a Content-Length for maximum compatibility.";
+    capa["optional"]["chunkedsegments"]["option"] = "--chunked-segments";
+    capa["optional"]["chunkedsegments"]["short"] = "C";
+    capa["optional"]["chunkedsegments"]["default"] = false;
 
     cfg->addOption("chunkpath",
                    JSON::fromString("{\"arg\":\"string\",\"default\":\"\",\"short\":\"e\",\"long\":"
@@ -403,7 +406,7 @@ namespace Mist{
         return;
       }
 
-      H.StartResponse(H, myConn, VLCworkaround || config->getBool("nonchunked"));
+      H.StartResponse(H, myConn, VLCworkaround || !config->getBool("chunkedsegments"));
       responded = true;
       // we assume whole fragments - but timestamps may be altered at will
       uint32_t fragIndice = M.getFragmentIndexForTime(vidTrack, from);
