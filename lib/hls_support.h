@@ -1,10 +1,13 @@
+#include "cmaf_live.h"
 #include "comms.h"
 #include "dtsc.h"
+
 #include <cmath>
 
 namespace HLS{
-  // TODO: Implement logic to detect ideal partial fragment size
-  const uint32_t partDurationMaxMs = 500; ///< max partial fragment duration in ms
+  // Single source of truth lives in CMAF::Live; kept as an alias so existing
+  // HLS:: call sites and the derived partDurationMax float remain unchanged.
+  const uint32_t partDurationMaxMs = CMAF::Live::partDurationMaxMs; ///< max partial fragment duration in ms
 
   /// A struct containing data regarding fragments in a particular track
   /// needed for media manifest generation
@@ -68,9 +71,6 @@ namespace HLS{
 
   size_t getTimingTrackId(const DTSC::Meta &M, const std::string &mTrack, const size_t mSelTrack);
 
-  uint64_t getLiveEdgeMs(const DTSC::Meta & M, const std::map<size_t, Comms::Users> & userSelect,
-                         const size_t requestTrackId, const size_t timingTrackId, const uint64_t streamStartTime);
-
   void addStartingMetaTags(std::stringstream &result, FragmentData &fragData,
                            const TrackData &trackData, const HlsSpecData &hlsSpecData);
 
@@ -78,10 +78,6 @@ namespace HLS{
                          const TrackData &trackData, const DTSC::Fragments &fragments,
                          const DTSC::Keys &keys);
 
-  void addMasterManifest(std::stringstream &result, const DTSC::Meta &M,
-                         const std::map<size_t, Comms::Users> &userSelect,
-                         const MasterData &masterData);
-
-  uint64_t getPartTargetTime(const DTSC::Meta &M, const uint32_t idx, const uint32_t mTrack,
-                             const uint64_t startTime, const uint64_t msn, const uint32_t part);
+  void addMasterManifest(std::stringstream & result, const DTSC::Meta & M,
+                         const std::map<size_t, Comms::Users> & userSelect, const MasterData & masterData);
 }// namespace HLS
