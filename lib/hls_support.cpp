@@ -14,8 +14,9 @@ namespace HLS{
   // Needed for grouping renditions in master manifest
   const std::string groupIdPrefix = "vid-";
 
-  // max partial fragment duration in s
-  const float partDurationMax = (partDurationMaxMs + 4) / 1000.0;
+  // max partial fragment duration in s - matches the advertised EXT-X-PART durations
+  // (full parts are exactly partDurationMaxMs), so PART-TARGET/PART-HOLD-BACK are exact.
+  const float partDurationMax = partDurationMaxMs / 1000.0;
 
   // TODO: Advance Part Limit
   /*If the _HLS_msn is greater than the Media Sequence Number of the last
@@ -43,37 +44,6 @@ namespace HLS{
 #endif
   };
 
-  uint64_t getLastmsForJitter(const DTSC::Meta & M, const size_t trackIdx, const uint64_t streamStartTime, const uint64_t maxJitter) {
-    uint64_t now = Util::unixMS();
-    uint64_t wallClockLastMs = 0;
-    if (now > streamStartTime + maxJitter) { wallClockLastMs = now - streamStartTime - maxJitter; }
-    return std::min(M.getLastms(trackIdx), wallClockLastMs);
-  }
-
-  uint64_t getMaxJitter(const DTSC::Meta & M, const std::map<size_t, Comms::Users> & userSelect) {
-    std::map<size_t, Comms::Users>::const_iterator it = userSelect.begin();
-    uint64_t maxJitter = 0;
-    for (; it != userSelect.end(); it++){
-      uint64_t minKeepAway = M.getMinKeepAway(it->first);
-      if (minKeepAway > maxJitter){maxJitter = minKeepAway;}
-    }
-    return maxJitter;
-  }
-
-  /// lastms calculation incorporating jitter duration
-  /// Always ensures the (lastms <= current time - jitter duration)
-  uint64_t getLastms(const DTSC::Meta & M, const std::map<size_t, Comms::Users> & userSelect, const size_t trackIdx,
-                     const uint64_t streamStartTime) {
-    return getLastmsForJitter(M, trackIdx, streamStartTime, getMaxJitter(M, userSelect));
-  }
-
-  uint64_t getLiveEdgeMs(const DTSC::Meta & M, const std::map<size_t, Comms::Users> & userSelect,
-                         const size_t requestTrackId, const size_t timingTrackId, const uint64_t streamStartTime) {
-    const uint64_t requestLastMs = getLastms(M, userSelect, requestTrackId, streamStartTime);
-    if (requestTrackId == timingTrackId) { return requestLastMs; }
-    return std::min(requestLastMs, getLastms(M, userSelect, timingTrackId, streamStartTime));
-  }
-
   /// Calculate HLS media playlist version compatibility
   /// \return version number
   uint16_t calcManifestVersion(const std::string &hlsSkip){
@@ -96,25 +66,9 @@ namespace HLS{
   bool hasMediaPayload(const DTSC::Meta & M, const TrackData & trackData, const uint64_t startTime, const uint64_t targetTime) {
     if (trackData.mediaFormat == ".ts") { return true; }
     if (!M.getValidTracks().count(trackData.requestTrackId)) { return false; }
-    if (targetTime <= startTime) { return false; }
-
-    DTSC::Parts parts(M.parts(trackData.requestTrackId));
-    const size_t firstValidPart = parts.getFirstValid();
-    const size_t endValidPart = parts.getEndValid();
-    if (firstValidPart >= endValidPart) { return false; }
-    const uint64_t firstValidPartTime = M.getPartTime(firstValidPart, trackData.requestTrackId);
-    if (startTime < firstValidPartTime) { return false; }
-
-    size_t firstPart = M.getPartIndex(startTime, trackData.requestTrackId);
-    size_t endPart = M.getPartIndex(targetTime, trackData.requestTrackId);
-    if (firstPart < firstValidPart || firstPart >= endPart || firstPart >= endValidPart || endPart > endValidPart) {
-      return false;
-    }
-
-    for (size_t partIdx = firstPart; partIdx < endPart; ++partIdx) {
-      if (parts.getSize(partIdx)) { return true; }
-    }
-    return false;
+    // Delegate to the shared CMAF servability predicate so the playlist advertises
+    // exactly the ranges the segment/part endpoint will serve.
+    return CMAF::Live::isRangeServable(M, trackData.requestTrackId, startTime, targetTime).ok;
   }
 
   bool hasFragmentPayload(const DTSC::Meta & M, const TrackData & trackData, const DTSC::Fragments & fragments,
@@ -139,8 +93,8 @@ namespace HLS{
   /// Return live edge fragment duration
   uint64_t getLastFragDur(const DTSC::Meta &M, const std::map<size_t, Comms::Users> &userSelect, const TrackData &trackData, const uint64_t hlsMsnNr,
                           const DTSC::Fragments &fragments, const DTSC::Keys &keys){
-    const uint64_t liveEdge = getLiveEdgeMs(M, userSelect, trackData.requestTrackId, trackData.timingTrackId,
-                                            trackData.systemBoot + trackData.bootMsOffset);
+    const uint64_t liveEdge = CMAF::Live::getLiveEdgeMs(M, userSelect, trackData.requestTrackId, trackData.timingTrackId,
+                                                        trackData.systemBoot + trackData.bootMsOffset);
     const uint64_t fragmentStart = keys.getTime(fragments.getFirstKey(hlsMsnNr));
     return liveEdge > fragmentStart ? liveEdge - fragmentStart : 0;
   }
@@ -194,6 +148,10 @@ namespace HLS{
       DEBUG_MSG(5, "req MSN %" PRIu64 " fin MSN %zu, req Part %" PRIu64 " fin Part %ld", hlsMsnNr, finalMsn, hlsPartNr,
                 res.quot);
 
+      // RFC 8216bis 6.2.5.2: if the requested part is beyond the last available part by more than
+      // the Advance Part Limit, reject immediately (400) instead of blocking until timeout (503).
+      if (hlsPartNr > (uint64_t)res.quot + advancePartLimit) { return 400; }
+
       while (hlsPartNr > res.quot){
         if (bprTimeLimit < 1){return 503;}
         DEBUG_MSG(5, "Part Block: req %" PRIu64 " fin %ld", hlsPartNr, res.quot);
@@ -210,8 +168,8 @@ namespace HLS{
   void populateFragmentData(const DTSC::Meta &M, const std::map<size_t, Comms::Users> &userSelect, FragmentData &fragData, const TrackData &trackData,
                             const DTSC::Fragments &fragments, const DTSC::Keys &keys){
     if (trackData.isLive) {
-      fragData.lastMs = getLiveEdgeMs(M, userSelect, trackData.requestTrackId, trackData.timingTrackId,
-                                      trackData.systemBoot + trackData.bootMsOffset);
+      fragData.lastMs = CMAF::Live::getLiveEdgeMs(M, userSelect, trackData.requestTrackId, trackData.timingTrackId,
+                                                  trackData.systemBoot + trackData.bootMsOffset);
     } else {
       fragData.lastMs = std::min(M.getLastms(trackData.requestTrackId), M.getLastms(trackData.timingTrackId));
     }
@@ -321,7 +279,10 @@ namespace HLS{
       if (serverSupport.pduV2){result << "CAN-SKIP-DATERANGES=YES,";}
       if (serverSupport.parts){
         result << "HOLD-BACK=" << (trackData.targetDurationMax * 3) << ",";
-        const float partHoldBack = partDurationMax * 3;
+        // 4x PART-TARGET (= 2.0s @ 500ms parts): one part above the Apple 3x floor, giving
+        // delivery-jitter headroom for more conservative players (e.g. videojs/VHS) without
+        // touching the keepaway already baked into the live edge. Apple requires >= 3x.
+        const float partHoldBack = partDurationMax * 4;
         result << "PART-HOLD-BACK=" << partHoldBack;
         result << "\r\n#EXT-X-PART-INF:PART-TARGET=" << partDurationMax;
       }
@@ -803,41 +764,6 @@ namespace HLS{
     }else{
       addAudInfStreamTags(result, M, masterData, aTracks);
     }
-  }
-
-  /// returns the end time for a given partial fragment
-  /// returns 0 for a hinted part which never got created
-  uint64_t getPartTargetTime(const DTSC::Meta &M, const uint32_t idx, const uint32_t mTrack,
-                             const uint64_t startTime, const uint64_t msn, const uint32_t part){
-    DTSC::Fragments fragments(M.fragments(mTrack));
-    if (msn < fragments.getFirstValid() || msn >= fragments.getEndValid()) { return 0; }
-
-    // Estimate the target end time for a given part
-    // 50 ms is margin of safety to accommodate inconsistencies
-    const uint64_t calcTargetTime = startTime + (part + 1) * partDurationMaxMs + 50;
-
-    uint64_t lastms = std::min(M.getLastms(mTrack), M.getLastms(idx));
-    uint16_t count = 0;
-
-    // wait until estimated target end time is <= lastms for the track
-    while (calcTargetTime > lastms && count++ < 50){
-      Util::wait(calcTargetTime - lastms);
-      lastms = std::min(M.getLastms(mTrack), M.getLastms(idx));
-    }
-
-    // Duration maybe invalid, indicating msn is not complete
-    // But the part is ready. So return the end time
-    uint64_t duration = fragments.getDuration(msn);
-    if (!duration){return startTime + ((part + 1) * partDurationMaxMs);}
-
-    // If duration valid, MSN is fully finished
-    // Possible that the last partial fragment duration < partDurationMaxMs
-    // Find the exact duration of the last partial fragment
-    uint64_t partTargetTime =
-        std::min(startTime + duration, startTime + ((part + 1) * partDurationMaxMs));
-
-    if (duration && (partTargetTime - startTime) > duration){return 0;}
-    return partTargetTime;
   }
 
 }// namespace HLS
