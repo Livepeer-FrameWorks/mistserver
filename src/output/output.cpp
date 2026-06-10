@@ -1129,14 +1129,17 @@ namespace Mist{
         WARN_MSG("Main track has no keyframes, seeking to position zero");
         return 0;
       }
-      // A processing-controlled recording captures the job's whole timeline:
-      // start at the oldest keyframe instead of the live point, or a recording
-      // that attaches seconds after stream boot silently drops the head of the
-      // artifact. An explicit recstart/recstartunix still overrides this in
-      // initialSeek's recording branch.
-      if (isRecordingToFile && processingControlledRealtime()) {
+      // Every consumer of a process-controlled stream (the recording AND the
+      // transcode processes feeding it) needs the job's whole timeline: start
+      // at the oldest keyframe instead of the live point. A consumer that
+      // attaches after stream boot would otherwise silently skip the head —
+      // for a transcode process that means the renditions never cover the
+      // start of the source and the artifact stops being video-leading. An
+      // explicit recstart/recstartunix still overrides this in initialSeek's
+      // recording branch.
+      if (processingControlledRealtime()) {
         uint64_t headPos = keys.getTime(keys.getFirstValid());
-        INFO_MSG("Processing recording: starting at buffer head " PRETTY_PRINT_MSTIME, PRETTY_ARG_MSTIME(headPos));
+        INFO_MSG("Process-controlled stream consumer: starting at buffer head " PRETTY_PRINT_MSTIME, PRETTY_ARG_MSTIME(headPos));
         return headPos;
       }
       // seek to the newest keyframe, unless that is <5s, then seek to the oldest keyframe
