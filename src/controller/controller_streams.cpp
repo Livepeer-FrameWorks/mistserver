@@ -174,7 +174,7 @@ namespace Controller{
         (!inputProcesses.count(name) || !Util::Procs::isRunning(inputProcesses[name]))){
       INFO_MSG("Starting always-on input %s: %s", name.c_str(), URL.c_str());
       std::map<std::string, std::string> overrides;
-      overrides["dontWaitForStream"] = "";
+      overrides["throughboot"] = "";
       pid_t program = 0;
       Util::startInput(name, URL, true, false, overrides, &program);
       if (program){inputProcesses[name] = program;}
