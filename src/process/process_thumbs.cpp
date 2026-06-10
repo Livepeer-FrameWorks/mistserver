@@ -48,6 +48,11 @@ bool isVod = false;
 bool vodDone = false; // true when VOD source has finished scanning
 bool newData = false; // set by source when new keyframes are cached
 
+// Sink-activity bookkeeping for exit attribution: when the sink dies, the
+// exit log names what it had (not) done rather than a bare "failed".
+std::atomic<uint64_t> composeCount(0);
+std::atomic<uint64_t> lastComposeBootMs(0);
+
 // Config values
 uint32_t configuredThumbWidth = 160;
 uint32_t configuredThumbHeight = 90;
@@ -509,6 +514,8 @@ namespace Mist{
       if (!previewJpegData.empty() || !spriteJpegData.empty()){
         writeToDiskAndFireTrigger(previewJpegData, spriteJpegData, vttStr);
       }
+      ++composeCount;
+      lastComposeBootMs = Util::bootMS();
     }
 
     void streamMainLoop(){
@@ -895,8 +902,20 @@ void sinkThread(){
   if (rc == 0) {
     procExit.log(ER_CLEAN_EOF, 0, "Thumbnail sink thread finished");
   } else {
-    procExit.log(Util::mRExitReason ? Util::mRExitReason : ER_UNKNOWN, rc, "%s",
-                 Util::exitReason[0] ? Util::exitReason : "Thumbnail sink thread failed");
+    // Attribute the failure: include the sink's last activity so an exit
+    // before the first compose (e.g. buffer attach failure) is
+    // distinguishable from one mid-stream.
+    uint64_t composed = composeCount.load(std::memory_order_relaxed);
+    uint64_t lastCompose = lastComposeBootMs.load(std::memory_order_relaxed);
+    uint64_t cacheSize;
+    {
+      std::lock_guard<std::mutex> lk(thumbMutex);
+      cacheSize = thumbCache.size();
+    }
+    procExit.log(Util::mRExitReason ? Util::mRExitReason : ER_UNKNOWN, rc,
+                 "%s (composes=%" PRIu64 ", lastComposeAgoMs=%" PRIu64 ", cachedThumbs=%" PRIu64 ")",
+                 Util::exitReason[0] ? Util::exitReason : "Thumbnail sink thread failed", composed,
+                 lastCompose ? (Util::bootMS() - lastCompose) : 0, cacheSize);
   }
   INFO_MSG("Stop thumbnail sink thread");
   conf.is_active = false;
