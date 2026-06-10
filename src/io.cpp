@@ -9,6 +9,7 @@
 #include <mist/json.h>
 #include <mist/langcodes.h> //LTS
 #include <mist/stream.h>
+#include <mist/timing.h>
 
 #include <cstdlib>
 #include <signal.h>
@@ -60,6 +61,14 @@ namespace Mist{
   /// Buffering itself is done by bufferNext().
   ///\param tid The trackid of the page to start buffering
   ///\param pageNumber The number of the page to start buffering
+  bool InOutBase::shouldLogPacketDrop(uint32_t packTrack) {
+    uint64_t now = Util::bootMS();
+    uint64_t & last = lastPacketDropLogMs[packTrack];
+    if (last && now - last < 10000) { return false; }
+    last = now;
+    return true;
+  }
+
   bool InOutBase::bufferStart(size_t idx, uint32_t pageNumber, IPC::sharedPage & page, DTSC::Meta & aMeta){
     VERYHIGH_MSG("bufferStart for stream %s, track %zu, page %" PRIu32, streamName.c_str(), idx, pageNumber);
     // Initialize the stream metadata if it does not yet exist
@@ -375,7 +384,12 @@ namespace Mist{
   void InOutBase::bufferLivePacket(uint64_t packTime, int64_t packOffset, uint32_t packTrack, const char *packData,
                                    size_t packDataSize, uint64_t packBytePos, bool isKeyframe, DTSC::Meta &aMeta){
     aMeta.reloadReplacedPagesIfNeeded();
-    if (!aMeta){return;}
+    if (!aMeta) {
+      if (shouldLogPacketDrop(packTrack)) {
+        WARN_MSG("Dropping packet(s) on track %" PRIu32 ": stream metadata gone (rate-limited warning)", packTrack);
+      }
+      return;
+    }
     aMeta.setLive(true);
 
     // Store the trackid for easier access
@@ -406,8 +420,13 @@ namespace Mist{
     // This also happens in bufferNext, with the same rules
     if (aMeta.getLive()){
       if (packTime < aMeta.getLastms(packTrack)){
-        HIGH_MSG("Wrong order on track %" PRIu32 " ignored: %" PRIu64 " < %" PRIu64, packTrack,
-                 packTime, aMeta.getLastms(packTrack));
+        // Silent data loss otherwise — a writer whose clock disagrees with
+        // the track's lastms loses every packet here. Warn, rate-limited.
+        if (shouldLogPacketDrop(packTrack)) {
+          WARN_MSG("Dropping out-of-order packet(s) on track %" PRIu32 ": %" PRIu64 " < %" PRIu64
+                   " (rate-limited warning, more may follow silently)",
+                   packTrack, packTime, aMeta.getLastms(packTrack));
+        }
         return;
       }
       if (packTime > aMeta.getNowms(packTrack) + 30000 && aMeta.getNowms(packTrack)) {
@@ -498,7 +517,11 @@ namespace Mist{
       tPages.setInt("keycount", tPages.getInt("keycount", curPage) + 1, curPage);
     }
     if (!livePage[packTrack]) {
-      INFO_MSG("Track %" PRIu32 " page %zu not starting with a keyframe!", packTrack, curPageNum[packTrack]);
+      if (shouldLogPacketDrop(packTrack)) {
+        WARN_MSG("Dropping packet(s) on track %" PRIu32
+                 ": page %zu not starting with a keyframe (rate-limited warning)",
+                 packTrack, curPageNum[packTrack]);
+      }
       return;
     }
 
