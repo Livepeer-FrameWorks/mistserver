@@ -36,6 +36,10 @@ namespace Mist{
 
   protected:
     void updateTrackFromKeyframe(uint32_t packTrack, const char *packData, size_t packDataSize, DTSC::Meta & aMeta);
+    /// Rate-limits the live-packet drop warnings (per track, ~10s) so silent
+    /// data loss is visible without flooding the log per packet.
+    bool shouldLogPacketDrop(uint32_t packTrack);
+    std::map<uint32_t, uint64_t> lastPacketDropLogMs;
     bool standAlone;
 
     DTSC::Packet thisPacket; // The current packet that is being parsed

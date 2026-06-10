@@ -375,6 +375,12 @@ namespace Mist{
               }
             }
             if (S.byteOffset >= S.data.size() && !S.S.hasPacket()){
+              // A segment that never produced a single packet would otherwise
+              // vanish without a trace — the exact failure mode where renditions
+              // come back from the gateway but no track ever registers.
+              if (!S.offsetCalcd) {
+                WARN_MSG("Discarding segment for %s (%zu bytes): TS parse yielded no packets", oRend.c_str(), S.data.size());
+              }
               S.fullyWritten = false;
               S.fullyRead = true;
             }
