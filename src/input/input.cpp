@@ -1856,6 +1856,19 @@ namespace Mist{
     // Try to read any existing DTSH file
     std::string fileName = config->getString("input") + ".dtsh";
     HIGH_MSG("Loading metadata for stream '%s' from file '%s'", streamName.c_str(), fileName.c_str());
+    // The sidecar legitimately doesn't exist yet for fresh sources (lazy DTSH
+    // generation); a quiet stat beats URIReader's FAIL-level open error for
+    // the local case.
+    {
+      HTTP::URL headerURL = HTTP::localURIResolver().link(fileName);
+      if (headerURL.isLocalPath()) {
+        struct stat headerStat;
+        if (stat(headerURL.getFilePath().c_str(), &headerStat) != 0) {
+          HIGH_MSG("No DTSH sidecar at '%s'; generating header from source", fileName.c_str());
+          return false;
+        }
+      }
+    }
     char *scanBuf;
     size_t fileSize;
     HTTP::URIReader inFile(fileName);

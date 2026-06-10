@@ -717,8 +717,11 @@ bool Util::startInput(std::string streamname, std::string filename, bool forkFir
   }
   Util::optionsToArguments(stream_cfg, input, args, effectiveOverrides);
 
-  // Set debug level if needed
-  if (Util::printDebugLevel != DEBUG && !stream_cfg.isMember("debug")) {
+  // Always propagate the runtime debug level (unless the stream config pins
+  // its own): gating on printDebugLevel != DEBUG silently dropped the flag
+  // whenever the runtime level equals the compile default, leaving spawned
+  // inputs (notably processing buffers) mute below WARN in production.
+  if (!stream_cfg.isMember("debug")) {
     args.push_back("--debug");
     args.push_back(std::to_string(Util::printDebugLevel));
   }
@@ -1326,6 +1329,17 @@ std::set<size_t> Util::pickTracks(const DTSC::Meta &M, const std::set<size_t> tr
 
   //less-than or greater-than track matching on bit rate or resolution
   if (trackLow[0] == '<' || trackLow[0] == '>'){
+    // Image/sprite tracks (JPEG thumbnails etc.) register as type "video" but
+    // are not renditions; size/rate comparators must not match them through a
+    // type-based selector, or a `video=<WxH` track_inhibit fires the moment a
+    // thumbnailer publishes its sprite track and kills every transcode process
+    // on the stream. An explicit codec selector (e.g. "JPEG=<640x360") still
+    // matches them.
+    auto imageViaTypeSelector = [&M, &trackType](size_t tid) {
+      const std::string & codec = M.getCodec(tid);
+      if (codec != "JPEG" && codec != "PNG") { return false; }
+      return codec != trackType;
+    };
     unsigned int bpsVal;
     uint64_t targetBps = 0;
     if (trackLow.find("bps") != std::string::npos && sscanf(trackLow.c_str(), "<%ubps", &bpsVal) == 1){targetBps = bpsVal;}
@@ -1339,6 +1353,7 @@ std::set<size_t> Util::pickTracks(const DTSC::Meta &M, const std::set<size_t> tr
       // select all tracks of this type that match the requirements
       for (std::set<size_t>::iterator it = trackList.begin(); it != trackList.end(); it++){
         if (!trackType.size() || M.getType(*it) == trackType || M.getCodec(*it) == trackType){
+          if (imageViaTypeSelector(*it)) { continue; }
           if (trackLow[0] == '>' && M.getBps(*it) > targetBps){result.insert(*it);}
           if (trackLow[0] == '<' && M.getBps(*it) < targetBps){result.insert(*it);}
         }
@@ -1353,6 +1368,7 @@ std::set<size_t> Util::pickTracks(const DTSC::Meta &M, const std::set<size_t> tr
       // select all tracks of this type that match the requirements
       for (std::set<size_t>::iterator it = trackList.begin(); it != trackList.end(); it++){
         if (!trackType.size() || M.getType(*it) == trackType || M.getCodec(*it) == trackType){
+          if (imageViaTypeSelector(*it)) { continue; }
           uint64_t trackArea = M.getWidth(*it)*M.getHeight(*it);
           if (trackLow[0] == '>' && trackArea > targetArea){result.insert(*it);}
           if (trackLow[0] == '<' && trackArea < targetArea){result.insert(*it);}
