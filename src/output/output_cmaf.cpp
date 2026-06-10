@@ -244,22 +244,22 @@ namespace Mist{
 
   /// \brief Builds master playlist for (LL)HLS.
   ///\return The master playlist file for (LL)HLS.
-  void OutCMAF::sendHlsMasterManifest(){
+  void OutCMAF::sendHlsMasterManifest(const HTTP::Parser & req) {
     selectDefaultTracks();
 
     // check for forced "no low latency" parameter
-    bool noLLHLS = H.GetVar("llhls").size() ? H.GetVar("llhls") == "0" : false;
+    bool noLLHLS = req.GetVar("llhls").size() ? req.GetVar("llhls") == "0" : false;
 
     // Populate the struct that will help generate the master playlist
-    const HLS::MasterData masterData ={
-        false,//hasSessionIDs, unused
-        noLLHLS,
-        hlsMediaFormat == ".ts",
-        getMainSelectedTrack(),
-        H.GetHeader("User-Agent"),
-        (Comms::tknMode & 0x04)?tkn:"",
-        systemBoot,
-        bootMsOffset,
+    const HLS::MasterData masterData = {
+      false, // hasSessionIDs, unused
+      noLLHLS,
+      hlsMediaFormat == ".ts",
+      getMainSelectedTrack(),
+      req.GetHeader("User-Agent"),
+      (Comms::tknMode & 0x04) ? tkn : "",
+      systemBoot,
+      bootMsOffset,
     };
 
     std::stringstream result;
@@ -271,27 +271,26 @@ namespace Mist{
 
   /// \brief Builds media playlist to (LL)HLS
   ///\return The media playlist file to (LL)HLS
-  void OutCMAF::sendHlsMediaManifest(const size_t requestTid){
+  void OutCMAF::sendHlsMediaManifest(const HTTP::Parser & req, const size_t requestTid) {
     if (!M.getValidTracks().count(requestTid)) {
       H.SendResponse("404", "Track not found", myConn);
       return;
     }
 
-    const HLS::HlsSpecData hlsSpec ={H.GetVar("_HLS_skip"), H.GetVar("_HLS_msn"),
-                                      H.GetVar("_HLS_part")};
+    const HLS::HlsSpecData hlsSpec = {req.GetVar("_HLS_skip"), req.GetVar("_HLS_msn"), req.GetVar("_HLS_part")};
 
-    size_t timingTid = HLS::getTimingTrackId(M, H.GetVar("mTrack"), getMainSelectedTrack());
+    size_t timingTid = HLS::getTimingTrackId(M, req.GetVar("mTrack"), getMainSelectedTrack());
 
     // Chunkpath & Session ID logic
     std::string urlPrefix = "";
     if (config->getString("chunkpath").size()){
-      urlPrefix = HTTP::URL(config->getString("chunkpath")).link("./" + H.url).link("./").getUrl();
+      urlPrefix = HTTP::URL(config->getString("chunkpath")).link("./" + req.url).link("./").getUrl();
     }
 
     // check for forced "no low latency" parameter
-    bool noLLHLS = H.GetVar("llhls").size() ? H.GetVar("llhls") == "0" : false;
+    bool noLLHLS = req.GetVar("llhls").size() ? req.GetVar("llhls") == "0" : false;
     // override if valid header forces "no low latency"
-    noLLHLS = H.GetHeader("X-Mist-LLHLS").size() ? H.GetHeader("X-Mist-LLHLS") == "0" : noLLHLS;
+    noLLHLS = req.GetHeader("X-Mist-LLHLS").size() ? req.GetHeader("X-Mist-LLHLS") == "0" : noLLHLS;
 
     uint32_t targetDurationMax = (M.biggestFragment(timingTid) + 500) / 1000;
     if (!targetDurationMax) { targetDurationMax = 1; }
@@ -306,7 +305,7 @@ namespace Mist{
       timingTid,
       requestTid,
       targetDurationMax,
-      (uint64_t)atol(H.GetVar("iMsn").c_str()),
+      (uint64_t)atol(req.GetVar("iMsn").c_str()),
       (uint64_t)(M.getLive() ? config->getInteger("listlimit") : 0),
       urlPrefix,
       systemBoot,
@@ -336,22 +335,21 @@ namespace Mist{
 
     H.SetBody(result.str());
     H.SendResponse("200", "OK", myConn);
-  }// namespace Mist
+  } // namespace Mist
 
-  void OutCMAF::sendHlsManifest(const std::string url){
-    H.setCORSHeaders();
+  void OutCMAF::sendHlsManifest(const HTTP::Parser & req, const std::string url, bool headersOnly) {
     H.SetHeader("Content-Type", "application/vnd.apple.mpegurl;version=7"); // for .m3u8
     H.SetHeader("Cache-Control", "no-store");
-    if (H.method == "OPTIONS" || H.method == "HEAD"){
+    if (headersOnly) {
       H.SetBody("");
       H.SendResponse("200", "OK", myConn);
       return;
     }
 
     if (url.find("/") == std::string::npos){
-      sendHlsMasterManifest();
+      sendHlsMasterManifest(req);
     }else{
-      sendHlsMediaManifest(atoll(url.c_str()));
+      sendHlsMediaManifest(req, atoll(url.c_str()));
     }
   }
 
@@ -362,51 +360,42 @@ namespace Mist{
     H.SendResponse(code, message, myConn);
   }
 
-  void OutCMAF::onHTTP(){
+  void OutCMAF::respondHTTP(const HTTP::Parser & req, bool headersOnly) {
+    HTTPOutput::respondHTTP(req, headersOnly);
     initialize();
     bootMsOffset = 0;
     if (M.getLive()){bootMsOffset = M.getBootMsOffset();}
 
-    if (H.url.find('/', 6) == std::string::npos){
+    if (req.url.find('/', 6) == std::string::npos) {
       H.SendResponse("404", "Stream not found", myConn);
       return;
     }
 
     // Strip /cmaf/<streamname>/ from url
-    std::string url = H.url.substr(H.url.find('/', 6) + 1);
-    HTTP::URL req(reqUrl);
-
-
-    if (tkn.size()){
-      if (Comms::tknMode & 0x08){
-        const std::string koekjes = H.GetHeader("Cookie");
-        std::stringstream cookieHeader;
-        cookieHeader << "tkn=" << tkn << "; Max-Age=" << SESS_TIMEOUT;
-        H.SetHeader("Set-Cookie", cookieHeader.str()); 
-      }
-    }
+    std::string url = req.url.substr(req.url.find('/', 6) + 1);
+    HTTP::URL rUrl(reqUrl);
 
     // Send a dash manifest for any URL with .mpd in the path
-    if (req.getExt() == "mpd"){
-      sendDashManifest();
+    if (rUrl.getExt() == "mpd") {
+      sendDashManifest(headersOnly);
       return;
     }
 
     // Send a hls manifest for any URL with index.m3u8 in the path
-    if (req.getExt() == "m3u8"){
-      sendHlsManifest(url);
+    if (rUrl.getExt() == "m3u8") {
+      sendHlsManifest(req, url, headersOnly);
       return;
     }
 
     // Send a smooth manifest for any URL with .mpd in the path
     if (url.find("Manifest") != std::string::npos){
-      sendSmoothManifest();
+      sendSmoothManifest(headersOnly);
       return;
     }
 
-    const uint64_t msn = atoll(H.GetVar("msn").c_str());
-    const uint64_t dur = atoll(H.GetVar("dur").c_str());
-    const std::string mTrackParam = H.GetVar("mTrack");
+    const uint64_t msn = atoll(req.GetVar("msn").c_str());
+    const uint64_t dur = atoll(req.GetVar("dur").c_str());
+    const std::string mTrackParam = req.GetVar("mTrack");
     const uint64_t requestedMTrack = atoll(mTrackParam.c_str());
 
     H.SetHeader("Content-Type", "video/mp4"); // For .m4s
@@ -420,8 +409,7 @@ namespace Mist{
       H.SetHeader("Pragma", "");
       H.SetHeader("Expires", "");
     }
-    H.setCORSHeaders();
-    if (H.method == "OPTIONS" || H.method == "HEAD"){
+    if (headersOnly) {
       H.SendResponse("200", "OK", myConn);
       return;
     }
@@ -448,7 +436,7 @@ namespace Mist{
 
     if (url.find("init" + hlsMediaFormat) != std::string::npos){
       std::string headerData = CMAF::trackHeader(M, idx);
-      H.StartResponse(H, myConn, !config->getBool("chunkedsegments"));
+      H.StartResponse("200", "OK", req, myConn, !config->getBool("chunkedsegments"));
       H.Chunkify(headerData.c_str(), headerData.size(), myConn);
       H.Chunkify("", 0, myConn);
       return;
@@ -507,7 +495,7 @@ namespace Mist{
               cmafLLSeq = fragmentIndex;
               // Always chunked, independent of --chunked-segments: the final
               // Content-Length is unknowable while the segment is still being produced.
-              H.StartResponse(H, myConn, false);
+              H.StartResponse("200", "OK", req, myConn, false);
               seek(startTime);
               wantRequest = false;
               parseData = true;
@@ -606,7 +594,7 @@ namespace Mist{
     char mdatHeader[] ={0x00, 0x00, 0x00, 0x00, 'm', 'd', 'a', 't'};
     Bit::htobl(mdatHeader, mdatSize);
 
-    H.StartResponse(H, myConn, !config->getBool("chunkedsegments"));
+    H.StartResponse("200", "OK", req, myConn, !config->getBool("chunkedsegments"));
     H.Chunkify(headerData.c_str(), headerData.size(), myConn);
     H.Chunkify(mdatHeader, 8, myConn);
 
@@ -835,12 +823,9 @@ namespace Mist{
   /* MPEG-DASH Manifest Generation */
   /*********************************/
 
-  void OutCMAF::sendDashManifest(){
-    std::string method = H.method;
-    H.Clean();
+  void OutCMAF::sendDashManifest(bool headersOnly) {
     H.SetHeader("Content-Type", "application/dash+xml");
     H.SetHeader("Cache-Control", "no-store");
-    H.setCORSHeaders();
     // The HTTP Date header backs up in-MPD UTCTiming for client clock sync
     // and keeps MPD responses aligned with normal HTTP cache semantics.
     {
@@ -849,7 +834,7 @@ namespace Mist{
       char dateBuf[40];
       if (gmt && strftime(dateBuf, sizeof(dateBuf), "%a, %d %b %Y %H:%M:%S GMT", gmt)) { H.SetHeader("Date", dateBuf); }
     }
-    if (method == "OPTIONS" || method == "HEAD"){
+    if (headersOnly) {
       H.SendResponse("200", "OK", myConn);
       H.Clean();
       return;
@@ -1282,13 +1267,10 @@ namespace Mist{
     s << "d=\"" << duration << "\" />" << std::endl;
   }
 
-  void OutCMAF::sendSmoothManifest(){
-    std::string method = H.method;
-    H.Clean();
+  void OutCMAF::sendSmoothManifest(bool headersOnly) {
     H.SetHeader("Content-Type", "application/dash+xml");
     H.SetHeader("Cache-Control", "no-store");
-    H.setCORSHeaders();
-    if (method == "OPTIONS" || method == "HEAD"){
+    if (headersOnly) {
       H.SendResponse("200", "OK", myConn);
       H.Clean();
       return;

@@ -33,7 +33,7 @@ namespace Mist{
     OutCMAF(Socket::Connection & conn, Util::Config & cfg, JSON::Value & capa);
     ~OutCMAF();
     static void init(Util::Config *cfg, JSON::Value & capa);
-    void onHTTP();
+    virtual void respondHTTP(const HTTP::Parser & req, bool headersOnly);
     void sendNext();
     void sendHeader(){};
     bool isReadyForPlay();
@@ -43,7 +43,7 @@ namespace Mist{
     void onTrackEnd(size_t idx);
     bool hasSessionIDs(){return !config->getBool("mergesessions");}
 
-    void sendDashManifest();
+    void sendDashManifest(bool headersOnly);
     void dashAdaptationSet(size_t id, size_t idx, std::stringstream &r);
     void dashRepresentation(size_t id, size_t idx, std::stringstream &r);
     void dashSegmentTemplate(std::stringstream & r, double availabilityTimeOffset = 0.0,
@@ -54,11 +54,11 @@ namespace Mist{
     std::string dashTime(uint64_t time);
     std::string dashManifest(bool checkAlignment = true);
 
-    void sendHlsManifest(const std::string url);
-    void sendHlsMasterManifest();
-    void sendHlsMediaManifest(const size_t requestTid);
+    void sendHlsManifest(const HTTP::Parser & req, const std::string url, bool headersOnly);
+    void sendHlsMasterManifest(const HTTP::Parser & req);
+    void sendHlsMediaManifest(const HTTP::Parser & req, const size_t requestTid);
 
-    void sendSmoothManifest();
+    void sendSmoothManifest(bool headersOnly);
     std::string smoothManifest(bool checkAlignment = true);
     void smoothAdaptation(const std::string &type, std::set<size_t> tracks, std::stringstream &r);
 
