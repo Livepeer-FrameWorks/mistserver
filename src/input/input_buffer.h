@@ -93,6 +93,38 @@ namespace Mist{
     bool negotiatedFullyResolved; ///< true once every running proc has reported its negotiatedKind at least once
     ProcessingProfile procProfile;
 
+    // Per-job speed/verdict aggregates. Written to the stream-state SHM page
+    // (STRMSTATE_SPEED_* offsets) every controller tick so recording outputs
+    // can attach them to RECORDING_END; also drives the periodic summary log.
+    struct SpeedStats {
+        uint32_t ticks = 0; ///< controller ticks with a resolved speed
+        uint64_t speedSum = 0; ///< sum of effectiveSpeed over ticks (avg = sum/ticks)
+        uint32_t speedMin = 0; ///< 0 = unset
+        uint32_t speedMax = 0;
+        uint32_t hardSlowTicks = 0;
+        uint32_t regularSlowTicks = 0;
+        uint32_t rampUps = 0;
+        uint32_t lockoutTicks = 0; ///< ticks spent under ramp lockout
+        uint32_t staleHoldTicks = 0; ///< ticks where a required proc was unobservable/stale
+    };
+    SpeedStats speedStats;
+    // Per-proc observation aggregates for the summary log.
+    struct ProcAgg {
+        uint8_t kind = 0;
+        uint32_t freshSamples = 0;
+        uint32_t staleTicks = 0;
+        uint64_t pressureSum = 0; ///< sum of pressureQ0_16 over fresh samples
+        uint16_t pressureMax = 0;
+        uint32_t reasonCounts[8] = {0};
+        uint32_t hardSlowVotes = 0;
+        uint32_t regularSlowVotes = 0;
+    };
+    std::map<pid_t, ProcAgg> procAggs;
+    std::map<std::string, pid_t> procLastPid; ///< proc config -> last seen pid, for restart counting
+    uint32_t procRestarts = 0;
+    uint64_t lastSpeedSummaryMs = 0;
+    void logSpeedSummary(const char *label);
+
     std::set<size_t> generatePids;
     std::map<size_t, size_t> sourceUsers;
     std::map<size_t, size_t> processUsers;

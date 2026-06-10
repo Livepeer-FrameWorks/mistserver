@@ -245,6 +245,19 @@ static inline void show_stackframe(){}
 #define STRMSTATE_PROCESS_OUTPUTS_RESOLVED_OFFSET 2
 #define STRMSTATE_PROCESS_OUTPUTS_EXPECTED_OFFSET 4
 #define STRMSTATE_EFFECTIVE_SPEED_OFFSET 8
+// Speed/verdict aggregates written by the buffer's rate controller each tick;
+// recording outputs read them at exit to enrich RECORDING_END. Pages created
+// before this block existed are 16 bytes — readers must check len >= 64.
+#define STRMSTATE_SPEED_TICKS_OFFSET 16 // u32 controller ticks observed
+#define STRMSTATE_SPEED_MIN_OFFSET 20 // u32 lowest effectiveSpeed (0 = unset)
+#define STRMSTATE_SPEED_MAX_OFFSET 24 // u32 highest effectiveSpeed
+#define STRMSTATE_HARD_SLOW_TICKS_OFFSET 28 // u32 ticks with a hard-slow verdict
+#define STRMSTATE_REGULAR_SLOW_TICKS_OFFSET 32 // u32 ticks with a regular-slow verdict
+#define STRMSTATE_RAMP_UPS_OFFSET 36 // u32 ramp-up events
+#define STRMSTATE_LOCKOUT_TICKS_OFFSET 40 // u32 ticks spent under ramp lockout
+#define STRMSTATE_STALE_HOLD_TICKS_OFFSET 44 // u32 ticks held because a required proc was unobservable
+#define STRMSTATE_SPEED_SUM_OFFSET 48 // u64 sum of effectiveSpeed over ticks (avg = sum/ticks)
+#define STRMSTATE_PAGE_LEN 64
 
 #define SHM_JWK "/MstJWK"
 #define JWK_PERM_ADMIN 1

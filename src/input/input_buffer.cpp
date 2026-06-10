@@ -385,6 +385,7 @@ namespace Mist{
       }
       /*LTS-END*/
     }
+    logSpeedSummary("final");
     Input::finish();
     updateMeta();
   }
@@ -587,8 +588,21 @@ namespace Mist{
     bool anyRegularSlow = false;
     bool allSpeedUpOk = true;
     bool sawValidProc = false;
+    bool anyStaleHold = false; // a required proc was unobservable/stale this tick
     std::vector<ProcessingProfileKind> negotiatedKinds;
     size_t requiredProcCount = 0; // non-inconsequential procs, denominator for allReported
+
+    // Restart accounting: a proc config whose pid changed was restarted.
+    for (auto & rp : runningProcs) {
+      if (!rp.second) { continue; }
+      auto lastIt = procLastPid.find(rp.first);
+      if (lastIt != procLastPid.end() && lastIt->second != rp.second) {
+        ++procRestarts;
+        INFO_MSG("Processing proc restarted (pid %d -> %d), %u restart(s) so far this job", (int)lastIt->second,
+                 (int)rp.second, procRestarts);
+      }
+      procLastPid[rp.first] = rp.second;
+    }
 
     // Drop freshness state for procs that have exited.
     for (auto it = lastConsumedUpdateMs.begin(); it != lastConsumedUpdateMs.end();) {
@@ -636,8 +650,10 @@ namespace Mist{
       if (!sp || !sp.mapped || sp.len < sizeof(ProcState)) {
         if (!inconsequential) {
           allSpeedUpOk = false;
+          anyStaleHold = true;
           procsReadyForSpeedUp.erase(pid);
         }
+        ++procAggs[pid].staleTicks;
         continue;
       }
       if (!ProcState::isValid(sp)) {
@@ -654,8 +670,10 @@ namespace Mist{
         sp.master = false;
         if (!inconsequential) {
           allSpeedUpOk = false;
+          anyStaleHold = true;
           procsReadyForSpeedUp.erase(pid);
         }
+        ++procAggs[pid].staleTicks;
         continue;
       }
       ProcState cur;
@@ -669,8 +687,10 @@ namespace Mist{
       if (!cur.lastUpdateMs || now - cur.lastUpdateMs > 10000) {
         if (!inconsequential) {
           allSpeedUpOk = false;
+          anyStaleHold = true;
           procsReadyForSpeedUp.erase(pid);
         }
+        ++procAggs[pid].staleTicks;
         continue;
       }
 
@@ -693,15 +713,27 @@ namespace Mist{
       sawValidProc = true;
       bool procAllowsSpeedUp = false;
 
+      // Per-proc observation aggregates for the periodic summary log.
+      {
+        ProcAgg & agg = procAggs[pid];
+        agg.kind = cur.negotiatedKind;
+        ++agg.freshSamples;
+        agg.pressureSum += cur.pressureQ0_16;
+        if (cur.pressureQ0_16 > agg.pressureMax) { agg.pressureMax = cur.pressureQ0_16; }
+        if (cur.reasonCode < 8) { ++agg.reasonCounts[cur.reasonCode]; }
+      }
+
       // Check reason FIRST so retry/queue_full set the lockout flag even when
       // the proc also dropped canAcceptMore (which Livepeer does).
       if (cur.reasonCode == PRC_REASON_RETRY || cur.reasonCode == PRC_REASON_QUEUE_FULL) {
         anyHardSlow = true;
         anyHardSlowLockout = true;
         allSpeedUpOk = false;
+        ++procAggs[pid].hardSlowVotes;
       } else if (!cur.canAcceptMore) {
         anyHardSlow = true;
         allSpeedUpOk = false;
+        ++procAggs[pid].hardSlowVotes;
       } else {
         double pressure = (double)cur.pressureQ0_16 / 65535.0;
         double obsSpeed = (double)cur.observedSpeedQ16_16 / 65536.0;
@@ -725,6 +757,7 @@ namespace Mist{
         if (obsBelowFeeder || pressure > 0.7) {
           anyRegularSlow = true;
           allSpeedUpOk = false;
+          ++procAggs[pid].regularSlowVotes;
         } else if (!obsBorderline && pressure < 0.2 &&
                    ((obsSpeed > 0.0 && obsSpeed >= feederSpeed) || cur.reasonCode == PRC_REASON_SOURCE_WAIT)) {
           // Proc explicitly says it can keep up: either it published a
@@ -825,18 +858,23 @@ namespace Mist{
     if (anyHardSlow) {
       effectiveSpeed = 1;
       procsReadyForSpeedUp.clear();
+      ++speedStats.hardSlowTicks;
       if (anyHardSlowLockout) {
         rampLockoutTicks = 10; // ~10 ticks (~10s) before we may ramp back up
       }
     } else if (anyRegularSlow) {
       effectiveSpeed = std::max((uint64_t)((double)effectiveSpeed * 0.8), (uint64_t)1);
       procsReadyForSpeedUp.clear();
+      ++speedStats.regularSlowTicks;
     } else if (sawValidProc && allSpeedUpOk && allRequiredReadyForSpeedUp && rampLockoutTicks == 0 && effectiveSpeed < realtimeSpeed) {
       uint64_t bumped = (uint64_t)((double)effectiveSpeed * 1.2 + 1);
       effectiveSpeed = std::min(bumped, realtimeSpeed);
       procsReadyForSpeedUp.clear();
+      ++speedStats.rampUps;
     }
     // No valid proc reported in this tick -> hold (don't ramp up unsupervised).
+    if (rampLockoutTicks > 0) { ++speedStats.lockoutTicks; }
+    if (anyStaleHold) { ++speedStats.staleHoldTicks; }
 
     // Always clamp to the current cap, regardless of which branch above ran.
     // The cap can drop mid-stream (negotiated reclassification lowering
@@ -852,8 +890,57 @@ namespace Mist{
                readyAtDecision, requiredProcCount, anyHardSlow ? 1 : 0, anyRegularSlow ? 1 : 0, rampLockoutTicks);
     }
 
+    // Per-job aggregates: 1s ticks make the sum a time-weighted average.
+    ++speedStats.ticks;
+    speedStats.speedSum += effectiveSpeed;
+    if (!speedStats.speedMin || effectiveSpeed < speedStats.speedMin) {
+      speedStats.speedMin = (uint32_t)effectiveSpeed;
+    }
+    if (effectiveSpeed > speedStats.speedMax) { speedStats.speedMax = (uint32_t)effectiveSpeed; }
+
     if (streamStatus && streamStatus.len >= 16){
       memcpy(streamStatus.mapped + STRMSTATE_EFFECTIVE_SPEED_OFFSET, &effectiveSpeed, sizeof(uint64_t));
+    }
+    // Plain bounds check before writing the stats block.
+    if (streamStatus && streamStatus.len >= STRMSTATE_PAGE_LEN) {
+      memcpy(streamStatus.mapped + STRMSTATE_SPEED_TICKS_OFFSET, &speedStats.ticks, sizeof(uint32_t));
+      memcpy(streamStatus.mapped + STRMSTATE_SPEED_MIN_OFFSET, &speedStats.speedMin, sizeof(uint32_t));
+      memcpy(streamStatus.mapped + STRMSTATE_SPEED_MAX_OFFSET, &speedStats.speedMax, sizeof(uint32_t));
+      memcpy(streamStatus.mapped + STRMSTATE_HARD_SLOW_TICKS_OFFSET, &speedStats.hardSlowTicks, sizeof(uint32_t));
+      memcpy(streamStatus.mapped + STRMSTATE_REGULAR_SLOW_TICKS_OFFSET, &speedStats.regularSlowTicks, sizeof(uint32_t));
+      memcpy(streamStatus.mapped + STRMSTATE_RAMP_UPS_OFFSET, &speedStats.rampUps, sizeof(uint32_t));
+      memcpy(streamStatus.mapped + STRMSTATE_LOCKOUT_TICKS_OFFSET, &speedStats.lockoutTicks, sizeof(uint32_t));
+      memcpy(streamStatus.mapped + STRMSTATE_STALE_HOLD_TICKS_OFFSET, &speedStats.staleHoldTicks, sizeof(uint32_t));
+      memcpy(streamStatus.mapped + STRMSTATE_SPEED_SUM_OFFSET, &speedStats.speedSum, sizeof(uint64_t));
+    }
+
+    if (!lastSpeedSummaryMs) { lastSpeedSummaryMs = now; }
+    if (now - lastSpeedSummaryMs >= 30000) {
+      lastSpeedSummaryMs = now;
+      logSpeedSummary("periodic");
+    }
+  }
+
+  // logSpeedSummary emits the per-job speed/verdict aggregates and a per-proc
+  // breakdown so a slow processing job names its bottleneck in the logs.
+  void InputBuffer::logSpeedSummary(const char *label) {
+    if (!speedStats.ticks) { return; }
+    double avg = (double)speedStats.speedSum / (double)speedStats.ticks;
+    INFO_MSG("Processing speed summary (%s): min=%ux avg=%.1fx max=%ux over %u ticks "
+             "(hardSlow=%u, slow=%u, rampUps=%u, lockout=%u, staleHold=%u, procRestarts=%u)",
+             label, speedStats.speedMin, avg, speedStats.speedMax, speedStats.ticks, speedStats.hardSlowTicks,
+             speedStats.regularSlowTicks, speedStats.rampUps, speedStats.lockoutTicks, speedStats.staleHoldTicks, procRestarts);
+    for (auto & pa : procAggs) {
+      const ProcAgg & a = pa.second;
+      double pAvg = a.freshSamples ? ((double)a.pressureSum / (double)a.freshSamples / 65535.0) : 0.0;
+      INFO_MSG("Processing proc summary (%s): pid=%d kind=%u samples=%u staleTicks=%u "
+               "pressureAvg=%.2f pressureMax=%.2f hardVotes=%u slowVotes=%u "
+               "reasons[none=%u cpu=%u srcWait=%u sinkWait=%u hwSlot=%u extWait=%u queueFull=%u retry=%u]",
+               label, (int)pa.first, a.kind, a.freshSamples, a.staleTicks, pAvg, (double)a.pressureMax / 65535.0,
+               a.hardSlowVotes, a.regularSlowVotes, a.reasonCounts[PRC_REASON_UNKNOWN], a.reasonCounts[PRC_REASON_CPU],
+               a.reasonCounts[PRC_REASON_SOURCE_WAIT], a.reasonCounts[PRC_REASON_SINK_WAIT],
+               a.reasonCounts[PRC_REASON_HW_SLOT], a.reasonCounts[PRC_REASON_EXTERNAL_WAIT],
+               a.reasonCounts[PRC_REASON_QUEUE_FULL], a.reasonCounts[PRC_REASON_RETRY]);
     }
   }
 
