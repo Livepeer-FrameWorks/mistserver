@@ -722,6 +722,9 @@ namespace Mist{
     checkHeaderTimes(HTTP::localURIResolver().link(config->getString("input")));
     //needHeader internally calls readExistingHeader which in turn attempts to read header cache
     if (needHeader()){
+      // Whatever readExistingHeader may have loaded was rejected; the header
+      // we serve from is this boot's own parse.
+      headerFromDisk = false;
       uint64_t timer = Util::getMicros();
       if (!readHeader() || (!M && needsLock())){
         Util::logExitReason(ER_READ_START_FAILURE, "Reading header for '%s' failed", config->getString("input").c_str());
@@ -1655,6 +1658,11 @@ namespace Mist{
       pageIdx = i;
     }
     uint32_t pageNumber = tPages.getInt("firstkey", pageIdx);
+    // Blacklisted after repeated identical load failures (see the failure
+    // path below): pretend handled so consumers stop re-requesting it.
+    if (pageLoadFails.count(idx) && pageLoadFails[idx].count(pageNumber) && pageLoadFails[idx][pageNumber] >= 2) {
+      return true;
+    }
     pageCounter[idx][pageNumber] = Util::bootSecs();
     if (isBuffered(idx, pageNumber, meta)){
       // Mark the page as still actively requested
@@ -1816,6 +1824,29 @@ namespace Mist{
                tPages.getInt("parts", pageIdx), byteCounter);
       pageCounter[idx].erase(pageNumber);
       bufferRemove(idx, pageNumber, pageIdx);
+      // A page that fails identically twice will fail forever: the header and
+      // the file disagree. Headers are generated deterministically, so a
+      // disagreement means the cached header does not describe this file —
+      // regenerate it once (restart; the reboot re-parses the source and
+      // overwrites the .dtsh). If our own freshly-generated header still
+      // disagrees, the file itself is bad: blacklist the page and serve
+      // around it rather than spinning.
+      uint32_t fails = ++pageLoadFails[idx][pageNumber];
+      if (fails >= 2) {
+        if (headerFromDisk) {
+          std::string headerFile = config->getString("input") + ".dtsh";
+          HTTP::URL headerURL = HTTP::localURIResolver().link(headerFile);
+          if (headerURL.isLocalPath() && unlink(headerURL.getFilePath().c_str()) == 0) {
+            FAIL_MSG("Cached header disagrees with file content for track %zu page %" PRIu32
+                     "; removed '%s' and restarting to regenerate it",
+                     idx, pageNumber, headerFile.c_str());
+            Util::logExitReason(ER_FORMAT_SPECIFIC, "cached header disagrees with file content; regenerating");
+            config->is_active = false;
+            return false;
+          }
+        }
+        FAIL_MSG("Track %zu page %" PRIu32 " failed %" PRIu32 " consecutive loads; blacklisting page", idx, pageNumber, fails);
+      }
       return false;
     }else{
       INFO_MSG("Track %zu, page %" PRIu32 " (" PRETTY_PRINT_MSTIME " - " PRETTY_PRINT_MSTIME ") buffered in %" PRIu64 "ms",
@@ -1823,6 +1854,7 @@ namespace Mist{
       INFO_MSG("  (%" PRIu32 "/%" PRIu64 " parts, %" PRIu64 " bytes)", packCounter,
                tPages.getInt("parts", pageIdx), byteCounter);
       pageCounter[idx][pageNumber] = Util::bootSecs();
+      pageLoadFails[idx].erase(pageNumber);
       return true;
     }
   }
@@ -1849,6 +1881,7 @@ namespace Mist{
         if (meta){
           meta.setMaster(true);
           INFO_MSG("Read existing header");
+          headerFromDisk = true;
           return true;
         }
       }
@@ -1884,6 +1917,7 @@ namespace Mist{
       INFO_MSG("Updating wrong version header file from version %u to %u", meta.version, DTSH_VERSION);
       return false;
     }
+    if (meta) { headerFromDisk = true; }
     return meta;
   }
 
