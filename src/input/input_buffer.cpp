@@ -1374,6 +1374,11 @@ namespace Mist{
     int err = fileno(stderr);
     char *argarr[5];
 
+    // Why each configured process is excluded from newProcs this tick.
+    // Consulted when stopping a still-running process so the stop log and
+    // PROCESS_EXIT trigger name the guard that retired it.
+    std::map<std::string, std::string> skipReasons;
+
     // Convert to strings
     jsonForEachConst(procs, it){
       JSON::Value tmp = *it;
@@ -1381,17 +1386,24 @@ namespace Mist{
       std::string key = tmp.toString();
       if (!M.getValidTracks().size() &&
           (!tmp.isMember("source_track") && !tmp.isMember("track_select"))){
+        skipReasons[key] = "stream has no valid tracks";
         continue;
       }
       if (tmp.isMember("source_track")){
         std::set<size_t> wouldSelect = Util::findTracks(M, JSON::Value(), "", tmp["source_track"].asStringRef());
         // No match - skip this process
-        if (!wouldSelect.size()){continue;}
+        if (!wouldSelect.size()) {
+          skipReasons[key] = "source_track '" + tmp["source_track"].asString() + "' matches no tracks";
+          continue;
+        }
       }
       if (tmp.isMember("track_select")){
         std::set<size_t> wouldSelect = Util::wouldSelect(M, tmp["track_select"].asStringRef());
         // No match - skip this process
-        if (!wouldSelect.size()){continue;}
+        if (!wouldSelect.size()) {
+          skipReasons[key] = "track_select '" + tmp["track_select"].asString() + "' matches no tracks";
+          continue;
+        }
       }
       // If tags_inhibit is set, prevent the process from starting
       if (tmp.isMember("tags_inhibit")) {
@@ -1404,7 +1416,10 @@ namespace Mist{
         };
         JSON::Value & inhib = tmp["tags_inhibit"];
         if (inhib.isString()) {
-          if (matchesTag(inhib)) { continue; }
+          if (matchesTag(inhib)) {
+            skipReasons[key] = "inhibited by stream tag '" + inhib.asString() + "'";
+            continue;
+          }
         } else if (inhib.isArray()) {
           bool hasMatch = false;
           jsonForEachConst (inhib, tagIt) {
@@ -1413,7 +1428,10 @@ namespace Mist{
               break;
             }
           }
-          if (hasMatch) { continue; }
+          if (hasMatch) {
+            skipReasons[key] = "inhibited by stream tags";
+            continue;
+          }
         }
       }
       if (tmp.isMember("track_inhibit")){
@@ -1421,14 +1439,20 @@ namespace Mist{
             M, std::string("audio=none&video=none&subtitle=none&meta=none&") + tmp["track_inhibit"].asStringRef());
         if (wouldSelect.size()){
           // Inhibit if there is a match and we're not already running.
-          if (!runningProcs.count(key)){continue;}
+          if (!runningProcs.count(key)) {
+            skipReasons[key] = "track_inhibit '" + tmp["track_inhibit"].asString() + "' matches existing tracks";
+            continue;
+          }
           bool inhibited = false;
           std::set<size_t> myTracks = M.getMySourceTracks(runningProcs[key]);
           // Also inhibit if there is a match with not-the-currently-running-process
           for (std::set<size_t>::iterator it = wouldSelect.begin(); it != wouldSelect.end(); ++it){
             if (!myTracks.count(*it)){inhibited = true;}
           }
-          if (inhibited){continue;}
+          if (inhibited) {
+            skipReasons[key] = "track_inhibit '" + tmp["track_inhibit"].asString() + "' matches tracks from another producer";
+            continue;
+          }
         }
       }
       // Mark process as should-be-active
@@ -1440,14 +1464,29 @@ namespace Mist{
     if (runningProcs.size()){
       for (it = runningProcs.begin(); it != runningProcs.end(); it++){
         if (!newProcs.count(it->first)){
+          std::string stopReason = "no longer in process configuration";
+          {
+            std::map<std::string, std::string>::iterator sr = skipReasons.find(it->first);
+            if (sr != skipReasons.end()) { stopReason = sr->second; }
+          }
+          std::string procType = JSON::fromString(it->first)["process"].asString();
           processPidsWithUsers.erase(it->second);
           if (Util::Procs::isActive(it->second)){
-            INFO_MSG("Stopping process %d: %s", it->second, it->first.c_str());
+            INFO_MSG("Stopping process %s (PID %d): %s", procType.c_str(), it->second, stopReason.c_str());
             Util::Procs::ignoreExitCode(it->second);
             Util::Procs::Stop(it->second);
           } else {
             int exitCode = 0;
             Util::Procs::getExitCode(it->second, exitCode);
+          }
+          // Tell trigger consumers this was a deliberate supervisor stop, not a
+          // process failure. Without it a sidecar only sees missing output and
+          // misattributes the stop to the process itself.
+          if (Triggers::shouldTrigger("PROCESS_EXIT", streamName)) {
+            std::string payload = std::string(streamName) + "\n" + procType + "\n" + it->first + "\n" +
+              JSON::Value((uint64_t)it->second).asString() + "\n0\n" +
+              JSON::Value((uint64_t)procBoots[it->first]).asString() + "\nstopped\n" + stopReason + "\n" + stopReason;
+            Triggers::doTrigger("PROCESS_EXIT", payload, streamName);
           }
           // Clean up SHM state page for this process
           {
@@ -1596,12 +1635,27 @@ namespace Mist{
           continue;
         }
 
+        // Don't (re)start processes while the stream is shutting down: a proc
+        // that exited because the job/source ended would only be respawned
+        // into a draining stream, trampling the previous generation's track
+        // pages. First boots are unaffected (stream is INIT/BOOT/WAIT then).
+        {
+          uint8_t procStreamState = Util::getStreamStatus(streamName);
+          if (!Util::Config::is_active || procStreamState == STRMSTAT_SHUTDOWN || procStreamState == STRMSTAT_OFF) {
+            VERYHIGH_MSG("Not starting process `%s`: stream is shutting down", args["process"].asString().c_str());
+            newProcs.erase(newProcs.begin());
+            continue;
+          }
+        }
+
         std::string procname =
             Util::getMyPath() + "MistProc" + JSON::fromString(config)["process"].asString();
         argarr[0] = (char *)procname.c_str();
         argarr[1] = (char *)config.c_str();
         argarr[2] = 0;
-        if (Util::printDebugLevel != DEBUG || args.isMember("debug")){
+        // Always propagate the runtime debug level (a per-process "debug"
+        // option still wins) — same reasoning as startInput in lib/stream.cpp.
+        {
           if (args.isMember("debug")){
             debugLvl = args["debug"].asString();
           }else{
