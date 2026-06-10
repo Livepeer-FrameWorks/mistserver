@@ -221,7 +221,9 @@ void Socket::Address::assign(const void *ptr, size_t len) {
     }
   }
   if (!len || !ptr) {
-    FAIL_MSG("Cannot assign address from size-less pointer: address family not recognized");
+    // Routine for non-socket FDs (file/pipe push targets probe their
+    // "address" at boot); the empty address is handled by every caller.
+    HIGH_MSG("Cannot assign address from size-less pointer: address family not recognized");
     addr.truncate(0);
     return;
   }
