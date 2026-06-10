@@ -1125,6 +1125,16 @@ namespace Mist{
         WARN_MSG("Main track has no keyframes, seeking to position zero");
         return 0;
       }
+      // A processing-controlled recording captures the job's whole timeline:
+      // start at the oldest keyframe instead of the live point, or a recording
+      // that attaches seconds after stream boot silently drops the head of the
+      // artifact. An explicit recstart/recstartunix still overrides this in
+      // initialSeek's recording branch.
+      if (isRecordingToFile && processingControlledRealtime()) {
+        uint64_t headPos = keys.getTime(keys.getFirstValid());
+        INFO_MSG("Processing recording: starting at buffer head " PRETTY_PRINT_MSTIME, PRETTY_ARG_MSTIME(headPos));
+        return headPos;
+      }
       // seek to the newest keyframe, unless that is <5s, then seek to the oldest keyframe
       uint32_t firstKey = keys.getFirstValid();
       uint32_t lastKey = keys.getEndValid() - 1;
@@ -2015,13 +2025,16 @@ namespace Mist{
             break;
           }
         }
+        // Hold the initial seek as well as the header: seeking before the
+        // process output tracks exist would pin the recording start (and its
+        // keyframe alignment) to a track set that is still incomplete.
+        if (!sentHeader && keepGoing() && !processingRecordingTracksReady()) {
+          suggestedWait = 100;
+          ++prepFalse;
+          continue;
+        }
         if (!sought){initialSeek();}
-        if (!sentHeader && keepGoing()){
-          if (!processingRecordingTracksReady()) {
-            suggestedWait = 100;
-            ++prepFalse;
-            continue;
-          }
+        if (!sentHeader && keepGoing()) {
           DONTEVEN_MSG("sendHeader");
           sendHeader();
         }
@@ -2998,16 +3011,21 @@ namespace Mist{
       JSON::Value tracks;
       std::set<size_t> selectedTracks;
       for (const auto & it : userSelect) { selectedTracks.insert(it.first); }
-      std::set<size_t> finalTracks;
-      if (M) { finalTracks = M.getValidTracks(true); }
-      if (!finalTracks.size()) {
-        for (const auto & it : userSelect) { finalTracks.insert(it.first); }
-      }
+      // The summary reports the tracks this output actually consumed (its own
+      // selection = what a recording wrote), not whatever happens to still be
+      // valid in the stream buffer at exit: process tracks may already be torn
+      // down by then, and buffer tracks that appeared after the header was
+      // written are not in the file at all.
+      std::set<size_t> finalTracks = selectedTracks;
+      if (!finalTracks.size() && M) { finalTracks = M.getValidTracks(true); }
       for (const auto & trackIdx : finalTracks) {
         JSON::Value & T = tracks.append();
         T["idx"] = trackIdx;
         T["selected"] = (bool)selectedTracks.count(trackIdx);
-        if (M.trackValid(trackIdx)) {
+        // Populate per-track details whenever the metadata is still readable,
+        // not only while the valid-flag is set — a selected track invalidated
+        // during teardown was still written to the file.
+        if (M && (M.trackValid(trackIdx) || M.getCodec(trackIdx).size())) {
           T["id"] = M.getID(trackIdx);
           T["type"] = M.getType(trackIdx);
           T["codec"] = M.getCodec(trackIdx);
@@ -3226,6 +3244,10 @@ namespace Mist{
   bool Output::processingRecordingTracksReady() {
     if (!isRecordingToFile || !M) { return true; }
     if (!processingControlledRealtime()) { return true; }
+    // Stream is draining/shutting down: no more process output is coming, so
+    // record whatever exists rather than wedging. Downstream validators own
+    // the verdict on the resulting artifact.
+    if (processingControlledRealtimeSelectionEnded()) { return true; }
 
     char tmpBuf[NAME_BUFFER_SIZE];
     snprintf(tmpBuf, NAME_BUFFER_SIZE, SHM_STREAM_STATE, streamName.c_str());
@@ -3235,35 +3257,53 @@ namespace Mist{
       return false;
     }
 
+    // The expectation is a live contract owned by the input buffer: it counts
+    // the output tracks the configured processes will produce and is revised
+    // down when a process retires (unrecoverable exit, restarts disabled, or
+    // dropped from the config). Comparing against it — rather than against
+    // whatever happens to be selected right now — is what holds the recording
+    // header until late process tracks exist, without blocking on tracks that
+    // will never come.
+    uint16_t expected16 = 0;
+    memcpy(&expected16, processingState.mapped + STRMSTATE_PROCESS_OUTPUTS_EXPECTED_OFFSET, sizeof(uint16_t));
+    size_t expectedOutputTracks = expected16;
+
     meta.reloadReplacedPagesIfNeeded();
     selectDefaultTracks();
 
+    std::set<size_t> validTracksWithData = M.getValidTracks(true);
+    // Process output tracks are counted stream-wide, not via userSelect: at
+    // header time a narrow selection may legitimately take fewer tracks than
+    // the processes produce, but a track can only be selected at all once it
+    // exists — so the stream must be complete per the expectation first.
+    size_t readyOutputTracks = 0;
+    for (std::set<size_t>::iterator it = validTracksWithData.begin(); it != validTracksWithData.end(); ++it) {
+      if (M.getSourceTrack(*it) != INVALID_TRACK_ID) { ++readyOutputTracks; }
+    }
+
     size_t selectedOriginalTracks = 0;
+    size_t readyOriginalTracks = 0;
+    size_t readySelectedOutputTracks = 0;
     size_t selectedOutputTracks = 0;
     for (std::map<size_t, Comms::Users>::iterator it = userSelect.begin(); it != userSelect.end(); ++it) {
+      bool ready = validTracksWithData.count(it->first);
       if (M.getSourceTrack(it->first) == INVALID_TRACK_ID) {
         ++selectedOriginalTracks;
+        if (ready) { ++readyOriginalTracks; }
       } else {
         ++selectedOutputTracks;
+        if (ready) { ++readySelectedOutputTracks; }
       }
     }
 
-    size_t readyOriginalTracks = 0;
-    size_t readyOutputTracks = 0;
-    std::set<size_t> validTracksWithData = M.getValidTracks(true);
-    for (std::map<size_t, Comms::Users>::iterator it = userSelect.begin(); it != userSelect.end(); ++it) {
-      if (!validTracksWithData.count(it->first)) { continue; }
-      if (M.getSourceTrack(it->first) == INVALID_TRACK_ID) {
-        ++readyOriginalTracks;
-      } else {
-        ++readyOutputTracks;
-      }
+    if (readyOutputTracks >= expectedOutputTracks && readyOriginalTracks >= selectedOriginalTracks &&
+        readySelectedOutputTracks >= selectedOutputTracks) {
+      return true;
     }
-
-    if (readyOriginalTracks >= selectedOriginalTracks && readyOutputTracks >= selectedOutputTracks) { return true; }
-    INFO_MSG("Waiting for processing tracks before recording header: %zu/%zu original tracks, %zu/%zu processing "
-             "outputs ready",
-             readyOriginalTracks, selectedOriginalTracks, readyOutputTracks, selectedOutputTracks);
+    INFO_MSG("Waiting for processing tracks before recording header: %zu/%zu original tracks ready, %zu/%zu expected "
+             "processing outputs ready (%zu/%zu selected)",
+             readyOriginalTracks, selectedOriginalTracks, readyOutputTracks, expectedOutputTracks,
+             readySelectedOutputTracks, selectedOutputTracks);
     return false;
   }
 }// namespace Mist

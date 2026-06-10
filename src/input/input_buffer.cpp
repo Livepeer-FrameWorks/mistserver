@@ -906,7 +906,6 @@ namespace Mist{
         // `processing.*` config. That would be global across all processing+<hash>
         // jobs on the node.
         processControlledRealtime = streamCfg.getMember("process_controlled_realtime").asBool();
-        if (processControlledRealtime) { publishProcessingOutputExpectation(configuredProcesses); }
         if (processControlledRealtime && !procProfileResolved && configuredProcesses.isArray() && configuredProcesses.size()) {
           procProfile = classifyProcessingProfile(configuredProcesses);
           procProfileResolved = true;
@@ -914,6 +913,9 @@ namespace Mist{
                    procProfile.name ? procProfile.name : "?", procProfile.startSpeed, procProfile.maxSpeed);
         }
         checkProcesses(configuredProcesses);
+        // Published after checkProcesses so retired procs (hard-failed or
+        // restart-disabled) drop out of the expectation on the same tick.
+        if (processControlledRealtime) { publishProcessingOutputExpectation(configuredProcesses); }
       }else{
         processControlledRealtime = false;
         //If there is no config, we assume all processes are running, since, well, there can't be any
@@ -1029,14 +1031,43 @@ namespace Mist{
     return true;
   }
 
+  // A retired process will never (re)produce output tracks: it exited
+  // unrecoverably (checkProcesses disabled its restart) or has restarts
+  // disabled and its only boot already ended. Retired processes drop out of
+  // the published output expectation, so recordings waiting on that
+  // expectation unblock instead of waiting for tracks that will never come
+  // (e.g. a fallback to source passthrough). Uses the same config-key
+  // construction as checkProcesses so the lookups match.
+  bool InputBuffer::processingProcessRetired(const JSON::Value & proc) const {
+    JSON::Value tmp = proc;
+    tmp["source"] = streamName;
+    const std::string key = tmp.toString();
+    if (procHardFailed.count(key)) { return true; }
+    std::string restartType = "fixed";
+    if (proc.isMember("restart_type")) { restartType = proc["restart_type"].asString(); }
+    if (restartType == "disabled") {
+      std::map<std::string, uint32_t>::const_iterator boots = procBoots.find(key);
+      if (boots != procBoots.end() && boots->second) {
+        std::map<std::string, pid_t>::const_iterator running = runningProcs.find(key);
+        if (running == runningProcs.end() || !Util::Procs::isActive(running->second)) { return true; }
+      }
+    }
+    return false;
+  }
+
   size_t InputBuffer::expectedProcessingOutputTracks(const JSON::Value & procs) const {
     if (!procs.isArray() || !procs.size()) { return 0; }
     size_t expectedOutputTracks = 0;
     jsonForEachConst (procs, it) {
       if (!it->isObject() || !it->isMember("process")) { continue; }
       const std::string procName = (*it)["process"].asString();
-      if (procName != "AV" && procName != "Livepeer" && procName != "Thumbs" && procName != "FFmpeg") { continue; }
+      // Thumbs is intentionally absent: its JPEG track is enrichment that no
+      // consumer gates on, it does not mark its output as a derived track
+      // (no setSourceTrack), and a flaky thumbnailer must not hold up the
+      // recording of the actual media outputs.
+      if (procName != "AV" && procName != "Livepeer" && procName != "FFmpeg") { continue; }
       if (!processingProcessMatchesSource(*it)) { continue; }
+      if (processingProcessRetired(*it)) { continue; }
       if (procName == "Livepeer" && it->isMember("target_profiles") && (*it)["target_profiles"].isArray()) {
         jsonForEachConst ((*it)["target_profiles"], prof) {
           if (!prof->isObject()) { continue; }
