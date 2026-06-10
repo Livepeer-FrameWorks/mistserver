@@ -2211,7 +2211,11 @@ namespace Mist{
       }
     }
     determineExitReason(); // Allow an output to override the below two checks.
-    if (!Util::Config::is_active) { Util::logExitReason(ER_UNKNOWN, "set inactive"); }
+    // An output told to stop (is_active flipped by signal/teardown) is an
+    // intended stop, not an unclean failure. Downstream success checks that
+    // need stronger guarantees (e.g. recording completeness) gate on media
+    // duration, not on this reason.
+    if (!Util::Config::is_active) { Util::logExitReason(ER_CLEAN_INTENDED_STOP, "set inactive"); }
     if (!myConn){Util::logExitReason(ER_CLEAN_REMOTE_CLOSE, "connection closed");}
     if (strncmp(Util::exitReason, "connection closed", 17) == 0){
       MEDIUM_MSG("Client handler shutting down, exit reason: %s", Util::exitReason);
@@ -3306,10 +3310,12 @@ namespace Mist{
   bool Output::processingRecordingTracksReady() {
     if (!isRecordingToFile || !M) { return true; }
     if (!processingControlledRealtime()) { return true; }
-    // Stream is draining/shutting down: no more process output is coming, so
-    // record whatever exists rather than wedging. Downstream validators own
-    // the verdict on the resulting artifact.
-    if (processingControlledRealtimeSelectionEnded()) { return true; }
+    // Stream is draining: no more process output is coming, so record whatever
+    // exists rather than wedging. Downstream validators own the verdict on the
+    // resulting artifact. Deliberately only SHUTDOWN — getStreamStatus returns
+    // STRMSTAT_OFF while the state page doesn't exist yet, which is exactly the
+    // boot window where a recording races the stream and the gate must hold.
+    if (Util::getStreamStatus(streamName) == STRMSTAT_SHUTDOWN) { return true; }
 
     char tmpBuf[NAME_BUFFER_SIZE];
     snprintf(tmpBuf, NAME_BUFFER_SIZE, SHM_STREAM_STATE, streamName.c_str());
