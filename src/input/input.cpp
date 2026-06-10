@@ -480,8 +480,8 @@ namespace Mist{
         //Set stream status to STRMSTAT_INIT, then close the page in non-master mode to keep it around
         char pageName[NAME_BUFFER_SIZE];
         snprintf(pageName, NAME_BUFFER_SIZE, SHM_STREAM_STATE, streamName.c_str());
-        streamStatus.init(pageName, 16, false, false);
-        if (!streamStatus){streamStatus.init(pageName, 16, true, false);}
+        streamStatus.init(pageName, STRMSTATE_PAGE_LEN, false, false);
+        if (!streamStatus) { streamStatus.init(pageName, STRMSTATE_PAGE_LEN, true, false); }
         if (streamStatus) {
           memset(streamStatus.mapped, 0, streamStatus.len);
           streamStatus.mapped[0] = STRMSTAT_INIT;
@@ -530,8 +530,8 @@ namespace Mist{
         // Re-init streamStatus, previously closed
         char pageName[NAME_BUFFER_SIZE];
         snprintf(pageName, NAME_BUFFER_SIZE, SHM_STREAM_STATE, streamName.c_str());
-        streamStatus.init(pageName, 16, false, false);
-        if (!streamStatus){streamStatus.init(pageName, 16, true, false);}
+        streamStatus.init(pageName, STRMSTATE_PAGE_LEN, false, false);
+        if (!streamStatus) { streamStatus.init(pageName, STRMSTATE_PAGE_LEN, true, false); }
         streamStatus.master = false;
         if (streamStatus) {
           memset(streamStatus.mapped, 0, streamStatus.len);
@@ -1022,18 +1022,21 @@ namespace Mist{
     }
     if (isSingular()){
       if (!config->getBool("realtime") && Util::streamAlive(streamName)){
+        Util::logExitReason(ER_READ_START_FAILURE, "Stream already online, cancelling");
         WARN_MSG("Stream already online, cancelling");
         return;
       }
       overrides["singular"] = "";
       if (!Util::startInput(streamName, "push://INTERNAL_ONLY:" + config->getString("input"), true,
                             true, overrides, &bufferPid)){// manually override stream url to start the buffer
+        Util::logExitReason(ER_READ_START_FAILURE, "Could not start buffer for '%s', cancelling", streamName.c_str());
         WARN_MSG("Could not start buffer, cancelling");
         return;
       }
     }else{
       if (!Util::startInput(streamName, "push://INTERNAL_PUSH:" + capa["name"].asStringRef(), true,
                             true, overrides)){// manually override stream url to start the buffer
+        Util::logExitReason(ER_READ_START_FAILURE, "Could not start buffer for '%s', cancelling", streamName.c_str());
         WARN_MSG("Could not start buffer, cancelling");
         return;
       }

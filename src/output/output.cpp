@@ -104,6 +104,10 @@ namespace Mist{
     : capa(_capa), config(&cfg), myConn(conn) {
     liveSeekDisabled = false;
     dataWaitTimeout = 25000;
+    laWaitTid = INVALID_TRACK_ID;
+    laWaitSinceMs = 0;
+    laWaitLastLogMs = 0;
+    procEndedSinceMs = 0;
     timingBootMs = thisBootMs = Util::bootMS();
     timingMdiaMs = 0;
     lastPacketBootMs = thisBootMs;
@@ -2510,10 +2514,26 @@ namespace Mist{
       // Ensure we have the lookahead available. Once a process-controlled source has ended,
       // no more lookahead can arrive; drain the packets already present instead.
       if (!processControlledRealtimeEnded && needsLookAhead && M.getLive() && M.getNowms(nxt.tid) < nxt.time + needsLookAhead) {
+        // Name the track gating the wait: a process output track that never
+        // produces data (e.g. a sick thumbnailer's JPEG track) pins a
+        // recording here invisibly otherwise. Log every 5s while stuck.
+        uint64_t stallNowMs = Util::bootMS();
+        if (laWaitTid != nxt.tid) {
+          laWaitTid = nxt.tid;
+          laWaitSinceMs = stallNowMs;
+          laWaitLastLogMs = stallNowMs;
+        } else if (stallNowMs - laWaitLastLogMs >= 5000) {
+          laWaitLastLogMs = stallNowMs;
+          INFO_MSG("Waiting on lookahead for track %zu (%s) for %" PRIu64 "s (track nowms=%" PRIu64 ", lastms=%" PRIu64
+                   ", want %" PRIu64 "+%" PRIu64 "ms)",
+                   nxt.tid, M.getCodec(nxt.tid).c_str(), (stallNowMs - laWaitSinceMs) / 1000, M.getNowms(nxt.tid),
+                   M.getLastms(nxt.tid), nxt.time, needsLookAhead);
+        }
         int64_t waitTime = (nxt.time + needsLookAhead) - M.getNowms(nxt.tid);
         if (meta.reloadReplacedPagesIfNeeded()) { return 1; }
         return waitTime > 0 ? waitTime : 1;
       }
+      laWaitTid = INVALID_TRACK_ID;
 
       if (M.hasEmbeddedFrames(nxt.tid)){
         if (nxt.ghostPacket){
@@ -3040,6 +3060,44 @@ namespace Mist{
       }
       JSON::Value trackSummary;
       trackSummary["tracks"] = tracks;
+      // Per-job feeder speed stats from the buffer's rate controller, for
+      // process-controlled recordings. Lets RECORDING_END consumers see how
+      // fast the job actually ran and what gated it, instead of inferring
+      // from wall-clock alone.
+      if (isRecordingToFile && processingControlledRealtime()) {
+        char stateName[NAME_BUFFER_SIZE];
+        snprintf(stateName, NAME_BUFFER_SIZE, SHM_STREAM_STATE, streamName.c_str());
+        IPC::sharedPage statePage(stateName, STRMSTATE_PAGE_LEN, false, false);
+        if (statePage && statePage.mapped && statePage.len >= STRMSTATE_PAGE_LEN) {
+          uint32_t ticks = 0, sMin = 0, sMax = 0, hardSlow = 0, regSlow = 0, rampUps = 0, lockout = 0, staleHold = 0;
+          uint64_t sSum = 0;
+          memcpy(&ticks, statePage.mapped + STRMSTATE_SPEED_TICKS_OFFSET, sizeof(uint32_t));
+          memcpy(&sMin, statePage.mapped + STRMSTATE_SPEED_MIN_OFFSET, sizeof(uint32_t));
+          memcpy(&sMax, statePage.mapped + STRMSTATE_SPEED_MAX_OFFSET, sizeof(uint32_t));
+          memcpy(&hardSlow, statePage.mapped + STRMSTATE_HARD_SLOW_TICKS_OFFSET, sizeof(uint32_t));
+          memcpy(&regSlow, statePage.mapped + STRMSTATE_REGULAR_SLOW_TICKS_OFFSET, sizeof(uint32_t));
+          memcpy(&rampUps, statePage.mapped + STRMSTATE_RAMP_UPS_OFFSET, sizeof(uint32_t));
+          memcpy(&lockout, statePage.mapped + STRMSTATE_LOCKOUT_TICKS_OFFSET, sizeof(uint32_t));
+          memcpy(&staleHold, statePage.mapped + STRMSTATE_STALE_HOLD_TICKS_OFFSET, sizeof(uint32_t));
+          memcpy(&sSum, statePage.mapped + STRMSTATE_SPEED_SUM_OFFSET, sizeof(uint64_t));
+          if (ticks) {
+            JSON::Value & sp = trackSummary["speed"];
+            sp["ticks"] = ticks;
+            sp["min"] = sMin;
+            sp["avg"] = (double)sSum / (double)ticks;
+            sp["max"] = sMax;
+            sp["hard_slow_ticks"] = hardSlow;
+            sp["regular_slow_ticks"] = regSlow;
+            sp["ramp_ups"] = rampUps;
+            sp["lockout_ticks"] = lockout;
+            sp["stale_hold_ticks"] = staleHold;
+          }
+        }
+        if (procEndedSinceMs) {
+          trackSummary["drain_ms"] = Util::bootMS() - procEndedSinceMs;
+          INFO_MSG("Recording drain tail took %" PRIu64 "ms after source end", Util::bootMS() - procEndedSinceMs);
+        }
+      }
       payl << trackSummary.toString() << '\n';
     }
     return payl.str();
@@ -3238,7 +3296,11 @@ namespace Mist{
     if (!M || !M.getLive()) { return false; }
 
     uint8_t streamState = Util::getStreamStatus(streamName);
-    return streamState == STRMSTAT_SHUTDOWN || streamState == STRMSTAT_OFF;
+    bool ended = streamState == STRMSTAT_SHUTDOWN || streamState == STRMSTAT_OFF;
+    // Stamp the start of the drain tail (source gone, output still emptying
+    // the buffer) so the exit payload can report how long draining took.
+    if (ended && !procEndedSinceMs) { procEndedSinceMs = Util::bootMS(); }
+    return ended;
   }
 
   bool Output::processingRecordingTracksReady() {

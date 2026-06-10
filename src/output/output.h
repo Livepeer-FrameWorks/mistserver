@@ -128,6 +128,13 @@ namespace Mist{
     uint64_t lastRecv;
     uint64_t dataWaitTimeout; ///< How long to wait for new packets before dropping a track, in milliseconds.
 
+    // Processing-recording diagnostics: name the track gating the lookahead
+    // wait, and measure the drain tail after the process-controlled source ends.
+    size_t laWaitTid; ///< Track currently gating the lookahead wait (INVALID_TRACK_ID when not waiting)
+    uint64_t laWaitSinceMs; ///< bootMS when the current lookahead wait started
+    uint64_t laWaitLastLogMs; ///< bootMS of the last stall log for this wait
+    uint64_t procEndedSinceMs; ///< bootMS when processingControlledRealtimeSelectionEnded first turned true
+
     // Playback timing related
     uint64_t timingBootMs; ///< System boot time of the last playback speed change.
     uint64_t timingMdiaMs; ///< Media time of the last playback speed change.
