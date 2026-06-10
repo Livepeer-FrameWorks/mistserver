@@ -27,8 +27,7 @@ namespace Mist{
       bool fullyWritten;
       TS::Stream S;
       Util::ResizeablePointer data;
-      readySegment(){
-        S.delay(true);
+      readySegment() {
         ID = nextFreeID++;
         time = 0;
         timeOffset = 0;
@@ -37,7 +36,7 @@ namespace Mist{
         fullyWritten = false;
         offsetCalcd = false;
         lastPacket = 0;
-      };
+      }
       void set(uint64_t t, void * ptr, size_t len){
         time = t;
         data.assign(ptr, len);

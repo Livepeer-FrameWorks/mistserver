@@ -305,7 +305,6 @@ namespace Mist{
     bool isSingular(){return false;}
   private:
     std::map<std::string, readySegment>::iterator segIt;
-    std::set<uint64_t> startedTracks;
     bool needHeader(){return false;}
     virtual void getNext(size_t idx = INVALID_TRACK_ID){
       thisPacket.null();
@@ -359,19 +358,14 @@ namespace Mist{
               thisIdx = M.trackIDToIndex(trackId, getpid());
               if (thisIdx == INVALID_TRACK_ID || !M.getCodec(thisIdx).size()){
                 INFO_MSG("Initializing track %zi as %" PRIu64 " for playlist %zu", thisPacket.getTrackId(), trackId, S.ID);
+                // initializeMetadata validates the track (trackValidDefault):
+                // the proc is segment-based, so the first packet is always a
+                // keyframe and the rendition is immediately servable. Audio in
+                // returned segments is passthrough we don't publish.
                 S.S.initializeMetadata(meta, thisPacket.getTrackId(), trackId);
                 thisIdx = M.trackIDToIndex(trackId, getpid());
                 meta.setSourceTrack(thisIdx, sourceIndex);
                 if (M.getType(thisIdx) == "audio") { meta.validateTrack(thisIdx, 0); }
-              }
-              if (thisIdx != INVALID_TRACK_ID && M.getType(thisIdx) == "video" && !startedTracks.count(trackId)) {
-                if (!thisPacket.getFlag("keyframe")) {
-                  thisPacket.null();
-                  continue;
-                }
-                startedTracks.insert(trackId);
-              } else if (thisIdx != INVALID_TRACK_ID && M.getType(thisIdx) != "video") {
-                startedTracks.insert(trackId);
               }
             }
             if (S.byteOffset >= S.data.size() && !S.S.hasPacket()){
