@@ -1201,7 +1201,12 @@ namespace Mist{
       }
     }
     if (hasPush){everHadPush = true;}
-    if (!hasPush && everHadPush && !resumeMode && config->is_active){
+    // Process-controlled streams drain at the real end even in resume mode:
+    // the realtime feeder is spawned with resume=1 (so a feeder restart can
+    // rejoin mid-job), but once the feeder has ended and no process is still
+    // producing, a one-shot job is done — without this the buffer sits in
+    // WAIT until the 30s activity timeout instead of signalling drain.
+    if (!hasPush && everHadPush && (!resumeMode || processControlledRealtime) && config->is_active) {
       if (hasProcessDrainConsumers()){
         if (streamStatus){streamStatus.mapped[0] = STRMSTAT_WAIT;}
       } else if (processControlledRealtime) {
