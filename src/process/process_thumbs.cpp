@@ -526,7 +526,13 @@ namespace Mist{
           std::unique_lock<std::mutex> lk(thumbMutex);
           thumbCV.wait_for(lk, std::chrono::milliseconds(regenInterval),
                            [&](){return newData || vodDone || !co.is_active || !config->is_active;});
-          if (!co.is_active || !config->is_active){return;}
+          if (!co.is_active || !config->is_active) {
+            // Normal teardown: the source thread or the job ended. Without an
+            // explicit reason this would exit unclean (rc=1) and get logged —
+            // and restarted — as a failure.
+            Util::logExitReason(ER_CLEAN_INACTIVE, "source ended");
+            return;
+          }
           newData = false;
         }
 
@@ -558,11 +564,16 @@ namespace Mist{
           composeAndBuffer();
 
           if (vodDone){
+            // Successful completion — classify it as such, or the exit is
+            // reported (and restarted) as "Thumbnail sink thread failed".
+            Util::logExitReason(ER_CLEAN_EOF, "VOD sprite sheet complete");
             INFO_MSG("VOD sprite sheet complete");
             return;
           }
         }
       }
+      // While-condition exit: job/source ended between iterations.
+      Util::logExitReason(ER_CLEAN_INACTIVE, "source ended");
     }
   };
 
