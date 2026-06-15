@@ -6,10 +6,10 @@ RUN apk add --no-cache git patch meson ninja gcc g++ linux-headers pigz curl cjs
 RUN mkdir -p /deps/build/mbedtls /deps/build/libsrtp /deps/build/libsrt /deps/build/librist /deps/build/usrsctp /deps/mbedtls /deps/libsrtp /deps/libsrt /deps/librist /deps/usrsctp
 
 # mbedtls
-ADD --unpack=true https://github.com/Mbed-TLS/mbedtls/releases/download/mbedtls-3.6.5/mbedtls-3.6.5.tar.bz2 /deps
-ADD subprojects/packagefiles/mbedtls/meson.build /deps/mbedtls-3.6.5/
-ADD subprojects/packagefiles/mbedtls/include/mbedtls/mbedtls_config.h /deps/mbedtls-3.6.5/include/mbedtls/
-RUN cd /deps/build/mbedtls/ && meson setup /deps/mbedtls-3.6.5 -Dstrip=true && meson install
+ADD --unpack=true https://github.com/Mbed-TLS/mbedtls/releases/download/mbedtls-3.6.6/mbedtls-3.6.6.tar.bz2 /deps
+ADD subprojects/packagefiles/mbedtls/meson.build /deps/mbedtls-3.6.6/
+ADD subprojects/packagefiles/mbedtls/include/mbedtls/mbedtls_config.h /deps/mbedtls-3.6.6/include/mbedtls/
+RUN cd /deps/build/mbedtls/ && meson setup /deps/mbedtls-3.6.6 -Dstrip=true && meson install
 
 # srtp
 ADD https://github.com/cisco/libsrtp.git#v2.6.0 /deps/libsrtp
