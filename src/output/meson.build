@@ -57,6 +57,9 @@ endif
 if get_option('WITH_DECKLINK')
   outputs += {'name' : 'DeckLink', 'format' : 'decklink', 'extra': 'with_decklink'}
 endif
+if have_ndi
+  outputs += {'name' : 'NDI', 'format' : 'ndi', 'extra': 'with_ndi'}
+endif
 
 #Referenced by targets in process
 output_ebml_cpp = files('output_ebml.cpp')
@@ -108,6 +111,10 @@ foreach output : outputs
     endif
     if extra.contains('with_decklink')
       deps += decklink_dep
+    endif
+    if extra.contains('with_ndi')
+      deps += ndi_lib_dep
+      deps += ndi_sdk_dep
     endif
     if extra.contains('srtp')
       sources += files('output_webrtc_srtp.cpp', 'output_webrtc_srtp.h')

@@ -139,6 +139,8 @@ namespace Mist{
       option["default"] = "";
       option["help"] = "Which parser to use for data tracks";
       config->addOption("datatrack", option);
+      capa["optional"]["DVR"]["display"] = "always";
+      capa["optional"]["acceptable"]["display"] = "always";
     } else {
       // Setup for a thread for push-based input
       srtConn = new Socket::SRTConnection(s);

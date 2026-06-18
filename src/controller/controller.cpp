@@ -1,6 +1,7 @@
 #include "controller_api.h"
 #include "controller_capabilities.h"
 #include "controller_connectors.h"
+#include "controller_discovery.h"
 #include "controller_external_writers.h"
 #include "controller_push.h"
 #include "controller_statistics.h"
@@ -43,6 +44,7 @@ uint64_t lastConfRead = 0;
 /// the following function is a simple check if the user wants to proceed to fix (y), ignore (n) or
 /// abort on (a) a question
 static inline char yna(std::string &user_input){
+  if (!user_input.size()) { return 'x'; }
   switch (user_input[0]){
   case 'y':
   case 'Y': return 'y'; break;
@@ -64,7 +66,6 @@ void createAccount(std::string account){
     if (colon != std::string::npos && colon != 0 && colon != account.size()){
       std::string uname = account.substr(0, colon);
       std::string pword = account.substr(colon + 1, std::string::npos);
-      LOG_MSG("CONF", "Created account %s through console interface", uname.c_str());
       Controller::Storage["account"][uname]["password"] = Secure::md5(pword);
     }
   }
@@ -140,84 +141,132 @@ void handleUSR1Parent(int signum, siginfo_t *sigInfo, void *ignore){
   Util::Config::is_restarting = true;
 }
 
-bool interactiveFirstTimeSetup(){
-  bool waited = false;
+static inline bool missingAccountConfig() {
+  return !Controller::Storage.isMember("account") || Controller::Storage["account"].size() < 1;
+}
+
+static inline bool missingProtocolConfig() {
+  return (Controller::capabilities["connectors"].size()) &&
+    (!Controller::Storage.isMember("config") || !Controller::Storage["config"].isMember("protocols") ||
+     Controller::Storage["config"]["protocols"].size() < 1);
+}
+
+static std::string getWebSetupUrl(const Socket::Server & apiSock) {
+  HTTP::URL url("http://localhost:4242");
+  Socket::Address boundAddr = apiSock.getBoundAddr();
+  url.host = boundAddr.host();
+  if (url.host == "::") { url.host = "[::1]"; }
+  if (url.host == "0.0.0.0") { url.host = "127.0.0.1"; }
+  if (!url.host.size()) { url.host = "127.0.0.1"; }
+  url.setPort(boundAddr.port());
+  if (!boundAddr.port()) {
+    uint64_t cfgPort = Controller::conf.getInteger("port");
+    if (cfgPort) { url.setPort(cfgPort); }
+  }
+  return url.getUrl();
+}
+
+static bool readConsoleLine(std::string & lineOut) {
+  lineOut.clear();
+  int ttyIn = open("/dev/tty", O_RDONLY);
+  if (ttyIn < 0) { return false; }
+  char c = 0;
+  while (read(ttyIn, &c, 1) == 1) {
+    if (c == '\n') {
+      close(ttyIn);
+      return true;
+    }
+    if (c != '\r') { lineOut += c; }
+  }
+  close(ttyIn);
+  return lineOut.size();
+}
+
+static bool askConsoleValue(const std::string & question, std::string & outVal) {
+  while (Controller::conf.is_active) {
+    std::cout << std::endl << question << std::endl << "> ";
+    std::cout.flush();
+    if (!readConsoleLine(outVal)) { return false; }
+    if (outVal.size()) { return true; }
+    std::cout << "Please provide a value." << std::endl;
+  }
+  return false;
+}
+
+static void enableDefaultProtocols() {
+  jsonForEach (Controller::capabilities["connectors"], it) {
+    if (it->isMember("PUSHONLY")) { continue; }
+    if (it->isMember("NODEFAULT")) { continue; }
+    if (!it->isMember("required")) {
+      JSON::Value newProtocol;
+      newProtocol["connector"] = it.key();
+      Controller::Storage["config"]["protocols"].append(newProtocol);
+    }
+  }
+}
+
+bool interactiveFirstTimeSetup(const std::string & setupUrl) {
+  std::cout << std::endl
+            << "Initial setup is available through the web interface at " << setupUrl << " or through this console."
+            << std::endl;
+
   // check for username
-  if (!Controller::Storage.isMember("account") || Controller::Storage["account"].size() < 1){
-    std::string in_string = "";
-    while (yna(in_string) == 'x' && Controller::conf.is_active){
-      if (!waited){
-        Util::wait(1000);
-        waited = true;
-      }
-      std::cout << "Account not set, do you want to create an account? (y)es, (n)o, (a)bort: ";
+  if (missingAccountConfig()) {
+    while (Controller::conf.is_active && missingAccountConfig()) {
+      std::string inString;
+      std::cout << std::endl << "Create an account now? (y)es, (n)o, (a)bort: ";
       std::cout.flush();
-      std::getline(std::cin, in_string);
-      switch (yna(in_string)){
-      case 'y':{
-        // create account
-        std::string usr_string = "";
-        while (!(Controller::Storage.isMember("account") && Controller::Storage["account"].size() > 0) &&
-               Controller::conf.is_active){
-          std::cout << "Please type in the username, a colon and a password in the following "
-                       "format; username:password"
-                    << std::endl
-                    << ": ";
-          std::cout.flush();
-          std::getline(std::cin, usr_string);
-          createAccount(usr_string);
-        }
-      }break;
-      case 'a': return false; // abort bootup
-      case 't':{
-        createAccount("test:test");
-        if ((Controller::capabilities["connectors"].size()) &&
-            (!Controller::Storage.isMember("config") || !Controller::Storage["config"].isMember("protocols") ||
-             !Controller::Storage["config"]["protocols"].size())) {
-          // create protocols
-          jsonForEach(Controller::capabilities["connectors"], it){
-            if (it->isMember("PUSHONLY")){continue;}
-            if (it->isMember("NODEFAULT")){continue;}
-            if (!it->isMember("required")){
-              JSON::Value newProtocol;
-              newProtocol["connector"] = it.key();
-              newProtocol["debug"] = 4;
-              Controller::Storage["config"]["protocols"].append(newProtocol);
+      if (!readConsoleLine(inString)) { return true; }
+      switch (yna(inString)) {
+        case 'y': {
+          std::string userInput;
+          std::string passInput;
+          if (!askConsoleValue("Please input your desired username:", userInput)) { return true; }
+          if (!askConsoleValue("Please input your desired password:", passInput)) { return true; }
+          createAccount(userInput + ":" + passInput);
+        } break;
+        case 'n': break;
+        case 'a': return false; // abort bootup
+        case 't': {
+          createAccount("test:test");
+          if (missingProtocolConfig()) {
+            // for local testing: mimic legacy hidden test path behavior
+            jsonForEach (Controller::capabilities["connectors"], it) {
+              if (it->isMember("PUSHONLY")) { continue; }
+              if (it->isMember("NODEFAULT")) { continue; }
+              if (!it->isMember("required")) {
+                JSON::Value newProtocol;
+                newProtocol["connector"] = it.key();
+                newProtocol["debug"] = 4;
+                Controller::Storage["config"]["protocols"].append(newProtocol);
+              }
             }
           }
-        }
-        Controller::Storage["streams"]["live"]["source"] = "push://";
-      }break;
+          Controller::Storage["streams"]["live"]["source"] = "push://";
+        } break;
+        default: std::cout << "Please respond with y, n or a." << std::endl; break;
       }
     }
   }
+
   // check for protocols
-  if ((Controller::capabilities["connectors"].size()) &&
-      (!Controller::Storage.isMember("config") || !Controller::Storage["config"].isMember("protocols") ||
-       Controller::Storage["config"]["protocols"].size() < 1)){
-    std::string in_string = "";
-    while (yna(in_string) == 'x' && Controller::conf.is_active){
-      if (!waited){
-        Util::wait(1000);
-        waited = true;
-      }
-      std::cout << "Protocols not set, do you want to enable default protocols? (y)es, (n)o, (a)bort: ";
+  if (missingProtocolConfig()) {
+    while (Controller::conf.is_active && missingProtocolConfig()) {
+      std::string inString;
+      std::cout << std::endl
+                << "Do you want to enable all default protocols now, or configure them later via the API or web "
+                   "interface? (e)nable, (s)kip, (a)bort: ";
       std::cout.flush();
-      std::getline(std::cin, in_string);
-      if (yna(in_string) == 'y'){
-        // create protocols
-        jsonForEach(Controller::capabilities["connectors"], it){
-          if (it->isMember("PUSHONLY")){continue;}
-          if (it->isMember("NODEFAULT")){continue;}
-          if (!it->isMember("required")){
-            JSON::Value newProtocol;
-            newProtocol["connector"] = it.key();
-            Controller::Storage["config"]["protocols"].append(newProtocol);
-          }
-        }
-      }else if (yna(in_string) == 'a'){
-        // abort controller startup
+      if (!readConsoleLine(inString)) { return true; }
+      char choice = inString.size() ? tolower(inString[0]) : 'x';
+      if (choice == 'e') {
+        enableDefaultProtocols();
+      } else if (choice == 's') {
+        break;
+      } else if (choice == 'a') {
         return false;
+      } else {
+        std::cout << "Please respond with e, s or a." << std::endl;
       }
     }
   }
@@ -398,15 +447,6 @@ int main_loop(int argc, char **argv){
   // Warn if we're running with very little resources available
   Controller::checkSpecs();
 
-
-  // if a terminal is connected, check for first time setup
-  if (Controller::isTerminal){
-    if (!interactiveFirstTimeSetup()) {
-      stopLogThread();
-      return 0;
-    }
-  }
-
   // Generate instanceId once per boot.
   if (Controller::instanceId == ""){
     do{
@@ -435,32 +475,34 @@ int main_loop(int argc, char **argv){
     stopLogThread();
     return 0;
   }
+  const std::string setupUrl = getWebSetupUrl(apiSock);
+
+  if (Controller::isTerminal && (missingAccountConfig() || missingProtocolConfig())) {
+    if (!interactiveFirstTimeSetup(setupUrl)) { return 0; }
+  } else if (missingAccountConfig() || missingProtocolConfig()) {
+    LOG_MSG("CONF", "Initial setup is available through the web interface at %s", setupUrl.c_str());
+  }
 
   // Check if we have a usable server, if not, print messages with helpful hints
   {
     std::string msg;
     // check for username
-    if (!Controller::Storage.isMember("account") || Controller::Storage["account"].size() < 1) {
-      msg += "No login configured. ";
-    }
+    if (missingAccountConfig()) { msg += "No login configured. "; }
     // check for protocols
-    if (!Controller::Storage.isMember("config") || !Controller::Storage["config"].isMember("protocols") ||
-        Controller::Storage["config"]["protocols"].size() < 1) {
-      msg += "No protocols enabled. ";
-    }
+    if (missingProtocolConfig()) { msg += "No protocols enabled. "; }
     // check for streams - regardless of logfile setting
     if (!Controller::Storage.isMember("streams") || Controller::Storage["streams"].size() < 1) {
       msg += "No streams configured. ";
     }
     if (msg.size()) {
-      msg += "This can be configured through the web interface on port " +
-        JSON::Value(Controller::conf.boundServer.port()).asString() + " or through the API";
+      msg += "This can be configured through the web interface at " + setupUrl + " or through the API";
       LOG_MSG("CONF", "%s", msg.c_str());
     }
   }
 
   Controller::initStats();
   Controller::initStorage();
+  Controller::initDiscovery();
   Controller::loadActiveConnectors();
   Controller::externalWritersToShm();
 
@@ -469,6 +511,7 @@ int main_loop(int argc, char **argv){
   Controller::E.addInterval(Controller::updateLoad, 1000);
   Controller::E.addInterval(Controller::handleStreamMeta, 1000);
   Controller::variableTimer = Controller::E.addInterval(Controller::variableRun, 750);
+  Controller::discoveryTimer = Controller::E.addInterval(Controller::discoveryRun, 10000);
   Controller::E.addInterval(Controller::runPushCheck, 1000);
   Controller::E.addInterval(statusMonitor, 3000);
   Controller::E.addSocket(apiSock.getSocket(), [&apiSock](void *) {
@@ -586,6 +629,7 @@ int main_loop(int argc, char **argv){
   Controller::deinitStats();
   Controller::deinitPushCheck();
   Controller::variableDeinit();
+  Controller::discoveryDeinit();
   if (Util::Config::is_restarting) {
     Controller::prepareActiveConnectorsForReload();
   } else {

@@ -93,12 +93,14 @@ namespace Mist{
     capa["optional"]["maxsend"]["option"] = "--max-packet-size";
     capa["optional"]["maxsend"]["short"] = "m";
     capa["optional"]["maxsend"]["unit"] = "bytes";
+    capa["optional"]["maxsend"]["display"] = "advanced";
 
     capa["optional"]["ignsendport"]["name"] = "Ignore sending port #";
     capa["optional"]["ignsendport"]["help"] = "Ignore the sending port number of incoming data";
     capa["optional"]["ignsendport"]["default"] = false;
     capa["optional"]["ignsendport"]["option"] = "--ignore-sending-port";
     capa["optional"]["ignsendport"]["short"] = "I";
+    capa["optional"]["ignsendport"]["display"] = "advanced";
 
     cfg->addConnectorOptions(5554, capa);
   }

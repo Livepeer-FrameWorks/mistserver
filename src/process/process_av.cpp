@@ -2536,6 +2536,7 @@ int main(int argc, char *argv[]){
       genopts["track_select"]["validate"][0u] = "track_selector";
       genopts["track_select"]["default"] = "audio=all&video=all";
       genopts["track_select"]["sort"] = "a";
+      genopts["track_select"]["display"] = "always";
 
       genopts["sink"]["name"] = "Target stream";
       genopts["sink"]["help"] =
@@ -2543,6 +2544,7 @@ int main(int argc, char *argv[]){
       genopts["sink"]["type"] = "string";
       genopts["sink"]["validate"][0u] = "streamname_with_wildcard_and_variables";
       genopts["sink"]["sort"] = "b";
+      genopts["sink"]["display"] = "always";
 
       genopts["source_mask"]["name"] = "Source track mask";
       genopts["source_mask"]["help"] = "What internal processes should have access to the source track(s)";
@@ -2557,6 +2559,7 @@ int main(int argc, char *argv[]){
       genopts["source_mask"]["select"][3u][1u] = "Processing and viewer tasks (not pushes)";
       genopts["source_mask"]["default"] = "Keep original value";
       genopts["source_mask"]["sort"] = "c";
+      genopts["source_mask"]["display"] = "hidden";
 
       genopts["target_mask"]["name"] = "Output track mask";
       genopts["target_mask"]["help"] = "What internal processes should have access to the output track(s)";
@@ -2579,12 +2582,14 @@ int main(int argc, char *argv[]){
       genopts["target_mask"]["select"][7u][1u] = "Nothing";
       genopts["target_mask"]["default"] = "Keep original value";
       genopts["target_mask"]["sort"] = "d";
+      genopts["target_mask"]["display"] = "hidden";
 
       genopts["exit_unmask"]["name"] = "Undo masks on process exit/fail";
       genopts["exit_unmask"]["help"] = "If/when the process exits or fails, the masks for input tracks will be reset "
                                        "to defaults. (NOT to previous value, but to defaults!)";
       genopts["exit_unmask"]["default"] = false;
       genopts["exit_unmask"]["sort"] = "e";
+      genopts["exit_unmask"]["display"] = "hidden";
     }
 
     capa["required"]["x-LSP-kind"]["name"] = "Input type"; // human readable name of option
@@ -2653,12 +2658,14 @@ int main(int argc, char *argv[]){
     capa["optional"]["bitrate"][0u]["dependent"]["x-LSP-kind"] = "video"; // this field is only shown if x-LSP-kind is set to "video"
     capa["optional"]["bitrate"][0u]["dependent_not"]["codec"].append("JPEG"); // this field should not be shown if codec is set to "JPEG"
     capa["optional"]["bitrate"][0u]["dependent_not"]["codec"].append("UYVY"); // this field should not be shown if codec is set to "UYVY"
+    capa["optional"]["bitrate"][0u]["display"] = "always";
 
     capa["optional"]["bitrate"][1u] = capa["optional"]["bitrate"][0u];
     capa["optional"]["bitrate"][1u]["value"] = 128000;
     capa["optional"]["bitrate"][1u]["unit"].truncate(2); // keep only bit/s and kbit/s
     capa["optional"]["bitrate"][1u]["dependent"]["x-LSP-kind"] = "audio"; // this field is only shown if x-LSP-kind is set to "audio"
     capa["optional"]["bitrate"][1u]["dependent_not"]["codec"] = "PCM"; // do not show this field if the codec is PCM
+    capa["optional"]["bitrate"][1u]["display"] = "always";
 
     capa["optional"]["resolution"]["name"] = "resolution";
     capa["optional"]["resolution"]["help"] = "Resolution of the output stream, e.g. 1920x1080";
@@ -2666,6 +2673,7 @@ int main(int argc, char *argv[]){
     capa["optional"]["resolution"]["default"] = "keep source resolution";
     capa["optional"]["resolution"]["sort"] = "c";
     capa["optional"]["resolution"]["dependent"]["x-LSP-kind"] = "video";
+    capa["optional"]["resolution"]["display"] = "always";
 
     capa["optional"]["framerate"]["name"] = "Frame rate";
     capa["optional"]["framerate"]["help"] = "Declared frame rate of target stream, copy input frame rate if unset";
@@ -2673,6 +2681,7 @@ int main(int argc, char *argv[]){
     capa["optional"]["framerate"]["default"] = "";
     capa["optional"]["framerate"]["sort"] = "ca";
     capa["optional"]["framerate"]["dependent"]["x-LSP-kind"] = "video";
+    capa["optional"]["framerate"]["display"] = "always";
 
     /* gopsize field for any video codec: */
     capa["optional"]["gopsize"][0u]["name"] = "GOP Size";
@@ -2793,6 +2802,7 @@ int main(int argc, char *argv[]){
     capa["optional"]["crf"]["max"] = 51;
     capa["optional"]["crf"]["dependent"]["codec"] = "H264";
 
+    applyDisplayDefaultsToCapabilities(capa);
     std::cout << capa.toString() << std::endl;
     return -1;
   }

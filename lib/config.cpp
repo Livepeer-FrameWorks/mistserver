@@ -758,6 +758,7 @@ void Util::Config::addConnectorOptions(int port, JSON::Value &capabilities){
   capabilities["optional"]["port"]["short"] = "p";
   capabilities["optional"]["port"]["option"] = "--port";
   capabilities["optional"]["port"]["default"] = (int64_t)port;
+  capabilities["optional"]["port"]["display"] = "always";
 
   capabilities["optional"]["interface"]["name"] = "Interface";
   capabilities["optional"]["interface"]["help"] = "Address of the interface to listen on";
@@ -765,6 +766,7 @@ void Util::Config::addConnectorOptions(int port, JSON::Value &capabilities){
   capabilities["optional"]["interface"]["option"] = "--interface";
   capabilities["optional"]["interface"]["short"] = "i";
   capabilities["optional"]["interface"]["type"] = "str";
+  capabilities["optional"]["interface"]["display"] = "advanced";
 
   addBasicConnectorOptions(capabilities);
 }// addConnectorOptions
@@ -779,6 +781,7 @@ void Util::Config::addBasicConnectorOptions(JSON::Value &capabilities){
   capabilities["optional"]["username"]["short"] = "u";
   capabilities["optional"]["username"]["default"] = "root";
   capabilities["optional"]["username"]["type"] = "str";
+  capabilities["optional"]["username"]["display"] = "advanced";
 
   addOptionsFromCapabilities(capabilities);
 

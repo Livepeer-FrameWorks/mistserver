@@ -163,6 +163,7 @@ namespace Mist{
     option["default"] = "";
     option["help"] = "Which parser to use for data tracks";
     config->addOption("datatrack", option);
+    capa["optional"]["DVR"]["display"] = "always";
 
     lastTimeStamp = 0;
     timeStampOffset = 0;

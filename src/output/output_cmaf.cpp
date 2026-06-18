@@ -176,6 +176,7 @@ namespace Mist{
     capa["optional"]["listlimit"]["default"] = 0;
     capa["optional"]["listlimit"]["type"] = "uint";
     capa["optional"]["listlimit"]["option"] = "--list-limit";
+    capa["optional"]["listlimit"]["display"] = "advanced";
 
     cfg->addOption("chunkedsegments",
                    JSON::fromString("{\"short\":\"C\",\"long\":\"chunked-segments\","
@@ -212,6 +213,7 @@ namespace Mist{
         "If enabled, merges together all views from a single user into a single combined session. "
         "If disabled, each view (main playlist request) is a separate session.";
     capa["optional"]["mergesessions"]["option"] = "--mergesessions";
+    capa["optional"]["mergesessions"]["display"] = "advanced";
 
     cfg->addOption("chunkpath",
                    JSON::fromString("{\"arg\":\"string\",\"default\":\"\",\"short\":\"e\",\"long\":"
@@ -225,6 +227,7 @@ namespace Mist{
     capa["optional"]["chunkpath"]["option"] = "--chunkpath";
     capa["optional"]["chunkpath"]["short"] = "e";
     capa["optional"]["chunkpath"]["default"] = "";
+    capa["optional"]["chunkpath"]["display"] = "advanced";
 
     cfg->addStandardPushCapabilities(capa);
     capa["push_urls"].append("cmaf://*");

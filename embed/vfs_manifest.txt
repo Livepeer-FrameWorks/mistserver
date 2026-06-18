@@ -1,0 +1,20 @@
+# Embed player VFS manifest
+# Format: <virtual_path> <file_path>
+# File paths are relative to --basedir (project source root)
+
+# Player bundles
+/player.js                embed/dist/player.iife.js
+/player.mjs               embed/dist/player.min.mjs
+
+# Third-party player libraries
+/videojs.js               embed/players/video.min.js
+/dashjs.license.js        embed/players/dash.js.license.js
+/dashjs.js                embed/players/dash.all.min.js
+/flv.js                   embed/players/flv.min.js
+/hlsjs.js                 embed/players/hls.js
+/libde265.js              embed/players/libde265.min.js
+
+# Skins
+/skins/default.css        embed/dist/skins/default.css
+/skins/dev.css            embed/dist/skins/dev.css
+/skins/videojs.css        embed/skins/video-js.css

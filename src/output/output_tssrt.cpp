@@ -423,6 +423,7 @@ namespace Mist {
     capa["optional"]["streamname"]["option"] = "--stream";
     capa["optional"]["streamname"]["short"] = "s";
     capa["optional"]["streamname"]["default"] = "";
+    capa["optional"]["streamname"]["display"] = "always";
 
     capa["optional"]["acceptable"]["name"] = "Acceptable connection types";
     capa["optional"]["acceptable"]["help"] =
@@ -438,6 +439,7 @@ namespace Mist {
     capa["optional"]["acceptable"]["select"][1u][1u] = "Allow only outgoing connections";
     capa["optional"]["acceptable"]["select"][2u][0u] = 2;
     capa["optional"]["acceptable"]["select"][2u][1u] = "Allow only incoming connections";
+    capa["optional"]["acceptable"]["display"] = "always";
 
     capa["optional"]["raw"]["name"] = "Raw input mode";
     capa["optional"]["raw"]["help"] = "Enable raw MPEG-TS passthrough mode";
@@ -461,6 +463,7 @@ namespace Mist {
     cfg->addConnectorOptions(8889, capa);
     capa["optional"]["port"]["name"] = "UDP port";
     capa["optional"]["port"]["help"] = "UDP port to listen on";
+    capa["optional"]["port"]["display"] = "always";
     capa["push_urls"].append("srt://*");
     capa["push_urls"].append("srt-fh://*");
 
@@ -607,6 +610,7 @@ namespace Mist {
     capa["optional"]["datatrack"]["select"][0u][1u] = "None / disabled";
     capa["optional"]["datatrack"]["select"][1u][0u] = "json";
     capa["optional"]["datatrack"]["select"][1u][1u] = "2b size-prepended JSON";
+    capa["optional"]["datatrack"]["display"] = "advanced";
 
     opt.null();
     opt["long"] = "datatrack";
@@ -624,6 +628,7 @@ namespace Mist {
     capa["optional"]["passphrase"]["default"] = "";
     capa["optional"]["passphrase"]["minlength"] = 10;
     capa["optional"]["passphrase"]["maxlength"] = 79;
+    capa["optional"]["passphrase"]["display"] = "always";
 
     opt.null();
     opt["long"] = "passphrase";
@@ -638,6 +643,7 @@ namespace Mist {
     capa["optional"]["nostreamid"]["type"] = "boolean";
     capa["optional"]["nostreamid"]["option"] = "--nostreamid";
     capa["optional"]["nostreamid"]["short"] = "I";
+    capa["optional"]["nostreamid"]["display"] = "advanced";
 
     opt.null();
     opt["long"] = "nostreamid";
@@ -666,6 +672,7 @@ namespace Mist {
     capa["optional"]["sockopts"]["option"] = "--sockopts";
     capa["optional"]["sockopts"]["short"] = "O";
     capa["optional"]["sockopts"]["default"] = "";
+    capa["optional"]["sockopts"]["display"] = "advanced";
 
     opt.null();
     opt["long"] = "sockopts";

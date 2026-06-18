@@ -1,0 +1,253 @@
+/* auth.css — Login / first-time-setup mode */
+
+body.login-mode nav {
+  width: 0;
+  overflow: hidden;
+  padding: 0;  border: none;
+  box-shadow: none;
+}
+body.login-mode header {
+  display: none;
+}
+
+body.login-mode main {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  overflow-y: auto;
+  padding: clamp(0.9em, 2.5vw, 2em);}
+body.login-mode main::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image: var(--hexaTile);
+  background-repeat: repeat;
+  background-size: 55px;
+  opacity: 0.04;
+  pointer-events: none;
+}
+body.login-mode .page-header {
+  display: none;
+}
+body.login-mode .page-body {
+  flex: 0 0 auto;
+  overflow: visible;
+  padding: clamp(0.65em, 1.8vw, 1.1em);  box-sizing: border-box;
+  width: 100%;
+  position: relative;
+}
+body.login-mode .ui-shell--page {
+  flex: 0 0 auto;
+  width: min(26em, 100%);
+  height: auto;
+  min-height: auto;
+  margin: 0 auto;}
+
+body.login-mode .login-card {
+  background: var(--secondaryBackgroundColor);
+  border: 1px solid var(--border-color);
+  border-radius: 3px;  box-shadow: 0 0.5em 2.5em var(--shadowColor);
+  padding: var(--sp-6xl) var(--sp-6xl) var(--sp-5xl);  margin: 0;  width: 100%;
+}
+body.login-mode .login-head {
+  display: grid;
+  grid-template-columns: 3.4em minmax(0,1fr);
+  grid-template-areas:
+    "logo title"
+    "subtitle subtitle";
+  column-gap: var(--sp-2xl);  row-gap: var(--sp-sm);  align-items: center;
+  margin-bottom: var(--sp-3xl);}
+body.login-mode .login-logo {
+  display: block;
+  width: 3.4em;
+  height: 3.4em;
+  margin: 0;  grid-area: logo;
+  background-image: var(--logoImage);
+  background-size: contain;
+  background-repeat: no-repeat;
+  background-position: center center;
+  align-self: center;
+}
+body.login-mode .login-title {
+  grid-area: title;
+  text-align: left;
+  color: var(--textColor);
+  font-size: var(--text-3xl);
+  font-weight: normal;
+  line-height: 1;
+  margin: 0;  align-self: center;
+}
+body.login-mode .login-subtitle {
+  grid-area: subtitle;
+  text-align: left;
+  color: var(--secondaryTextColor);
+  font-size: var(--text-md);
+  margin: 0;  line-height: 1.4;
+}
+body.login-mode .login-alt-host {
+  margin: 0 0 var(--sp-3xl);  padding: 0;  background: none;
+  border: none;
+  color: var(--accentColor);
+  text-decoration: underline;
+  font-size: var(--text-base);
+  line-height: 1.25;
+}
+body.login-mode .login-alt-host:hover,
+body.login-mode .login-alt-host:focus {
+  color: color-mix(in srgb, var(--accentColor), white 20%);
+  background: none;
+}
+
+body.login-mode .input_container {
+  --form-label-width: 0;
+  --form-max-width: 100%;
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+body.login-mode .input_container .UIelement {
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas:
+    "label help"
+    "field field";
+  column-gap: var(--sp-sm);  row-gap: var(--sp-sm);  align-items: center;
+  padding: var(--sp-xs) 0;}
+body.login-mode .input_container .UIelement > .label {
+  grid-area: label;
+  font-weight: 600;
+  font-size: var(--text-base);
+  margin: 0;  padding-top: 0;}
+body.login-mode .input_container .UIelement > .field_container {
+  grid-area: field;
+  width: 100%;
+}
+body.login-mode .input_container .UIelement > .help_container {
+  grid-area: help;
+  justify-self: end;
+  align-self: center;
+  padding-top: 0;}
+body.login-mode .input_container .UIelement > .help_container:empty {
+  display: none;
+}
+body.login-mode .input_container .UIelement .ih_trigger {
+  margin-left: 0;}
+body.login-mode .input_container .UIelement:has(> .help_container:empty) {
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-areas:
+    "label"
+    "field";
+}
+body.login-mode .input_container .UIelement:has(> .label:empty):has(> .help_container:empty) {
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-areas: "field";
+}
+body.login-mode .input_container .button_container {
+  width: 100%;
+  justify-content: flex-start;
+  gap: var(--sp-md);}
+body.login-mode .input_container .button_container button {
+  margin: 0;}
+body.login-mode .auth-form .button_container:has(> button.save:only-child) > button.save {
+  width: 100%;
+  padding: var(--sp-lg) var(--sp-3xl);  font-size: var(--text-lg);
+}
+body.login-mode .auth-form--choices .button_container > button {
+  min-width: 0;
+  width: 100%;
+  min-height: 2.4em;
+  padding: var(--sp-lg) var(--sp-2xl);  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+body.login-mode .auth-form--choices .button_container {
+  display: grid;
+  grid-template-columns: repeat(2,minmax(0,1fr));
+  gap: var(--sp-md);}
+body.login-mode .auth-protocol-log {
+  display: none;
+  margin-top: var(--sp-2xl);  border: 1px solid var(--border-color);
+  border-top: 2px solid var(--accentColorDim);
+  background: var(--tertiaryBackgroundColor);
+  border-radius: 3px;  padding: var(--sp-lg) var(--sp-xl);  font-size: var(--text-base);
+  line-height: 1.35;
+  max-height: min(17em,45vh);
+  overflow: auto;
+}
+body.login-mode .auth-protocol-log.visible {
+  display: block;
+}
+body.login-mode .auth-protocol-log > div + div {
+  margin-top: var(--sp-xs);}
+
+@media (max-width: 480px) {
+  body.login-mode .login-card {
+    padding: var(--sp-4xl) var(--sp-3xl) var(--sp-3xl);    margin-top: 0;  }
+  body.login-mode .login-head {
+    grid-template-columns: 3em minmax(0,1fr);
+    grid-template-areas:
+      "logo title"
+      "subtitle subtitle";
+    column-gap: var(--sp-lg);  }
+  body.login-mode .login-logo {
+    width: 3em;
+    height: 3em;
+  }
+  body.login-mode .login-title {
+    font-size: var(--text-2xl);
+  }
+  body.login-mode .auth-form--choices .button_container {
+    grid-template-columns: 1fr;
+  }
+}
+
+
+/* ── Wave 0 completion overrides ── */
+
+body.login-mode .login-card {
+  padding: 0;  border-radius: 2px;  box-shadow: none;
+  overflow: hidden;
+}
+body.login-mode .login-head {
+  margin: 0;  padding: var(--sp-md) var(--sp-xl);  border-bottom: 1px solid var(--border-color);
+  background: var(--tertiaryBackgroundColor);
+  row-gap: var(--sp-sm);}
+body.login-mode .login-subtitle {
+  font-size: var(--text-base);
+}
+body.login-mode .login-alt-host {
+  display: block;
+  margin: 0;  padding: var(--sp-md) var(--sp-xl);  border-bottom: 1px solid var(--border-color);
+  text-decoration: none;
+  color: var(--secondaryTextColor);
+  background: color-mix(in srgb, var(--tertiaryBackgroundColor), var(--backgroundColor) 22%);
+}
+body.login-mode .login-alt-host:hover,
+body.login-mode .login-alt-host:focus {
+  color: var(--textColor);
+  background: color-mix(in srgb, var(--accentColor), transparent 92%);
+}
+body.login-mode .input_container.auth-form {
+  margin: 0;  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+  padding: var(--sp-md) var(--sp-xl);}
+body.login-mode .auth-form .button_container {
+  margin-top: var(--sp-md);  padding-top: var(--sp-md);  border-top: 1px solid var(--border-color);
+}
+body.login-mode .input_container > .button_container,
+body.login-mode .input_container > .text_container,
+body.login-mode .input_container > .browse_container {
+  width: 100%;
+  max-width: 100%;
+}
+body.login-mode .input_container:has(> .UIelement > .label:not(:empty)) > .button_container,
+body.login-mode .input_container:has(> .UIelement > .label:not(:empty)) > .text_container,
+body.login-mode .input_container:has(> .UIelement > .label:not(:empty)) > .browse_container {
+  padding-left: 0;}
+body.login-mode .auth-form--choices .button_container {
+  margin-top: var(--sp-sm);}
+body.login-mode .auth-protocol-log {
+  margin: 0 var(--sp-xl) var(--sp-lg);  border-radius: 2px;  border-top-width: 1px;
+  background: color-mix(in srgb, var(--tertiaryBackgroundColor), var(--backgroundColor) 22%);
+}

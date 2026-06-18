@@ -1,5 +1,31 @@
 #include <mist/json.h>
 
+inline void applyDisplayDefaultsToOption(JSON::Value & option, bool optionalDefault);
+
+inline void applyDisplayDefaultsToOptionList(JSON::Value & options, bool optionalDefault) {
+  if (!options.isObject()) { return; }
+  jsonForEach (options, it) { applyDisplayDefaultsToOption(*it, optionalDefault); }
+}
+
+inline void applyDisplayDefaultsToOption(JSON::Value & option, bool optionalDefault) {
+  if (option.isArray()) {
+    jsonForEach (option, it) { applyDisplayDefaultsToOption(*it, optionalDefault); }
+    return;
+  }
+  if (!option.isObject()) { return; }
+
+  if (!option.isMember("display")) { option["display"] = optionalDefault ? "advanced" : "always"; }
+
+  if (option.isMember("required")) { applyDisplayDefaultsToOptionList(option["required"], false); }
+  if (option.isMember("optional")) { applyDisplayDefaultsToOptionList(option["optional"], true); }
+  if (option.isMember("options")) { applyDisplayDefaultsToOptionList(option["options"], optionalDefault); }
+}
+
+inline void applyDisplayDefaultsToCapabilities(JSON::Value & capa) {
+  if (capa.isMember("required")) { applyDisplayDefaultsToOptionList(capa["required"], false); }
+  if (capa.isMember("optional")) { applyDisplayDefaultsToOptionList(capa["optional"], true); }
+}
+
 void addGenericProcessOptions(JSON::Value & capa){
   capa["sort"] = "sort"; // sort the parameters by this key
 
@@ -72,4 +98,3 @@ void addGenericProcessOptions(JSON::Value & capa){
     }
   }
 }
-

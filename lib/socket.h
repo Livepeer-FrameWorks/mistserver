@@ -302,7 +302,7 @@ namespace Socket{
   public:
     Util::ResizeablePointer data;
     UDPConnection(const UDPConnection &o);
-    UDPConnection(bool nonblock = false);
+    UDPConnection(bool nonblock = false, int family = AF_INET6);
     UDPConnection(const void * dest, size_t destLen, const void * loc, size_t locLen);
     UDPConnection(const Socket::Address & remote, const Socket::Address & local = unsetAddress);
     ~UDPConnection();

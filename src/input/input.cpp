@@ -26,6 +26,34 @@
 void child_ignorer(int signum, siginfo_t *sigInfo, void *ignore){
 }
 
+namespace {
+  void applyDisplayDefaultsToInputOption(JSON::Value & option, bool optionalDefault);
+
+  void applyDisplayDefaultsToInputOptionList(JSON::Value & options, bool optionalDefault) {
+    if (!options.isObject()) { return; }
+    jsonForEach (options, it) { applyDisplayDefaultsToInputOption(*it, optionalDefault); }
+  }
+
+  void applyDisplayDefaultsToInputOption(JSON::Value & option, bool optionalDefault) {
+    if (option.isArray()) {
+      jsonForEach (option, it) { applyDisplayDefaultsToInputOption(*it, optionalDefault); }
+      return;
+    }
+    if (!option.isObject()) { return; }
+
+    if (!option.isMember("display")) { option["display"] = optionalDefault ? "advanced" : "always"; }
+
+    if (option.isMember("required")) { applyDisplayDefaultsToInputOptionList(option["required"], false); }
+    if (option.isMember("optional")) { applyDisplayDefaultsToInputOptionList(option["optional"], true); }
+    if (option.isMember("options")) { applyDisplayDefaultsToInputOptionList(option["options"], optionalDefault); }
+  }
+
+  void applyDisplayDefaultsToInputCapabilities(JSON::Value & capa) {
+    if (capa.isMember("required")) { applyDisplayDefaultsToInputOptionList(capa["required"], false); }
+    if (capa.isMember("optional")) { applyDisplayDefaultsToInputOptionList(capa["optional"], true); }
+  }
+} // namespace
+
 namespace Mist{
   Util::Config *Input::config = NULL;
 
@@ -397,6 +425,7 @@ namespace Mist{
     Util::setStreamName(streamName);
 
     if (config->getBool("json")){
+      applyDisplayDefaultsToInputCapabilities(capa);
       capa["version"] = PACKAGE_VERSION;
       std::cout << capa.toString() << std::endl;
       return 0;

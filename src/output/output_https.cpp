@@ -93,6 +93,7 @@ namespace Mist{
     capa["optional"]["wrappers"]["allowed"].append("img");
     capa["optional"]["wrappers"]["option"] = "--wrappers";
     capa["optional"]["wrappers"]["short"] = "w";
+    capa["optional"]["wrappers"]["display"] = "advanced";
     cfg->addConnectorOptions(4433, capa);
     cfg->addOption("nostreamtext",
                    JSON::fromString("{\"arg\":\"string\", \"default\":\"\", "
@@ -104,16 +105,21 @@ namespace Mist{
     capa["optional"]["nostreamtext"]["default"] = "";
     capa["optional"]["nostreamtext"]["type"] = "str";
     capa["optional"]["nostreamtext"]["option"] = "--nostreamtext";
-    cfg->addOption("pubaddr",
-                   JSON::fromString("{\"arg\":\"string\", \"default\":\"\", "
-                                    "\"short\":\"A\",\"long\":\"public-address\",\"help\":\"Full "
-                                    "public address this output is available as.\"}"));
+    capa["optional"]["nostreamtext"]["display"] = "advanced";
+    cfg->addOption("pubaddr", R"-({
+      "arg":"string",
+      "default":"",
+      "short":"A",
+      "long":"public-address",
+      "help":"Full public address this output is available as."
+    })-");
     capa["optional"]["pubaddr"]["name"] = "Public address";
     capa["optional"]["pubaddr"]["help"] =
         "Full public address this output is available as, if being proxied";
     capa["optional"]["pubaddr"]["default"] = "";
     capa["optional"]["pubaddr"]["type"] = "inputlist";
     capa["optional"]["pubaddr"]["option"] = "--public-address";
+    capa["optional"]["pubaddr"]["display"] = "always";
   }
 
   OutHTTPS::OutHTTPS(Socket::Connection & C, Util::Config & _cfg, JSON::Value & _capa) : Output(C, _cfg, _capa) {

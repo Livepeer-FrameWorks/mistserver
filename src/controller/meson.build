@@ -1,3 +1,12 @@
+execute_deps = [libmist_dep]
+
+if have_ndi
+  execute_deps += [ndi_lib_dep, ndi_sdk_dep]
+endif
+
+if have_libxml2
+  execute_deps += [onvif_lib_dep, libxml2]
+endif
 
 executables += {
   'name': 'MistController', 
@@ -13,10 +22,11 @@ executables += {
            'controller_uplink.cpp',
            'controller_api.cpp',
            'controller_push.cpp',
-           'controller_variables.cpp'),
+           'controller_variables.cpp',
+           'controller_discovery_utils.cpp',
+           'controller_discovery.cpp'),
     header_tgts,
-    server_html],
+    variant_vfs_targets],
   'defines': [],
-  'deps' : [libmist_dep]
+  'deps' : execute_deps
 }
-

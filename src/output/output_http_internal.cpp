@@ -3,6 +3,7 @@
 #include "flashPlayer.h"
 #include "oldFlashPlayer.h"
 
+#include <mist/embedded_fs.h>
 #include <mist/encode.h>
 #include <mist/jwt.h>
 #include <mist/langcodes.h>
@@ -58,11 +59,6 @@ namespace Mist{
     if (config->getString("pubaddr").size()){
       std::string pubAddrs = config->getOption("pubaddr", true).toString();
       setenv("MIST_HTTP_pubaddr", pubAddrs.c_str(), 1);
-    }
-    if (config->getOption("wrappers", true).size() == 0 || config->getString("wrappers") == ""){
-      JSON::Value &wrappers = config->getOption("wrappers", true);
-      wrappers.shrink(0);
-      jsonForEach(capa["optional"]["wrappers"]["allowed"], it){wrappers.append(*it);}
     }
   }
 
@@ -140,6 +136,7 @@ namespace Mist{
     capa["url_match"].append("/info_$.js");
     capa["url_match"].append("/json_$.js");
     capa["url_match"].append("/player.js");
+    capa["url_match"].append("/player.mjs");
     capa["url_match"].append("/videojs.js");
     capa["url_match"].append("/dashjs.js");
     capa["url_match"].append("/webcodecsworker.js");
@@ -150,37 +147,7 @@ namespace Mist{
     capa["url_match"].append("/skins/dev.css");
     capa["url_match"].append("/skins/videojs.css");
     capa["url_match"].append("/embed_$.js");
-    capa["url_match"].append("/flashplayer.swf");
-    capa["url_match"].append("/oldflashplayer.swf");
     capa["url_prefix"] = "/.well-known/";
-    {
-      JSON::Value & opt = capa["optional"]["wrappers"];
-      opt["name"] = "Active players";
-      opt["help"] = "Which players are attempted and in what order.";
-      opt["default"] = "";
-      opt["allowed"].append("mews");
-      opt["allowed"].append("webrtc");
-      opt["allowed"].append("rawws");
-      opt["allowed"].append("html5");
-      opt["allowed"].append("wheprtc");
-      opt["allowed"].append("hlsjs");
-      opt["allowed"].append("videojs");
-      opt["allowed"].append("dashjs");
-      opt["allowed"].append("rawwscanvas");
-      opt["allowed"].append("flv");
-      opt["allowed"].append("flash_strobe");
-      opt["type"] = "inputlist";
-      {
-        JSON::Value & input = opt["input"];
-        input["type"] = "select";
-        input["select"] = opt["allowed"];
-        JSON::Value & defEntry = input["select"].prepend();
-        defEntry.append("");
-        defEntry.append("(none)");
-      }
-      opt["option"] = "--wrappers";
-      opt["short"] = "w";
-    }
     capa["optional"]["certbot"]["name"] = "Certbot validation token";
     capa["optional"]["certbot"]["help"] = "Automatically set by the MistUtilCertbot authentication "
                                           "hook for certbot. Not intended to be set manually.";
@@ -903,8 +870,11 @@ namespace Mist{
       return;
     }// embed code generator
 
-    if ((req.url == "/player.js") || ((req.url.substr(0, 7) == "/embed_") && (req.url.length() > 10) &&
-                                    (req.url.substr(H.url.length() - 3, 3) == ".js"))){
+#include "embed.vfs.h"
+
+    // Dynamic player script: concatenates player core + enabled wrappers
+    if ((req.url == "/player.js") ||
+        ((req.url.substr(0, 7) == "/embed_") && (req.url.length() > 10) && (req.url.substr(req.url.length() - 3, 3) == ".js"))) {
       HTTP::URL fullURL(req.GetHeader("Host"));
       if (!fullURL.protocol.size()){fullURL.protocol = getProtocolForPort(fullURL.getPort());}
       if (config->getString("pubaddr") != ""){
@@ -914,8 +884,7 @@ namespace Mist{
         fullURL.port = altURL.port;
         fullURL.path = altURL.path;
       }
-      if (mistPath.size()){fullURL = mistPath;}
-      std::string response;
+      if (mistPath.size()) { fullURL = mistPath; }
       std::string rURL = req.url;
 
       if ((rURL.substr(0, 7) == "/embed_") && (rURL.length() > 10) &&
@@ -926,6 +895,7 @@ namespace Mist{
       H.SetHeader("Server", APPIDENT);
       H.setCORSHeaders();
       H.SetHeader("Content-Type", "application/javascript; charset=utf-8");
+      H.SetHeader("Cache-Control", "no-cache");
       if (headersOnly){
         H.SendResponse("200", "OK", myConn);
         responded = true;
@@ -933,72 +903,13 @@ namespace Mist{
         return;
       }
 
+      std::string response;
       response.append("if (typeof mistoptions == 'undefined'){mistoptions ={};}\nif (!('host' "
                       "in mistoptions)){mistoptions.host = '" +
                       fullURL.getUrl() + "';}\n");
 
-#include "player.js.h"
-      response.append((char *)player_js, (size_t)player_js_len);
-
-      jsonForEach(config->getOption("wrappers", true), it){
-        bool used = false;
-        if (it->asStringRef() == "html5"){
-#include "html5.js.h"
-          response.append((char *)html5_js, (size_t)html5_js_len);
-          used = true;
-        }
-        if (it->asStringRef() == "flash_strobe"){
-#include "flash_strobe.js.h"
-          response.append((char *)flash_strobe_js, (size_t)flash_strobe_js_len);
-          used = true;
-        }
-        if (it->asStringRef() == "dashjs"){
-#include "dashjs.js.h"
-          response.append((char *)dash_js, (size_t)dash_js_len);
-          used = true;
-        }
-        if (it->asStringRef() == "videojs"){
-#include "videojs.js.h"
-          response.append((char *)video_js, (size_t)video_js_len);
-          used = true;
-        }
-        if (it->asStringRef() == "wheprtc") {
-#include "wheprtc.js.h"
-          response.append((char *)wheprtc_js, (size_t)wheprtc_js_len);
-          used = true;
-        }
-        if (it->asStringRef() == "webrtc"){
-#include "webrtc.js.h"
-          response.append((char *)webrtc_js, (size_t)webrtc_js_len);
-          used = true;
-        }
-        if (it->asStringRef() == "mews"){
-#include "mews.js.h"
-          response.append((char *)mews_js, (size_t)mews_js_len);
-          used = true;
-        }
-        if (it->asStringRef() == "rawws"){
-#include "rawws.js.h"
-          response.append((char *)rawws_js, (size_t)rawws_js_len);
-          used = true;
-        }
-        if (it->asStringRef() == "rawwscanvas") {
-#include "rawwscanvas.js.h"
-          response.append((char *)rawwscanvas_js, (size_t)rawwscanvas_js_len);
-          used = true;
-        }
-        if (it->asStringRef() == "flv"){
-#include "flv.js.h"
-          response.append((char *)flv_js, (size_t)flv_js_len);
-          used = true;
-        }
-        if (it->asStringRef() == "hlsjs"){
-          #include "hlsjs.js.h"
-          response.append((char*)hlsjs_js, (size_t)hlsjs_js_len);
-          used = true;
-        }
-        if (!used){WARN_MSG("Unknown player type: %s", it->asStringRef().c_str());}
-      }
+      const EmbeddedFile *pjs = vfsLookup(embed_vfs, embed_vfs_count, "/player.js");
+      if (pjs) response.append(pjs->data, pjs->data_len);
 
       if ((rURL.substr(0, 7) == "/embed_") && (rURL.length() > 10) &&
           (rURL.substr(rURL.length() - 3, 3) == ".js")){
@@ -1014,80 +925,23 @@ namespace Mist{
       return;
     }
 
-    if (req.url.substr(0, 7) == "/skins/"){
-      std::string response;
-      std::string url = req.url;
+    // /dashjs.js is special: license + library concatenated
+    if (req.url == "/dashjs.js") {
       H.SetHeader("Server", APPIDENT);
       H.setCORSHeaders();
-      H.SetHeader("Content-Type", "text/css");
+      H.SetHeader("Content-Type", "application/javascript; charset=utf-8");
+      H.SetHeader("Cache-Control", "public, max-age=86400");
       if (headersOnly){
         H.SendResponse("200", "OK", myConn);
         responded = true;
         H.Clean();
         return;
       }
-
-      if (url == "/skins/default.css"){
-#include "skin_default.css.h"
-        response.append((char *)skin_default_css, (size_t)skin_default_css_len);
-      }else if (url == "/skins/dev.css"){
-#include "skin_dev.css.h"
-        response.append((char *)skin_dev_css, (size_t)skin_dev_css_len);
-      }else if (url == "/skins/videojs.css"){
-#include "skin_videojs.css.h"
-        response.append((char *)skin_videojs_css, (size_t)skin_videojs_css_len);
-      }else{
-        H.SetBody("Unknown stylesheet: " + url);
-        H.SendResponse("404", "Unknown stylesheet", myConn);
-        responded = true;
-        H.Clean();
-        return;
-      }
-
-      H.SetBody(response);
-      H.SendResponse("200", "OK", myConn);
-      responded = true;
-      H.Clean();
-      return;
-    }
-    if (req.url == "/videojs.js"){
       std::string response;
-      H.SetHeader("Server", APPIDENT);
-      H.setCORSHeaders();
-      H.SetHeader("Content-Type", "application/javascript");
-      if (headersOnly){
-        H.SendResponse("200", "OK", myConn);
-        responded = true;
-        H.Clean();
-        return;
-      }
-
-#include "player_video.js.h"
-      response.append((char *)player_video_js, (size_t)player_video_js_len);
-
-      H.SetBody(response);
-      H.SendResponse("200", "OK", myConn);
-      responded = true;
-      H.Clean();
-      return;
-    }
-    if (req.url == "/dashjs.js"){
-      std::string response;
-      H.SetHeader("Server", APPIDENT);
-      H.setCORSHeaders();
-      H.SetHeader("Content-Type", "application/javascript");
-      if (headersOnly){
-        H.SendResponse("200", "OK", myConn);
-        responded = true;
-        H.Clean();
-        return;
-      }
-
-#include "player_dash_lic.js.h"
-      response.append((char *)player_dash_lic_js, (size_t)player_dash_lic_js_len);
-#include "player_dash.js.h"
-      response.append((char *)player_dash_js, (size_t)player_dash_js_len);
-
+      const EmbeddedFile *lic = vfsLookup(embed_vfs, embed_vfs_count, "/dashjs.license.js");
+      const EmbeddedFile *lib = vfsLookup(embed_vfs, embed_vfs_count, "/dashjs.js");
+      if (lic) response.append(lic->data, lic->data_len);
+      if (lib) response.append(lib->data, lib->data_len);
       H.SetBody(response);
       H.SendResponse("200", "OK", myConn);
       responded = true;
@@ -1095,83 +949,35 @@ namespace Mist{
       return;
     }
 
-    if (req.url == "/flv.js"){
-      std::string response;
-      H.SetHeader("Server", "MistServer/" PACKAGE_VERSION);
-      H.setCORSHeaders();
-      H.SetHeader("Content-Type", "application/javascript");
-      if (headersOnly){
+    // Static embed files: skins, third-party player libs
+    {
+      const EmbeddedFile *entry = vfsLookup(embed_vfs, embed_vfs_count, req.url.c_str());
+      if (entry) {
+        H.SetHeader("Server", APPIDENT);
+        H.setCORSHeaders();
+        std::string quotedEtag = std::string("\"") + entry->etag + "\"";
+        H.SetHeader("ETag", quotedEtag);
+        H.SetHeader("Cache-Control", "public, max-age=86400");
+        std::string inm = req.GetHeader("If-None-Match");
+        if (inm.size() && (inm == quotedEtag || inm == entry->etag)) {
+          H.SendResponse("304", "Not Modified", myConn);
+          responded = true;
+          H.Clean();
+          return;
+        }
+        H.SetHeader("Content-Type", entry->mime);
+        if (headersOnly) {
+          H.SendResponse("200", "OK", myConn);
+          responded = true;
+          H.Clean();
+          return;
+        }
+        H.SetBody(std::string(entry->data, entry->data_len));
         H.SendResponse("200", "OK", myConn);
+        responded = true;
         H.Clean();
         return;
       }
-
-#include "player_flv.js.h"
-      response.append((char *)player_flv_js, (size_t)player_flv_js_len);
-
-      H.SetBody(response);
-      H.SendResponse("200", "OK", myConn);
-      H.Clean();
-      return;
-    }
-    if (req.url == "/hlsjs.js"){
-      std::string response;
-      H.SetHeader("Server", "MistServer/" PACKAGE_VERSION);
-      H.setCORSHeaders();
-      H.SetHeader("Content-Type", "application/javascript");
-      if (headersOnly){
-        H.SendResponse("200", "OK", myConn);
-        H.Clean();
-        return;
-      }
-
-      #include "player_hlsjs.js.h"
-      response.append((char*)player_hlsjs_js, (size_t)player_hlsjs_js_len);
-
-      H.SetBody(response);
-      H.SendResponse("200", "OK", myConn);
-      H.Clean();
-      return;
-    }
-    if (req.url == "/libde265.js"){
-      std::string response;
-      H.Clean();
-      H.SetHeader("Server", "MistServer/" PACKAGE_VERSION);
-      H.setCORSHeaders();
-      H.SetHeader("Content-Type", "application/javascript");
-      if (headersOnly){
-        H.SendResponse("200", "OK", myConn);
-        H.Clean();
-        return;
-      }
-
-      #include "player_libde265.js.h"
-      response.append((char*)player_libde265_js, (size_t)player_libde265_js_len);
-
-      H.SetBody(response);
-      H.SendResponse("200", "OK", myConn);
-      H.Clean();
-      return;
-    }
-    if (req.url == "/webcodecsworker.js") {
-      std::string response;
-      H.Clean();
-      H.SetHeader("Server", "MistServer/" PACKAGE_VERSION);
-      H.setCORSHeaders();
-      H.SetHeader("Content-Type", "application/javascript");
-      if (headersOnly) {
-        H.SendResponse("200", "OK", myConn);
-        H.Clean();
-        return;
-      }
-
-#include "wcworker.js.h"
-      response.append((char *)wcworker_js, (size_t)wcworker_js_len);
-
-      H.SetBody(response);
-      H.SendResponse("200", "OK", myConn);
-      H.Clean();
-      return;
     }
   }
 

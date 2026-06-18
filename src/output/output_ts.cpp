@@ -172,6 +172,7 @@ namespace Mist{
     capa["optional"]["datatrack"]["select"][0u][1u] = "None / disabled";
     capa["optional"]["datatrack"]["select"][1u][0u] = "json";
     capa["optional"]["datatrack"]["select"][1u][1u] = "2b size-prepended JSON";
+    capa["optional"]["datatrack"]["display"] = "advanced";
 
     opt.null();
     opt["long"] = "datatrack";

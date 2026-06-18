@@ -75,6 +75,56 @@ test('Invalid symbols in array', jsontest, suite: 'JSON parser / printer', env :
 test('Complex structure', jsontest, suite: 'JSON parser / printer', env : {'JSON_STRING':'[{"a":[1,2,3.14]},n,[t,f]]', 'JSON_RESULT':'[{"a":[1,2,3.14]},null,[true,false]]'})
 test('Empty object member', jsontest, suite: 'JSON parser / printer', env : {'JSON_STRING':'{"test":}', 'JSON_RESULT':'{"test":null}'})
 
+deviceinfotest = executable('deviceinfotest', 'deviceinfo.cpp', header_tgts, dependencies: libmist_dep)
+test('DeviceInfo empty arrays serialize as arrays', deviceinfotest, suite: 'Device', args: ['empty_json_arrays'])
+test('DeviceInfo analytics populated roundtrip', deviceinfotest, suite: 'Device', args: ['analytics_roundtrip_populated'])
+test('DeviceInfo analytics partial JSON defaults', deviceinfotest, suite: 'Device', args: ['analytics_partial_from_json'])
+test('DeviceInfo stream roundtrip', deviceinfotest, suite: 'Device', args: ['stream_roundtrip'])
+test('DeviceInfo protocol capability flags roundtrip', deviceinfotest, suite: 'Device', args: ['protocol_capability_flags_roundtrip'])
+test('DeviceInfo protocol helper methods', deviceinfotest, suite: 'Device', args: ['protocol_helper_methods'])
+
+viscacaptest = executable('viscacaptest', 'visca_capabilities.cpp', header_tgts, dependencies: libmist_dep)
+test('VISCA response validation table', viscacaptest, suite: 'Device', args: ['response_validation_table'])
+test('VISCA capability features include new controls', viscacaptest, suite: 'Device', args: ['query_capabilities_features'])
+test('VISCA supported commands include new controls', viscacaptest, suite: 'Device', args: ['query_capabilities_supported_commands'])
+test('VISCA createDevice uses protocol endpoint', viscacaptest, suite: 'Device', args: ['create_device_from_protocol_endpoint'])
+test('VISCA createDevice fallback defaults', viscacaptest, suite: 'Device', args: ['create_device_fallback_defaults'])
+test('VISCA setAddress validation and trim', viscacaptest, suite: 'Device', args: ['set_address_validation_and_trim'])
+test('VISCA setAddress port rules', viscacaptest, suite: 'Device', args: ['set_address_port_rules'])
+
+discoverydeps = [libmist_dep]
+if have_ndi
+  discoverydeps += [ndi_sdk_dep, ndi_lib_dep]
+endif
+if have_libxml2
+  discoverydeps += [onvif_lib_dep, libxml2]
+endif
+
+discoveryunittest = executable('discoveryunittest',
+                               files('controller_discovery_unit.cpp', '../src/controller/controller_discovery_utils.cpp'),
+                               header_tgts,
+                               dependencies: discoverydeps)
+test('Discovery helper extractCleanIP table', discoveryunittest, suite: 'Device', args: ['extract_clean_ip_table'])
+test('Discovery helper updateDeviceInfo merge', discoveryunittest, suite: 'Device', args: ['update_device_info_merge'])
+test('Discovery helper updateDeviceInfo status rule', discoveryunittest, suite: 'Device', args: ['update_device_info_status_rule'])
+test('Discovery helper createPTZ pan tilt zoom clamp', discoveryunittest, suite: 'Device', args: ['create_ptz_pan_tilt_zoom_clamp'])
+test('Discovery helper createPTZ preset and other actions', discoveryunittest, suite: 'Device', args: ['create_ptz_preset_and_other_actions'])
+
+if have_libxml2
+  soaponviftest = executable('soaponviftest', 'soap_onvif.cpp', header_tgts, dependencies: [libmist_dep, onvif_lib_dep, libxml2])
+  test('SOAP ONVIF getFullActionUri', soaponviftest, suite: 'SOAP', args: ['get_full_action_uri'])
+  test('SOAP ONVIF addServiceNamespaces', soaponviftest, suite: 'SOAP', args: ['add_service_namespaces'])
+  test('SOAP ONVIF addStandardHeaders', soaponviftest, suite: 'SOAP', args: ['add_standard_headers'])
+  test('SOAP ONVIF addSecurityHeader uses digest', soaponviftest, suite: 'SOAP', args: ['add_security_header_uses_digest'])
+  test('SOAP ONVIF generateUUID format', soaponviftest, suite: 'SOAP', args: ['generate_uuid_format'])
+
+  xmldoctest = executable('xmldoctest', 'xml_document.cpp', header_tgts, dependencies: [libmist_dep, onvif_lib_dep, libxml2])
+  test('XML node move assignment tree integrity', xmldoctest, suite: 'XML', args: ['node_move_assignment_tree_integrity'])
+  test('XML document copy constructor deep copy', xmldoctest, suite: 'XML', args: ['copy_constructor_deep_copy'])
+  test('XML document copy assignment deep copy', xmldoctest, suite: 'XML', args: ['copy_assignment_deep_copy'])
+  test('XML namespaced node creation', xmldoctest, suite: 'XML', args: ['namespaced_node_creation'])
+endif
+
 urltest = executable('urltest', 'url.cpp', header_tgts, dependencies: libmist_dep)
 urltest_vm = {'T_PATH':'', 'T_QUERY':'', 'T_FRAG':'', 'T_USER':'', 'T_PASS':'', 'T_NORM':'', 'T_EXT':''}
 urltest_v = urltest_vm + {'T_PROTO':'', 'T_HOST':'', 'T_PORT':'0'}

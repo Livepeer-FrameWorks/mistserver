@@ -1,9 +1,31 @@
+@layer mist.skin {
+
 .mistvideo {
-  line-height: 1.2;
-  font-size: 14.5px;
+  line-height: var(--mist-line-height);
+  font-size: var(--mist-font-size);
 }
 .mistvideo svg {
-  margin: 2.5px;
+  margin: var(--mist-space-xs);
+}
+.mistvideo svg.icon.loading {
+  margin: auto;
+}
+.mistvideo svg.icon.loading svg {
+  margin: 0;
+}
+@keyframes mistvideo-spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+.mistvideo[data-loading] svg.icon.loading {
+  animation: mistvideo-spin 1.5s infinite linear;
+  transform-origin: center;
+}
+.mistvideo svg.icon {
+  transition: fill 0.15s ease;
+}
+.mistvideo-controls button {
+  transition: opacity 0.15s ease, background-color 0.15s ease;
 }
 .mistvideo-video { /* keep video centered if container is larger (when fillSpace:true) */
   display: flex;
@@ -17,9 +39,9 @@
   display: flex;
   align-items: flex-end;
   justify-content: center;
-  font-size: 1.5em;
+  font-size: var(--mist-font-size-lg);
   font-size: clamp(1em,1cm,calc(var(--height)*0.1));
-  transition: bottom 0.5s ease-in 0.5s;
+  transition: bottom var(--mist-transition-slow) ease-in var(--mist-transition-slow);
   pointer-events: none;
 }
 .mistvideo-subtitles[data-position="top"] {
@@ -44,61 +66,82 @@
 .mistvideo[data-show-submenu] .mistvideo-subtitles,
 .mistvideo[data-controls="show"] .mistvideo-subtitles,
 .mistvideo-maincontainer:hover:not([data-hidecursor]) .mistvideo-subtitles {
-  bottom: 42px;
+  bottom: var(--mist-control-height);
   transition: none;
 }
-.mistvideo-background { background-color: $background; }
+.mistvideo-background {
+  background-color: var(--mist-color-surface);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
 .mistvideo-totalTime:before {
   content: '/';
   margin: 0.2em;
 }
 .mistvideo-progress {
-  padding: 10px 0;
-  margin: -10px 0;
+  padding: var(--mist-space-md) 0;
+  margin: calc(-1 * var(--mist-space-md)) 0;
   z-index: 2; /*keep above control bar*/
 }
 .mistvideo-progress > * {
-  height: 2px;
-  background-color: $progressBackground;
+  height: var(--mist-progress-height);
+  background-color: var(--mist-color-progress-track);
   opacity: 0.95;
   position: relative;
 }
 .mistvideo-novideo .mistvideo-progress > *,
 .mistvideo-progress:hover > * {
-  height: 10px;
+  height: var(--mist-progress-height-hover);
 }
 
 .mistvideo-progress:not(:hover) > * {
-  transition: height 0.25s ease-in 0.5s;
+  transition: height var(--mist-transition-normal) ease-in var(--mist-transition-slow);
 }
 .mistvideo-progress .bar {
   height: inherit;
-  width: 100%;
-  transform: scaleX(0);
-  transform-origin: left;
+  width: 0;
   position: absolute;
   border-right: inherit;
-  background-color: $accent;
+  background-color: var(--mist-color-progress-fill);
   z-index: 2; /*keep above buffer bar(s)*/
-  transition: transform 0.2s;
+  transition: width 0.2s;
 }
 .mistvideo-progress .buffer {
   height: inherit;
   width: 0;
   position: absolute;
-  background-color: $semiFill;
+  background-color: var(--mist-color-progress-buffer);
 }
 .mistvideo-progress .bar:after {
   content: '';
-  border: 5px solid $accent;
-  border-radius: 5px;
+  border: var(--mist-progress-knob-size) solid var(--mist-color-accent);
+  border-radius: var(--mist-progress-knob-size);
   position: absolute;
-  right: -5px;
+  right: calc(-1 * var(--mist-progress-knob-size));
   top: 50%;
-  transform: translateY(-50%);
+  transform: translateY(-50%) scale(0.75);
+  opacity: 0;
+  transition: opacity 0.15s ease, transform 0.15s ease;
+}
+.mistvideo-progress:hover .bar:after {
+  opacity: 1;
+  transform: translateY(-50%) scale(1);
+}
+.mistvideo-novideo .mistvideo-progress .bar:after {
+  opacity: 1;
+  transform: translateY(-50%) scale(1);
 }
 .mistvideo-progress .mistvideo-tooltip .mistvideo-realtime {
   text-align: center;
+  display: block;
+}
+.mistvideo-thumb-container:empty { display: none; }
+.mistvideo-thumb-preview {
+  margin-bottom: var(--mist-space-xs);
+  overflow: hidden;
+  border-radius: var(--mist-radius-sm);
+}
+.mistvideo-thumb-preview img {
   display: block;
 }
 
@@ -122,8 +165,8 @@
 .mistvideo > .mist.largeplay,
 .mistvideo > .mist.muted {
   position: absolute;
-  opacity: 0.5;
-  background-color: $background;
+  opacity: var(--mist-opacity-disabled);
+  background-color: var(--mist-color-surface);
   border-radius: 50%;
   padding: 0.5em;
 }
@@ -141,7 +184,7 @@
   transform-origin: center;
 }
 .mistvideo > .mist.largeplay:hover path {
-  stroke: $accent;
+  stroke: var(--mist-color-accent);
 }
 .mistvideo > .mist.muted {
   top: 0;
@@ -170,19 +213,90 @@
   z-index: 0;
   opacity: 1;
 }
-.mistvideo:not([data-hide-submenu]) .mistvideo-hoverWindow:hover >svg.icon.settings .fill,
 .mistvideo[data-show-submenu] svg.icon.settings .fill,
 .mistvideo[data-fullscreen] svg.icon.fullscreen .fill {
-  fill: $accent;
+  fill: var(--mist-color-accent);
+}
+.mistvideo .mistvideo-submenu {
+  position: absolute;
+  bottom: calc(var(--mist-control-height) + 2px);
+  right: -1000px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s ease-out, right 0s 0.2s;
+  border-radius: var(--mist-radius-md);
+  box-shadow: 0 4px 16px rgba(0,0,0,0.4);
+  max-height: 60vh;
+  overflow: visible;
+  z-index: 5;
 }
 .mistvideo[data-show-submenu] .mistvideo-submenu {
-  right: 5px;
+  right: var(--mist-space-sm);
+  opacity: 1;
+  pointer-events: auto;
+  transition: opacity 0.15s ease-in, right 0s;
 }
-.mistvideo[data-hide-submenu] .mistvideo-submenu {
-  right: -1000px !important;
+
+/* Small/mobile: full overlay above controls bar */
+.mistvideo[data-size="xs"][data-show-submenu] .mistvideo-submenu,
+.mistvideo[data-size="sm"][data-show-submenu] .mistvideo-submenu {
+  top: 0;
+  right: 0;
+  bottom: var(--mist-control-height);
+  left: 0;
+  max-height: none;
+  width: auto;
+  max-width: none;
+  min-width: 0;
+  border-radius: 0;
+  z-index: 10;
+  overflow-y: auto;
 }
-.mistvideo[data-show-submenu] .mistvideo-controls {
-  bottom: 0;
+/* Small/mobile: popup menus flow inline (no clipping from overflow) */
+.mistvideo[data-size="xs"] .mistvideo-submenu .mistvideo-menu,
+.mistvideo[data-size="sm"] .mistvideo-submenu .mistvideo-menu {
+  position: static;
+  box-shadow: none;
+  border-radius: var(--mist-radius-sm);
+  min-width: 0;
+  max-height: none;
+  border: 1px solid var(--mist-color-border);
+  margin-top: var(--mist-space-xs);
+}
+
+
+/* Track selection table inside submenu */
+.mistvideo-submenu table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--mist-font-size-sm);
+}
+.mistvideo-submenu table tr {
+  border-bottom: 1px solid var(--mist-color-separator);
+}
+.mistvideo-submenu table tr:last-child {
+  border-bottom: none;
+}
+.mistvideo-submenu table td {
+  padding: var(--mist-space-xs) var(--mist-space-sm);
+  vertical-align: middle;
+  white-space: nowrap;
+}
+.mistvideo-submenu table td:first-child {
+  color: var(--mist-color-text-muted);
+  font-weight: 600;
+  text-transform: capitalize;
+  padding-right: var(--mist-space-md);
+}
+.mistvideo-submenu .mistvideo-description {
+  color: var(--mist-color-text-muted);
+  font-size: var(--mist-font-size-sm);
+  margin-right: var(--mist-space-sm);
+}
+.mistvideo-submenu .mistvideo-menu-trigger {
+  display: block;
+  width: 100%;
+  text-align: left;
 }
 .mistvideo-currentTime {
   white-space: nowrap;
@@ -206,7 +320,7 @@
   width: 100%;
   height: 100%;
   backdrop-filter: blur(1cm);
-  z-index: 2; 
+  z-index: 2;
 }
 .mistvideo-videobackground * {
   position: absolute;
@@ -241,7 +355,7 @@
   width: 100%;
   font-size: 2em;
   text-shadow: 1px 1px 5px #000a;
-} 
+}
 
 
 .mistvideo-error[data-passive] {
@@ -274,13 +388,213 @@
   width: 24px;
   height: 24px;
 
-  --connected-color: $fill;
-  --disconnected-color: $semiFill;
+  --connected-color: var(--mist-color-icon-fill);
+  --disconnected-color: var(--mist-color-text-muted);
 }
 .mistvideo google-cast-launcher.active {
-  --connected-color: $accent;
-  --disconnected-color: $fill;
+  --connected-color: var(--mist-color-accent);
+  --disconnected-color: var(--mist-color-icon-fill);
 }
 .mistvideo.casting .mistvideo-slideshow_mode {
   display: none;
 }
+
+/* Container queries for responsive controls */
+.mistvideo-maincontainer {
+  container-type: inline-size;
+  container-name: mist-player;
+}
+
+/* Seek buttons: hidden on desktop, visible on mobile breakpoints */
+.mistvideo-seek-btn { display: none; }
+.mistvideo[data-size="xs"] .mistvideo-seek-btn,
+.mistvideo[data-size="sm"] .mistvideo-seek-btn { display: flex; }
+
+/* Responsive breakpoints via data-size attribute */
+.mistvideo[data-size="xs"] .mistvideo-totalTime { display: none; }
+.mistvideo[data-size="xs"] .mistvideo-volume_group { display: none; }
+.mistvideo[data-size="xs"] .mistvideo-currentTime { font-size: var(--mist-font-size-sm); }
+
+/* Volume pill: speaker always visible, slider expands on hover or during drag */
+.mistvideo-volume_group {
+  display: flex;
+  align-items: center;
+  border-radius: var(--mist-radius-md);
+  transition: background-color 0.2s ease-out;
+}
+.mistvideo-volume_container {
+  display: flex;
+  align-items: center;
+}
+.mistvideo-volume_container > * {
+  flex: 1;
+  min-width: 0;
+}
+.mistvideo-volume_container svg.icon.volume {
+  width: 100%;
+  height: var(--mist-icon-size);
+  margin: 0;
+  display: block;
+}
+@media (hover: hover) {
+  .mistvideo-volume_group:hover,
+  .mistvideo-volume_group.dragging {
+    background-color: var(--mist-color-hover);
+  }
+  .mistvideo-volume_group .mistvideo-volume_container {
+    width: 0;
+    opacity: 0;
+    overflow: hidden;
+    transition: width 0.2s ease-out, opacity 0.2s ease-out;
+  }
+  .mistvideo-volume_group:hover .mistvideo-volume_container,
+  .mistvideo-volume_group.dragging .mistvideo-volume_container {
+    width: var(--mist-volume-slider-width);
+    opacity: 1;
+  }
+}
+
+/* Branded skin: logo element */
+.mistvideo-brand-logo {
+  padding: 0 var(--mist-space-sm);
+  font-weight: 700;
+  font-size: var(--mist-font-size-sm);
+  opacity: 0.6;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+/* Custom menu trigger button */
+.mistvideo-menu-trigger {
+  background: var(--mist-color-hover);
+  border: 1px solid var(--mist-color-border);
+  color: var(--mist-color-text);
+  padding: 2px var(--mist-space-sm);
+  cursor: pointer;
+  font-size: var(--mist-font-size-sm);
+  font-family: inherit;
+  border-radius: var(--mist-radius-sm);
+  max-width: 14em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mistvideo-menu-trigger:hover {
+  border-color: var(--mist-color-accent);
+}
+
+/* Custom popup menus */
+.mistvideo-menu {
+  position: absolute;
+  bottom: 100%;
+  right: 0;
+  background-color: var(--mist-color-surface);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border-radius: var(--mist-radius-md);
+  padding: var(--mist-space-xs) 0;
+  min-width: 140px;
+  z-index: 10;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+  max-height: 240px;
+  overflow-y: auto;
+}
+.mistvideo-menu-item {
+  display: flex;
+  align-items: center;
+  padding: var(--mist-space-xs) var(--mist-space-md);
+  cursor: pointer;
+  white-space: nowrap;
+  outline: none;
+  font-size: var(--mist-font-size);
+}
+.mistvideo-menu-item:hover,
+.mistvideo-menu-item:focus {
+  background-color: var(--mist-color-hover);
+}
+.mistvideo-menu-indicator {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  margin-right: var(--mist-space-sm);
+  flex-shrink: 0;
+  border: 1px solid var(--mist-color-text-muted);
+}
+.mistvideo-menu-item[data-selected] .mistvideo-menu-indicator {
+  background-color: var(--mist-color-accent);
+  border-color: var(--mist-color-accent);
+}
+
+/* Right-click context menu */
+.mistvideo-context-menu {
+  position: absolute;
+  z-index: 20;
+  background-color: var(--mist-color-surface);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border-radius: var(--mist-radius-md);
+  padding: var(--mist-space-xs) 0;
+  min-width: 180px;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.5);
+  font-size: var(--mist-font-size-sm);
+}
+.mistvideo-context-menu-item {
+  display: flex;
+  align-items: center;
+  padding: var(--mist-space-xs) var(--mist-space-md);
+  cursor: pointer;
+  white-space: nowrap;
+  outline: none;
+  position: relative;
+}
+.mistvideo-context-menu-item:hover,
+.mistvideo-context-menu-item:focus {
+  background-color: var(--mist-color-hover);
+}
+.mistvideo-context-menu-item[data-disabled] {
+  opacity: 0.4;
+  pointer-events: none;
+}
+.mistvideo-context-menu-check {
+  width: 1.2em;
+  text-align: center;
+  flex-shrink: 0;
+  color: var(--mist-color-accent);
+}
+.mistvideo-context-menu-label {
+  flex: 1;
+}
+.mistvideo-context-menu-shortcut {
+  color: var(--mist-color-text-muted);
+  margin-left: var(--mist-space-lg);
+  font-size: 0.85em;
+}
+.mistvideo-context-menu-arrow {
+  margin-left: var(--mist-space-sm);
+  color: var(--mist-color-text-muted);
+}
+.mistvideo-context-menu-separator {
+  height: 1px;
+  background-color: var(--mist-color-separator);
+  margin: var(--mist-space-xs) 0;
+}
+.mistvideo-context-menu-brand {
+  padding: var(--mist-space-xs) var(--mist-space-md);
+  color: var(--mist-color-text-muted);
+  font-size: 0.8em;
+  cursor: default;
+}
+.mistvideo-context-menu-flyout {
+  position: absolute;
+  left: 100%;
+  top: 0;
+  background-color: var(--mist-color-surface);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border-radius: var(--mist-radius-md);
+  padding: var(--mist-space-xs) 0;
+  min-width: 120px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+}
+
+} /* end @layer mist.skin */

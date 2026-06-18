@@ -22,7 +22,9 @@
 #if DEBUG > -1
 
 #define APPIDENT APPNAME "/" PACKAGE_VERSION
+#ifndef __STDC_FORMAT_MACROS
 #define __STDC_FORMAT_MACROS 1
+#endif
 #include <inttypes.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -203,6 +205,8 @@ static inline void show_stackframe(){}
 
 #define CUSTOM_VARIABLES_INITSIZE 64 * 1024
 
+#define CAMERAS_INITSIZE 32 * 1024
+
 #define EXTWRITERS "/MstExtWriters"
 
 #define EXTWRITERS_INITSIZE 1 * 1024 * 1024
@@ -282,6 +286,7 @@ static inline void show_stackframe(){}
 #define SHM_STATE_ACCS "/MstStateAccs"
 #define SHM_STATE_STREAMS "/MstStateStreams"
 #define SHM_CUSTOM_VARIABLES "/MstVars"
+#define SHM_CAMERAS "/MstCameras"
 #define NAME_BUFFER_SIZE 300 // char buffer size for snprintf'ing shm filenames
 #define SHM_SESSIONS "/MstSess"
 #define SHM_SESSIONS_ITEM 165     // 4 byte crc, 100b streamname, 20b connector, 40b host, 1b sync

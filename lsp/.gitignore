@@ -1,0 +1,9 @@
+node_modules/
+bundle.js
+.tmp_bundle.js
+/main.css
+/efg.css
+minified.js
+minified_efg.js
+server_min.html
+server_screenlog.html

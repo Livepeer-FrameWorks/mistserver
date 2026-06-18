@@ -61,21 +61,16 @@ option_defines = [
 
 if not get_option('NOSHM') and host_machine.system() != 'darwin'
   option_defines += '-DSHM_ENABLED=1'
-else
-  message('Shared memory use is turned OFF')
 endif
 
 usessl = true
 if get_option('NOSSL')
-  message('SSL/TLS support is turned OFF')
   usessl = false
 else
   option_defines += '-DSSL=1'
 endif
 
-if get_option('NOQUIRC')
-  message('QR code reading support through quirc is turned OFF')
-else
+if not get_option('NOQUIRC')
   option_defines += '-DHASQUIRC=1'
 endif
 
@@ -119,6 +114,11 @@ message('Building release @0@ for version @1@ @ debug level @2@'.format(release,
 
 mist_deps = []
 ccpp = meson.get_compiler('cpp')
+
+# libxml2 needed for ONVIF camera discovery (xml.cpp, soap.cpp, device_onvif.cpp)
+libxml2 = dependency('libxml-2.0', required: false)
+have_libxml2 = libxml2.found()
+
 if ccpp.has_header_symbol('netinet/in.h', 'IPV6_RECVPKTINFO', args:['-D__APPLE_USE_RFC_3542']) and ccpp.has_header_symbol('netinet/in.h', 'IP_PKTINFO', args:['-D__APPLE_USE_RFC_3542'])
   option_defines += '-DHASPKTINFO'
 endif
@@ -354,8 +354,56 @@ if ccpp.compiles(code_sizet_needed, name: 'Check if JSON class needs size_t vari
   option_defines += '-DSIZET_VARIANT'
 endif
 
-# Set defines from active options
+# NDI SDK auto-detection
+# No pkg-config shipped with SDK; check env NDI_SDK_DIR first, then known platform paths.
+have_ndi = false
+if host_machine.system() == 'darwin'
+  ndi_sdk_dir = '/Library/NDI SDK for Apple'
+  ndi_lib_dirs = [ndi_sdk_dir / 'lib' / 'macOS']
+  ndi_inc_dirs = [ndi_sdk_dir / 'include']
+  ndi_lib_check = ccpp.find_library('ndi', dirs: ndi_lib_dirs, required: false)
+  if ndi_lib_check.found() and ccpp.has_header('Processing.NDI.Lib.h', args: '-I' + ndi_inc_dirs[0])
+    ndi_sdk_dep = declare_dependency(
+      dependencies: [ndi_lib_check],
+      include_directories: include_directories(ndi_inc_dirs[0]),
+    )
+    have_ndi = true
+  endif
+else
+  ndi_lib_dirs = ['/usr/local/lib']
+  ndi_inc_args = []
+  ndi_env = run_command('sh', '-c', 'echo $NDI_SDK_DIR', check: false)
+  if ndi_env.returncode() == 0 and ndi_env.stdout().strip() != ''
+    ndi_sdk_dir = ndi_env.stdout().strip()
+    ndi_lib_dirs += ndi_sdk_dir / 'lib' / 'x86_64-linux-gnu'
+    ndi_lib_dirs += ndi_sdk_dir / 'lib' / 'aarch64-linux-gnu'
+    ndi_inc_args = ['-I' + ndi_sdk_dir / 'include']
+  endif
+  ndi_lib_check = ccpp.find_library('ndi', dirs: ndi_lib_dirs, required: false)
+  if ndi_lib_check.found() and ccpp.has_header('Processing.NDI.Lib.h', args: ndi_inc_args, required: false)
+    ndi_inc_dep = []
+    if ndi_inc_args.length() > 0
+      ndi_inc_dep = [include_directories(ndi_env.stdout().strip() / 'include')]
+    endif
+    ndi_sdk_dep = declare_dependency(
+      dependencies: [ndi_lib_check],
+      include_directories: ndi_inc_dep,
+    )
+    have_ndi = true
+  endif
+endif
+if have_ndi
+  option_defines += '-DWITH_NDI'
+endif
+if have_libxml2
+  option_defines += '-DWITH_ONVIF'
+endif
+
 add_project_arguments(option_defines, language: 'cpp')
+
+# V4L2 detection (used in src/input/meson.build and feature summary)
+have_v4l2 = ccpp.has_header('linux/videodev2.h')
+
 
 # Set build targets
 
@@ -400,3 +448,55 @@ if doxygen.found()
   })
   run_target('docs', command: [doxygen, doxyfile])
 endif
+
+# Feature summary (printed last so all detection is complete)
+
+# WebRTC data channels depend on both SSL and usrsctp
+webrtc_dc_status = 'NO  (requires SSL)'
+if usessl
+  webrtc_dc_status = have_usrsctp ? 'YES' : 'NO  (disabled: -DNOUSRSCTP=true)'
+endif
+
+# RIST reason
+rist_status = 'YES'
+if get_option('NORIST')
+  rist_status = 'NO  (disabled: -DNORIST=true)'
+elif not have_librist
+  rist_status = 'NO  (librist not found)'
+endif
+
+# SRT reason
+srt_status = 'YES'
+if get_option('NOSRT')
+  srt_status = 'NO  (disabled: -DNOSRT=true)'
+elif not have_srt
+  srt_status = 'NO  (libsrt not found)'
+endif
+
+message('')
+message('Feature summary')
+message('===============')
+message('')
+message('  Codecs & Processing')
+message('    libav (FFmpeg):         ' + (get_option('WITH_AV') ? 'YES' : 'NO  (enable: -DWITH_AV=true)'))
+message('')
+message('  Devices & Discovery')
+message('    NDI:                    ' + (have_ndi ? 'YES' : 'NO  (NDI SDK not found)'))
+message('    ONVIF camera discovery: ' + (have_libxml2 ? 'YES' : 'NO  (libxml2 not found)'))
+message('    V4L2 capture:           ' + (have_v4l2 ? 'YES' : 'NO  (linux/videodev2.h not found)'))
+message('')
+message('  Protocols')
+message('    LLHLS:                  ' + (not get_option('NOLLHLS') ? 'YES' : 'NO  (disabled: -DNOLLHLS=true)'))
+message('    RIST:                   ' + rist_status)
+message('    SRT:                    ' + srt_status)
+message('    SSL/TLS:                ' + (usessl ? 'YES' : 'NO  (disabled: -DNOSSL=true)'))
+message('    WebRTC data channels:   ' + webrtc_dc_status)
+message('')
+message('  System')
+message('    Auth:                   ' + (not get_option('NOAUTH') ? 'YES' : 'NO  (disabled: -DNOAUTH=true)'))
+message('    Load balancer:          ' + (get_option('LOAD_BALANCE') ? 'YES (WIP)' : 'NO  (enable: -DLOAD_BALANCE=true)'))
+message('    QR code (quirc):        ' + (not get_option('NOQUIRC') ? 'YES' : 'NO  (disabled: -DNOQUIRC=true)'))
+message('    Shared memory:          ' + (not get_option('NOSHM') ? 'YES' : 'NO  (disabled: -DNOSHM=true)'))
+message('    Updater:                ' + (not get_option('NOUPDATE') ? 'YES' : 'NO  (disabled: -DNOUPDATE=true)'))
+message('')
+

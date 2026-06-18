@@ -1,3 +1,5 @@
+@layer mist.skin {
+
 .mistvideo-log {
   margin: 0.5em 0;
 }
@@ -19,11 +21,11 @@
   margin: 0 0.2em;
 }
 .mistvideo-log .logs .entry.type-error {
-  color: $accent;
+  color: var(--mist-color-accent);
 }
 .mistvideo-log .logs .timestamp,
 .mistvideo-log .logs .counter {
-  color: $semiFill;
+  color: var(--mist-color-text-muted);
 }
 .mistvideo-log .logs .timestamp:before { content: '['; }
 .mistvideo-log .logs .timestamp:after { content: ']'; }
@@ -36,11 +38,9 @@
   margin: 0.1em;
   padding: 0.2em 0.4em;
 }
-.mistvideo-debuglevel > span,
 .mistvideo-forceSource > span,
 .mistvideo-forceType > span,
 .mistvideo-forcePlayer > span { display: inline-block; width: 7em; }
-.mistvideo-debuglevel > select,
 .mistvideo-forceSource > select,
 .mistvideo-forceType > select,
 .mistvideo-forcePlayer > select {
@@ -99,7 +99,7 @@
 .mistvideo input[type="checkbox"] {
   margin: 0;
   margin-right: 0.2em;
-  border: 1px solid $semiFill;
+  border: 1px solid var(--mist-color-border);
   border-radius: 0;
   -webkit-appearance: none;
   -moz-appearance: none;
@@ -123,3 +123,112 @@
 .mistvideo.casting .mistvideo-displayCombo {
   display: none !important;
 }
+
+/* Force player/protocol rows */
+.mistvideo-force-row {
+  display: flex;
+  align-items: center;
+  gap: var(--mist-space-sm);
+  padding: var(--mist-space-xs) 0;
+}
+.mistvideo-force-label {
+  color: var(--mist-color-text-muted);
+  font-weight: 600;
+  white-space: nowrap;
+  width: 6em;
+  flex-shrink: 0;
+}
+
+/* Dev submenu sizing (replaces inline style) */
+.mistvideo .mistvideo-submenu {
+  width: 25em;
+  max-width: 100%;
+}
+
+/* Close button */
+.mistvideo-closeSubmenu {
+  position: absolute;
+  top: var(--mist-space-xs);
+  right: var(--mist-space-xs);
+  background: none;
+  border: none;
+  color: var(--mist-color-text);
+  font-size: 1.5em;
+  cursor: pointer;
+  z-index: 1;
+  line-height: 1;
+  padding: var(--mist-space-xs);
+}
+.mistvideo-closeSubmenu:hover {
+  color: var(--mist-color-accent);
+}
+
+/* Small sizes: drawer above controls bar */
+.mistvideo[data-size="xs"][data-show-submenu] > .mistvideo-submenu,
+.mistvideo[data-size="sm"][data-show-submenu] > .mistvideo-submenu {
+  top: 0;
+  right: 0;
+  bottom: var(--mist-control-height);
+  left: 0;
+  max-height: none;
+  width: auto;
+  max-width: none;
+  min-width: 0;
+  border-radius: 0;
+  z-index: 100;
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
+/* Kill pointer events on maincontainer overlays when submenu is open */
+.mistvideo[data-size="xs"][data-show-submenu] > .mistvideo-maincontainer,
+.mistvideo[data-size="sm"][data-show-submenu] > .mistvideo-maincontainer {
+  pointer-events: none;
+}
+.mistvideo[data-size="xs"][data-show-submenu] .mistvideo-controls,
+.mistvideo[data-size="sm"][data-show-submenu] .mistvideo-controls {
+  pointer-events: auto;
+}
+
+/* Hide drag handle at small sizes */
+.mistvideo[data-size="xs"] .draggable-icon,
+.mistvideo[data-size="sm"] .draggable-icon {
+  display: none;
+}
+
+/* Popup menus: flow inline at small sizes (prevents overflow clipping) */
+.mistvideo[data-size="xs"] .mistvideo-submenu .mistvideo-menu,
+.mistvideo[data-size="sm"] .mistvideo-submenu .mistvideo-menu {
+  position: static;
+  box-shadow: none;
+  border-radius: var(--mist-radius-sm);
+  min-width: 0;
+  max-height: none;
+  border: 1px solid var(--mist-color-border);
+  margin-top: var(--mist-space-xs);
+}
+
+/* Responsive internal elements at small sizes */
+.mistvideo[data-size="xs"] .mistvideo-force-row,
+.mistvideo[data-size="sm"] .mistvideo-force-row {
+  flex-wrap: wrap;
+}
+.mistvideo[data-size="xs"] .mistvideo-force-label,
+.mistvideo[data-size="sm"] .mistvideo-force-label {
+  width: auto;
+}
+.mistvideo[data-size="xs"] .mistvideo-decodingIssues > *,
+.mistvideo[data-size="sm"] .mistvideo-decodingIssues > * {
+  width: 100%;
+  max-width: none;
+}
+.mistvideo[data-size="xs"] .mistvideo-forceSource > select,
+.mistvideo[data-size="xs"] .mistvideo-forceType > select,
+.mistvideo[data-size="xs"] .mistvideo-forcePlayer > select,
+.mistvideo[data-size="sm"] .mistvideo-forceSource > select,
+.mistvideo[data-size="sm"] .mistvideo-forceType > select,
+.mistvideo[data-size="sm"] .mistvideo-forcePlayer > select {
+  width: 100%;
+}
+
+} /* end @layer mist.skin */

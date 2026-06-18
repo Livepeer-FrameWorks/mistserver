@@ -593,6 +593,7 @@ namespace Mist{
     capa["optional"]["preferredvideocodec"]["type"] = "str";
     capa["optional"]["preferredvideocodec"]["option"] = "--webrtc-video-codecs";
     capa["optional"]["preferredvideocodec"]["short"] = "V";
+    capa["optional"]["preferredvideocodec"]["display"] = "advanced";
 
     capa["optional"]["preferredaudiocodec"]["name"] = "Preferred audio codecs";
     capa["optional"]["preferredaudiocodec"]["help"] =
@@ -602,6 +603,7 @@ namespace Mist{
     capa["optional"]["preferredaudiocodec"]["type"] = "str";
     capa["optional"]["preferredaudiocodec"]["option"] = "--webrtc-audio-codecs";
     capa["optional"]["preferredaudiocodec"]["short"] = "A";
+    capa["optional"]["preferredaudiocodec"]["display"] = "advanced";
 
     capa["optional"]["pubhost"]["name"] = "Override external host/ip";
     capa["optional"]["pubhost"]["help"] = "What host and/or IP addresses to pass on in the SDP. Defaults to HTTP server host.";
@@ -609,6 +611,7 @@ namespace Mist{
     capa["optional"]["pubhost"]["type"] = "str";
     capa["optional"]["pubhost"]["option"] = "--pubhost";
     capa["optional"]["pubhost"]["short"] = "H";
+    capa["optional"]["pubhost"]["display"] = "always";
 
     capa["optional"]["ctrlprefix"]["name"] = "Prefix for control URL (DELETE/PATCH requests)";
     capa["optional"]["ctrlprefix"]["help"] = "Returned as Location header for controlling WebRTC sessions";
@@ -616,6 +619,7 @@ namespace Mist{
     capa["optional"]["ctrlprefix"]["type"] = "str";
     capa["optional"]["ctrlprefix"]["option"] = "--ctrlprefix";
     capa["optional"]["ctrlprefix"]["short"] = "F";
+    capa["optional"]["ctrlprefix"]["display"] = "advanced";
 
     capa["optional"]["override_port"]["name"] = "Override external port";
     capa["optional"]["override_port"]["help"] = "What port to pass on in the SDP (e.g. in case the port is mapped through a firewall to a different port externally). Defaults to actually bound port.";
@@ -623,6 +627,7 @@ namespace Mist{
     capa["optional"]["override_port"]["type"] = "uint";
     capa["optional"]["override_port"]["option"] = "--override_port";
     capa["optional"]["override_port"]["short"] = "Q";
+    capa["optional"]["override_port"]["display"] = "advanced";
 
     capa["optional"]["mergesessions"]["name"] = "merge sessions";
     capa["optional"]["mergesessions"]["help"] =
@@ -631,36 +636,42 @@ namespace Mist{
     capa["optional"]["mergesessions"]["option"] = "--mergesessions";
     capa["optional"]["mergesessions"]["short"] = "m";
     capa["optional"]["mergesessions"]["default"] = 0;
+    capa["optional"]["mergesessions"]["display"] = "advanced";
 
     capa["optional"]["nackdisable"]["name"] = "Disallow NACKs for viewers";
     capa["optional"]["nackdisable"]["help"] = "Disallows viewers to send NACKs for lost packets";
     capa["optional"]["nackdisable"]["option"] = "--nackdisable";
     capa["optional"]["nackdisable"]["short"] = "n";
     capa["optional"]["nackdisable"]["default"] = 0;
+    capa["optional"]["nackdisable"]["display"] = "advanced";
 
     capa["optional"]["jitterlog"]["name"] = "Write jitter log";
     capa["optional"]["jitterlog"]["help"] = "Writes log of frame transmit jitter to /tmp/ for each outgoing connection";
     capa["optional"]["jitterlog"]["option"] = "--jitterlog";
     capa["optional"]["jitterlog"]["short"] = "J";
     capa["optional"]["jitterlog"]["default"] = 0;
+    capa["optional"]["jitterlog"]["display"] = "hidden";
 
     capa["optional"]["packetlog"]["name"] = "Write packet log";
     capa["optional"]["packetlog"]["help"] = "Writes log of full packet contents to /tmp/ for each connection";
     capa["optional"]["packetlog"]["option"] = "--packetlog";
     capa["optional"]["packetlog"]["short"] = "P";
     capa["optional"]["packetlog"]["default"] = 0;
+    capa["optional"]["packetlog"]["display"] = "hidden";
 
     capa["optional"]["nolocal"]["name"] = "Do not add all local addresses";
     capa["optional"]["nolocal"]["help"] = "Skips adding all detected local addresses to the list of IP addresses sent to clients";
     capa["optional"]["nolocal"]["option"] = "--nolocal";
     capa["optional"]["nolocal"]["short"] = "y";
     capa["optional"]["nolocal"]["default"] = 0;
+    capa["optional"]["nolocal"]["display"] = "advanced";
 
     capa["optional"]["noresolve"]["name"] = "Do not add resolved hostnames";
     capa["optional"]["noresolve"]["help"] = "Skips adding resolved versions of hostnames to the list of IP addresses sent to clients";
     capa["optional"]["noresolve"]["option"] = "--noresolve";
     capa["optional"]["noresolve"]["short"] = "Y";
     capa["optional"]["noresolve"]["default"] = 0;
+    capa["optional"]["noresolve"]["display"] = "advanced";
 
     capa["optional"]["nacktimeout"]["name"] = "RTP NACK timeout";
     capa["optional"]["nacktimeout"]["help"] = "Amount of packets any track will wait for a packet to arrive before NACKing it";
@@ -668,6 +679,7 @@ namespace Mist{
     capa["optional"]["nacktimeout"]["short"] = "x";
     capa["optional"]["nacktimeout"]["type"] = "uint";
     capa["optional"]["nacktimeout"]["default"] = 5;
+    capa["optional"]["nacktimeout"]["display"] = "advanced";
 
     capa["optional"]["maxpktsize"]["name"] = "Max RTP packet size";
     capa["optional"]["maxpktsize"]["help"] = "Maximum size of RTP packets. Note: this is -before- SRTP encryption is applied, so up to 28 bytes bigger is still possible.";
@@ -676,6 +688,7 @@ namespace Mist{
     capa["optional"]["maxpktsize"]["type"] = "uint";
     capa["optional"]["maxpktsize"]["default"] = (1350 - 28);
     capa["optional"]["maxpktsize"]["unit"] = "bytes";
+    capa["optional"]["maxpktsize"]["display"] = "advanced";
 
     capa["optional"]["losttimeout"]["name"] = "RTP lost timeout";
     capa["optional"]["losttimeout"]["help"] = "Amount of packets any track will wait for a packet to arrive before considering it lost";
@@ -683,6 +696,7 @@ namespace Mist{
     capa["optional"]["losttimeout"]["short"] = "l";
     capa["optional"]["losttimeout"]["type"] = "uint";
     capa["optional"]["losttimeout"]["default"] = 30;
+    capa["optional"]["losttimeout"]["display"] = "advanced";
 
     capa["optional"]["nacktimeoutmobile"]["name"] = "RTP NACK timeout (mobile)";
     capa["optional"]["nacktimeoutmobile"]["help"] = "Amount of packets any track will wait for a packet to arrive before NACKing it, on mobile connections";
@@ -690,6 +704,7 @@ namespace Mist{
     capa["optional"]["nacktimeoutmobile"]["short"] = "X";
     capa["optional"]["nacktimeoutmobile"]["type"] = "uint";
     capa["optional"]["nacktimeoutmobile"]["default"] = 15;
+    capa["optional"]["nacktimeoutmobile"]["display"] = "advanced";
 
     capa["optional"]["losttimeoutmobile"]["name"] = "RTP lost timeout (mobile)";
     capa["optional"]["losttimeoutmobile"]["help"] = "Amount of packets any track will wait for a packet to arrive before considering it lost, on mobile connections";
@@ -697,6 +712,7 @@ namespace Mist{
     capa["optional"]["losttimeoutmobile"]["short"] = "L";
     capa["optional"]["losttimeoutmobile"]["type"] = "uint";
     capa["optional"]["losttimeoutmobile"]["default"] = 90;
+    capa["optional"]["losttimeoutmobile"]["display"] = "advanced";
 
     capa["optional"]["cert"]["name"] = "Certificate";
     capa["optional"]["cert"]["help"] = "(Root) certificate file(s) to append to chain. If unset, these will be taken from a configured HTTPS protocol (if any), or fall back to an auto-generated self-signed certificate for every connection.";
@@ -704,12 +720,14 @@ namespace Mist{
     capa["optional"]["cert"]["short"] = "C";
     capa["optional"]["cert"]["default"] = "";
     capa["optional"]["cert"]["type"] = "str";
+    capa["optional"]["cert"]["display"] = "always";
     capa["optional"]["key"]["name"] = "Key";
     capa["optional"]["key"]["help"] = "Private key for SSL";
     capa["optional"]["key"]["option"] = "--key";
     capa["optional"]["key"]["short"] = "K";
     capa["optional"]["key"]["default"] = "";
     capa["optional"]["key"]["type"] = "str";
+    capa["optional"]["key"]["display"] = "always";
 
     capa["optional"]["iceservers"]["name"] = "STUN/TURN config";
     capa["optional"]["iceservers"]["help"] = "An array of RTCIceServer objects, each describing one server which may be used by the ICE agent; these are typically STUN and/or TURN servers. These will be passed verbatim to the RTCPeerConnection constructor as the 'iceServers' property.";
@@ -717,12 +735,15 @@ namespace Mist{
     capa["optional"]["iceservers"]["short"] = "z";
     capa["optional"]["iceservers"]["default"] = "";
     capa["optional"]["iceservers"]["type"] = "json";
+    capa["optional"]["iceservers"]["display"] = "always";
 
     cfg->addConnectorOptions(18203, capa);
     capa["optional"]["interface"]["name"] = "UDP bind address";
     capa["optional"]["interface"]["help"] = "Host to bind SRTP UDP sockets to. Defaults to all interfaces.";
+    capa["optional"]["interface"]["display"] = "advanced";
     capa["optional"]["port"]["name"] = "UDP port";
     capa["optional"]["port"]["help"] = "UDP port to listen on";
+    capa["optional"]["port"]["display"] = "advanced";
 
     cfg->addStandardPushCapabilities(capa);
     capa["push_urls"].append("whip://*");

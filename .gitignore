@@ -64,6 +64,8 @@ rules.ninja
 aes_ctr128
 /embed/testing
 *test
+!test/
+!test/*.cpp
 CMakeDoxyfile.in
 RelAccXSampler
 subprojects/
@@ -71,3 +73,4 @@ subprojects/
 !subprojects/*.wrap
 .vscode/
 .DS_Store
+node_modules/

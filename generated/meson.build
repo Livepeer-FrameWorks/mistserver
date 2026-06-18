@@ -1,49 +1,94 @@
 
-# Utilities that we use to generate source files
+# Build tools for embedding files into the binary
 sourcery = executable('sourcery', '../src/sourcery.cpp', native: true)
-make_html = executable('make_html', '../src/make_html.cpp', native: true)
+embedfs = executable('embedfs', '../src/embedfs.cpp', native: true)
 
 # If requested, use local versions instead of building our own
 if get_option('LOCAL_GENERATORS')
-  make_html = find_program('make_html', required:true, native:true, dirs: [meson.project_source_root()])
   sourcery = find_program('sourcery', required:true, native:true, dirs: [meson.project_source_root()])
+  embedfs = find_program('embedfs', required:true, native:true, dirs: [meson.project_source_root()])
 endif
 
-gen_html = custom_target('gen_html', output: 'server.html', input: html_files, command: [make_html, '@OUTPUT@', '@INPUT@'])
+# --- LSP variants: embed each variant's dist/ files as a VFS ---
+lsp_variants = get_option('LSP_VARIANTS')
+variant_vfs_targets = []
+includes_str = ''
+entries_str = ''
+is_first = true
+actual_variant_count = 0
 
-embed_files = [
-    {'infile': '../embed/min/player.js',                'variable': 'player_js',         'outfile': 'player.js.h'},
-    {'infile': '../embed/min/wrappers/html5.js',        'variable': 'html5_js',          'outfile': 'html5.js.h'},
-    {'infile': '../embed/min/wrappers/flash_strobe.js', 'variable': 'flash_strobe_js',   'outfile': 'flash_strobe.js.h'},
-    {'infile': '../embed/min/wrappers/dashjs.js',       'variable': 'dash_js',           'outfile': 'dashjs.js.h'},
-    {'infile': '../embed/min/wrappers/videojs.js',      'variable': 'video_js',          'outfile': 'videojs.js.h'},
-    {'infile': '../embed/min/wrappers/wheprtc.js',      'variable': 'wheprtc_js',         'outfile': 'wheprtc.js.h'},
-    {'infile': '../embed/min/wrappers/webrtc.js',       'variable': 'webrtc_js',         'outfile': 'webrtc.js.h'},
-    {'infile': '../embed/min/wrappers/mews.js',         'variable': 'mews_js',           'outfile': 'mews.js.h'},
-    {'infile': '../embed/min/wrappers/flv.js',          'variable': 'flv_js',            'outfile': 'flv.js.h'},
-    {'infile': '../embed/min/wrappers/hlsjs.js',        'variable': 'hlsjs_js',          'outfile': 'hlsjs.js.h'},
-    {'infile': '../embed/min/wrappers/rawws.js',        'variable': 'rawws_js',          'outfile': 'rawws.js.h'},
-    {'infile': '../embed/min/wrappers/rawwscanvas.js',  'variable': 'rawwscanvas_js',    'outfile': 'rawwscanvas.js.h'},
-    {'infile': '../embed/players/dash.js.license.js',   'variable': 'player_dash_lic_js','outfile': 'player_dash_lic.js.h'},
-    {'infile': '../embed/players/dash.all.min.js',      'variable': 'player_dash_js',    'outfile': 'player_dash.js.h'},
-    {'infile': '../embed/players/video.min.js',         'variable': 'player_video_js',   'outfile': 'player_video.js.h'},
-    {'infile': '../embed/players/flv.min.js',           'variable': 'player_flv_js',     'outfile': 'player_flv.js.h'},
-    {'infile': '../embed/players/hls.js',               'variable': 'player_hlsjs_js',   'outfile': 'player_hlsjs.js.h'},
-    {'infile': '../embed/players/libde265.min.js',      'variable': 'player_libde265_js','outfile': 'player_libde265.js.h'},
-    {'infile': '../embed/players/webcodecsworker.js',   'variable': 'wcworker_js',       'outfile': 'wcworker.js.h'},
-    {'infile': '../embed/min/skins/default.css',        'variable': 'skin_default_css',  'outfile': 'skin_default.css.h'},
-    {'infile': '../embed/min/skins/dev.css',            'variable': 'skin_dev_css',      'outfile': 'skin_dev.css.h'},
-    {'infile': '../embed/skins/video-js.css',           'variable': 'skin_videojs_css',  'outfile': 'skin_videojs.css.h'},
-]
+foreach slug : lsp_variants
+  if slug not in variant_dist_files
+    warning('LSP variant "' + slug + '" skipped (dist files not found)')
+  else
+    prefix = 'lsp_' + slug
 
-embed_tgts = []
+    vfs = custom_target('vfs_lsp_' + slug,
+      output: prefix + '.vfs.h',
+      input: variant_dist_files[slug],
+      command: [embedfs, '--output', '@OUTPUT@', '--prefix', prefix,
+                '--vpath', '/index.html', '@INPUT0@',
+                '--vpath', '/main.js', '@INPUT1@',
+                '--vpath', '/main.css', '@INPUT2@']
+    )
 
-foreach e : embed_files
-  embed_tgts += custom_target('embed_'+e.get('outfile'), output: e.get('outfile'), input: e.get('infile'), command: [sourcery, '@INPUT@', e.get('variable'), '@OUTPUT@'])
+    variant_vfs_targets += vfs
+    includes_str += '#include "' + prefix + '.vfs.h"\n'
+
+    if is_first
+      entries_str += '  {"' + slug + '", ' + prefix + '_vfs, ' + prefix + '_vfs_count, true},\n'
+      is_first = false
+    else
+      entries_str += '  {"' + slug + '", ' + prefix + '_vfs, ' + prefix + '_vfs_count, false},\n'
+    endif
+    actual_variant_count += 1
+  endif
 endforeach
 
-if get_option('EFG_UI')
-  server_html = custom_target('embed_server.html', output: 'server.html.h', input: files(['../interface.html']), command: [sourcery, '@INPUT@', 'server_html', '@OUTPUT@'])
-else
-  server_html = custom_target('embed_server.html', output: 'server.html.h', input: gen_html, command: [sourcery, '@INPUT@', 'server_html', '@OUTPUT@'])
-endif
+variant_conf = configuration_data()
+variant_conf.set('VARIANT_INCLUDES', includes_str)
+variant_conf.set('VARIANT_ENTRIES', entries_str)
+variant_conf.set('VARIANT_COUNT', actual_variant_count.to_string())
+
+configure_file(
+  input: 'server_variants.h.in',
+  output: 'server_variants.h',
+  configuration: variant_conf
+)
+
+# --- Embed player: VFS via --vpath (same pattern as LSP) ---
+embed_files = files(
+  '../embed/dist/player.iife.js',
+  '../embed/dist/player.min.mjs',
+  '../embed/players/video.min.js',
+  '../embed/players/dash.js.license.js',
+  '../embed/players/dash.all.min.js',
+  '../embed/players/flv.min.js',
+  '../embed/players/hls.js',
+  '../embed/players/libde265.min.js',
+  '../embed/dist/skins/default.css',
+  '../embed/dist/skins/dev.css',
+  '../embed/skins/video-js.css',
+  '../embed/players/webcodecsworker.js',
+)
+
+embed_vfs = custom_target('embed_vfs',
+  output: 'embed.vfs.h',
+  input: embed_files,
+  command: [embedfs, '--output', '@OUTPUT@', '--prefix', 'embed',
+            '--vpath', '/player.js',          '@INPUT0@',
+            '--vpath', '/player.mjs',         '@INPUT1@',
+            '--vpath', '/videojs.js',         '@INPUT2@',
+            '--vpath', '/dashjs.license.js',  '@INPUT3@',
+            '--vpath', '/dashjs.js',          '@INPUT4@',
+            '--vpath', '/flv.js',             '@INPUT5@',
+            '--vpath', '/hlsjs.js',           '@INPUT6@',
+            '--vpath', '/libde265.js',        '@INPUT7@',
+            '--vpath', '/skins/default.css',  '@INPUT8@',
+            '--vpath', '/skins/dev.css',      '@INPUT9@',
+            '--vpath', '/skins/videojs.css',  '@INPUT10@',
+            '--vpath', '/webcodecsworker.js', '@INPUT11@']
+)
+
+# Legacy alias: sourcery is still used for icon.h and potentially other one-off embeds
+embed_tgts = [embed_vfs]

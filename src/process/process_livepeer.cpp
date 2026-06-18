@@ -970,6 +970,7 @@ int main(int argc, char *argv[]){
       genopts["sink"]["type"] = "string";
       genopts["sink"]["validate"][0u] = "streamname_with_wildcard_and_variables";
       genopts["sink"]["sort"] = "b";
+      genopts["sink"]["display"] = "always";
 
       genopts["source_mask"]["name"] = "Source track mask";
       genopts["source_mask"]["help"] = "What internal processes should have access to the source track(s)";
@@ -984,6 +985,7 @@ int main(int argc, char *argv[]){
       genopts["source_mask"]["select"][3u][1u] = "Processing and viewer tasks (not pushes)";
       genopts["source_mask"]["default"] = "Keep original value";
       genopts["source_mask"]["sort"] = "c";
+      genopts["source_mask"]["display"] = "hidden";
 
       genopts["target_mask"]["name"] = "Output track mask";
       genopts["target_mask"]["help"] = "What internal processes should have access to the output track(s)";
@@ -1006,23 +1008,27 @@ int main(int argc, char *argv[]){
       genopts["target_mask"]["select"][7u][1u] = "Nothing";
       genopts["target_mask"]["default"] = "Keep original value";
       genopts["target_mask"]["sort"] = "d";
+      genopts["target_mask"]["display"] = "hidden";
 
       genopts["exit_unmask"]["name"] = "Undo masks on process exit/fail";
       genopts["exit_unmask"]["help"] = "If/when the process exits or fails, the masks for input tracks will be reset "
                                        "to defaults. (NOT to previous value, but to defaults!)";
       genopts["exit_unmask"]["default"] = false;
       genopts["exit_unmask"]["sort"] = "e";
+      genopts["exit_unmask"]["display"] = "hidden";
     }
 
     capa["required"]["access_token"]["name"] = "Access token";
     capa["required"]["access_token"]["help"] = "Your livepeer access token";
     capa["required"]["access_token"]["type"] = "string";
+    capa["required"]["access_token"]["display"] = "always";
 
     capa["required"]["target_profiles"]["name"] = "Profiles";
     capa["required"]["target_profiles"]["type"] = "sublist";
     capa["required"]["target_profiles"]["itemLabel"] = "profile";
     capa["required"]["target_profiles"]["help"] = "Tracks to transcode the source into";
-    capa["required"]["target_profiles"]["sort"] = "f";
+    capa["required"]["target_profiles"]["sort"] = "n";
+    capa["required"]["target_profiles"]["display"] = "always";
     {
       JSON::Value &grp = capa["required"]["target_profiles"]["required"];
       grp["name"]["name"] = "Name";
@@ -1108,16 +1114,27 @@ int main(int argc, char *argv[]){
     capa["optional"]["hardcoded_broadcasters"]["type"] = "string"; // TODO change to "inputlist" when this process supports it
 
     capa["ainfo"]["lp_id"]["name"] = "Livepeer transcode ID";
+    capa["ainfo"]["lp_id"]["display"] = "hidden";
     capa["ainfo"]["switches"]["name"] = "Broadcaster switches since start";
+    capa["ainfo"]["switches"]["display"] = "hidden";
     capa["ainfo"]["fail_non200"]["name"] = "Failures due to non-200 response codes";
+    capa["ainfo"]["fail_non200"]["display"] = "hidden";
     capa["ainfo"]["fail_timeout"]["name"] = "Failures due to timeout";
+    capa["ainfo"]["fail_timeout"]["display"] = "hidden";
     capa["ainfo"]["fail_parse"]["name"] = "Failures due to parse errors in TS response data";
+    capa["ainfo"]["fail_parse"]["display"] = "hidden";
     capa["ainfo"]["fail_other"]["name"] = "Failures due to other reasons";
+    capa["ainfo"]["fail_other"]["display"] = "hidden";
     capa["ainfo"]["bc"]["name"] = "Currently used broadcaster";
+    capa["ainfo"]["bc"]["display"] = "hidden";
     capa["ainfo"]["sinkTime"]["name"] = "Sink timestamp";
+    capa["ainfo"]["sinkTime"]["display"] = "hidden";
     capa["ainfo"]["sourceTime"]["name"] = "Source timestamp";
+    capa["ainfo"]["sourceTime"]["display"] = "hidden";
     capa["ainfo"]["percent_done"]["name"] = "Percentage for VoD transcodes";
+    capa["ainfo"]["percent_done"]["display"] = "hidden";
 
+    applyDisplayDefaultsToCapabilities(capa);
     std::cout << capa.toString() << std::endl;
     return -1;
   }

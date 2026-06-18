@@ -25,8 +25,9 @@ option('LOAD_BALANCE', description: 'Build the load balancer (WIP)', type: 'bool
 option('WITH_AV', description: 'Build a generic libav-based input (not distributable!)', type: 'boolean', value: false)
 option('WITH_DECKLINK', description: 'Build a DeckLink-based SDI input/output', type: 'boolean', value: false)
 option('WITH_SANITY', description: 'Enable MistOutSanityCheck output for testing purposes', type: 'boolean', value: false)
-option('LSP_MINIFY', description: 'Try to minify LSP JS via java closure-compiler, generally not needed unless changing JS code as a minified version is part of the repository already', type: 'boolean', value: false)
 option('LOCAL_GENERATORS', description: 'Attempts to find a locally-installed version of sourcery and make_html, instead of compiling it', type: 'boolean', value: false)
 option('DOCKERRUN', description: 'Enables the controller to execute a command that is passed as the first parameter to pass official Docker image requirements', type: 'boolean', value: false)
 option('TIDY', description: 'Run clang-tidy static analysis during compilation', type: 'boolean', value: false)
 option('EFG_UI', description: 'Replaces the Settigns Page with /interface.html', type: 'boolean', value: false)
+option('LSP_VARIANTS', description: 'UI variants to embed. First = root /, rest = /<slug>. Known: mi, efg, playground', type: 'array', value: ['mi'])
+

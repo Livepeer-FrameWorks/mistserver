@@ -2,6 +2,7 @@
 
 #include "controller_capabilities.h"
 #include "controller_connectors.h"
+#include "controller_discovery.h"
 #include "controller_external_writers.h"
 #include "controller_push.h"
 #include "controller_statistics.h"
@@ -14,6 +15,7 @@
 #include <mist/bitfields.h>
 #include <mist/config.h>
 #include <mist/defines.h>
+#include <mist/embedded_fs.h>
 #include <mist/http_parser.h>
 #include <mist/jwt.h>
 #include <mist/procs.h>
@@ -639,16 +641,79 @@ bool Controller::handleAPIConnection(APIConn *aConn) {
     }
     // invalid request? send the web interface, unless requested as "/api"
     if (!Request.isObject() && aConn->H.url != "/api" && aConn->H.url != "/api2") {
-#include "server.html.h"
-      aConn->H.Clean();
-      aConn->H.SetHeader("Content-Type", "text/html");
-      aConn->H.SetHeader("X-Info", "To force an API response, request the file /api");
-      aConn->H.SetHeader("Server", APPIDENT);
-      aConn->H.SetHeader("Content-Length", server_html_len);
-      aConn->H.SetHeader("X-UA-Compatible", "IE=edge;chrome=1");
-      aConn->H.SendResponse("200", "OK", aConn->C);
-      aConn->C.SendNow(server_html, server_html_len);
-      aConn->H.Clean();
+#include "server_variants.h"
+      const LSPVariant *variant = 0;
+      std::string filePath;
+
+      // Match non-root variants by URL prefix (e.g. /efg/, /efg/main.js)
+      bool redirected = false;
+      for (int i = 0; i < lsp_variant_count; i++) {
+        if (lsp_variants[i].is_root) continue;
+        std::string pfx = std::string("/") + lsp_variants[i].slug;
+        if (aConn->H.url == pfx) {
+          aConn->H.Clean();
+          aConn->H.SetHeader("Location", pfx + "/");
+          aConn->H.SetHeader("Server", APPIDENT);
+          aConn->H.SendResponse("301", "Moved Permanently", aConn->C);
+          aConn->H.Clean();
+          redirected = true;
+          break;
+        }
+        if (aConn->H.url.substr(0, pfx.size() + 1) == pfx + "/") {
+          variant = &lsp_variants[i];
+          filePath = aConn->H.url.substr(pfx.size());
+          break;
+        }
+      }
+
+      if (redirected) break;
+
+      // Fall back to root variant
+      if (!variant) {
+        for (int i = 0; i < lsp_variant_count; i++) {
+          if (lsp_variants[i].is_root) {
+            variant = &lsp_variants[i];
+            filePath = aConn->H.url;
+            break;
+          }
+        }
+      }
+
+      if (variant) {
+        if (filePath.empty() || filePath == "/") filePath = "/index.html";
+
+        const EmbeddedFile *entry = vfsLookup(variant->files, variant->file_count, filePath.c_str());
+        if (entry) {
+          std::string inm = aConn->H.GetHeader("If-None-Match");
+          std::string quotedEtag = std::string("\"") + entry->etag + "\"";
+          aConn->H.Clean();
+          aConn->H.SetHeader("Server", APPIDENT);
+          aConn->H.SetHeader("ETag", quotedEtag);
+          if (filePath == "/index.html") {
+            aConn->H.SetHeader("Cache-Control", "no-cache");
+            aConn->H.SetHeader("X-Info", "To force an API response, request the file /api");
+          } else {
+            aConn->H.SetHeader("Cache-Control", "public, max-age=604800");
+          }
+          if (inm.size() && (inm == quotedEtag || inm == entry->etag)) {
+            aConn->H.SendResponse("304", "Not Modified", aConn->C);
+          } else {
+            aConn->H.SetHeader("Content-Type", entry->mime);
+            aConn->H.SetHeader("Content-Length", (long long)entry->data_len);
+            aConn->H.SendResponse("200", "OK", aConn->C);
+            aConn->C.SendNow(entry->data, entry->data_len);
+          }
+          aConn->H.Clean();
+          break;
+        }
+        // Unknown file in variant VFS — send 404
+        aConn->H.Clean();
+        aConn->H.SetHeader("Server", APPIDENT);
+        aConn->H.SetHeader("Content-Type", "text/plain");
+        aConn->H.SetBody("404 Not Found");
+        aConn->H.SendResponse("404", "Not Found", aConn->C);
+        aConn->H.Clean();
+      }
       break;
     }
     if (aConn->H.url == "/api2") { Request["minimal"] = true; }
@@ -1930,6 +1995,25 @@ void Controller::handleAPICommands(JSON::Value &Request, JSON::Value &Response){
   if (Request.isMember("variable_list")) { Response["variable_list"] = Storage["variables"]; }
   if (Request.isMember("variable_add")){Controller::addVariable(Request["variable_add"], Response["variable_list"]);}
   if (Request.isMember("variable_remove")){Controller::removeVariable(Request["variable_remove"], Response["variable_list"]);}
+
+  // Camera related commands
+  if (Request.isMember("camera_config")) {
+    Controller::cameraConfigure(Request["camera_config"], Response["camera_config"]);
+  }
+  if (Request.isMember("camera_list")) { Controller::listCameras(Response["camera_list"]); }
+  if (Request.isMember("camera_remove")) {
+    Controller::removeCamera(Request["camera_remove"], Response["camera_list"]);
+  }
+  if (Request.isMember("camera_query")) { Controller::sendCommand(Request["camera_query"], Response["camera_query"]); }
+  if (Request.isMember("camera_update")) {
+    Controller::updateCamera(Request["camera_update"], Response["camera_list"]);
+  }
+  if (Request.isMember("camera_create_stream")) {
+    Controller::createCameraStream(Request["camera_create_stream"], Response["camera_create_stream"]);
+  }
+  if (Request.isMember("camera_presets")) {
+    Controller::listPresets(Request["camera_presets"], Response["camera_presets"]);
+  }
 
   // External writer related commands
   if (Request.isMember("external_writer_remove")){Controller::removeExternalWriter(Request["external_writer_remove"]);}

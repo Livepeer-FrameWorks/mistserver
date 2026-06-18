@@ -141,6 +141,8 @@ namespace Mist{
     capa["optional"]["fallback_stream"]["type"] = "str";
     capa["optional"]["fallback_stream"]["default"] = "";
     option.null();
+    capa["optional"]["DVR"]["display"] = "always";
+    capa["optional"]["resume"]["display"] = "always";
     /*LTS-end*/
 
     capa["source_name"] = "Receiving a push"; //shown instead of "Buffer" in the settings page help text

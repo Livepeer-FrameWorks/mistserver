@@ -2151,9 +2151,10 @@ int Socket::Server::getSocket(){
 /// Will attempt to create an IPv6 UDP socket, on fail try a IPV4 UDP socket.
 /// If both fail, prints an DLVL_FAIL debug message.
 /// \param nonblock Whether the socket should be nonblocking.
-Socket::UDPConnection::UDPConnection(bool nonblock){
-  init(nonblock);
-} // Socket::UDPConnection UDP Constructor
+/// \param family The address family in case you MUST use a ipv4. Default is AF_INET6 for dual stack.
+Socket::UDPConnection::UDPConnection(bool nonblock, int family) {
+  init(nonblock, family);
+} // Socket::UDPConnection UDP Constructor with family
 
 /// Create a new UDP socket, with local sender and/or remote destination pre-set.
 /// This ensure the address family matches, but does not bind or connect.
@@ -2607,6 +2608,27 @@ void Socket::UDPConnection::setAddresses(void * dest, size_t destLen, void * loc
 void Socket::UDPConnection::SetDestination(std::string destIp, uint32_t port){
   DONTEVEN_MSG("Setting destination to %s:%u", destIp.c_str(), port);
 
+  // Special case for broadcast address
+  if (destIp == "255.255.255.255") {
+    INFO_MSG("Setting up broadcast destination (socket=%d)", sock);
+    // Force IPv4 for broadcast
+    family = AF_INET;
+    // Enable broadcast on the socket
+    int broadcast = 1;
+    if (setsockopt(sock, SOL_SOCKET, SO_BROADCAST, &broadcast, sizeof(broadcast)) < 0) {
+      FAIL_MSG("Failed to set SO_BROADCAST: %s", strerror(errno));
+      return;
+    }
+
+    // Allocate and set up broadcast address
+    allocateDestination(false);
+    struct sockaddr_in *baddr = (struct sockaddr_in *)(sockaddr *)destAddr;
+    memset(baddr, 0, sizeof(struct sockaddr_in));
+    baddr->sin_family = AF_INET;
+    baddr->sin_port = htons(port);
+    baddr->sin_addr.s_addr = INADDR_BROADCAST;
+    return;
+  }
   std::deque<Socket::Address> addrs = getAddrs(destIp, port, family);
   for (auto & it : addrs) {
     if (setDestination(it)) { return; }
@@ -2909,6 +2931,15 @@ void Socket::UDPConnection::sendPaced(uint64_t uSendWindow){
 /// Optional, left out means automatically chosen by kernel. \return Actually bound port number, or
 /// zero on error.
 uint16_t Socket::UDPConnection::bind(int port, std::string iface, const std::string &multicastInterfaces){
+  // Store broadcast state if socket exists
+  int broadcast = 0;
+  socklen_t optlen = sizeof(broadcast);
+  bool hadBroadcast = false;
+  if (sock != -1) {
+    getsockopt(sock, SOL_SOCKET, SO_BROADCAST, &broadcast, &optlen);
+    hadBroadcast = (broadcast != 0);
+  }
+
   close(); // we open a new socket for each attempt
   int addr_ret;
   bool multicast = false;
@@ -2959,6 +2990,8 @@ repeatAddressFinding:
       // Allow address re-use
       int on = 1;
       setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, &on, sizeof(on));
+      // Restore broadcast if it was set
+      if (hadBroadcast) { setsockopt(sock, SOL_SOCKET, SO_BROADCAST, &on, sizeof(on)); }
     }
     if (rp->ai_family == AF_INET6){
       const int optval = 0;

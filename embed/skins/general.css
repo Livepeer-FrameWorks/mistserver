@@ -1,9 +1,74 @@
+@layer mist.tokens, mist.base;
+
+@layer mist.tokens {
+  .mistvideo {
+    /* Colors */
+    --mist-color-text:              #fff;
+    --mist-color-text-muted:        rgba(255,255,255,0.5);
+    --mist-color-icon-fill:         #fff;
+    --mist-color-icon-stroke:       #fff;
+    --mist-color-surface:           rgba(0,0,0,0.8);
+    --mist-color-accent:            #0f0;
+    --mist-color-accent-hover:      color-mix(in srgb, var(--mist-color-accent) 80%, white);
+    --mist-color-progress-track:    #333;
+    --mist-color-progress-fill:     var(--mist-color-accent);
+    --mist-color-progress-buffer:   var(--mist-color-text-muted);
+    --mist-color-border:            var(--mist-color-text-muted);
+    --mist-color-link:              var(--mist-color-accent);
+    --mist-color-hover:             rgba(255,255,255,0.1);
+    --mist-color-separator:         rgba(255,255,255,0.06);
+    --mist-icon-stroke-width:       1.5;
+
+    /* Typography */
+    --mist-font-family:             sans-serif;
+    --mist-font-size:               14.5px;
+    --mist-font-size-sm:            0.9em;
+    --mist-font-size-lg:            1.5em;
+    --mist-line-height:             1.2;
+
+    /* Spacing */
+    --mist-space-xs:                2.5px;
+    --mist-space-sm:                5px;
+    --mist-space-md:                10px;
+    --mist-space-lg:                1em;
+
+    /* Sizing */
+    --mist-control-height:          42px;
+    --mist-icon-size:               22px;
+    --mist-progress-height:         2px;
+    --mist-progress-height-hover:   10px;
+    --mist-progress-knob-size:      5px;
+    --mist-volume-slider-width:     4rem;
+
+    /* Radius */
+    --mist-radius-sm:               0;
+    --mist-radius-md:               4px;
+    --mist-radius-lg:               8px;
+
+    /* Transitions */
+    --mist-transition-fast:         0.1s;
+    --mist-transition-normal:       0.25s;
+    --mist-transition-slow:         0.5s;
+
+    /* Opacity */
+    --mist-opacity-disabled:        0.5;
+
+    /* Idle screen */
+    --mist-color-warning:           #e0af68;
+    --mist-color-danger:            #f7768e;
+    --mist-idle-bg-from:            #16161e;
+    --mist-idle-bg-to:              #1a1b26;
+  }
+}
+
+@layer mist.base {
+
 .mistvideo {
   display: block;
   margin: 0 auto;
   position: relative;
-  color: $stroke;
-  font-family: sans-serif;
+  color: var(--mist-color-text);
+  font-family: var(--mist-font-family);
   background-color: #000;
   justify-content: center;
   align-items: center;
@@ -83,6 +148,7 @@
   bottom: 0;
   margin: auto;
   opacity: 0;
+  pointer-events: none;
 }
 .mistvideo[data-loading] {
   position: relative;
@@ -95,6 +161,7 @@
 .mistvideo[data-loading] svg.icon.loading {
   z-index: 2;
   opacity: 1;
+  pointer-events: auto;
 }
 .mistvideo[data-loading-css] .mistvideo-controls {
   display: none;
@@ -110,7 +177,7 @@
   left: 0;
   right: 0;
   bottom: 0;
-  background-color: $background;
+  background-color: var(--mist-color-surface);
   align-items: center;
   justify-content: center;
   text-align: center;
@@ -162,32 +229,33 @@
   transform: translateX(8px);
 }
 .mistvideo-keyControls > span {
-  font-size: 1.5em;
+  font-size: var(--mist-font-size-lg);
   padding: 0 0.25em;
 }
 
-.mistvideo[data-controls="show"] .mistvideo-controls {
-  bottom: 0;
-  transition-delay: 0s !important;
-  transition-duration: 0.1s !important;
+.mistvideo[data-controls="show"] .inner_window,
+.mistvideo[data-show-submenu] .inner_window {
+  bottom: 0 !important;
+  opacity: 1 !important;
+  transition: opacity 0.3s ease-in, bottom 0s !important;
 }
 
 .mistvideo-video:not(.video-js) button,
 .mistvideo-error button,
 .mistvideo-controls button
 {
-  color: $stroke;
-  border: 1px solid $semiFill;
-  background-color: $background;
+  color: var(--mist-color-icon-stroke);
+  border: 1px solid var(--mist-color-border);
+  background-color: var(--mist-color-surface);
   margin: 0.25em;
   padding: 0.5em 1em;
-  opacity: 0.5;
+  opacity: var(--mist-opacity-disabled);
   cursor: pointer;
 }
 .mistvideo button:hover { opacity: 1; }
 .mistvideo select {
   background-color: transparent;
-  color: $stroke;
+  color: var(--mist-color-text);
   border: none;
   margin: 0 0.5em;
   font-size: inherit;
@@ -195,12 +263,12 @@
   -ms-background-color: red;
 }
 .mistvideo select > option {
-  background-color: $background;
+  background-color: var(--mist-color-surface);
 }
 
 .browser-edge select, .browser-safari select {
   /*These browsers don't show an arrow for select boxes, causing them to be invisible when a border is not applied */
-  border: 1px solid $semiFill;
+  border: 1px solid var(--mist-color-border);
   border-top: none;
   border-left: none;
   margin-top: 2px;
@@ -224,11 +292,11 @@
 }
 .mistvideo table { color: inherit; font-size: inherit; font-style: inherit; }
 .mistvideo audio:not([controls]) { display: block !important; }
-.mistvideo-padding { padding: 5px 10px; }
+.mistvideo-padding { padding: var(--mist-space-sm) var(--mist-space-md); }
 .mistvideo-pointer { cursor: pointer; }
-.msitvideo .description { 
-  color: $semiFill;
-  font-size: 0.9em;
+.mistvideo .description {
+  color: var(--mist-color-text-muted);
+  font-size: var(--mist-font-size-sm);
 }
 .mistvideo-container {
   display: flex;
@@ -255,7 +323,9 @@
 }
 .hover_window_container:not(:hover) > .outer_window > .inner_window,
 .hover_window_container > .outer_window[data-hidecursor] > .inner_window
-{ transition: all 0.5s ease-in 0.5s; }
+{ transition: all var(--mist-transition-slow) var(--mist-ease-default, ease-in) var(--mist-transition-slow), opacity 0.8s ease-out var(--mist-transition-slow); opacity: 0; }
+.hover_window_container:hover > .outer_window > .inner_window
+{ opacity: 1; transition: all var(--mist-transition-normal) ease-out, opacity 0.3s ease-in; }
 .outer_window > .inner_window { flex-grow: 1; }
 .hover_window_container > .outer_window > .inner_window > * { flex-shrink: 0; }
 
@@ -265,13 +335,19 @@
 
 .mistvideo-tooltip {
   position: absolute;
-  background-color: $background;
+  background-color: var(--mist-color-surface);
   padding: 0.5em 1em;
   z-index: 2;
 }
-*:not(:hover) > .mistvideo-tooltip { transition: opacity 0.25s ease-in; }
+.mistvideo-control-tooltip {
+  background-color: var(--mist-color-surface);
+  color: var(--mist-color-text);
+  border-radius: var(--mist-radius-md);
+  font-family: var(--mist-font-family);
+}
+*:not(:hover) > .mistvideo-tooltip { transition: opacity var(--mist-transition-normal) ease-in; }
 .mistvideo-tooltip .triangle {
-  border: 10px solid $background;
+  border: 10px solid var(--mist-color-surface);
   position: absolute;
 }
 .mistvideo-tracks label {
@@ -282,7 +358,7 @@
 }
 
 .mistvideo a {
-  color: $accent;
+  color: var(--mist-color-link);
 }
 .mistvideo-log .logs {
   -webkit-user-select: text;
@@ -315,13 +391,13 @@
 
 .mistvideo svg.icon {
   display: block;
-  stroke-width: $strokeWidth;
+  stroke-width: var(--mist-icon-stroke-width);
   fill: none;
   stroke: none;
 }
-.mistvideo svg.icon.fill, svg.icon .fill { fill: $fill; }
-.mistvideo svg.icon.semiFill, svg.icon .semiFill { fill: $semiFill; }
-.mistvideo svg.icon.stroke, svg.icon .stroke { stroke: $stroke; vector-effect: non-scaling-stroke; }
+.mistvideo svg.icon.fill, svg.icon .fill { fill: var(--mist-color-icon-fill); }
+.mistvideo svg.icon.semiFill, svg.icon .semiFill { fill: var(--mist-color-text-muted); }
+.mistvideo svg.icon.stroke, svg.icon .stroke { stroke: var(--mist-color-icon-stroke); vector-effect: non-scaling-stroke; }
 .mistvideo svg.icon.off .toggle.fill,
 .mistvideo svg.icon.off .toggle.semiFill,
 .mistvideo svg.icon.off .toggle .fill,
@@ -347,3 +423,259 @@
 .vjs-error .vjs-big-play-button {
   display: none;
 }
+
+/* Double-tap seek overlay */
+.mistvideo-doubletap-overlay {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 1.5em;
+  font-weight: 700;
+  color: #fff;
+  background: rgba(255,255,255,0.15);
+  padding: 1em 1.5em;
+  border-radius: 50%;
+  pointer-events: none;
+  animation: mistvideo-doubletap-fade 0.6s ease-out forwards;
+}
+.mistvideo-doubletap-overlay[data-side="left"] { left: 15%; }
+.mistvideo-doubletap-overlay[data-side="right"] { right: 15%; }
+@keyframes mistvideo-doubletap-fade {
+  0% { opacity: 1; transform: translateY(-50%) scale(1); }
+  100% { opacity: 0; transform: translateY(-50%) scale(1.5); }
+}
+
+/* ─── Idle screen ─── */
+
+@keyframes mist-gradient-shift {
+  0%, 100% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+}
+@keyframes mist-float-up {
+  0%   { transform: translateY(100vh) rotate(0deg); opacity: 0; }
+  10%  { opacity: 0.6; }
+  90%  { opacity: 0.6; }
+  100% { transform: translateY(-100px) rotate(360deg); opacity: 0; }
+}
+@keyframes mist-logo-pulse {
+  0%, 100% { opacity: 0.15; }
+  50%      { opacity: 0.25; }
+}
+@keyframes mist-spin {
+  to { transform: rotate(360deg); }
+}
+@keyframes mist-hitmarker-fade-45 {
+  0%   { opacity: 1; transform: translate(-50%, -50%) rotate(45deg) scale(0.5); }
+  20%  { opacity: 1; transform: translate(-50%, -50%) rotate(45deg) scale(1.2); }
+  100% { opacity: 0; transform: translate(-50%, -50%) rotate(45deg) scale(1); }
+}
+@keyframes mist-hitmarker-fade-neg-45 {
+  0%   { opacity: 1; transform: translate(-50%, -50%) rotate(-45deg) scale(0.5); }
+  20%  { opacity: 1; transform: translate(-50%, -50%) rotate(-45deg) scale(1.2); }
+  100% { opacity: 0; transform: translate(-50%, -50%) rotate(-45deg) scale(1); }
+}
+
+.mistvideo-idle {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  overflow: hidden;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.3s ease;
+  background: linear-gradient(135deg, var(--mist-idle-bg-from) 0%, var(--mist-idle-bg-to) 25%, var(--mist-idle-bg-from) 50%, var(--mist-idle-bg-to) 75%, var(--mist-idle-bg-from) 100%);
+  background-size: 400% 400%;
+  animation: mist-gradient-shift 16s ease infinite;
+  user-select: none;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+}
+.mistvideo-idle.show {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.mistvideo-idle-particles {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  overflow: hidden;
+}
+.mistvideo-idle-particles .particle {
+  position: absolute;
+  border-radius: 50%;
+  opacity: 0;
+  animation: mist-float-up var(--p-dur, 10s) var(--p-delay, 0s) linear infinite;
+  left: var(--p-left, 50%);
+  width: var(--p-size, 4px);
+  height: var(--p-size, 4px);
+  background: var(--p-color, var(--mist-color-accent));
+}
+
+.mistvideo-idle-bubbles {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.mistvideo-idle-bubbles .bubble {
+  position: absolute;
+  border-radius: 50%;
+  opacity: 0;
+  transition: opacity 1s ease-in-out;
+}
+
+.mistvideo-idle-logo {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform 0.3s ease-out;
+}
+.mistvideo-idle-logo .logo-pulse {
+  position: absolute;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--mist-color-accent) 15%, transparent);
+  animation: mist-logo-pulse 3s ease-in-out infinite;
+  pointer-events: none;
+}
+.mistvideo-idle-logo:hover .logo-pulse {
+  animation-duration: 1s;
+}
+.mistvideo-idle-logo .logo-button {
+  position: relative;
+  cursor: pointer;
+  transition: transform 0.3s ease, filter 0.3s ease;
+  filter: drop-shadow(0 4px 8px color-mix(in srgb, var(--mist-idle-bg-from) 60%, transparent));
+}
+.mistvideo-idle-logo .logo-button:hover {
+  transform: scale(1.1);
+  filter: drop-shadow(0 6px 12px color-mix(in srgb, var(--mist-idle-bg-from) 70%, transparent)) brightness(1.1);
+}
+.mistvideo-idle-logo .logo-button svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+.mistvideo-idle .mist-logo-highlight {
+  fill: var(--mist-color-icon-fill, #b5d3e2);
+}
+.mistvideo-idle .mist-logo-base {
+  fill: color-mix(in srgb, var(--mist-color-icon-fill, #8cb3cf) 70%, var(--mist-idle-bg-from));
+}
+
+.mistvideo-idle-dvd {
+  position: absolute;
+  pointer-events: none;
+  z-index: 5;
+}
+.mistvideo-idle-dvd svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.mistvideo-idle-status {
+  position: absolute;
+  bottom: 1.5rem;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+}
+.mistvideo-idle-status .status-indicator {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.75rem;
+  font-weight: 500;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.mistvideo-idle-status .status-indicator span {
+  color: var(--mist-color-text-muted);
+}
+.mistvideo-idle-status .status-icon {
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+}
+.mistvideo-idle-status .status-icon.spin {
+  animation: mist-spin 1s linear infinite;
+}
+.mistvideo-idle-status .progress-bar {
+  width: 160px;
+  height: 4px;
+  background: color-mix(in srgb, var(--mist-color-text-muted) 25%, transparent);
+  border-radius: 2px;
+  overflow: hidden;
+}
+.mistvideo-idle-status .progress-fill {
+  height: 100%;
+  background: var(--mist-color-accent);
+  border-radius: 2px;
+  transition: width 0.3s ease;
+}
+.mistvideo-idle-status .retry-btn {
+  padding: 6px 16px;
+  border: 1px solid color-mix(in srgb, var(--mist-color-accent) 40%, transparent);
+  border-radius: 4px;
+  background: none;
+  color: var(--mist-color-accent);
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+  opacity: 1;
+  margin: 0;
+}
+.mistvideo-idle-status .retry-btn:hover {
+  background: color-mix(in srgb, var(--mist-color-accent) 10%, transparent);
+}
+
+.mistvideo-idle-hitmarkers {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 15;
+}
+.mistvideo-idle-hitmarkers .hitmarker {
+  position: absolute;
+  width: 40px;
+  height: 40px;
+  pointer-events: none;
+  z-index: 100;
+}
+.mistvideo-idle-hitmarkers .hitmarker-line {
+  position: absolute;
+  width: 12px;
+  height: 3px;
+  border-radius: 1px;
+  background: var(--mist-color-icon-fill, #fff);
+  box-shadow: 0 0 8px color-mix(in srgb, var(--mist-color-icon-fill, #fff) 80%, transparent);
+}
+.mistvideo-idle-hitmarkers .hitmarker-line.tl { top: 25%; left: 25%; }
+.mistvideo-idle-hitmarkers .hitmarker-line.tr { top: 25%; left: 75%; }
+.mistvideo-idle-hitmarkers .hitmarker-line.bl { top: 75%; left: 25%; }
+.mistvideo-idle-hitmarkers .hitmarker-line.br { top: 75%; left: 75%; }
+.mistvideo-idle-hitmarkers .hitmarker-line.tl,
+.mistvideo-idle-hitmarkers .hitmarker-line.br {
+  animation: mist-hitmarker-fade-45 0.6s ease-out forwards;
+}
+.mistvideo-idle-hitmarkers .hitmarker-line.tr,
+.mistvideo-idle-hitmarkers .hitmarker-line.bl {
+  animation: mist-hitmarker-fade-neg-45 0.6s ease-out forwards;
+}
+
+.mistvideo-idle-texture {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+} /* end @layer mist.base */

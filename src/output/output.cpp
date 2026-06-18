@@ -98,6 +98,7 @@ namespace Mist{
     option.append("res_htl");
     option.append("Resolution, high to low");
     capa["optional"]["default_track_sorting"]["select"].append(option);
+    capa["optional"]["default_track_sorting"]["display"] = "advanced";
   }
 
   Output::Output(Socket::Connection & conn, Util::Config & cfg, JSON::Value & _capa)

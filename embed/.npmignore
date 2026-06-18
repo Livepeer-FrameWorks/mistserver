@@ -1,0 +1,9 @@
+node_modules/
+.claude/
+build.sh
+minimize
+vfs_manifest.txt
+players/
+imgs/
+skins/
+testing/

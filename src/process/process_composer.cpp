@@ -1302,6 +1302,7 @@ int main(int argc, char *argv[]) {
     capa["optional"]["resolution"]["type"] = "str";
     capa["optional"]["resolution"]["default"] = "1920x1080";
     capa["optional"]["resolution"]["sort"] = "aca";
+    capa["optional"]["resolution"]["display"] = "always";
 
     capa["optional"]["copyaudio"]["name"] = "Copy audio";
     capa["optional"]["copyaudio"]["option"] = "--copyaudio";
@@ -1416,6 +1417,7 @@ int main(int argc, char *argv[]) {
     capa["optional"]["target_fps"]["default"] = 0;
     capa["optional"]["target_fps"]["sort"] = "acd";
 
+    applyDisplayDefaultsToCapabilities(capa);
     std::cout << capa.toString() << std::endl;
     return -1;
   }

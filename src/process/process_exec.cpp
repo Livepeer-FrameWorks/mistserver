@@ -417,6 +417,7 @@ int main(int argc, char *argv[]){
     capa["required"]["exec"]["help"] = "What to executable to run on the stream data";
     capa["required"]["exec"]["type"] = "string";
 
+    applyDisplayDefaultsToCapabilities(capa);
     std::cout << capa.toString() << std::endl;
     return -1;
   }

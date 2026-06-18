@@ -1,0 +1,1034 @@
+/* cameras.css — Devices, Camera Detail, PTZ Control */
+
+/* ── Devices toggle bar (auto-add / thumbnailing) ── */
+.devices-toggle-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2xl);
+  padding: var(--sp-sm) 0;
+  border-bottom: 1px solid var(--border-color);
+  margin-bottom: var(--sp-md);
+}
+.auto-add-toggle .toggle-label,
+.thumb-toggle .toggle-label {
+  font-size: var(--text-sm);
+  white-space: nowrap;
+}
+.auto-add-toggle.toggled .toggle-thumb,
+.thumb-toggle.toggled .toggle-thumb {
+  transform: translate(var(--thumb-shift), -50%);
+}
+.auto-add-toggle.toggled .toggle-track,
+.thumb-toggle.toggled .toggle-track {
+  background: color-mix(in srgb, var(--accentColor), transparent 60%);
+  border-color: var(--accentColor);
+}
+
+/* ── Camera module ── */
+.cam-pill {
+  display: inline-block;
+  padding: var(--sp-2xs) var(--sp-md);  margin: var(--sp-2xs);  border-radius: 3px;  font-size: var(--text-base);
+  background-color: var(--accentColorDark);
+  color: var(--textColor);
+}
+.cam-pill.green { background-color: var(--green); color: #000 !important; }
+.cam-pill.red { background-color: var(--red); color: #000 !important; }
+
+.camera-title-row {
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-md);}
+
+.camera-note {
+  font-size: var(--text-sm);
+  color: var(--secondaryTextColor);
+  margin-bottom: var(--sp-md);}
+
+.cam-status { font-size: var(--text-xl); }
+.cam-status.online { color: var(--green); }
+.cam-status.error { color: var(--red); }
+.cam-status.unknown { color: var(--orange); }
+
+.cam-info-grid { box-shadow: none; }
+.cam-info-grid td:first-child {
+  font-weight: bold;
+  padding-right: var(--sp-3xl);  color: var(--secondaryTextColor);
+}
+
+.cam-section {
+  border: 1px solid var(--secondaryBackgroundColor);
+  border-radius: 3px;  padding: var(--sp-xl);  margin-bottom: var(--sp-xl);}
+
+.cam-snapshot {
+  max-width: 480px;
+  max-height: 360px;
+  border: 1px solid var(--secondaryBackgroundColor);
+  border-radius: 3px;}
+
+.cam-uri {
+  max-width: 20em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: monospace;
+  font-size: var(--text-md);
+}
+
+/* ── PTZ D-pad ── */
+.ptz-grid {
+  display: inline-grid;
+  grid-template-columns: 3em 3em 3em;
+  grid-template-rows: 3em 3em 3em;
+  gap: 2px;  vertical-align: top;
+}
+.ptz-grid button {
+  width: 3em;
+  height: 3em;
+  font-size: var(--text-lg);
+  cursor: pointer;
+  border: 1px solid var(--secondaryBackgroundColor);
+  background: var(--tertiaryBackgroundColor);
+  color: var(--textColor);
+  border-radius: 3px;}
+.ptz-grid button:hover {
+  background: var(--accentColorDark);
+  color: var(--accentDarkTextColor);
+}
+.ptz-grid button:active {
+  background: var(--accentColor);
+  color: var(--accentTextColor);
+}
+.ptz-grid button.stop {
+  background: var(--red);
+  color: #fff;
+  border-radius: 3px;}
+
+
+.ptz-presets {
+  margin-top: var(--sp-3xl);}
+.ptz-presets button {
+  width: 3em;
+  height: 3em;
+  margin: var(--sp-2xs);  border: 1px solid var(--secondaryBackgroundColor);
+  background: var(--tertiaryBackgroundColor);
+  color: var(--textColor);
+  border-radius: 3px;  cursor: pointer;
+}
+.ptz-presets button:hover {
+  background: var(--accentColorDark);
+  color: var(--accentDarkTextColor);
+}
+.ptz-presets button:active {
+  background: var(--accentColor);
+  color: var(--accentTextColor);
+}
+
+/* ── Device thumbnail grid ── */
+.devices.thumbnails {
+  display: flex;
+  flex-flow: row wrap;
+  margin: 0 calc(-1 * var(--sp-3xl));}
+.devices.thumbnails .device {
+  margin: var(--sp-3xl);  width: 15em;
+  max-width: calc(33.3333% - 2em);
+  box-sizing: border-box;
+  flex-grow: 1;
+  display: flex;
+  flex-flow: column nowrap;
+  align-items: center;
+  border: 1px solid var(--accentColor);
+  padding-bottom: var(--sp-3xl);  background-color: var(--backgroundColor);
+  position: relative;
+  overflow: hidden;
+}
+.devices.thumbnails:not(:has(.device:not(.hidden):not(.status-hidden))):before {
+  content: "None.";
+  margin-left: var(--sp-3xl);}
+.devices.thumbnails .device .header {
+  background: var(--secondaryBackgroundColor);
+  color: var(--textColor);
+  padding: var(--sp-md) var(--sp-3xl);  text-align: center;
+  align-self: stretch;
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.devices.thumbnails .device .header:hover {
+  color: var(--accentColor);
+}
+.devices.thumbnails .device .thumbnail,
+.devices.thumbnails .device .thumbnail img {
+  min-width: 0;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  object-fit: contain;
+  cursor: pointer;
+}
+.devices.thumbnails .device .thumbnail:empty {
+  background: var(--accentColor);
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='1.5'%3E%3Cpath d='M15.2 3a2 2 0 0 1 1.4.6l3.8 3.8a2 2 0 0 1 .6 1.4V21a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z'/%3E%3Cpath d='m14 3 4 4h-4z'/%3E%3Ccircle cx='12' cy='13' r='4'/%3E%3C/svg%3E") no-repeat center / 40%;
+  mask-mode: luminance;
+  opacity: 0.4;
+  scale: 0.8;
+}
+.devices.thumbnails .device .device-status {
+  padding: var(--sp-sm) var(--sp-md);  width: 100%;
+  box-sizing: border-box;
+  text-align: center;
+  flex-grow: 1;
+  display: flex;
+  flex-flow: row wrap;
+  justify-content: center;
+  align-items: center;
+  gap: var(--sp-sm);}
+.devices.thumbnails .device .actions {
+  text-align: center;
+}
+.devices .device.hidden,
+.devices .device.status-hidden {
+  display: none !important;
+}
+.devices tr.hidden,
+.devices tr.status-hidden {
+  display: none !important;
+}
+
+/* ── Devices status filter ── */
+.devices-status-filter {
+  display: inline-flex;
+  gap: var(--sp-xs);  margin-left: var(--sp-3xl);  vertical-align: middle;
+}
+
+/* ── Camera Detail dashboard ── */
+.camera-detail-dashboard:not(.camera-detail-dashboard) {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--sp-3xl);  align-items: start;
+}
+.camera-detail-dashboard:not(.camera-detail-dashboard) > h3 {
+  grid-column: 1 / -1;
+}
+.camera-detail-dashboard:not(.camera-detail-dashboard) > section {
+  background: var(--secondaryBackgroundColor);
+  border-radius: 5px;  padding: var(--sp-3xl);}
+.camera-detail-dashboard:not(.camera-detail-dashboard) > section.cam-preview {
+  grid-column: 1 / -1;
+}
+.camera-detail-dashboard .cam-preview img {
+  width: 100%;
+  max-height: 400px;
+  object-fit: contain;
+  border-radius: 3px;}
+
+/* ── PTZ side-by-side layout ── */
+.ptz-layout:not(.ptz-layout--slab) {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: var(--sp-6xl);  align-items: start;
+}
+.ptz-layout:not(.ptz-layout--slab) .ptz-preview {
+  min-width: 0;
+}
+.ptz-layout:not(.ptz-layout--slab) .ptz-preview img {
+  width: 100%;
+  max-height: 500px;
+  object-fit: contain;
+  border-radius: 3px;  border: 1px solid var(--secondaryBackgroundColor);
+}
+.ptz-layout:not(.ptz-layout--slab) .ptz-panel {
+  display: flex;
+  flex-flow: column nowrap;
+  gap: var(--sp-3xl);}
+.ptz-layout:not(.ptz-layout--slab) .ptz-panel > section {
+  background: var(--secondaryBackgroundColor);
+  border-radius: 5px;  padding: var(--sp-3xl);}
+.ptz-layout:not(.ptz-layout--slab) .ptz-panel > section > label:first-child {
+  display: block;
+  font-weight: 600;
+  color: var(--secondaryTextColor);
+  margin-bottom: var(--sp-md);  font-size: var(--text-base);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+@media (max-width: 768px) {
+  .ptz-layout { grid-template-columns: 1fr; }
+  .camera-detail-dashboard { grid-template-columns: 1fr; }
+}
+
+
+/* ── Wave 0 shell compaction — camera/device rules ── */
+.page-body.devices-page-body { --page-gap: 0.55em; }
+.devices-shell .devices-filter-shell,
+.devices-shell > .input_container:first-child {
+  width: 100%;
+  max-width: none;
+  margin: 0;  padding: var(--sp-lg) var(--sp-xl) var(--sp-md);  border: 1px solid var(--border-color);
+  border-radius: 2px;  background: var(--secondaryBackgroundColor);
+}
+.devices-shell .devices-filter-shell .text_container.page-intro,
+.devices-shell > .input_container:first-child .text_container.page-intro {
+  max-width: none;
+  margin: 0 0 var(--sp-md);  padding: 0 0 var(--sp-md);  border: 0;
+  border-bottom: 1px solid var(--border-color);
+  border-radius: 0;  background: transparent;
+}
+.devices-shell .devices-filter-shell .text_container.page-intro::before,
+.devices-shell > .input_container:first-child .text_container.page-intro::before {
+  display: none;
+}
+.devices-shell .devices-filter-shell .UIelement {
+  row-gap: var(--sp-2xs);}
+.devices-shell .devices-filter-shell .field.filter {
+  max-width: min(34em, 100%);
+}
+.devices-shell .devices-filter-shell .devices-status-filter {
+  margin-left: auto;}
+.devices-shell .devices.thumbnails {
+  margin: 0 calc(-1 * var(--sp-md));}
+.devices-shell .devices.thumbnails .device {
+  margin: var(--sp-md);  max-width: calc(33.3333% - 0.9em);
+  border-color: var(--border-color);
+  border-radius: 2px;  padding-bottom: var(--sp-lg);  background: var(--secondaryBackgroundColor);
+}
+
+.camera-tab-header.page-header:has(.tabnav) {
+  padding-bottom: var(--sp-sm);}
+.camera-tab-header.page-header > .subtab-header {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-xs);}
+.camera-tab-header .subtab-header .tabnav {
+  margin: var(--sp-2xs) 0 0;  padding: 0 var(--sp-md);}
+.camera-tab-header .subtab-header .tabnav .tab {
+  border-radius: 0 2px 0 0;  padding: var(--sp-xs) var(--sp-2xl);}
+.camera-tab-header .subtab-header .subtab-header-status .cam-pill {
+  margin: 0;}
+
+.camera-detail-dashboard {
+  gap: var(--sp-lg);}
+.camera-detail-dashboard > section {
+  border: 1px solid var(--border-color);
+  border-radius: 2px;  padding: var(--sp-xl) var(--sp-2xl);}
+.camera-detail-dashboard .dashboard-section-header {
+  margin: var(--sp-xs) 0 calc(-1 * var(--sp-2xs));  padding: var(--sp-sm) var(--sp-xs);}
+
+.ptz-layout {
+  gap: var(--sp-2xl);}
+.ptz-layout .ptz-preview {
+  border: 1px solid var(--border-color);
+  border-radius: 2px;  background: var(--secondaryBackgroundColor);
+  padding: var(--sp-md);}
+.ptz-layout .ptz-panel {
+  gap: var(--sp-lg);}
+.ptz-layout .ptz-panel > section {
+  border: 1px solid var(--border-color);
+  border-radius: 2px;  padding: var(--sp-lg) var(--sp-xl);}
+
+/* ── Wave 3 camera internals ── */
+.devices-shell .devices.thumbnails .device .header {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-sm);  padding: var(--sp-md) var(--sp-lg);  border-bottom: 1px solid var(--border-color);
+  background: var(--tertiaryBackgroundColor);
+  font-size: var(--text-base);
+}
+.devices-shell .devices.thumbnails .device .header .cam-pill {
+  margin: 0;  font-size: var(--text-xs);
+  padding: var(--sp-2xs) var(--sp-sm);  border-radius: 2px;}
+.devices-shell .devices.thumbnails .device .thumbnail {
+  border-bottom: 1px solid var(--border-color);
+  background: color-mix(in srgb, var(--backgroundColor), var(--tertiaryBackgroundColor) 30%);
+}
+.devices-shell .devices.thumbnails .device .device-status {
+  border-top: 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--border-color), transparent 35%);
+  padding: var(--sp-sm) var(--sp-md);  min-height: 2.1em;
+}
+.devices-shell .devices.thumbnails .device .device-status .cam-pill {
+  margin: 0;  font-size: var(--text-xs);
+}
+.devices-shell .devices.thumbnails .device .actions {
+  width: 100%;
+  padding: var(--sp-sm) var(--sp-md) 0;  box-sizing: border-box;
+}
+.devices-shell .devices.thumbnails .device .actions button {
+  width: 100%;
+  margin: 0;  font-size: var(--text-sm);
+}
+.devices-shell .devices-table-shell {
+  border: 1px solid var(--border-color);
+  border-radius: 2px;  background: var(--secondaryBackgroundColor);
+  overflow: auto;
+}
+.devices-shell .devices-table-shell table.devices {
+  margin: 0;  border: 0;
+  background: transparent;
+}
+.devices-shell .devices-table-shell table.devices thead {
+  position: static;
+}
+.devices-shell .devices-table-shell table.devices td,
+.devices-shell .devices-table-shell table.devices th {
+  padding: var(--sp-sm) var(--sp-md);}
+.devices-shell .devices-table-shell table.devices td[data-index="name"] .device-row-title {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-sm);
+}
+.devices-shell .devices-table-shell table.devices td[data-index="name"] .device-row-title > a.clickable {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.devices-shell .devices-table-shell table.devices td[data-index="name"] .device-row-actions {
+  margin: 0;
+  font-size: var(--text-sm);
+  padding: var(--sp-xs) var(--sp-md);
+  opacity: 0.6;
+}
+.devices-shell .devices-table-shell table.devices tbody tr:hover td[data-index="name"] .device-row-actions,
+.devices-shell .devices-table-shell table.devices tbody tr:focus-within td[data-index="name"] .device-row-actions {
+  opacity: 1;
+}
+.devices-shell .devices-table-shell table.devices td[data-index="capabilities"] .cam-pill,
+.devices-shell .devices-table-shell table.devices td[data-index="protocol"] .cam-pill {
+  margin: 0 var(--sp-2xs) 0 0;  font-size: var(--text-xs);
+}
+.devices-shell .devices-pagecontrol {
+  margin-top: var(--sp-2xs);  padding-top: var(--sp-md);  border-top: 1px solid var(--border-color);
+}
+.devices-shell .devices-pagecontrol .input_container {
+  margin: 0;}
+
+.camera-detail-dashboard {
+  gap: var(--sp-md);}
+.camera-detail-dashboard > section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-md);  min-width: 0;
+}
+.camera-detail-dashboard > section.cam-section-preview img {
+  width: 100%;
+  max-height: min(50vh, 28em);
+  object-fit: contain;
+  border: 1px solid var(--border-color);
+  background: var(--backgroundColor);
+}
+.camera-detail-dashboard .cam-device-info .cam-info-grid table {
+  margin: 0;}
+.camera-detail-dashboard .cam-connectivity .accordion-group {
+  border: 1px solid var(--border-color);
+  border-radius: 2px;  overflow: hidden;
+  background: color-mix(in srgb, var(--secondaryBackgroundColor), var(--backgroundColor) 10%);
+}
+.camera-detail-dashboard .cam-connectivity .accordion-section {
+  border-top: 1px solid var(--border-color);
+  border-left: 0;
+}
+.camera-detail-dashboard .cam-connectivity .accordion-section:first-child {
+  border-top: 0;
+}
+.camera-detail-dashboard .cam-connectivity .accordion-header {
+  padding: var(--sp-md) var(--sp-lg);}
+.camera-detail-dashboard .cam-connectivity .accordion-title {
+  font-size: var(--text-md);
+}
+.camera-detail-dashboard .cam-connectivity .accordion-section.expanded > .accordion-body > .accordion-inner {
+  padding: var(--sp-xs) var(--sp-lg) var(--sp-lg);}
+.camera-detail-dashboard .cam-default-stream {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-md);
+  padding: var(--sp-sm) 0;
+}
+.camera-detail-dashboard .cam-default-stream-label {
+  font-size: var(--text-sm);
+  color: var(--secondaryTextColor);
+  white-space: nowrap;
+}
+.camera-detail-dashboard .cam-default-stream-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-xs);
+}
+.camera-detail-dashboard .cam-default-pill {
+  padding: var(--sp-2xs) var(--sp-lg);
+  border: 1px solid var(--border-color);
+  border-radius: 2px;
+  background: transparent;
+  color: var(--textColor);
+  font-size: var(--text-sm);
+  cursor: pointer;
+  margin: 0;
+  transition: border-color 0.15s, background-color 0.15s;
+}
+.camera-detail-dashboard .cam-default-pill:hover {
+  border-color: var(--accentColor);
+}
+.camera-detail-dashboard .cam-default-pill.active {
+  border-color: var(--accentColor);
+  background: color-mix(in srgb, var(--accentColor), transparent 78%);
+}
+.camera-detail-dashboard .cam-streams .cam-streams-table {
+  margin-top: var(--sp-2xs);  border: 1px solid var(--border-color);
+  border-radius: 2px;}
+.camera-detail-dashboard .cam-streams .cam-streams-table table {
+  margin: 0;  border: 0;
+  background: transparent;
+}
+.camera-detail-dashboard .cam-streams .cam-streams-table table thead {
+  position: static;
+}
+.camera-detail-dashboard .cam-streams .cam-streams-table table td,
+.camera-detail-dashboard .cam-streams .cam-streams-table table th {
+  padding: var(--sp-sm) var(--sp-md);}
+.camera-detail-dashboard .cam-streams .cam-streams-table table td:last-child button {
+  margin: 0;  font-size: var(--text-sm);
+  padding: var(--sp-xs) var(--sp-sm);}
+.camera-detail-dashboard .cam-analytics h4 {
+  margin: var(--sp-2xs) 0 var(--sp-xs);  font-size: var(--text-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--secondaryTextColor);
+}
+.camera-detail-dashboard .cam-analytics > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-xs);}
+
+.ptz-layout--slab {
+  align-items: stretch;
+}
+.ptz-preview-slab {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.ptz-preview-slab img {
+  max-height: min(60vh, 30em);
+  border-color: var(--border-color);
+}
+.ptz-panel-slab > .ptz-section {
+  background: transparent;
+}
+.ptz-section > label:first-child {
+  margin-bottom: var(--sp-md);  font-size: var(--text-xs);
+  letter-spacing: 0.07em;
+}
+.ptz-section button {
+  margin: var(--sp-2xs);}
+.ptz-section-home button {
+  width: 100%;
+  margin: 0;  justify-content: center;
+}
+.ptz-presets {
+  margin-top: var(--sp-sm);}
+.ptz-grid button,
+.ptz-presets button {
+  border-color: var(--border-color);
+}
+
+/* ── Wave 3 camera polish ── */
+.devices-shell .context_menu .cam-context-status {
+  margin-left: var(--sp-md);  font-size: var(--text-xs);
+  padding: var(--sp-2xs) var(--sp-md);  border-radius: 2px;  color: #000;
+}
+.devices-shell .context_menu .cam-context-status.online {
+  background: var(--green);
+}
+.devices-shell .context_menu .cam-context-status.offline {
+  background: var(--red);
+}
+.devices-shell .context_menu aside {
+  padding: var(--sp-xs) 0;}
+.devices-shell .context_menu aside .cam-snapshot {
+  display: block;
+  max-width: 12.5em;
+  border: 1px solid var(--border-color);
+  border-radius: 2px;}
+.devices-shell.actions button,
+.camera-detail-dashboard .cam-streams table button {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-sm);}
+.devices-shell.actions button[data-icon] > .lucide-icon,
+.camera-detail-dashboard .cam-streams table button[data-icon] > .lucide-icon {
+  position: static;
+  transform: none;
+  width: 1em;
+  height: 1em;
+}
+.camera-detail-dashboard .cam-streams table td:last-child > span {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: var(--sp-xs);  align-items: center;
+}
+.ptz-section > div:not(.ptz-grid):not(.ptz-presets) {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--sp-sm);}
+.ptz-section > div:not(.ptz-grid):not(.ptz-presets) > button {
+  margin: 0;}
+
+/* ── Wave 0 wrapper flattening — camera page-body gaps ── */
+.page-body.devices-page-body,
+.page-body.camera-detail-page-body,
+.page-body.ptz-page-body {
+  --page-gap: 0.45em;
+}
+
+/* ── Wave 0 wrapper flattening — devices shell ── */
+.devices-shell> .devices-filter-shell {
+  border: 0;
+  border-radius: 0;  border-bottom: 1px solid var(--border-color);
+  padding: var(--sp-md) var(--sp-lg) var(--sp-sm);  background: var(--tertiaryBackgroundColor);
+}
+.devices-shell> .devices-filter-shell .text_container.page-intro {
+  margin-bottom: var(--sp-sm);
+  padding: var(--sp-sm) var(--sp-md);
+  border: 1px solid color-mix(in srgb, var(--border-color), transparent 15%);
+  border-inline-start: 2px solid color-mix(in srgb, var(--accentColor), transparent 30%);
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--backgroundColor), transparent 20%);
+}
+.devices-shell> .streams-empty-state {
+  margin: 0;  padding: var(--sp-5xl) var(--sp-xl);}
+.devices-shell> .devices-table-shell {
+  border: 0;
+  border-radius: 0;  background: transparent;
+}
+.devices-shell> .devices-pagecontrol {
+  margin: 0;  padding: var(--sp-sm) var(--sp-lg);  border-top: 1px solid var(--border-color);
+}
+.devices-shell.cam-proto-pill {
+  margin-right: var(--sp-sm);  font-size: var(--text-xs);
+  vertical-align: middle;
+}
+.devices-shell .context_menu .cam-context-proto {
+  margin-right: var(--sp-sm);  font-size: var(--text-sm);
+}
+
+/* ── Wave 0 wrapper flattening — camera detail dashboard ── */
+.camera-detail-dashboard {
+  gap: 0;}
+.camera-detail-dashboard > .dashboard-section-header {
+  margin: 0;  padding: var(--sp-md) var(--sp-lg);  border-top: 1px solid var(--border-color);
+  border-bottom: 1px solid var(--border-color);
+  background: var(--tertiaryBackgroundColor);
+}
+.camera-detail-dashboard > .dashboard-section-header:first-child {
+  border-top: 0;
+}
+.camera-detail-dashboard > section {
+  border: 0;
+  border-radius: 0;  padding: var(--sp-md) var(--sp-lg);  background: transparent;
+}
+.camera-detail-dashboard .cam-feature-badges {
+  margin-top: var(--sp-md);}
+.camera-detail-dashboard .cam-proto-caps {
+  margin-bottom: var(--sp-md);}
+.camera-detail-dashboard .cam-credentials-form {
+  margin-top: var(--sp-md);}
+.camera-detail-dashboard .cam-credentials-heading {
+  font-size: var(--text-base);
+  color: var(--secondaryTextColor);
+}
+.camera-detail-dashboard .cam-preview-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--sp-md);
+  min-height: 10em;
+  color: var(--secondaryTextColor);
+  font-size: var(--text-sm);
+}
+.camera-detail-dashboard .cam-preview-loading {
+  display: block;
+  padding: var(--sp-sm) 0;
+  color: var(--secondaryTextColor);
+  font-size: var(--text-sm);
+}
+
+/* ── Wave 0 wrapper flattening — PTZ slab ── */
+.ptz-layout--slab {
+  gap: 0;}
+.ptz-layout--slab > .ptz-preview-slab {
+  border: 0;
+  border-right: 1px solid var(--border-color);
+  border-radius: 0;  padding: var(--sp-md) var(--sp-lg);  background: transparent;
+}
+.ptz-layout--slab > .ptz-panel-slab {
+  gap: 0;  border: 0;
+  background: transparent;
+}
+.ptz-layout--slab > .ptz-panel-slab > .ptz-section {
+  border: 0;
+  border-top: 1px solid var(--border-color);
+  border-radius: 0;  padding: var(--sp-md) var(--sp-lg);}
+.ptz-layout--slab > .ptz-panel-slab > .ptz-section:first-child {
+  border-top: 0;
+}
+
+/* ── PTZ control-room refresh ── */
+.ptz-layout--console {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(20em, 1fr);
+  min-height: 100%;
+  align-items: stretch;
+}
+.ptz-layout--console > .ptz-console-preview {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
+  gap: var(--sp-md);
+  background:
+    radial-gradient(120% 90% at 10% 10%, color-mix(in srgb, var(--accentColor), transparent 88%), transparent 60%),
+    radial-gradient(120% 90% at 90% 90%, color-mix(in srgb, var(--green), transparent 92%), transparent 65%),
+    color-mix(in srgb, var(--backgroundColor), #000 8%);
+}
+.ptz-layout--console .ptz-preview-frame {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  border: 1px solid color-mix(in srgb, var(--accentColor), var(--border-color) 70%);
+  border-radius: 2px;
+  overflow: hidden;
+  background: #0f1215;
+  position: relative;
+}
+.ptz-layout--console .ptz-preview-frame::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    linear-gradient(90deg, transparent 49.8%, color-mix(in srgb, var(--accentColor), transparent 78%) 50%, transparent 50.2%),
+    linear-gradient(0deg, transparent 49.8%, color-mix(in srgb, var(--accentColor), transparent 78%) 50%, transparent 50.2%);
+}
+.ptz-layout--console .ptz-preview-frame .ptz-snapshot {
+  width: 100%;
+  height: 100%;
+  max-height: none;
+  object-fit: contain;
+  display: block;
+}
+.ptz-layout--console .ptz-preview-frame > * {
+  position: absolute;
+  inset: 0;
+  width: 100% !important;
+  height: 100% !important;
+  max-height: 100% !important;
+}
+.ptz-layout--console .ptz-preview-frame video {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+.ptz-layout--console .ptz-no-preview {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--secondaryTextColor);
+  font-style: normal;
+}
+.ptz-layout--console .ptz-hud {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-sm);
+}
+.ptz-layout--console .ptz-hud-pill {
+  display: inline-flex;
+  align-items: center;
+  min-height: 1.9em;
+  padding: var(--sp-2xs) var(--sp-md);
+  border: 1px solid color-mix(in srgb, var(--border-color), transparent 10%);
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--secondaryBackgroundColor), transparent 12%);
+  font-size: var(--text-sm);
+}
+.ptz-layout--console .ptz-hud-pill.green {
+  border-color: color-mix(in srgb, var(--green), transparent 35%);
+  background: color-mix(in srgb, var(--green), transparent 86%);
+}
+.ptz-layout--console .ptz-hud-pill.red {
+  border-color: color-mix(in srgb, var(--red), transparent 35%);
+  background: color-mix(in srgb, var(--red), transparent 88%);
+}
+.ptz-layout--console .ptz-hud-pill.mono {
+  font-family: monospace, monospace;
+}
+.ptz-layout--console .ptz-protocol-bar {
+  border-top: 1px solid color-mix(in srgb, var(--border-color), transparent 50%);
+  padding-top: var(--sp-md);
+}
+.ptz-layout--console .ptz-protocol-label {
+  font-size: var(--text-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--secondaryTextColor);
+}
+.ptz-layout--console .ptz-protocol-bar .ptz-hud-pill {
+  cursor: pointer;
+  transition: border-color 0.15s, background-color 0.15s;
+}
+.ptz-layout--console .ptz-protocol-bar .ptz-hud-pill:hover {
+  border-color: color-mix(in srgb, var(--accentColor), transparent 35%);
+}
+.ptz-layout--console .ptz-audio-warning {
+  border-top: 1px solid color-mix(in srgb, var(--red), transparent 60%);
+  padding-top: var(--sp-md);
+  color: color-mix(in srgb, var(--red), var(--textColor) 30%);
+  font-size: var(--text-sm);
+}
+.ptz-layout--console .ptz-audio-warning button {
+  margin-left: var(--sp-sm);
+}
+
+.ptz-layout--console > .ptz-console-panel {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0;
+  align-content: start;
+}
+.ptz-layout--console > .ptz-console-panel > .ptz-console-intro {
+  grid-column: 1 / -1;
+  margin: 0;
+  padding: var(--sp-md) var(--sp-lg);
+  border-bottom: 1px solid var(--border-color);
+  color: var(--secondaryTextColor);
+  font-size: var(--text-sm);
+  background: color-mix(in srgb, var(--tertiaryBackgroundColor), var(--accentColor) 4%);
+}
+.ptz-layout--console > .ptz-console-panel > .ptz-section {
+  margin: 0;
+  padding: var(--sp-md) var(--sp-lg);
+  border-top: 1px solid var(--border-color);
+  border-left: 1px solid var(--border-color);
+  background: color-mix(in srgb, var(--secondaryBackgroundColor), transparent 6%);
+}
+.ptz-layout--console > .ptz-console-panel > .ptz-section:nth-of-type(2n+1) {
+  border-left: 0;
+}
+.ptz-layout--console > .ptz-console-panel > .ptz-section-direction,
+.ptz-layout--console > .ptz-console-panel > .ptz-section-presets,
+.ptz-layout--console > .ptz-console-panel > .ptz-section-home {
+  grid-column: 1 / -1;
+}
+.ptz-layout--console > .ptz-console-panel > .ptz-section > label:first-child {
+  display: block;
+  margin: 0 0 var(--sp-md);
+  font-size: var(--text-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--secondaryTextColor);
+}
+.ptz-layout--console .ptz-speed-wrap {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: var(--sp-md);
+}
+.ptz-layout--console .ptz-speed-wrap input[type="range"] {
+  width: 100%;
+  margin: 0;
+}
+.ptz-layout--console .ptz-speed-value {
+  min-width: 3.8em;
+  text-align: right;
+  font-family: monospace, monospace;
+  color: var(--secondaryTextColor);
+}
+.ptz-layout--console .ptz-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 3.3em));
+  justify-content: center;
+  gap: var(--sp-xs);
+}
+.ptz-layout--console .ptz-grid button,
+.ptz-layout--console .ptz-presets button {
+  margin: 0;
+  border-color: color-mix(in srgb, var(--accentColor), var(--border-color) 70%);
+  background: color-mix(in srgb, var(--backgroundColor), var(--tertiaryBackgroundColor) 26%);
+}
+.ptz-layout--console .ptz-grid button:hover,
+.ptz-layout--console .ptz-presets button:hover {
+  border-color: var(--accentColor);
+  background: color-mix(in srgb, var(--accentColor), transparent 88%);
+}
+.ptz-layout--console .ptz-grid button.stop {
+  border-color: color-mix(in srgb, var(--red), transparent 30%);
+  background: color-mix(in srgb, var(--red), transparent 82%);
+}
+.ptz-layout--console .ptz-pair {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--sp-sm);
+}
+.ptz-layout--console .ptz-pair > button,
+.ptz-layout--console .ptz-section-home button {
+  margin: 0;
+}
+.ptz-layout--console .ptz-presets {
+  margin-top: 0;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--sp-sm);
+}
+
+
+/* ── Responsive: mobile — camera/device/PTZ rules ── */
+@media (max-width: 768px) {
+  .devices-shell .devices.thumbnails {
+    margin: 0;  }
+  .devices-shell .devices.thumbnails .device {
+    margin: var(--sp-sm) 0;    max-width: 100%;
+    width: 100%;
+  }
+  .devices-shell .devices-filter-shell {
+    padding: var(--sp-md) var(--sp-md) var(--sp-sm);  }
+  .devices-shell> .devices-filter-shell {
+    padding: var(--sp-md) var(--sp-md) var(--sp-sm);  }
+  .devices-shell> .devices-pagecontrol {
+    padding-left: var(--sp-md);    padding-right: var(--sp-md);  }
+  .devices-shell .devices-filter-shell .devices-status-filter {
+    margin-left: 0;    width: 100%;
+  }
+  .devices-shell .devices-table-shell table.devices td[data-index="name"] .device-row-title {
+    flex-wrap: wrap;
+    align-items: flex-start;
+  }
+  .devices-shell .devices-table-shell table.devices td[data-index="name"] .device-row-actions {
+    width: 100%;
+    opacity: 1;
+  }
+  .camera-detail-dashboard > .dashboard-section-header {
+    padding-left: var(--sp-md);    padding-right: var(--sp-md);  }
+  .camera-detail-dashboard > section {
+    padding: var(--sp-md) var(--sp-lg);  }
+  .ptz-layout--slab > .ptz-preview-slab {
+    border-right: 0;
+    border-bottom: 1px solid var(--border-color);
+    padding-left: var(--sp-md);    padding-right: var(--sp-md);  }
+  .ptz-layout .ptz-preview {
+    padding: var(--sp-sm);  }
+  .ptz-panel-slab > .ptz-section {
+    padding: var(--sp-md) var(--sp-md);  }
+  .ptz-layout--console {
+    grid-template-columns: 1fr;
+  }
+  .ptz-layout--console > .ptz-console-preview {
+    border-bottom: 1px solid var(--border-color);
+  }
+  .ptz-layout--console > .ptz-console-panel {
+    grid-template-columns: 1fr;
+  }
+  .ptz-layout--console > .ptz-console-panel > .ptz-section,
+  .ptz-layout--console > .ptz-console-panel > .ptz-section:nth-of-type(2n+1) {
+    border-left: 0;
+  }
+  .ptz-layout--console > .ptz-console-panel > .ptz-section-direction,
+  .ptz-layout--console > .ptz-console-panel > .ptz-section-presets,
+  .ptz-layout--console > .ptz-console-panel > .ptz-section-home {
+    grid-column: auto;
+  }
+  .camera-tab-header .subtab-header .tabnav {
+    margin-top: var(--sp-xs);    padding: 0;  }
+}
+
+/* ── Multiview ── */
+.multiview-section {
+  margin-bottom: var(--sp-2xl);
+}
+.multiview-section h3 {
+  margin-bottom: var(--sp-md);
+}
+.multiview-cam-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: var(--sp-md);
+}
+.multiview-cam-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--sp-xs);
+  padding: var(--sp-md);
+  border: 1px solid var(--accentColorDark);
+  border-radius: 3px;
+  cursor: pointer;
+  transition: border-color 0.15s, background-color 0.15s;
+}
+.multiview-cam-card:hover {
+  border-color: var(--accentColor);
+}
+.multiview-cam-card.selected {
+  border-color: var(--accentColor);
+  background: color-mix(in srgb, var(--accentColor), transparent 85%);
+}
+.multiview-cam-card input[type="checkbox"] { margin-right: var(--sp-xs); }
+.multiview-cam-name {
+  font-size: var(--text-sm);
+  text-align: center;
+  word-break: break-word;
+}
+.multiview-cam-thumb {
+  width: 100%;
+  max-height: 90px;
+  object-fit: cover;
+  border-radius: 2px;
+}
+.multiview-stream-select {
+  display: none;
+  width: 100%;
+  margin-top: var(--sp-xs);
+  font-size: var(--text-sm);
+}
+.multiview-cam-card.selected .multiview-stream-select {
+  display: block;
+}
+
+.multiview-preview {
+  position: relative;
+  width: 100%;
+  max-width: 640px;
+  background: var(--secondaryBackgroundColor);
+  border: 1px solid var(--accentColorDark);
+  border-radius: 3px;
+  overflow: hidden;
+  min-height: 120px;
+}
+.multiview-preview-cell {
+  position: absolute;
+  box-sizing: border-box;
+  border: 1px solid var(--accentColor);
+  background: color-mix(in srgb, var(--accentColor), transparent 80%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.multiview-cell-label {
+  font-size: var(--text-xs);
+  color: var(--textColor);
+  text-align: center;
+  padding: var(--sp-2xs);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+}
+
+.multiview-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-lg);
+}
+.multiview-feedback {
+  font-size: var(--text-sm);
+}
+.multiview-feedback.error { color: var(--red); }
+.multiview-feedback.success { color: var(--green); }

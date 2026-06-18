@@ -292,6 +292,7 @@ int main(int argc, char *argv[]){
       genopts["track_select"]["validate"][0u] = "track_selector";
       genopts["track_select"]["default"] = "audio=all&video=all";
       genopts["track_select"]["sort"] = "a";
+      genopts["track_select"]["display"] = "always";
 
       genopts["sink"]["name"] = "Target stream";
       genopts["sink"]["help"] =
@@ -299,6 +300,7 @@ int main(int argc, char *argv[]){
       genopts["sink"]["type"] = "string";
       genopts["sink"]["validate"][0u] = "streamname_with_wildcard_and_variables";
       genopts["sink"]["sort"] = "b";
+      genopts["sink"]["display"] = "always";
 
       genopts["source_mask"]["name"] = "Source track mask";
       genopts["source_mask"]["help"] = "What internal processes should have access to the source track(s)";
@@ -313,6 +315,7 @@ int main(int argc, char *argv[]){
       genopts["source_mask"]["select"][3u][1u] = "Processing and viewer tasks (not pushes)";
       genopts["source_mask"]["default"] = "Keep original value";
       genopts["source_mask"]["sort"] = "c";
+      genopts["source_mask"]["display"] = "hidden";
 
       genopts["target_mask"]["name"] = "Output track mask";
       genopts["target_mask"]["help"] = "What internal processes should have access to the output track(s)";
@@ -335,12 +338,14 @@ int main(int argc, char *argv[]){
       genopts["target_mask"]["select"][7u][1u] = "Nothing";
       genopts["target_mask"]["default"] = "Keep original value";
       genopts["target_mask"]["sort"] = "d";
+      genopts["target_mask"]["display"] = "hidden";
 
       genopts["exit_unmask"]["name"] = "Undo masks on process exit/fail";
       genopts["exit_unmask"]["help"] = "If/when the process exits or fails, the masks for input tracks will be reset "
                                        "to defaults. (NOT to previous value, but to defaults!)";
       genopts["exit_unmask"]["default"] = false;
       genopts["exit_unmask"]["sort"] = "e";
+      genopts["exit_unmask"]["display"] = "hidden";
     }
 
     capa["required"]["x-LSP-kind"]["name"] = "Input type"; // human readable name of option
@@ -398,6 +403,7 @@ int main(int argc, char *argv[]){
     capa["optional"]["resolution"]["default"] = "keep source resolution";
     capa["optional"]["resolution"]["sort"] = "aca";
     capa["optional"]["resolution"]["dependent"]["x-LSP-kind"] = "video";
+    capa["optional"]["resolution"]["display"] = "always";
 
     capa["optional"]["x-LSP-rate_or_crf"][0u]["name"] = "Quality";
     capa["optional"]["x-LSP-rate_or_crf"][0u]["type"] = "select";
@@ -411,6 +417,7 @@ int main(int argc, char *argv[]){
     capa["optional"]["x-LSP-rate_or_crf"][0u]["influences"][0u] = "crf";
     capa["optional"]["x-LSP-rate_or_crf"][0u]["influences"][1u] = "rate";
     capa["optional"]["x-LSP-rate_or_crf"][0u]["dependent"]["x-LSP-kind"] = "video";
+    capa["optional"]["x-LSP-rate_or_crf"][0u]["display"] = "always";
 
     capa["optional"]["x-LSP-rate_or_crf"][1u]["name"] = "Quality";
     capa["optional"]["x-LSP-rate_or_crf"][1u]["type"] = "select";
@@ -421,6 +428,7 @@ int main(int argc, char *argv[]){
     capa["optional"]["x-LSP-rate_or_crf"][0u]["sort"] = "caa";
     capa["optional"]["x-LSP-rate_or_crf"][1u]["influences"][0u] = "rate";
     capa["optional"]["x-LSP-rate_or_crf"][1u]["dependent"]["x-LSP-kind"] = "audio";
+    capa["optional"]["x-LSP-rate_or_crf"][1u]["display"] = "always";
 
     capa["optional"]["crf"][0u]["help"] = "Video quality, ranging from 0 (best) to 51 (worst). This value automatically scales with resolution. Around 17 is 'visually lossless', and we find 25 to be a reasonable trade off between quality and bit rate but your mileage may vary.";
     capa["optional"]["crf"][0u]["min"] = "0";
@@ -638,7 +646,7 @@ int main(int argc, char *argv[]){
     capa["codecs"][0u][1u].append("DTS");
     capa["codecs"][0u][2u].append("+JSON");
 
-
+    applyDisplayDefaultsToCapabilities(capa);
     std::cout << capa.toString() << std::endl;
     return -1;
   }
