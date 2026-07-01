@@ -21,6 +21,7 @@ jobs:
             python3-pip \
             ninja-build \
             libmbedtls-dev \
+            libxml2-dev \
             gcovr \
             libavcodec-dev \
             libavfilter-dev \
@@ -39,6 +40,9 @@ jobs:
             -Db_coverage=true \
             -DWITH_AV=true \
             -DDEBUG=4
+          # Assert NDI/ONVIF support was actually compiled in (libs are present in this env).
+          grep -qE 'NDI:[[:space:]]+YES' build/meson-logs/meson-log.txt || { echo "::error::NDI support was not built"; exit 1; }
+          grep -qE 'ONVIF camera discovery:[[:space:]]+YES' build/meson-logs/meson-log.txt || { echo "::error::ONVIF support was not built"; exit 1; }
           ninja -C build
 
       - name: Run tests
@@ -70,6 +74,7 @@ jobs:
             python3-pip \
             ninja-build \
             libmbedtls-dev \
+            libxml2-dev \
             clang \
             libavcodec-dev \
             libavfilter-dev \
@@ -88,6 +93,8 @@ jobs:
             -Db_sanitize=address \
             -Db_lundef=false \
             -DWITH_AV=true
+          grep -qE 'NDI:[[:space:]]+YES' build-asan/meson-logs/meson-log.txt || { echo "::error::NDI support was not built"; exit 1; }
+          grep -qE 'ONVIF camera discovery:[[:space:]]+YES' build-asan/meson-logs/meson-log.txt || { echo "::error::ONVIF support was not built"; exit 1; }
           ninja -C build-asan
 
       - name: Run tests with ASan

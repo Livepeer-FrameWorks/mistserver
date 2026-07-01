@@ -272,7 +272,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y \
             build-essential git python3 meson ninja-build pkg-config nasm yasm cmake \
-            libmbedtls-dev libcjson-dev zlib1g-dev libfdk-aac-dev libmp3lame-dev \
+            libmbedtls-dev libcjson-dev zlib1g-dev liblzma-dev libxml2-dev libfdk-aac-dev libmp3lame-dev \
             libopus-dev libvpx-dev libx265-dev libnuma-dev libaom-dev
 
       - name: Build static dav1d
@@ -319,6 +319,9 @@ jobs:
             -DNORIST=true \
             -DRELEASE=Generic_x86_64 \
             --prefix=/tmp/mistserver-install
+          # Assert NDI/ONVIF support compiled in (static libxml2 present in this env).
+          grep -qE 'NDI:[[:space:]]+YES' build/meson-logs/meson-log.txt || { echo "::error::NDI support was not built"; exit 1; }
+          grep -qE 'ONVIF camera discovery:[[:space:]]+YES' build/meson-logs/meson-log.txt || { echo "::error::ONVIF support was not built"; exit 1; }
           meson test -C build "Required FFmpeg codec registry for MistProcAV" --print-errorlogs
           ninja -C build install
 
@@ -409,7 +412,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y \
             build-essential git python3 meson ninja-build pkg-config nasm yasm cmake \
-            libmbedtls-dev libcjson-dev zlib1g-dev libfdk-aac-dev libmp3lame-dev \
+            libmbedtls-dev libcjson-dev zlib1g-dev liblzma-dev libxml2-dev libfdk-aac-dev libmp3lame-dev \
             libopus-dev libvpx-dev libx265-dev libnuma-dev libaom-dev
 
       - name: Build static dav1d
@@ -456,6 +459,9 @@ jobs:
             -DNORIST=true \
             -DRELEASE=Generic_aarch64 \
             --prefix=/tmp/mistserver-install
+          # Assert NDI/ONVIF support compiled in (static libxml2 present in this env).
+          grep -qE 'NDI:[[:space:]]+YES' build/meson-logs/meson-log.txt || { echo "::error::NDI support was not built"; exit 1; }
+          grep -qE 'ONVIF camera discovery:[[:space:]]+YES' build/meson-logs/meson-log.txt || { echo "::error::ONVIF support was not built"; exit 1; }
           meson test -C build "Required FFmpeg codec registry for MistProcAV" --print-errorlogs
           ninja -C build install
 
@@ -545,10 +551,12 @@ jobs:
           fi
 
       - name: Install macOS build dependencies
-        run: brew install meson ninja pkg-config ffmpeg srt srtp cmake
+        run: brew install meson ninja pkg-config ffmpeg srt srtp cmake libxml2
 
       - name: Build darwin/arm64
         run: |
+          # Homebrew libxml2 is keg-only; expose its pkg-config so ONVIF is detected deterministically.
+          export PKG_CONFIG_PATH="$(brew --prefix libxml2)/lib/pkgconfig:${PKG_CONFIG_PATH:-}"
           meson setup build-darwin-arm64 \
             --default-library=static \
             --wrap-mode=default \
@@ -558,6 +566,9 @@ jobs:
             -DNORIST=true \
             -DRELEASE=macOS_aarch64 \
             --prefix="$RUNNER_TEMP/darwin-arm64/mistserver-install"
+          # Fail loudly if NDI/ONVIF support was not compiled in.
+          grep -qE 'NDI:[[:space:]]+YES' build-darwin-arm64/meson-logs/meson-log.txt || { echo "::error::NDI support was not built"; exit 1; }
+          grep -qE 'ONVIF camera discovery:[[:space:]]+YES' build-darwin-arm64/meson-logs/meson-log.txt || { echo "::error::ONVIF support was not built"; exit 1; }
           ninja -C build-darwin-arm64 install
 
       - name: Package darwin/arm64

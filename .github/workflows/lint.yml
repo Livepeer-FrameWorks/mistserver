@@ -28,6 +28,7 @@ jobs:
             python3 python3-pip \
             ninja-build \
             libmbedtls-dev \
+            libxml2-dev \
             libavcodec-dev \
             libavfilter-dev \
             libavformat-dev \
@@ -70,6 +71,7 @@ jobs:
               | grep -v '^lsp/' \
               | grep -v '^embed/' \
               | grep -v '^subprojects/' \
+              | grep -v '^lib/ndi/' \
               | grep -v '\.js\.h$' \
               | grep -v '\.css\.h$' \
               || true)
@@ -78,6 +80,7 @@ jobs:
               | grep -v '^lsp/' \
               | grep -v '^embed/' \
               | grep -v '^subprojects/' \
+              | grep -v '^lib/ndi/' \
               | grep -v '\.js\.h$' \
               | grep -v '\.css\.h$' \
               || true)
@@ -148,7 +151,7 @@ jobs:
           fi
 
           OUTPUT=$(git clang-format --diff "$BASE" HEAD --extensions cpp,h,hpp -- \
-            ':!lsp/' ':!embed/' ':!subprojects/' 2>&1) || true
+            ':!lsp/' ':!embed/' ':!subprojects/' ':!lib/ndi/' 2>&1) || true
 
           if [ "$OUTPUT" = "no modified files to format" ] || \
              [ "$OUTPUT" = "clang-format did not modify any files" ] || \
