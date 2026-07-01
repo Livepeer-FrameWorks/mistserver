@@ -9,8 +9,9 @@
 #include "timing.h"
 
 #include <algorithm>
-#include <atomic>
 #include <chrono>
+#include <dlfcn.h>
+#include <mutex>
 #include <set>
 
 // Helper function to convert NDI FourCC codes to string representations
@@ -33,26 +34,97 @@ const char *NDIlib_FourCC_type_string(NDIlib_FourCC_video_type_e fourcc) {
 
 namespace NDI {
 
-  static std::atomic<int> ndiRefCount{0};
+  // Dynamically-loaded NDI runtime function table. For our targets (Linux/macOS server)
+  // the NDI SDK ships no static library — only the dynamic libndi.so.6 / libndi.dylib —
+  // and load-time linking would add a hard libndi dependency that breaks our static
+  // release binaries. Instead we dlopen the runtime and recover every entry point through
+  // NDIlib_v5_load(). gNDIlib stays null when the runtime is not installed, making all NDI
+  // functionality a graceful runtime no-op.
+  static const ::NDIlib_v5 *gNDIlib = nullptr;
+  static void *ndiHandle = nullptr;
+  static std::mutex ndiMutex; // serializes initialize()/deinitialize() and runtime load
+  static int ndiRefCount = 0; // number of successful initialize() callers, guarded by ndiMutex
 
-  bool initialize() {
-    if (ndiRefCount.fetch_add(1) == 0) {
-      if (!NDIlib_initialize()) {
-        ndiRefCount.fetch_sub(1);
-        ERROR_MSG("NDI: Failed to initialize NDI library");
-        return false;
-      }
+  // dlopen the NDI runtime and populate gNDIlib. Returns false (with a warning)
+  // when the runtime is absent or too old to expose NDIlib_v5_load().
+  static bool loadNDIRuntime() {
+    if (gNDIlib) { return true; }
+
+    // Candidate library names, most-specific first. NDILIB_LIBRARY_NAME is the
+    // platform default from the vendored headers (libndi.so.6 / libndi.dylib);
+    // older runtimes use the legacy .so.5/.so SONAMEs.
+    std::vector<std::string> candidates;
+    const char *envDir = getenv(NDILIB_REDIST_FOLDER);
+    if (envDir && envDir[0]) { candidates.push_back(std::string(envDir) + "/" + NDILIB_LIBRARY_NAME); }
+    candidates.push_back(NDILIB_LIBRARY_NAME);
+#ifdef __APPLE__
+    candidates.push_back("/usr/local/lib/libndi.dylib");
+#else
+    candidates.push_back("libndi.so.5");
+    candidates.push_back("libndi.so");
+#endif
+
+    for (const std::string & name : candidates) {
+      ndiHandle = dlopen(name.c_str(), RTLD_LOCAL | RTLD_LAZY);
+      if (ndiHandle) { break; }
+    }
+    if (!ndiHandle) {
+      WARN_MSG("NDI: runtime library not found (looked for %s) - NDI disabled. Install the NDI "
+               "runtime to enable NDI support.",
+               NDILIB_LIBRARY_NAME);
+      return false;
+    }
+
+    typedef const ::NDIlib_v5 *(*load_fn_t)(void);
+    load_fn_t loadFn = (load_fn_t)dlsym(ndiHandle, "NDIlib_v5_load");
+    if (!loadFn) {
+      WARN_MSG("NDI: runtime found but NDIlib_v5_load() missing - NDI disabled");
+      dlclose(ndiHandle);
+      ndiHandle = nullptr;
+      return false;
+    }
+    gNDIlib = loadFn();
+    if (!gNDIlib) {
+      WARN_MSG("NDI: NDIlib_v5_load() returned null - NDI disabled");
+      dlclose(ndiHandle);
+      ndiHandle = nullptr;
+      return false;
     }
     return true;
   }
 
+  const ::NDIlib_v5 *lib() {
+    return gNDIlib;
+  }
+
+  const char *version() {
+    return gNDIlib ? gNDIlib->version() : "unknown";
+  }
+
+  bool initialize() {
+    std::lock_guard<std::mutex> lk(ndiMutex);
+    // Load + init exactly once, on the first successful caller. The refcount is only
+    // incremented after the runtime is fully ready, so a concurrent caller can never
+    // observe a positive count while gNDIlib is still null/uninitialized.
+    if (ndiRefCount == 0) {
+      if (!loadNDIRuntime()) { return false; }
+      if (!gNDIlib->is_supported_CPU()) {
+        ERROR_MSG("NDI: CPU does not meet NDI requirements (SSE4.2)");
+        return false;
+      }
+      if (!gNDIlib->initialize()) {
+        ERROR_MSG("NDI: Failed to initialize NDI library");
+        return false;
+      }
+    }
+    ++ndiRefCount;
+    return true;
+  }
+
   void deinitialize() {
-    int prev;
-    do {
-      prev = ndiRefCount.load();
-      if (prev <= 0) return;
-    } while (!ndiRefCount.compare_exchange_weak(prev, prev - 1));
-    if (prev == 1) { NDIlib_destroy(); }
+    std::lock_guard<std::mutex> lk(ndiMutex);
+    if (ndiRefCount <= 0) { return; }
+    if (--ndiRefCount == 0 && gNDIlib) { gNDIlib->destroy(); }
   }
 
   const NDIlib_source_t *Discovery::getSources(uint32_t & count) {
@@ -73,7 +145,7 @@ namespace NDI {
 
     // Seed seen set once at the beginning
     uint32_t seedCount = 0;
-    const NDIlib_source_t *seed = NDIlib_find_get_current_sources(finder, &seedCount);
+    const NDIlib_source_t *seed = gNDIlib->find_get_current_sources(finder, &seedCount);
     if (seedCount == 0) {
       INFO_MSG("NDI: No immediate sources, waiting for changes...");
     } else {
@@ -88,11 +160,11 @@ namespace NDI {
 
     while (Util::bootMS() - tStart < maxWaitMs) {
       // Wait for up to 250ms for any change notification
-      bool changed = NDIlib_find_wait_for_sources(finder, 250);
+      bool changed = gNDIlib->find_wait_for_sources(finder, 250);
       if (changed) {
         // Fetch current list once on change and log any new sources
         uint32_t curCount = 0;
-        const NDIlib_source_t *cur = NDIlib_find_get_current_sources(finder, &curCount);
+        const NDIlib_source_t *cur = gNDIlib->find_get_current_sources(finder, &curCount);
         for (uint32_t i = 0; i < curCount; ++i) {
           const char *nme = cur[i].p_ndi_name ? cur[i].p_ndi_name : "";
           const char *url = cur[i].p_url_address ? cur[i].p_url_address : "";
@@ -109,7 +181,7 @@ namespace NDI {
     }
 
     // Final snapshot right before returning; return the pointer from this call
-    const NDIlib_source_t *finalList = NDIlib_find_get_current_sources(finder, &count);
+    const NDIlib_source_t *finalList = gNDIlib->find_get_current_sources(finder, &count);
     if (!finalList) {
       INFO_MSG("NDI: No sources found after timeout");
       return nullptr;
@@ -125,7 +197,7 @@ namespace NDI {
       return nullptr;
     }
     // Non-blocking fetch of current sources
-    return NDIlib_find_get_current_sources(finder, &count);
+    return gNDIlib->find_get_current_sources(finder, &count);
   }
 
   //
@@ -133,13 +205,13 @@ namespace NDI {
   //
 
   Discovery::Discovery() {
-    finder = NDIlib_find_create_v2(nullptr);
+    finder = gNDIlib ? gNDIlib->find_create_v2(nullptr) : nullptr;
   }
 
   Discovery::~Discovery() {
     cleanupTallyReceivers();
     if (finder) {
-      NDIlib_find_destroy(finder);
+      gNDIlib->find_destroy(finder);
       finder = nullptr;
     }
   }
@@ -158,11 +230,11 @@ namespace NDI {
 
   void Device::disconnect() {
     if (receiver) {
-      NDIlib_recv_destroy(receiver);
+      gNDIlib->recv_destroy(receiver);
       receiver = nullptr;
     }
     if (sender) {
-      NDIlib_send_destroy(sender);
+      gNDIlib->send_destroy(sender);
       sender = nullptr;
     }
     connected = false;
@@ -206,7 +278,7 @@ namespace NDI {
     info.name = name;
     info.manufacturer = "NewTek";
     info.model = "NDI Device";
-    info.firmwareVersion = NDIlib_version();
+    info.firmwareVersion = gNDIlib->version();
     info.serialNumber = "";
     info.status = isConnected() ? "connected" : "disconnected";
 
@@ -281,14 +353,14 @@ namespace NDI {
     if (!connected || !hasSource) { return caps; }
 
     // Check PTZ support
-    caps.hasPTZ = NDIlib_recv_ptz_is_supported(receiver);
+    caps.hasPTZ = gNDIlib->recv_ptz_is_supported(receiver);
 
     // Check recording support
-    caps.hasRecording = NDIlib_recv_recording_is_supported(receiver);
+    caps.hasRecording = gNDIlib->recv_recording_is_supported(receiver);
 
     // Check tally support
     NDIlib_tally_t tally;
-    caps.hasTally = sender && (NDIlib_send_get_tally(sender, &tally, 0) == true);
+    caps.hasTally = sender && (gNDIlib->send_get_tally(sender, &tally, 0) == true);
 
     // Check web control
     std::string webUrl = getWebControlUrl();
@@ -317,7 +389,7 @@ namespace NDI {
     const int maxAttempts = 30;
 
     while ((!gotVideo || !gotAudio) && attempts < maxAttempts) {
-      NDIlib_frame_type_e frameType = NDIlib_recv_capture_v3(receiver, &videoFrame, &audioFrame, &metadataFrame, 200);
+      NDIlib_frame_type_e frameType = gNDIlib->recv_capture_v3(receiver, &videoFrame, &audioFrame, &metadataFrame, 200);
 
       switch (frameType) {
         case NDIlib_frame_type_video:
@@ -340,7 +412,7 @@ namespace NDI {
               gotVideo = true;
             }
           }
-          NDIlib_recv_free_video_v2(receiver, &videoFrame);
+          gNDIlib->recv_free_video_v2(receiver, &videoFrame);
           break;
 
         case NDIlib_frame_type_audio:
@@ -354,10 +426,10 @@ namespace NDI {
             caps.hasAudio = true;
             gotAudio = true;
           }
-          NDIlib_recv_free_audio_v3(receiver, &audioFrame);
+          gNDIlib->recv_free_audio_v3(receiver, &audioFrame);
           break;
 
-        case NDIlib_frame_type_metadata: NDIlib_recv_free_metadata(receiver, &metadataFrame); break;
+        case NDIlib_frame_type_metadata: gNDIlib->recv_free_metadata(receiver, &metadataFrame); break;
 
         default:
           // No frame received, continue
@@ -461,7 +533,7 @@ namespace NDI {
 
     // Clean up existing receiver if any
     if (receiver) {
-      NDIlib_recv_destroy(receiver);
+      gNDIlib->recv_destroy(receiver);
       receiver = nullptr;
     }
 
@@ -469,22 +541,22 @@ namespace NDI {
     bool hasCustomConfig =
       receiverConfig.p_ndi_recv_name != nullptr || receiverConfig.color_format != 0 || receiverConfig.bandwidth != 0;
 
-    receiver = NDIlib_recv_create_v3(hasCustomConfig ? &receiverConfig : nullptr);
+    receiver = gNDIlib->recv_create_v3(hasCustomConfig ? &receiverConfig : nullptr);
     if (!receiver) {
       ERROR_MSG("NDI: Failed to create receiver");
       return false;
     }
 
     // Connect to the source
-    NDIlib_recv_connect(receiver, &ownedSource);
+    gNDIlib->recv_connect(receiver, &ownedSource);
 
     // Wait a bit for connection to establish
     Util::sleep(100);
 
     // Verify connection by trying to get connection count
-    if (NDIlib_recv_get_no_connections(receiver) < 0) {
+    if (gNDIlib->recv_get_no_connections(receiver) < 0) {
       ERROR_MSG("NDI: Failed to establish connection to source");
-      NDIlib_recv_destroy(receiver);
+      gNDIlib->recv_destroy(receiver);
       receiver = nullptr;
       return false;
     }
@@ -501,51 +573,51 @@ namespace NDI {
   NDIlib_frame_type_e Device::receiveAny(NDIlib_video_frame_v2_t & video, NDIlib_audio_frame_v3_t & audio,
                                          NDIlib_metadata_frame_t & metadata) {
     if (!receiver || !connected) return NDIlib_frame_type_none;
-    return NDIlib_recv_capture_v3(receiver, &video, &audio, &metadata, 1000);
+    return gNDIlib->recv_capture_v3(receiver, &video, &audio, &metadata, 1000);
   }
 
   void Device::freeVideo(NDIlib_video_frame_v2_t & frame) {
-    if (receiver && frame.p_data) { NDIlib_recv_free_video_v2(receiver, &frame); }
+    if (receiver && frame.p_data) { gNDIlib->recv_free_video_v2(receiver, &frame); }
   }
 
   bool Device::receiveAudio(NDIlib_audio_frame_v2_t & frame) {
     if (!receiver || !connected) return false;
-    return NDIlib_recv_capture_v2(receiver, nullptr, &frame, nullptr, 1000) == NDIlib_frame_type_audio;
+    return gNDIlib->recv_capture_v2(receiver, nullptr, &frame, nullptr, 1000) == NDIlib_frame_type_audio;
   }
 
   void Device::freeAudio(NDIlib_audio_frame_v3_t & frame) {
-    if (receiver && frame.p_data) { NDIlib_recv_free_audio_v3(receiver, &frame); }
+    if (receiver && frame.p_data) { gNDIlib->recv_free_audio_v3(receiver, &frame); }
   }
 
   void Device::freeAudio(NDIlib_audio_frame_v2_t & frame) {
-    if (receiver && frame.p_data) { NDIlib_recv_free_audio_v2(receiver, &frame); }
+    if (receiver && frame.p_data) { gNDIlib->recv_free_audio_v2(receiver, &frame); }
   }
 
   void Device::freeMetadata(NDIlib_metadata_frame_t & frame) {
-    if (receiver) NDIlib_recv_free_metadata(receiver, &frame);
+    if (receiver) gNDIlib->recv_free_metadata(receiver, &frame);
   }
 
   bool Device::addConnectionMetadata(const NDIlib_metadata_frame_t & metadata) {
     if (!receiver) return false;
-    NDIlib_recv_add_connection_metadata(receiver, &metadata);
+    gNDIlib->recv_add_connection_metadata(receiver, &metadata);
     return true;
   }
 
   bool Device::clearMetadata() {
     if (!receiver) return false;
-    NDIlib_recv_clear_connection_metadata(receiver);
+    gNDIlib->recv_clear_connection_metadata(receiver);
     return true;
   }
 
   bool Device::sendReceiverMetadata(const NDIlib_metadata_frame_t & metadata) {
     if (!receiver) return false;
-    NDIlib_recv_send_metadata(receiver, &metadata);
+    gNDIlib->recv_send_metadata(receiver, &metadata);
     return true;
   }
 
   bool Device::setTally(const NDIlib_tally_t & tally) {
     if (!receiver) return false;
-    NDIlib_recv_set_tally(receiver, &tally);
+    gNDIlib->recv_set_tally(receiver, &tally);
     return true;
   }
 
@@ -567,7 +639,7 @@ namespace NDI {
     config.clock_video = false; // Disable video clocking
     config.clock_audio = false; // Disable audio clocking
 
-    sender = NDIlib_send_create(&config);
+    sender = gNDIlib->send_create(&config);
     if (!sender) {
       ERROR_MSG("NDI: Failed to create sender");
       return false;
@@ -580,42 +652,29 @@ namespace NDI {
 
   bool Device::sendVideoAsync(const NDIlib_video_frame_v2_t *frame) {
     if (!sender) return false;
-    if (frame) {
-      // Convert v2 frame to v1 frame for async sending
-      NDIlib_video_frame_t v1_frame = {0};
-      v1_frame.xres = frame->xres;
-      v1_frame.yres = frame->yres;
-      v1_frame.FourCC = frame->FourCC;
-      v1_frame.frame_rate_N = frame->frame_rate_N;
-      v1_frame.frame_rate_D = frame->frame_rate_D;
-      v1_frame.picture_aspect_ratio = frame->picture_aspect_ratio;
-      v1_frame.frame_format_type = frame->frame_format_type;
-      v1_frame.timecode = frame->timecode;
-      v1_frame.p_data = frame->p_data;
-      v1_frame.line_stride_in_bytes = frame->line_stride_in_bytes;
-      NDIlib_send_send_video_async(sender, &v1_frame);
-    } else {
-      // Synchronize by sending nullptr
-      NDIlib_send_send_video_async(sender, nullptr);
-    }
+    // Pass the v2 frame straight through to the v2 async API. (The previous code copied into a
+    // deprecated v1 NDIlib_video_frame_t, which dropped p_metadata/timestamp and flattened the
+    // line_stride_in_bytes/data_size_in_bytes union — wrong for compressed frames.) A nullptr
+    // frame acts as the async sync point, exactly as before.
+    gNDIlib->send_send_video_async_v2(sender, frame);
     return true;
   }
 
   bool Device::sendVideo(const NDIlib_video_frame_v2_t & frame) {
     if (!sender) return false;
-    NDIlib_send_send_video_v2(sender, &frame);
+    gNDIlib->send_send_video_v2(sender, &frame);
     return true;
   }
 
   bool Device::sendAudio(const NDIlib_audio_frame_v3_t & frame) {
     if (!sender) return false;
-    NDIlib_send_send_audio_v3(sender, &frame);
+    gNDIlib->send_send_audio_v3(sender, &frame);
     return true;
   }
 
   bool Device::sendMetadata(const NDIlib_metadata_frame_t & metadata) {
     if (!sender) return false;
-    NDIlib_send_send_metadata(sender, &metadata);
+    gNDIlib->send_send_metadata(sender, &metadata);
     return true;
   }
 
@@ -624,7 +683,7 @@ namespace NDI {
 
     NDIlib_recv_performance_t total;
     NDIlib_recv_performance_t dropped;
-    NDIlib_recv_get_performance(receiver, &total, &dropped);
+    gNDIlib->recv_get_performance(receiver, &total, &dropped);
 
     uint64_t now = time(nullptr);
     if (perfLastCheckTime == 0) {
@@ -655,7 +714,7 @@ namespace NDI {
     if (!receiver) return false;
 
     NDIlib_recv_queue_t queue;
-    NDIlib_recv_get_queue(receiver, &queue);
+    gNDIlib->recv_get_queue(receiver, &queue);
 
     // Get current frame counts in queues
     video_frames = queue.video_frames;
@@ -667,37 +726,37 @@ namespace NDI {
 
   int Device::getConnectionCount() const {
     if (!connected || !sender) { return 0; }
-    return NDIlib_send_get_no_connections(sender, 0);
+    return gNDIlib->send_get_no_connections(sender, 0);
   }
 
   std::string Device::getWebControlUrl() const {
     if (!connected || !receiver) { return ""; }
-    const char *url = NDIlib_recv_get_web_control(receiver);
+    const char *url = gNDIlib->recv_get_web_control(receiver);
     std::string webUrl = url ? url : "";
-    if (url) { NDIlib_recv_free_string(receiver, url); }
+    if (url) { gNDIlib->recv_free_string(receiver, url); }
     return webUrl;
   }
 
   bool Device::hasPTZControl() const {
     if (!connected || !receiver) return false;
-    return NDIlib_recv_ptz_is_supported(receiver);
+    return gNDIlib->recv_ptz_is_supported(receiver);
   }
 
   bool Device::ptzZoom(float zoom) {
     if (!connected || !receiver) return false;
-    return NDIlib_recv_ptz_zoom_speed(receiver, zoom);
+    return gNDIlib->recv_ptz_zoom_speed(receiver, zoom);
   }
 
   bool Device::ptzPanTilt(float pan, float tilt) {
     if (!connected || !receiver) return false;
-    return NDIlib_recv_ptz_pan_tilt_speed(receiver, pan, tilt);
+    return gNDIlib->recv_ptz_pan_tilt_speed(receiver, pan, tilt);
   }
 
   bool Device::ptzStop() {
     if (!connected || !receiver) return false;
     // Stop all movement
-    NDIlib_recv_ptz_pan_tilt_speed(receiver, 0.0f, 0.0f);
-    NDIlib_recv_ptz_zoom_speed(receiver, 0.0f);
+    gNDIlib->recv_ptz_pan_tilt_speed(receiver, 0.0f, 0.0f);
+    gNDIlib->recv_ptz_zoom_speed(receiver, 0.0f);
     return true;
   }
 
@@ -884,7 +943,7 @@ namespace NDI {
     try {
       // Non-blocking poll of current sources (do not wait inside event loop)
       uint32_t currentCount = 0;
-      const NDIlib_source_t *sources = NDIlib_find_get_current_sources(finder, &currentCount);
+      const NDIlib_source_t *sources = gNDIlib->find_get_current_sources(finder, &currentCount);
 
       if (currentCount != lastSourceCount) {
         INFO_MSG("NDI: Source count changed from %u to %u", lastSourceCount, currentCount);

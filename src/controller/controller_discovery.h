@@ -24,7 +24,8 @@
 namespace Controller {
 
   struct DiscoveryState {
-      bool ndiInitialized = false;
+      bool ndiAttempted = false; // whether NDI runtime init has been tried (once)
+      bool ndiInitialized = false; // whether NDI runtime init succeeded (gates NDI discovery)
       bool asyncStarted = false;
   };
 

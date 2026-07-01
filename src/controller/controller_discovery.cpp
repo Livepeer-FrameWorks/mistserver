@@ -417,21 +417,20 @@ namespace Controller {
       return 10000;
     }
 
-    // Initialize NDI on first run if needed
-    if (!discoveryState.ndiInitialized) {
 #ifdef WITH_NDI
-      if (!NDIlib_is_supported_CPU()) {
-        FAIL_MSG("NDI requires SSE4.2 CPU");
-        return 10000;
+    // Attempt to bring up the NDI runtime once. NDI::initialize() dlopens the runtime,
+    // verifies CPU support and inits the library; failure (runtime missing or unsupported
+    // CPU) disables ONLY NDI discovery — ONVIF and VISCA discovery continue regardless.
+    if (!discoveryState.ndiAttempted) {
+      discoveryState.ndiAttempted = true;
+      if (NDI::initialize()) {
+        discoveryState.ndiInitialized = true;
+        INFO_MSG("NDI initialized %s", NDI::version());
+      } else {
+        WARN_MSG("NDI runtime unavailable - NDI discovery disabled (ONVIF/VISCA unaffected)");
       }
-      if (!NDI::initialize()) {
-        FAIL_MSG("Failed to initialize NDI");
-        return 10000;
-      }
-      INFO_MSG("NDI initialized %s", NDIlib_version());
-      discoveryState.ndiInitialized = true;
-#endif
     }
+#endif
 
     // Initialize async discovery on first run (or after re-enabling discovery)
     if (!discoveryState.asyncStarted) {
@@ -1172,7 +1171,11 @@ namespace Controller {
 #endif
     if (!viscaDiscovery) { viscaDiscovery = std::unique_ptr<VISCA::Discovery>(new VISCA::Discovery); }
 #ifdef WITH_NDI
-    if (!ndiDiscovery) { ndiDiscovery = std::unique_ptr<NDI::Discovery>(new NDI::Discovery); }
+    // Only stand up NDI discovery when the runtime actually loaded; otherwise NDI is skipped
+    // while ONVIF/VISCA continue.
+    if (discoveryState.ndiInitialized && !ndiDiscovery) {
+      ndiDiscovery = std::unique_ptr<NDI::Discovery>(new NDI::Discovery);
+    }
 #endif
 
     // Populate protocol registry for polymorphic dispatch

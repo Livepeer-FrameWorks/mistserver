@@ -354,44 +354,28 @@ if ccpp.compiles(code_sizet_needed, name: 'Check if JSON class needs size_t vari
   option_defines += '-DSIZET_VARIANT'
 endif
 
-# NDI SDK auto-detection
-# No pkg-config shipped with SDK; check env NDI_SDK_DIR first, then known platform paths.
-have_ndi = false
-if host_machine.system() == 'darwin'
-  ndi_sdk_dir = '/Library/NDI SDK for Apple'
-  ndi_lib_dirs = [ndi_sdk_dir / 'lib' / 'macOS']
-  ndi_inc_dirs = [ndi_sdk_dir / 'include']
-  ndi_lib_check = ccpp.find_library('ndi', dirs: ndi_lib_dirs, required: false)
-  if ndi_lib_check.found() and ccpp.has_header('Processing.NDI.Lib.h', args: '-I' + ndi_inc_dirs[0])
-    ndi_sdk_dep = declare_dependency(
-      dependencies: [ndi_lib_check],
-      include_directories: include_directories(ndi_inc_dirs[0]),
-    )
-    have_ndi = true
-  endif
-else
-  ndi_lib_dirs = ['/usr/local/lib']
-  ndi_inc_args = []
-  ndi_env = run_command('sh', '-c', 'echo $NDI_SDK_DIR', check: false)
-  if ndi_env.returncode() == 0 and ndi_env.stdout().strip() != ''
-    ndi_sdk_dir = ndi_env.stdout().strip()
-    ndi_lib_dirs += ndi_sdk_dir / 'lib' / 'x86_64-linux-gnu'
-    ndi_lib_dirs += ndi_sdk_dir / 'lib' / 'aarch64-linux-gnu'
-    ndi_inc_args = ['-I' + ndi_sdk_dir / 'include']
-  endif
-  ndi_lib_check = ccpp.find_library('ndi', dirs: ndi_lib_dirs, required: false)
-  if ndi_lib_check.found() and ccpp.has_header('Processing.NDI.Lib.h', args: ndi_inc_args, required: false)
-    ndi_inc_dep = []
-    if ndi_inc_args.length() > 0
-      ndi_inc_dep = [include_directories(ndi_env.stdout().strip() / 'include')]
-    endif
-    ndi_sdk_dep = declare_dependency(
-      dependencies: [ndi_lib_check],
-      include_directories: ndi_inc_dep,
-    )
-    have_ndi = true
+# NDI support via runtime dynamic loading.
+# For our targets (Linux/macOS server) the NDI SDK ships no static library — only the dynamic
+# libndi.so.6 / libndi.dylib (static archives exist only for iOS/tvOS) — and load-time linking
+# would add a hard libndi dependency (breaking our static release binaries), so we vendor the
+# MIT-licensed SDK headers under lib/ndi/include and dlopen the runtime via NDIlib_v5_load()
+# (see lib/device_ndi.cpp). Support is therefore always compiled in; it degrades to a
+# no-op when the NDI runtime is not installed on the host. Only libdl is needed to link.
+have_ndi = true
+ndi_deps = []
+# dlopen/dlsym live in libc on glibc >= 2.34 and in libSystem on macOS; only add an
+# explicit -ldl on older systems. Avoiding a needless -ldl keeps libdl.so out of the
+# static release binaries' NEEDED list (the release verifier only allows libc/libm/etc.).
+if not ccpp.has_function('dlopen')
+  ndi_libdl = ccpp.find_library('dl', required: false)
+  if ndi_libdl.found()
+    ndi_deps += ndi_libdl
   endif
 endif
+ndi_sdk_dep = declare_dependency(
+  include_directories: include_directories('lib/ndi/include'),
+  dependencies: ndi_deps,
+)
 if have_ndi
   option_defines += '-DWITH_NDI'
 endif
@@ -481,7 +465,7 @@ message('  Codecs & Processing')
 message('    libav (FFmpeg):         ' + (get_option('WITH_AV') ? 'YES' : 'NO  (enable: -DWITH_AV=true)'))
 message('')
 message('  Devices & Discovery')
-message('    NDI:                    ' + (have_ndi ? 'YES' : 'NO  (NDI SDK not found)'))
+message('    NDI:                    ' + (have_ndi ? 'YES (runtime loaded via dlopen; may be absent at runtime)' : 'NO'))
 message('    ONVIF camera discovery: ' + (have_libxml2 ? 'YES' : 'NO  (libxml2 not found)'))
 message('    V4L2 capture:           ' + (have_v4l2 ? 'YES' : 'NO  (linux/videodev2.h not found)'))
 message('')

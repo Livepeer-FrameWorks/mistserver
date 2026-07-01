@@ -1,9 +1,12 @@
 /**
  * @file ndi.h
  * @brief NDI (Network Device Interface) implementation for device discovery and I/O operations
- * The NDI require init/deinit calls to be made at start/end of the program using the NDI library.
- * Calling deinit early and making subsequent calls to the NDI library will result in a crash.
- * This is not done automatically, so be sure to do this once per process.
+ *
+ * The NDI runtime is loaded at runtime via dlopen() + NDIlib_v5_load() (no link-time
+ * dependency on libndi); see lib/device_ndi.cpp. NDI::initialize() loads the runtime and
+ * is reference-counted and thread-safe — every successful initialize() must be paired with
+ * a deinitialize(). When the NDI runtime is not installed, initialize() returns false and
+ * all NDI functionality is a graceful no-op (callers must check the return value).
  */
 
 #pragma once
@@ -16,8 +19,6 @@
 #include <string>
 #include <vector>
 
-// Add at the top of the file after includes
-const char *NDIlib_version();
 const char *NDIlib_FourCC_type_string(NDIlib_FourCC_video_type_e fourcc);
 
 namespace NDI {
@@ -52,6 +53,19 @@ namespace NDI {
    * @note Must be called when NDI functionality is no longer needed
    */
   void deinitialize();
+
+  /**
+   * @brief Access the dynamically-loaded NDI runtime function table
+   * @return Pointer to the loaded NDIlib_v5 table, or nullptr if the NDI runtime is unavailable
+   * @note Populated by initialize(); the NDI runtime is dlopen()'d at runtime (no link-time dependency)
+   */
+  const ::NDIlib_v5 *lib();
+
+  /**
+   * @brief Get the loaded NDI runtime version string
+   * @return Version string, or "unknown" if the runtime is not loaded
+   */
+  const char *version();
 
   /**
    * @brief Video format information for NDI streams
@@ -173,9 +187,6 @@ namespace NDI {
 
       // Helper functions
       int getConnectionCount() const;
-
-      // NDI version helper
-      static const char *getNDIVersion() { return NDIlib_version(); }
 
     public:
       /**
@@ -336,7 +347,7 @@ namespace NDI {
        * @brief Send a video frame asynchronously
        * @param frame Video frame to send, or nullptr to synchronize
        * @return true if successful, false otherwise
-       * @note Uses NDIlib_send_send_video_v2_async
+       * @note Uses send_send_video_async_v2 (the v2 async API, via the dynamically-loaded table)
        * @note The frame data must remain valid until the next sync point:
        *       - Another call to sendVideoAsync
        *       - A call to sendVideo
