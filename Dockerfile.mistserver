@@ -1,6 +1,10 @@
 FROM alpine AS mist_build
 # Pull in build requirements
-RUN apk add --no-cache git patch meson ninja gcc g++ linux-headers pigz curl cjson pkgconfig ffmpeg-dev
+# libxml2-dev enables ONVIF camera discovery (auto-detected by meson).
+# NDI support is always compiled in (vendored MIT headers) and loads the NDI runtime
+# via dlopen at runtime; the glibc NDI runtime is NOT bundled here, so NDI is a no-op on
+# stock (musl) Alpine unless a glibc-compatible NDI runtime (e.g. gcompat + redist) is added.
+RUN apk add --no-cache git patch meson ninja gcc g++ linux-headers pigz curl cjson pkgconfig ffmpeg-dev libxml2-dev
 
 # Build dependencies librist, libsrt, libsrtp2, usrsctplib, mbedtls
 RUN mkdir -p /deps/build/mbedtls /deps/build/libsrtp /deps/build/libsrt /deps/build/librist /deps/build/usrsctp /deps/mbedtls /deps/libsrtp /deps/libsrt /deps/librist /deps/usrsctp
@@ -44,7 +48,7 @@ RUN if [ -n "${OUTPUT_DBG+x}" ]; then tar cf - /build /src /deps | pigz -6 | cur
 
 # Prepare final image from stripped (installed) copy of build
 FROM alpine
-RUN apk add --no-cache libstdc++ cjson ffmpeg-libs
+RUN apk add --no-cache libstdc++ cjson ffmpeg-libs libxml2
 COPY --from=mist_build /usr/local/ /usr/local/
 LABEL org.opencontainers.image.authors="Jaron Viëtor <jaron.vietor@ddvtech.com>"
 EXPOSE 4242 8080 1935 5554 8889/udp 18203/udp
