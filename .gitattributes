@@ -1,0 +1,2 @@
+# Vendored NDI SDK headers (MIT) — keep LF, mark vendored, exempt from whitespace checks
+lib/ndi/** linguist-vendored -whitespace eol=lf

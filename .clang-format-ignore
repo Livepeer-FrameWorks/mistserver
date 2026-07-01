@@ -1,4 +1,6 @@
 # We don't format the LSP or embed code directories (yet?)
 lsp/*
 embed/*
+# Vendored third-party NDI SDK headers (MIT) - keep upstream formatting
+lib/ndi/*
 

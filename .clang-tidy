@@ -25,7 +25,7 @@ Checks: >
 
 WarningsAsErrors: ''
 
-HeaderFilterRegex: '^(?!.*(lsp|embed|subprojects)).*\.(h|hpp)$'
+HeaderFilterRegex: '^(?!.*(lsp|embed|subprojects|lib/ndi/)).*\.(h|hpp)$'
 
 FormatStyle: file
 
