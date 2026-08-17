@@ -16,6 +16,12 @@ int main() {
     std::cerr << "trigger action compatibility failed" << std::endl;
     return 1;
   }
+  if (!Triggers::onFailAllowed("PLAY_REWRITE", "deny", true) || !Triggers::onFailAllowed("STREAM_SOURCE", "offline", true) ||
+      !Triggers::onFailAllowed("PLAY_REWRITE", "legacy", false) || Triggers::onFailAllowed("PLAY_REWRITE", "offline", true) ||
+      Triggers::onFailAllowed("PLAY_REWRITE", "deny", false) || Triggers::onFailAllowed("PLAY_REWRITE", "unknown", true)) {
+    std::cerr << "trigger onfail validation failed" << std::endl;
+    return 1;
+  }
   std::string empty;
   Util::sanitizeName(empty);
   if (!empty.empty()) {

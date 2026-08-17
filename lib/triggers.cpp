@@ -73,6 +73,15 @@ namespace Triggers{
     return false;
   }
 
+  bool onFailAllowed(const std::string & trigger, const std::string & value, bool sync) {
+    if (!value.size()) { return true; }
+    const Action action = actionFromString(value);
+    const bool recognized = action != ACT_LEGACY || value == "legacy";
+    if (!recognized) { return false; }
+    if (action == ACT_LEGACY) { return true; }
+    return sync && action != ACT_VALUE && actionAllowed(trigger, action);
+  }
+
   static Result failedResult(const std::string & defaultResponse, Action onFail) {
     Result result;
     result.handlerFailed = true;

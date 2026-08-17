@@ -19,6 +19,7 @@ namespace Triggers {
   Action actionFromString(const std::string & value);
   const char *actionName(Action action);
   bool actionAllowed(const std::string & triggerType, Action action);
+  bool onFailAllowed(const std::string & triggerType, const std::string & value, bool sync);
 
   bool doTrigger(const std::string & triggerType, const std::string & payload, const std::string & streamName,
                  bool dryRun, std::string & response, std::function<bool(const char *)> paramsCB = 0);

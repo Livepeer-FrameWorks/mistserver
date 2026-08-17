@@ -21,6 +21,7 @@
 #include <mist/procs.h>
 #include <mist/stream.h>
 #include <mist/timing.h>
+#include <mist/triggers.h>
 #include <mist/url.h>
 
 #include <dirent.h>
@@ -868,13 +869,38 @@ void Controller::handleAPICommands(JSON::Value &Request, JSON::Value &Response){
     if (in.isMember("controller")){out["controller"] = in["controller"];}
     if (in.isMember("serverid")){out["serverid"] = in["serverid"];}
     if (in.isMember("triggers")){
-      out["triggers"] = in["triggers"];
-      if (!out["triggers"].isObject()){
-        out.removeMember("triggers");
-      }else{
-        jsonForEach(out["triggers"], it){
-          if (it->isArray()){
-            jsonForEach((*it), jt){jt->removeNullMembers();}
+      bool validTriggers = true;
+      std::string triggerError;
+      if (in["triggers"].isObject()) {
+        jsonForEachConst (in["triggers"], triggerIt) {
+          if (!triggerIt->isArray()) { continue; }
+          jsonForEachConst (*triggerIt, handlerIt) {
+            if (!handlerIt->isObject() || !handlerIt->isMember("onfail") || (*handlerIt)["onfail"].isNull() ||
+                !(*handlerIt)["onfail"].asStringRef().size()) {
+              continue;
+            }
+            const std::string & configured = (*handlerIt)["onfail"].asStringRef();
+            if (!Triggers::onFailAllowed(triggerIt.key(), configured, (*handlerIt)["sync"].asBool())) {
+              validTriggers = false;
+              triggerError = "Invalid onfail action '" + configured + "' for " + triggerIt.key() + " trigger";
+              break;
+            }
+          }
+          if (!validTriggers) { break; }
+        }
+      }
+      if (!validTriggers) {
+        ERROR_MSG("%s", triggerError.c_str());
+        Response["error"] = triggerError;
+      } else {
+        out["triggers"] = in["triggers"];
+        if (!out["triggers"].isObject()) {
+          out.removeMember("triggers");
+        } else {
+          jsonForEach (out["triggers"], it) {
+            if (it->isArray()) {
+              jsonForEach (*it, jt) { jt->removeNullMembers(); }
+            }
           }
         }
       }
