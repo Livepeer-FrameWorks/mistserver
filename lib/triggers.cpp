@@ -12,8 +12,9 @@
 /// body. If handled by an executable, it's started with the trigger name as its only argument, and
 /// the payload is piped into the executable over standard input.
 ///
-/// Currently, all triggers are handled asynchronously and responses (if any) are completely
-/// ignored. In the future this may change.
+/// Triggers may be asynchronous notifications or synchronous decisions. Synchronous HTTP handlers
+/// may return an X-Mist-Trigger-Action header to distinguish a value, denial, retained caller value,
+/// offline source, or configured fallback. Asynchronous trigger responses are not read.
 ///
 
 #include "triggers.h"
@@ -29,7 +30,61 @@
 #include "timing.h"
 #include "util.h"
 
+#include <algorithm>
+#include <cctype>
+
 namespace Triggers{
+
+  Action actionFromString(const std::string & value) {
+    std::string normalized = value;
+    std::transform(normalized.begin(), normalized.end(), normalized.begin(), ::tolower);
+    if (normalized == "value") { return ACT_VALUE; }
+    if (normalized == "deny") { return ACT_DENY; }
+    if (normalized == "keep") { return ACT_KEEP; }
+    if (normalized == "offline") { return ACT_OFFLINE; }
+    if (normalized == "use-configured" || normalized == "configured") { return ACT_CONFIGURED; }
+    return ACT_LEGACY;
+  }
+
+  const char *actionName(Action action) {
+    switch (action) {
+      case ACT_VALUE: return "value";
+      case ACT_DENY: return "deny";
+      case ACT_KEEP: return "keep";
+      case ACT_OFFLINE: return "offline";
+      case ACT_CONFIGURED: return "use-configured";
+      default: return "legacy";
+    }
+  }
+
+  bool actionAllowed(const std::string & trigger, Action action) {
+    if (action == ACT_VALUE || action == ACT_LEGACY) { return true; }
+    if (action == ACT_OFFLINE) { return trigger == "STREAM_SOURCE"; }
+    if (action == ACT_CONFIGURED) { return trigger == "STREAM_SOURCE" || trigger == "STREAM_PROCESS"; }
+    if (action == ACT_KEEP) {
+      return trigger == "PUSH_REWRITE" || trigger == "PLAY_REWRITE" || trigger == "STREAM_SOURCE" ||
+        trigger == "STREAM_PROCESS" || trigger == "PUSH_OUT_START";
+    }
+    if (action == ACT_DENY) {
+      return trigger == "PUSH_REWRITE" || trigger == "PLAY_REWRITE" || trigger == "USER_NEW" ||
+        trigger == "PUSH_OUT_START" || trigger == "CONN_OPEN" || trigger == "CONN_PLAY" || trigger == "STREAM_LOAD" ||
+        trigger == "STREAM_READY" || trigger == "STREAM_UNLOAD" || trigger == "SYSTEM_START" || trigger == "SYSTEM_STOP";
+    }
+    return false;
+  }
+
+  static Result failedResult(const std::string & defaultResponse, Action onFail) {
+    Result result;
+    result.handlerFailed = true;
+    result.reason = "trigger_unavailable";
+    if (onFail == ACT_LEGACY) {
+      result.action = ACT_VALUE;
+      result.response = defaultResponse;
+    } else {
+      result.action = onFail;
+    }
+    return result;
+  }
 
   static void submitTriggerStat(const std::string trigger, uint64_t millis, bool ok){
     JSON::Value j;
@@ -44,13 +99,13 @@ namespace Triggers{
   ///\param value Destination. This can be an (HTTP)URL, or an absolute path to a binary/script
   ///\param payload This data will be sent to the destionation URL/program
   ///\param sync If true, handler is executed blocking and uses the response data.
-  ///\returns String, false if further processing should be aborted.
-  std::string handleTrigger(const std::string &trigger, const std::string &value,
-                            const std::string &payload, int sync, const std::string &defaultResponse){
+  ///\returns Typed response and transport status.
+  Result handleTrigger(const std::string & trigger, const std::string & value, const std::string & payload, int sync,
+                       const std::string & defaultResponse, Action onFail) {
     uint64_t tStartMs = Util::bootMS();
     if (!value.size()){
       INFO_MSG("Blank %s trigger, responding: %s", trigger.c_str(), defaultResponse.c_str());
-      return defaultResponse;
+      return failedResult(defaultResponse, onFail);
     }
     INFO_MSG("Executing %s trigger: %s (%s)", trigger.c_str(), value.c_str(), sync ? "blocking" : "asynchronous");
     if (value.substr(0, 7) == "http://" || value.substr(0, 8) == "https://"){// interpret as url
@@ -70,15 +125,34 @@ namespace Triggers{
       DL.setHeader("Date", getenv("MIST_DATE"));
       DL.setHeader("Content-Type", "text/plain");
       HTTP::URL url(value);
-      if (DL.post(url, payload, sync) && (!sync || DL.isOk())){
+      if (DL.post(url, payload, sync) && (!sync || DL.isOk())) {
+        Result result;
+        if (!sync) {
+          submitTriggerStat(trigger, tStartMs, true);
+          result.response = defaultResponse;
+          return result;
+        }
+        result.response = DL.data();
+        const std::string actionHeader = DL.getHeader("X-Mist-Trigger-Action");
+        if (actionHeader.size()) {
+          result.action = actionFromString(actionHeader);
+          result.reason = DL.getHeader("X-Mist-Trigger-Reason");
+          if (result.action == ACT_LEGACY || !actionAllowed(trigger, result.action)) {
+            FAIL_MSG("Invalid action '%s' returned for %s trigger", actionHeader.c_str(), trigger.c_str());
+            submitTriggerStat(trigger, tStartMs, false);
+            return failedResult(defaultResponse, onFail);
+          }
+        } else if (trigger == "STREAM_SOURCE" && result.response.substr(0, 8) == "offline:") {
+          result.action = ACT_OFFLINE;
+          result.reason = result.response.substr(8);
+        }
         submitTriggerStat(trigger, tStartMs, true);
-        if (!sync){return defaultResponse;}
-        return DL.data();
+        return result;
       }
       FAIL_MSG("Trigger failed to execute (%s), using default response: %s",
                DL.getStatusText().c_str(), defaultResponse.c_str());
       submitTriggerStat(trigger, tStartMs, false);
-      return defaultResponse;
+      return failedResult(defaultResponse, onFail);
     }else{// send payload to stdin of newly forked process
       int fdIn = -1;
       int fdOut = -1;
@@ -108,7 +182,7 @@ namespace Triggers{
       if (fdIn == -1 || fdOut == -1 || !myProc) {
         FAIL_MSG("Could not execute trigger executable: %s", strerror(errno));
         submitTriggerStat(trigger, tStartMs, false);
-        return defaultResponse;
+        return failedResult(defaultResponse, onFail);
       }
       write(fdIn, payload.data(), payload.size());
       shutdown(fdIn, SHUT_RDWR);
@@ -143,14 +217,22 @@ namespace Triggers{
         if (warned && !ret.size()) {
           WARN_MSG("Using default trigger response: %s", defaultResponse.c_str());
           submitTriggerStat(trigger, tStartMs, false);
-          return defaultResponse;
+          return failedResult(defaultResponse, onFail);
         }
         submitTriggerStat(trigger, tStartMs, true);
-        return std::string(ret, ret.size());
+        Result result;
+        result.response = std::string(ret, ret.size());
+        if (trigger == "STREAM_SOURCE" && result.response.substr(0, 8) == "offline:") {
+          result.action = ACT_OFFLINE;
+          result.reason = result.response.substr(8);
+        }
+        return result;
       }
       close(fdOut);
       submitTriggerStat(trigger, tStartMs, true);
-      return defaultResponse;
+      Result result;
+      result.response = defaultResponse;
+      return result;
     }
   }
 
@@ -190,6 +272,15 @@ namespace Triggers{
   ///\returns Boolean, false if further processing should be aborted
   bool doTrigger(const std::string & type, const std::string & payload, const std::string & streamName, bool dryRun,
                  std::string & response, std::function<bool(const char *)> paramsCB) {
+    Result result;
+    result.response = response;
+    bool ret = doTrigger(type, payload, streamName, dryRun, result, paramsCB);
+    response = result.response;
+    return ret;
+  }
+
+  bool doTrigger(const std::string & type, const std::string & payload, const std::string & streamName, bool dryRun,
+                 Result & result, std::function<bool(const char *)> paramsCB) {
     // open SHM page for this type:
     char thisPageName[NAME_BUFFER_SIZE];
     snprintf(thisPageName, NAME_BUFFER_SIZE, SHM_TRIGGER, type.c_str());
@@ -269,12 +360,28 @@ namespace Triggers{
         }
         std::string defaultResponse = trigs.getPointer("default", i);
         if (!defaultResponse.size()) { defaultResponse = "true"; }
+        Action onFail = (Action)trigs.getInt("onfail", i);
+        if (!actionAllowed(type, onFail) || onFail == ACT_VALUE) { onFail = ACT_LEGACY; }
+        if (!sync) { onFail = ACT_LEGACY; }
         if (sync){
-          response = handleTrigger(type, uri, payload, sync, defaultResponse); // do it.
-          retVal &= Util::stringToBool(response);
+          const std::string priorResponse = result.response;
+          Result current = handleTrigger(type, uri, payload, sync, defaultResponse, onFail);
+          if (current.action == ACT_KEEP) {
+            current.response = priorResponse;
+          } else if (current.action != ACT_VALUE) {
+            current.response.clear();
+          }
+          result = current;
+          switch (current.action) {
+            case ACT_DENY:
+            case ACT_OFFLINE: retVal = false; break;
+            case ACT_VALUE: retVal &= Util::stringToBool(current.response); break;
+            default: break;
+          }
+          if (current.action == ACT_DENY) { break; }
         }else{
-          std::string unused_response = handleTrigger(type, uri, payload, sync, defaultResponse); // do it.
-          retVal &= Util::stringToBool(unused_response);
+          Result unused = handleTrigger(type, uri, payload, sync, defaultResponse); // do it.
+          retVal &= Util::stringToBool(unused.response);
         }
       }
     }

@@ -976,10 +976,11 @@ namespace Mist{
           processOverrideResolved = true;
           std::string fullStreamName = config->getString("streamname");
           if (Triggers::shouldTrigger("STREAM_PROCESS", fullStreamName)) {
-            std::string response;
-            Triggers::doTrigger("STREAM_PROCESS", fullStreamName, fullStreamName, false, response);
-            if (response.size()){
-              processOverride = JSON::fromString(response);
+            Triggers::Result triggerResult;
+            Triggers::doTrigger("STREAM_PROCESS", fullStreamName, fullStreamName, false, triggerResult);
+            if ((triggerResult.action == Triggers::ACT_VALUE || triggerResult.action == Triggers::ACT_KEEP) &&
+                triggerResult.response.size()) {
+              processOverride = JSON::fromString(triggerResult.response);
               if (!processOverride.isArray()){processOverride.null();}
             }
           }

@@ -393,6 +393,10 @@ namespace Controller{
         "A non-empty response will set the stream source to the response value. An empty response "
         "will cause the stream source to not be changed from the normally configured stream "
         "source.";
+    trgs["STREAM_SOURCE"]["actions"].append("value");
+    trgs["STREAM_SOURCE"]["actions"].append("offline");
+    trgs["STREAM_SOURCE"]["actions"].append("use-configured");
+    trgs["STREAM_SOURCE"]["actions"].append("keep");
 
     trgs["STREAM_PROCESS"]["when"] = "When a stream's process list is first loaded, before processes start";
     trgs["STREAM_PROCESS"]["stream_specific"] = true;
@@ -401,6 +405,9 @@ namespace Controller{
     trgs["STREAM_PROCESS"]["response_action"] =
         "A non-empty response (JSON array of process objects) will override the configured "
         "processes for this stream instance. An empty response uses the default configured processes.";
+    trgs["STREAM_PROCESS"]["actions"].append("value");
+    trgs["STREAM_PROCESS"]["actions"].append("use-configured");
+    trgs["STREAM_PROCESS"]["actions"].append("keep");
 
     trgs["STREAM_LOAD"]["when"] = "Before a stream input is loaded";
     trgs["STREAM_LOAD"]["stream_specific"] = true;
@@ -493,6 +500,9 @@ namespace Controller{
     trgs["PUSH_REWRITE"]["response_action"] =
         "If non-empty, overrides the parsed stream name to the response value. If empty, denies the "
         "incoming push.";
+    trgs["PUSH_REWRITE"]["actions"].append("value");
+    trgs["PUSH_REWRITE"]["actions"].append("deny");
+    trgs["PUSH_REWRITE"]["actions"].append("keep");
 
     trgs["PUSH_OUT_START"]["when"] = "Before a push out (to file or other target type) is started";
     trgs["PUSH_OUT_START"]["stream_specific"] = true;
@@ -501,6 +511,9 @@ namespace Controller{
     trgs["PUSH_OUT_START"]["response_action"] =
         "A non-empty response will set the push target to the response value. An empty response "
         "will abort the push. Variable substitution will still take place.";
+    trgs["PUSH_OUT_START"]["actions"].append("value");
+    trgs["PUSH_OUT_START"]["actions"].append("deny");
+    trgs["PUSH_OUT_START"]["actions"].append("keep");
 
     trgs["RECORDING_END"]["when"] = "When a push to file finishes";
     trgs["RECORDING_END"]["stream_specific"] = true;
@@ -559,7 +572,9 @@ namespace Controller{
     trgs["PLAY_REWRITE"]["payload"] = "stream name (string)\nconnection address (string)\nconnector (string)\nrequest url (string)";
     trgs["PLAY_REWRITE"]["response"] = "always";
     trgs["PLAY_REWRITE"]["response_action"] = "Output is connected to the returned stream name instead of the requested stream name.";
-
+    trgs["PLAY_REWRITE"]["actions"].append("value");
+    trgs["PLAY_REWRITE"]["actions"].append("deny");
+    trgs["PLAY_REWRITE"]["actions"].append("keep");
 
     trgs["USER_NEW"]["when"] = "Every time a new session is added to the session cache";
     trgs["USER_NEW"]["stream_specific"] = true;
@@ -570,6 +585,8 @@ namespace Controller{
     trgs["USER_NEW"]["response_action"] =
         "If false, denies the session while it remains in the cache. If true, accepts the session "
         "while it remains in the cache.";
+    trgs["USER_NEW"]["actions"].append("value");
+    trgs["USER_NEW"]["actions"].append("deny");
 
     trgs["USER_END"]["when"] =
         "Every time a session ends (same time it is written to the access log)";

@@ -261,12 +261,18 @@ namespace Mist{
     if (isInitialized){return;}
     if (!isPushing() && DTSC::trackValidMask == TRACK_VALID_EXT_HUMAN && Triggers::shouldTrigger("PLAY_REWRITE", streamName)){
       std::string payload = streamName + "\n" + getConnectedHost() + "\n" + capa["name"].asStringRef() + "\n" + reqUrl;
-      std::string newStreamName = streamName;
-      Triggers::doTrigger("PLAY_REWRITE", payload, streamName, false, newStreamName);
+      Triggers::Result triggerResult;
+      triggerResult.response = streamName;
+      Triggers::doTrigger("PLAY_REWRITE", payload, streamName, false, triggerResult);
+      std::string newStreamName = triggerResult.response;
+      if (triggerResult.action == Triggers::ACT_DENY) { newStreamName.clear(); }
       Util::sanitizeName(newStreamName);
       if (streamName != newStreamName){
         if (!newStreamName.size()){
           Util::logExitReason(ER_TRIGGER, "playback rejected by PLAY_REWRITE trigger");
+          streamName.clear();
+          Util::setStreamName(streamName);
+          return;
         }
         INFO_MSG("Rewriting playback request from '%s' to '%s'", streamName.c_str(), newStreamName.c_str());
         streamName = newStreamName;

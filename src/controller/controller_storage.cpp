@@ -924,6 +924,7 @@ namespace Controller{
           tPage.addField("streams", RAX_256RAW);
           tPage.addField("params", RAX_128STRING);
           tPage.addField("default", RAX_128STRING);
+          tPage.addField("onfail", RAX_UINT);
           tPage.setReady();
           uint32_t i = 0;
           uint32_t max = (32 * 1024 - tPage.getOffset()) / tPage.getRSize();
@@ -984,6 +985,16 @@ namespace Controller{
               }else{
                 tPage.setString("default", "", i);
               }
+              Triggers::Action onFail = Triggers::ACT_LEGACY;
+              if (triggIt->isMember("onfail") && !(*triggIt)["onfail"].isNull()) {
+                onFail = Triggers::actionFromString((*triggIt)["onfail"].asStringRef());
+                if (onFail == Triggers::ACT_VALUE || !Triggers::actionAllowed(it.key(), onFail) || !(*triggIt)["sync"].asBool()) {
+                  ERROR_MSG("Ignoring invalid onfail action '%s' for %s trigger",
+                            (*triggIt)["onfail"].asStringRef().c_str(), (it.key()).c_str());
+                  onFail = Triggers::ACT_LEGACY;
+                }
+              }
+              tPage.setInt("onfail", onFail, i);
             }
 
             ++i;

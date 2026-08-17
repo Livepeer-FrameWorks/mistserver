@@ -248,6 +248,7 @@ std::string Util::getTmpFolder(){
 /// that character is deleted. The original string is modified. If a '+' or space
 /// exists, then only the part before that is sanitized.
 void Util::sanitizeName(std::string &streamname){
+  if (!streamname.size()) { return; }
   // strip anything that isn't numbers, digits or underscores
   size_t index = streamname.find_first_of("+ ");
   if (index != std::string::npos){
@@ -684,7 +685,18 @@ bool Util::startInput(std::string streamname, std::string filename, bool forkFir
       if (!Triggers::doTrigger("STREAM_LOAD", streamname, streamname)) { return false; }
     }
     if (Triggers::shouldTrigger("STREAM_SOURCE", streamname)) {
-      Triggers::doTrigger("STREAM_SOURCE", streamname, streamname, false, filename);
+      Triggers::Result triggerResult;
+      triggerResult.response = filename;
+      Triggers::doTrigger("STREAM_SOURCE", streamname, streamname, false, triggerResult);
+      if (triggerResult.action == Triggers::ACT_OFFLINE) {
+        INFO_MSG("STREAM_SOURCE reports %s offline: %s", streamname.c_str(), triggerResult.reason.c_str());
+        Util::setStreamOffline(streamname);
+        Util::reportAttemptOffline();
+        return false;
+      }
+      if (triggerResult.action == Triggers::ACT_VALUE || triggerResult.action == Triggers::ACT_KEEP) {
+        filename = triggerResult.response;
+      }
     }
   }
   /*LTS-END*/
@@ -949,7 +961,14 @@ pid_t Util::startPush(const std::string &streamname, std::string &target, int de
   if (Triggers::shouldTrigger("PUSH_OUT_START", streamname)){
     std::string payload = streamname + "\n" + target;
     std::string filepath_response = target;
-    Triggers::doTrigger("PUSH_OUT_START", payload, streamname.c_str(), false, filepath_response);
+    Triggers::Result triggerResult;
+    triggerResult.response = filepath_response;
+    Triggers::doTrigger("PUSH_OUT_START", payload, streamname.c_str(), false, triggerResult);
+    if (triggerResult.action == Triggers::ACT_DENY) {
+      filepath_response.clear();
+    } else {
+      filepath_response = triggerResult.response;
+    }
     target = filepath_response;
   }
   if (!target.size()){
