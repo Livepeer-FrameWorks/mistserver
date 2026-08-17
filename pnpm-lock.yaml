@@ -6,8 +6,6 @@ settings:
 
 importers:
 
-  .: {}
-
   embed:
     devDependencies:
       esbuild:

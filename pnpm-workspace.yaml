@@ -1,3 +1,5 @@
 packages:
   - 'lsp'
   - 'embed'
+allowBuilds:
+  esbuild: set this to true or false
