@@ -22,6 +22,9 @@ test('Opus MPEG-TS descriptor payload', tspackettest, suite: 'MPEG-TS')
 triggerstest = executable('triggerstest', 'triggers_unit.cpp', header_tgts, dependencies: libmist_dep)
 test('Typed trigger actions and empty stream names', triggerstest, suite: 'Triggers')
 
+procstatstest = executable('procstatstest', 'proc_stats_unit.cpp', header_tgts, dependencies: libmist_dep)
+test('ProcState contract snapshots and node pressure verdicts', procstatstest, suite: 'Processing')
+
 if get_option('WITH_AV')
   avcodecregistrytest = executable('avcodecregistrytest', 'av_codec_registry.cpp', header_tgts, dependencies: av_libs)
   test('Required FFmpeg codec registry for MistProcAV', avcodecregistrytest, suite: 'AV')

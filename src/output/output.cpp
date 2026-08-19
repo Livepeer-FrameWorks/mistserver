@@ -3084,7 +3084,8 @@ namespace Mist{
         IPC::sharedPage statePage(stateName, STRMSTATE_PAGE_LEN, false, false);
         if (statePage && statePage.mapped && statePage.len >= STRMSTATE_PAGE_LEN) {
           uint32_t ticks = 0, sMin = 0, sMax = 0, hardSlow = 0, regSlow = 0, rampUps = 0, lockout = 0, staleHold = 0;
-          uint64_t sSum = 0;
+          uint32_t warmup = 0, sourceLimited = 0, processorLimited = 0, nodeLimited = 0, capacitySamples = 0;
+          uint64_t sSum = 0, inputSumQ = 0, outputSumQ = 0, capacitySumQ = 0;
           memcpy(&ticks, statePage.mapped + STRMSTATE_SPEED_TICKS_OFFSET, sizeof(uint32_t));
           memcpy(&sMin, statePage.mapped + STRMSTATE_SPEED_MIN_OFFSET, sizeof(uint32_t));
           memcpy(&sMax, statePage.mapped + STRMSTATE_SPEED_MAX_OFFSET, sizeof(uint32_t));
@@ -3094,6 +3095,14 @@ namespace Mist{
           memcpy(&lockout, statePage.mapped + STRMSTATE_LOCKOUT_TICKS_OFFSET, sizeof(uint32_t));
           memcpy(&staleHold, statePage.mapped + STRMSTATE_STALE_HOLD_TICKS_OFFSET, sizeof(uint32_t));
           memcpy(&sSum, statePage.mapped + STRMSTATE_SPEED_SUM_OFFSET, sizeof(uint64_t));
+          memcpy(&warmup, statePage.mapped + STRMSTATE_WARMUP_TICKS_OFFSET, sizeof(uint32_t));
+          memcpy(&sourceLimited, statePage.mapped + STRMSTATE_SOURCE_LIMITED_TICKS_OFFSET, sizeof(uint32_t));
+          memcpy(&processorLimited, statePage.mapped + STRMSTATE_PROCESSOR_LIMITED_TICKS_OFFSET, sizeof(uint32_t));
+          memcpy(&nodeLimited, statePage.mapped + STRMSTATE_NODE_LIMITED_TICKS_OFFSET, sizeof(uint32_t));
+          memcpy(&capacitySamples, statePage.mapped + STRMSTATE_CAPACITY_SAMPLES_OFFSET, sizeof(uint32_t));
+          memcpy(&inputSumQ, statePage.mapped + STRMSTATE_INPUT_SPEED_SUM_OFFSET, sizeof(uint64_t));
+          memcpy(&outputSumQ, statePage.mapped + STRMSTATE_OUTPUT_SPEED_SUM_OFFSET, sizeof(uint64_t));
+          memcpy(&capacitySumQ, statePage.mapped + STRMSTATE_CAPACITY_SPEED_SUM_OFFSET, sizeof(uint64_t));
           if (ticks) {
             JSON::Value & sp = trackSummary["speed"];
             sp["ticks"] = ticks;
@@ -3105,6 +3114,16 @@ namespace Mist{
             sp["ramp_ups"] = rampUps;
             sp["lockout_ticks"] = lockout;
             sp["stale_hold_ticks"] = staleHold;
+            sp["warmup_ticks"] = warmup;
+            sp["source_limited_ticks"] = sourceLimited;
+            sp["processor_limited_ticks"] = processorLimited;
+            sp["node_limited_ticks"] = nodeLimited;
+            sp["achieved_input_avg"] = (double)inputSumQ / 65536.0 / (double)ticks;
+            sp["achieved_output_avg"] = (double)outputSumQ / 65536.0 / (double)ticks;
+            if (capacitySamples) {
+              sp["processor_capacity_avg"] = (double)capacitySumQ / 65536.0 / (double)capacitySamples;
+              sp["processor_capacity_samples"] = capacitySamples;
+            }
           }
         }
         if (procEndedSinceMs) {

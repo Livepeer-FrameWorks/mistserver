@@ -10,11 +10,12 @@
 #include <mist/triggers.h>
 #include <mist/util.h>
 
+#include <algorithm>
 #include <atomic>
 #include <condition_variable>
 #include <cstdarg>
-#include <iostream>
 #include <deque>
+#include <iostream>
 #include <memory>
 #include <mutex>
 #include <sstream>
@@ -825,9 +826,10 @@ namespace Mist{
     uint64_t prevWork = 0, prevSrcWait = 0;
     uint64_t prevBufferLastMs = 0; // last published source-clock high-water mark
     uint64_t prevUpdateBootMs = Util::bootMS();
+    uint32_t capacitySamples = 0;
     while (conf.is_active && co.is_active){
       Util::sleep(200);
-      if (lastProcUpdate + 5 <= Util::bootSecs()){
+      if (lastProcUpdate + 1 <= Util::bootSecs()) {
         std::lock_guard<std::mutex> guard(statsMutex);
         pData["active_seconds"] = (Util::bootSecs() - startTime);
         pData["ainfo"]["thumbs_cached"] = (uint64_t)thumbCache.size();
@@ -867,15 +869,17 @@ namespace Mist{
           // controller compares obsSpeed to feederSpeed in realtime-multiples.)
           // For thumbs the source-clock proxy is bufferLastMs (highest keyframe
           // timestamp cached so far).
-          uint32_t obsSpeedQ = 0;
+          uint32_t obsSpeedQ = 0, capacitySpeedQ = 0;
           uint64_t wallDeltaMs = (nowBootMs > prevUpdateBootMs) ? (nowBootMs - prevUpdateBootMs) : 0;
           if (wallDeltaMs > 0 && prevBufferLastMs && bufferLastMs > prevBufferLastMs) {
             double rtf = (double)(bufferLastMs - prevBufferLastMs) / (double)wallDeltaMs;
-            if (rtf < 0) rtf = 0;
-            if (rtf > 65535.0) rtf = 65535.0;
-            obsSpeedQ = (uint32_t)(rtf * 65536.0);
+            obsSpeedQ = ProcState::speedToQ16(rtf);
+            if (dWork) {
+              capacitySpeedQ = ProcState::speedToQ16((double)(bufferLastMs - prevBufferLastMs) * 1000.0 / (double)dWork);
+            }
           }
 
+          s->beginPublish();
           s->totalWork = curWork;
           s->totalSourceWait = curSrcWait;
           s->totalSinkWait = 0;
@@ -883,13 +887,27 @@ namespace Mist{
           s->frameCount = curFrames;
           s->lastUpdateMs = nowBootMs;
           s->observedSpeedQ16_16 = obsSpeedQ;
+          s->inputSpeedQ16_16 = obsSpeedQ;
+          s->outputSpeedQ16_16 = obsSpeedQ;
+          if (capacitySpeedQ) {
+            ++capacitySamples;
+            s->capacitySpeedQ16_16 = capacitySpeedQ;
+            s->recommendedFeedQ16_16 = ProcState::speedToQ16(std::max(1.0, ((double)capacitySpeedQ / 65536.0) * 0.85));
+            s->flags |= PRC_FLAG_CAPACITY_VALID;
+          }
+          s->flags &= ~(PRC_FLAG_SOURCE_LIMITED | PRC_FLAG_PROCESSOR_LIMITED);
+          if (dTotal && dSrc * 2 > dTotal) { s->flags |= PRC_FLAG_SOURCE_LIMITED; }
+          if (pressureQ > (uint16_t)(0.7 * 65535.0)) { s->flags |= PRC_FLAG_PROCESSOR_LIMITED; }
+          s->phase = capacitySamples >= 3 ? PRC_PHASE_READY : PRC_PHASE_MEASURING;
+          s->confidenceQ0_16 = (uint16_t)std::min((uint32_t)65535, capacitySamples * 65535 / 3);
           s->pressureQ0_16 = pressureQ;
           s->canAcceptMore = 1;
           s->reasonCode = reason;
           s->queueDepth = (uint32_t)thumbCache.size();
           s->inflight = 0;
           s->retryCount = 0;
-          s->negotiatedKind = PRC_KIND_THUMBS;
+          s->primaryResource = PRC_RESOURCE_CPU;
+          s->endPublish();
 
           prevWork = curWork;
           prevSrcWait = curSrcWait;
@@ -1136,6 +1154,8 @@ int main(int argc, char *argv[]){
   }
 
   maxCacheSize = (size_t)gridCols * gridRows * 3;
+
+  ProcState::publishStartup(procStatsPage, 8.0, PRC_RESOURCE_CPU);
 
   // Validate
   Mist::ProcThumbs proc;

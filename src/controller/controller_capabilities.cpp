@@ -1,9 +1,14 @@
 #include "controller_capabilities.h"
-#include <fstream>
+
 #include <mist/config.h>
 #include <mist/defines.h>
-#include <mist/shared_memory.h>
+#include <mist/proc_stats.h>
 #include <mist/procs.h>
+#include <mist/shared_memory.h>
+#include <mist/timing.h>
+
+#include <algorithm>
+#include <fstream>
 #include <set>
 #include <stdio.h>
 #include <string.h>
@@ -29,6 +34,33 @@ float load_1 = 0, load_5 = 0, load_15 = 0;
 uint64_t cl_total = 0, cl_idle = 0;
 uint64_t c_user = 0, c_nice = 0, c_syst = 0, c_idle = 0, c_total = 0;
 uint16_t cpuK = 0;
+
+#ifndef __APPLE__
+struct PsiTotals {
+    uint64_t some = 0;
+    uint64_t full = 0;
+    bool valid = false;
+};
+
+static PsiTotals readPsiTotals(const char *path) {
+  PsiTotals ret;
+  std::ifstream psi(path);
+  std::string line;
+  while (std::getline(psi, line)) {
+    uint64_t total = 0;
+    size_t pos = line.find("total=");
+    if (pos == std::string::npos) { continue; }
+    if (sscanf(line.c_str() + pos, "total=%" SCNu64, &total) != 1) { continue; }
+    if (line.rfind("some ", 0) == 0) {
+      ret.some = total;
+      ret.valid = true;
+    } else if (line.rfind("full ", 0) == 0) {
+      ret.full = total;
+    }
+  }
+  return ret;
+}
+#endif
 
 JSON::Value cpuInfo;
 
@@ -272,6 +304,60 @@ namespace Controller{
           }
         }
       }
+#endif
+    }
+
+    // Publish a single consistent node-pressure sample for all InputBuffers.
+    // Linux PSI measures actual resource stalls; other platforms fall back to
+    // the CPU utilization already sampled above.
+    {
+      static IPC::sharedPage nodePage;
+#ifndef __APPLE__
+      static uint64_t prevPressureMs = 0;
+      static PsiTotals prevCpuPsi, prevMemPsi, prevIoPsi;
+      PsiTotals cpuPsi = readPsiTotals("/proc/pressure/cpu");
+      PsiTotals memPsi = readPsiTotals("/proc/pressure/memory");
+      PsiTotals ioPsi = readPsiTotals("/proc/pressure/io");
+#endif
+      uint64_t nowMs = Util::bootMS();
+      if (!nodePage || !NodePressureState::isValid(nodePage)) {
+        nodePage.init(SHM_NODE_PRESSURE, sizeof(NodePressureState), true, false);
+        NodePressureState::initPage(nodePage);
+        nodePage.master = false;
+      }
+      if (nodePage.mapped && NodePressureState::isValid(nodePage)) {
+        NodePressureState *state = (NodePressureState *)nodePage.mapped;
+        state->beginPublish();
+        state->lastUpdateMs = nowMs;
+        state->flags = 0;
+        state->cpuUseQ0_16 = (uint16_t)std::min((uint64_t)65535, (uint64_t)cpuK * 65535 / 1000);
+        state->cpuSomeQ0_16 = 0;
+        state->memorySomeQ0_16 = 0;
+        state->memoryFullQ0_16 = 0;
+        state->ioSomeQ0_16 = 0;
+        state->ioFullQ0_16 = 0;
+#ifndef __APPLE__
+        uint64_t intervalUs = prevPressureMs && nowMs > prevPressureMs ? (nowMs - prevPressureMs) * 1000 : 0;
+        auto deltaQ = [intervalUs](uint64_t cur, uint64_t prev) -> uint16_t {
+          if (!intervalUs || cur < prev) { return 0; }
+          return (uint16_t)std::min((uint64_t)65535, (cur - prev) * 65535 / intervalUs);
+        };
+        if (cpuPsi.valid && memPsi.valid && ioPsi.valid) {
+          state->flags |= NODE_PRESSURE_HAS_PSI;
+          state->cpuSomeQ0_16 = deltaQ(cpuPsi.some, prevCpuPsi.some);
+          state->memorySomeQ0_16 = deltaQ(memPsi.some, prevMemPsi.some);
+          state->memoryFullQ0_16 = deltaQ(memPsi.full, prevMemPsi.full);
+          state->ioSomeQ0_16 = deltaQ(ioPsi.some, prevIoPsi.some);
+          state->ioFullQ0_16 = deltaQ(ioPsi.full, prevIoPsi.full);
+        }
+        prevCpuPsi = cpuPsi;
+        prevMemPsi = memPsi;
+        prevIoPsi = ioPsi;
+#endif
+        state->endPublish();
+      }
+#ifndef __APPLE__
+      prevPressureMs = nowMs;
 #endif
     }
     return 1000;

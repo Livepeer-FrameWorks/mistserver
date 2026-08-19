@@ -13,6 +13,7 @@
 #include <mist/triggers.h>
 #include <mist/util.h>
 
+#include <algorithm>
 #include <condition_variable>
 #include <cstdarg> //for libav log handling
 #include <cstring>
@@ -800,8 +801,8 @@ namespace Mist{
         return false;
       }
       context_out = tmpCtx;
-      // Record whether the encode negotiated to HW; controller reads this via
-      // ProcState.negotiatedKind to distinguish AV-HW from AV-SW caps.
+      // Record whether the encode negotiated to HW; the ProcState publisher
+      // switches its primary resource and measured feed contract accordingly.
       hwEncodeActive = (hwDev != AV_HWDEVICE_TYPE_NONE);
 
       av_logLevel = AV_LOG_WARNING;
@@ -2165,23 +2166,18 @@ namespace Mist{
       pStat["proc_status_update"]["id"] = getpid();
       pStat["proc_status_update"]["proc"] = "AV";
     }
-    // Init per-process stats shm page for rate control
-    {
-      char statsName[NAME_BUFFER_SIZE];
-      snprintf(statsName, NAME_BUFFER_SIZE, SHM_PROC_STATE, getpid());
-      procStatsPage.init(statsName, sizeof(ProcState), true, false);
-    }
     uint64_t startTime = Util::bootSecs();
     processStartTime = startTime;
     uint64_t encPrevTime = 0;
     uint64_t encPrevCount = 0;
     // Previous-window snapshots for pressure derivation
-    uint64_t prevWork = 0, prevSrcWait = 0, prevSnkWait = 0;
-    uint64_t prevSinkMsForRate = 0;
+    uint64_t prevWork = 0, prevSrcWait = 0;
+    uint64_t prevSourceMsForRate = 0, prevSinkMsForRate = 0;
     uint64_t prevUpdateBootMs = Util::bootMS();
+    uint32_t capacitySamples = 0;
     while (conf.is_active && co.is_active){
       Util::sleep(200);
-      if (lastProcUpdate + 5 <= Util::bootSecs()){
+      if (lastProcUpdate + 1 <= Util::bootSecs()) {
         std::lock_guard<std::mutex> guard(statsMutex);
         pData["active_seconds"] = (Util::bootSecs() - startTime);
         pData["ainfo"]["sourceTime"] = statSourceMs;
@@ -2219,18 +2215,16 @@ namespace Mist{
           uint64_t curSnkWait = totalSinkSleep;
           uint64_t nowBootMs = Util::bootMS();
 
-          // Pressure: derived from delta-over-window. Window-elapsed = wallclock delta.
-          // Map ratios to pressure with a meaningful slope: workRatio 0.5 -> 0,
-          // 0.85 -> 0.7 (slow-down watermark), 1.0 -> 1.0 (max). Same shape for
-          // sink-wait. Anything below 0.5 is "plenty of headroom" -> pressure 0.
+          // Pressure: derived from processor work versus source-side waiting.
+          // totalSinkSleep is the sink thread waiting for the encoder to hand
+          // it a frame: that is idle time, not output backpressure, and must
+          // not reduce the estimated processing capacity.
           uint8_t reason = PRC_REASON_UNKNOWN;
           uint16_t pressureQ = 0;
           uint64_t dWork = curWork - prevWork;
           uint64_t dSrc = curSrcWait - prevSrcWait;
-          uint64_t dSnk = curSnkWait - prevSnkWait;
-          uint64_t dTotal = dWork + dSrc + dSnk;
+          uint64_t dTotal = dWork + dSrc;
           if (dTotal > 0) {
-            double snkRatio = (double)dSnk / (double)dTotal;
             double srcRatio = (double)dSrc / (double)dTotal;
             double workRatio = (double)dWork / (double)dTotal;
             auto mapPressure = [](double ratio) -> double {
@@ -2241,10 +2235,7 @@ namespace Mist{
               return p;
             };
             // Pick the dominant bottleneck signal.
-            if (snkRatio >= workRatio && snkRatio > 0.5) {
-              reason = PRC_REASON_SINK_WAIT;
-              pressureQ = (uint16_t)(mapPressure(snkRatio) * 65535.0);
-            } else if (workRatio > 0.5) {
+            if (workRatio > 0.5) {
               reason = PRC_REASON_CPU;
               pressureQ = (uint16_t)(mapPressure(workRatio) * 65535.0);
             } else if (srcRatio > 0.5) {
@@ -2253,36 +2244,59 @@ namespace Mist{
             }
           }
 
-          // Observed speed: sink media advanced vs wallclock advanced
-          uint32_t obsSpeedQ = 0;
+          // Keep achieved input/output separate from capacity. Capacity uses
+          // active processor work only and deliberately excludes both source
+          // starvation and the sink thread's idle wait.
+          uint32_t inputSpeedQ = 0, outputSpeedQ = 0, capacitySpeedQ = 0;
           uint64_t wallDeltaMs = (nowBootMs > prevUpdateBootMs) ? (nowBootMs - prevUpdateBootMs) : 0;
+          if (wallDeltaMs > 0 && statSourceMs > prevSourceMsForRate) {
+            inputSpeedQ = ProcState::speedToQ16((double)(statSourceMs - prevSourceMsForRate) / (double)wallDeltaMs);
+          }
           if (wallDeltaMs > 0 && statSinkMs > prevSinkMsForRate) {
-            double rtf = (double)(statSinkMs - prevSinkMsForRate) / (double)wallDeltaMs;
-            if (rtf < 0) rtf = 0;
-            if (rtf > 65535.0) rtf = 65535.0;
-            obsSpeedQ = (uint32_t)(rtf * 65536.0);
+            outputSpeedQ = ProcState::speedToQ16((double)(statSinkMs - prevSinkMsForRate) / (double)wallDeltaMs);
+            uint64_t activeUs = dWork;
+            if (activeUs) {
+              double capacity = (double)(statSinkMs - prevSinkMsForRate) * 1000.0 / (double)activeUs;
+              capacitySpeedQ = ProcState::speedToQ16(capacity);
+            }
           }
 
+          s->beginPublish();
           s->totalWork = curWork;
           s->totalSourceWait = curSrcWait;
           s->totalSinkWait = curSnkWait;
           s->totalExternalWait = 0;
           s->frameCount = (uint64_t)outputFrameCount;
           s->lastUpdateMs = nowBootMs;
-          s->observedSpeedQ16_16 = obsSpeedQ;
+          s->observedSpeedQ16_16 = outputSpeedQ;
+          s->inputSpeedQ16_16 = inputSpeedQ;
+          s->outputSpeedQ16_16 = outputSpeedQ;
+          if (capacitySpeedQ) {
+            ++capacitySamples;
+            s->capacitySpeedQ16_16 = capacitySpeedQ;
+            double capacity = (double)capacitySpeedQ / 65536.0;
+            s->recommendedFeedQ16_16 = ProcState::speedToQ16(std::max(1.0, capacity * 0.85));
+            s->flags |= PRC_FLAG_CAPACITY_VALID;
+          }
+          bool sourceLimited = (dTotal && dSrc * 2 > dTotal);
+          bool processorLimited = pressureQ > (uint16_t)(0.7 * 65535.0);
+          s->flags &= ~(PRC_FLAG_SOURCE_LIMITED | PRC_FLAG_PROCESSOR_LIMITED);
+          if (sourceLimited) { s->flags |= PRC_FLAG_SOURCE_LIMITED; }
+          if (processorLimited) { s->flags |= PRC_FLAG_PROCESSOR_LIMITED; }
+          s->phase = capacitySamples >= 3 ? PRC_PHASE_READY : PRC_PHASE_MEASURING;
+          s->confidenceQ0_16 = (uint16_t)std::min((uint32_t)65535, capacitySamples * 65535 / 3);
           s->pressureQ0_16 = pressureQ;
           s->canAcceptMore = 1;
           s->reasonCode = reason;
           s->queueDepth = 0;
           s->inflight = 0;
           s->retryCount = 0;
-          // Publish negotiated kind so the controller picks the right cap.
-          // Audio bypasses HW concerns; video uses real backend after init.
-          s->negotiatedKind = isVideo ? (hwEncodeActive ? PRC_KIND_AV_HW_VIDEO : PRC_KIND_AV_SW_VIDEO) : PRC_KIND_AUDIO;
+          s->primaryResource = isVideo && hwEncodeActive ? PRC_RESOURCE_GPU : PRC_RESOURCE_CPU;
+          s->endPublish();
 
           prevWork = curWork;
           prevSrcWait = curSrcWait;
-          prevSnkWait = curSnkWait;
+          prevSourceMsForRate = statSourceMs;
           prevSinkMsForRate = statSinkMs;
           prevUpdateBootMs = nowBootMs;
         }
@@ -2877,6 +2891,16 @@ int main(int argc, char *argv[]){
     FAIL_MSG("Unknown codec: %s", Mist::opt["codec"].asStringRef().c_str());
     procExit.log(ER_FORMAT_SPECIFIC, 2, "Unknown codec: %s", Mist::opt["codec"].asStringRef().c_str());
     return procExit.flush(procStatsPage);
+  }
+
+  // The proc owns its bootstrap recommendation. Publish it immediately after
+  // parsing configuration, before connecting to streams or initializing the
+  // encoder. Automatic video starts conservatively until HW negotiation.
+  if (isVideo) {
+    ProcState::publishStartup(procStatsPage, (!allowSW && allowHW) ? 4.0 : 1.0,
+                              (!allowSW && allowHW) ? PRC_RESOURCE_GPU : PRC_RESOURCE_CPU);
+  } else {
+    ProcState::publishStartup(procStatsPage, 6.0, PRC_RESOURCE_CPU);
   }
 
   // check config for generic options

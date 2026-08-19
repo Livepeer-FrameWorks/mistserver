@@ -7,6 +7,7 @@
 #include <mist/json.h>
 #include <mist/mp4_generic.h>
 #include <mist/nal.h>
+#include <mist/proc_stats.h>
 #include <mist/procs.h>
 #include <mist/ts_stream.h>
 #include <mist/util.h>
@@ -403,6 +404,7 @@ int main(int argc, char *argv[]) {
   }
 
   Util::redirectLogsIfNeeded();
+  ProcStateHeartbeat procState;
 
   // read configuration
   if (config.getString("configuration") != "-") {
@@ -413,6 +415,7 @@ int main(int argc, char *argv[]) {
     while (std::getline(std::cin, line)) { json.append(line); }
     Mist::opt = JSON::fromString(json.c_str());
   }
+  procState.publishStartup(1.0, PRC_RESOURCE_CPU);
 
   if (!Mist::opt.isMember("source") || !Mist::opt["source"] || !Mist::opt["source"].isString()) {
     FAIL_MSG("invalid source in config!");

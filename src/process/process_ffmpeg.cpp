@@ -3,6 +3,7 @@
 #include "process.hpp"
 
 #include <mist/defines.h>
+#include <mist/proc_stats.h>
 #include <mist/procs.h>
 #include <mist/stream.h>
 #include <mist/util.h>
@@ -652,6 +653,7 @@ int main(int argc, char *argv[]){
   }
 
   Util::redirectLogsIfNeeded();
+  ProcStateHeartbeat procState;
 
   // read configuration
   if (config.getString("configuration") != "-"){
@@ -662,6 +664,7 @@ int main(int argc, char *argv[]){
     while (std::getline(std::cin, line)){json.append(line);}
     opt = JSON::fromString(json.c_str());
   }
+  procState.publishStartup(1.0, PRC_RESOURCE_CPU);
 
   Enc.SetConfig(opt);
   if (!Enc.CheckConfig()){

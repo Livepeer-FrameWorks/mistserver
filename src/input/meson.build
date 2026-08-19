@@ -23,7 +23,7 @@ inputs = [
 
 #Referenced by process targets
 input_ebml_cpp = files('input_ebml.cpp')
-input_cpp = files('input.cpp', 'processing_profile.cpp')
+input_cpp = files('input.cpp')
 
 if have_librist
   inputs += {'name' : 'TSRIST', 'format' : 'tsrist', 'extra' : 'with_rist'}
@@ -82,7 +82,6 @@ foreach input : inputs
       files(
         'mist_in.cpp',
         'input.cpp',
-        'processing_profile.cpp',
         'input_'+input.get('format')+'.cpp',
       ),
       io_cpp,
@@ -94,4 +93,3 @@ foreach input : inputs
     ]
   }
 endforeach
-

@@ -16,6 +16,7 @@
 #include <psa/crypto.h>
 #endif
 
+#include <algorithm>
 #include <atomic>
 #include <mutex>
 #include <ostream>
@@ -1162,6 +1163,7 @@ int main(int argc, char *argv[]){
   if (!Mist::opt.isMember("sink") || !Mist::opt["sink"] || !Mist::opt["sink"].isString()){
     INFO_MSG("No sink explicitly set, using source as sink");
   }
+  ProcState::publishStartup(procStatePage, 8.0, PRC_RESOURCE_EXTERNAL);
   if (!Mist::opt.isMember("custom_url") || !Mist::opt["custom_url"] || !Mist::opt["custom_url"].isString()){
     api_url = "https://livepeer.live/api";
   }else{
@@ -1389,9 +1391,12 @@ int main(int argc, char *argv[]){
 
   // Previous-window snapshots for pressure derivation.
   uint64_t prevTotalFails = 0;
+  uint64_t prevSourceMsForRate = statSourceMs, prevSinkMsForRate = statSinkMs;
+  uint64_t prevRateUpdateMs = Util::bootMS();
+  uint32_t capacitySamples = 0;
   while (!livepeerStopRequested.load(std::memory_order_acquire) && (conf.is_active || !Mist::livepeerQueuesDrained())) {
     Util::sleep(200);
-    if (lastProcUpdate + 5 <= Util::bootSecs()){
+    if (lastProcUpdate + 1 <= Util::bootSecs()) {
       std::lock_guard<std::mutex> guard(statsMutex);
       pData["active_seconds"] = (Util::bootSecs() - startTime);
       pData["ainfo"]["switches"] = statSwitches;
@@ -1431,11 +1436,18 @@ int main(int argc, char *argv[]){
         uint64_t totalFails = statFailN200.load() + statFailTimeout.load() + statFailParse.load() + statFailOther.load();
         uint32_t retryDelta = (uint32_t)(totalFails - prevTotalFails);
         uint32_t obsSpeed = statLastSegSpeedQ16_16.load(std::memory_order_relaxed);
+        uint64_t wallDeltaMs = nowBootMs > prevRateUpdateMs ? nowBootMs - prevRateUpdateMs : 0;
+        uint32_t inputSpeed = 0, outputSpeed = 0;
+        if (wallDeltaMs && statSourceMs > prevSourceMsForRate) {
+          inputSpeed = ProcState::speedToQ16((double)(statSourceMs - prevSourceMsForRate) / (double)wallDeltaMs);
+        }
+        if (wallDeltaMs && statSinkMs > prevSinkMsForRate) {
+          outputSpeed = ProcState::speedToQ16((double)(statSinkMs - prevSinkMsForRate) / (double)wallDeltaMs);
+        }
 
-        // Only retry/queue_full are reported as proc-side hard signals.
-        // External-gateway "can't keep up" pressure (observedSpeed < feederSpeed)
-        // is computed by the controller, which is the only side that knows the
-        // current feeder speed.
+        // Only retry/queue_full are hard signals. Normal external capacity is
+        // expressed through the measured recommendation below, so InputBuffer
+        // does not need any Livepeer-specific throughput logic.
         uint8_t reason = PRC_REASON_UNKNOWN;
         uint16_t pressureQ = 0;
         uint8_t accept = 1;
@@ -1451,6 +1463,7 @@ int main(int argc, char *argv[]){
           accept = 0;
         }
 
+        s->beginPublish();
         s->totalWork = totWorkUs;
         s->totalSourceWait = totSrcWaitUs;
         s->totalSinkWait = totSnkWaitUs;
@@ -1458,15 +1471,32 @@ int main(int argc, char *argv[]){
         s->frameCount = 0; // proc-defined; segments are not frames
         s->lastUpdateMs = nowBootMs;
         s->observedSpeedQ16_16 = obsSpeed;
+        s->inputSpeedQ16_16 = inputSpeed;
+        s->outputSpeedQ16_16 = outputSpeed;
+        if (obsSpeed) {
+          ++capacitySamples;
+          s->capacitySpeedQ16_16 = obsSpeed;
+          s->recommendedFeedQ16_16 = ProcState::speedToQ16(std::max(1.0, ((double)obsSpeed / 65536.0) * 0.85));
+          s->flags |= PRC_FLAG_CAPACITY_VALID;
+        }
+        s->flags &= ~(PRC_FLAG_SOURCE_LIMITED | PRC_FLAG_PROCESSOR_LIMITED);
+        if (!queueDepth && !inflight && inputSpeed == 0) { s->flags |= PRC_FLAG_SOURCE_LIMITED; }
+        if (pressureQ > (uint16_t)(0.7 * 65535.0)) { s->flags |= PRC_FLAG_PROCESSOR_LIMITED; }
+        s->phase = capacitySamples >= 3 ? PRC_PHASE_READY : PRC_PHASE_MEASURING;
+        s->confidenceQ0_16 = (uint16_t)std::min((uint32_t)65535, capacitySamples * 65535 / 3);
         s->pressureQ0_16 = pressureQ;
         s->canAcceptMore = accept;
         s->reasonCode = reason;
         s->queueDepth = queueDepth;
         s->inflight = inflight;
         s->retryCount = retryDelta;
-        s->negotiatedKind = PRC_KIND_LIVEPEER;
+        s->primaryResource = PRC_RESOURCE_EXTERNAL;
+        s->endPublish();
 
         prevTotalFails = totalFails;
+        prevSourceMsForRate = statSourceMs;
+        prevSinkMsForRate = statSinkMs;
+        prevRateUpdateMs = nowBootMs;
       }
 
       lastProcUpdate = Util::bootSecs();

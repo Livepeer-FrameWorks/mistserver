@@ -1,5 +1,4 @@
 #include "input.h"
-#include "processing_profile.h"
 
 #include <mist/dtsc.h>
 #include <mist/proc_stats.h>
@@ -72,26 +71,21 @@ namespace Mist{
     std::map<std::string, uint64_t> procNextBoot;
     std::set<std::string> procHardFailed; // configs that hit unrecoverable error
 
-    // Rate control state. Driven entirely by per-proc normalized pressure
-    // (ProcState v2 page); no separate CPU / sleep-ratio polling here.
+    // Generic proc-authored rate control state (ProcState v3).
     uint64_t effectiveSpeed;
+    bool startupSeedApplied;
     uint64_t lastRateUpdateMs;
+    uint32_t rateJitterMs;
     uint32_t rampLockoutTicks; ///< # ticks remaining before speed-up allowed
     // Highest ProcState.lastUpdateMs we've already acted on, per pid. Procs
-    // publish every ~5s but the controller ticks every 1s. Without this
-    // gate, the same publish would drive several *1.2+1 ramp bumps. We only
+    // publish about every second, independently of the jittered consumer tick.
+    // Without this gate, the same publish could drive repeated ramp bumps. We only
     // run per-proc decision logic when lastUpdateMs has advanced.
     std::map<pid_t, uint64_t> lastConsumedUpdateMs;
     // Required procs whose latest fresh sample explicitly allowed speed-up.
-    // Cleared after each ramp; this lets offset 5s publishers vote over
+    // Cleared after each ramp; this lets offset publishers vote over
     // multiple ticks without allowing one proc to ramp repeatedly by itself.
     std::set<pid_t> procsReadyForSpeedUp;
-
-    // Per-instance processing profile (resolved from this stream's processes
-    // array at startup; never mutates shared `processing.*` config).
-    bool procProfileResolved; ///< true once classifier has run
-    bool negotiatedFullyResolved; ///< true once every running proc has reported its negotiatedKind at least once
-    ProcessingProfile procProfile;
 
     // Per-job speed/verdict aggregates. Written to the stream-state SHM page
     // (STRMSTATE_SPEED_* offsets) every controller tick so recording outputs
@@ -106,11 +100,19 @@ namespace Mist{
         uint32_t rampUps = 0;
         uint32_t lockoutTicks = 0; ///< ticks spent under ramp lockout
         uint32_t staleHoldTicks = 0; ///< ticks where a required proc was unobservable/stale
+        uint32_t warmupTicks = 0;
+        uint32_t sourceLimitedTicks = 0;
+        uint32_t processorLimitedTicks = 0;
+        uint32_t nodeLimitedTicks = 0;
+        uint32_t capacitySamples = 0;
+        uint64_t inputSpeedSumQ16 = 0;
+        uint64_t outputSpeedSumQ16 = 0;
+        uint64_t capacitySpeedSumQ16 = 0;
     };
     SpeedStats speedStats;
     // Per-proc observation aggregates for the summary log.
     struct ProcAgg {
-        uint8_t kind = 0;
+        uint8_t resource = 0;
         uint32_t freshSamples = 0;
         uint32_t staleTicks = 0;
         uint64_t pressureSum = 0; ///< sum of pressureQ0_16 over fresh samples
@@ -118,6 +120,8 @@ namespace Mist{
         uint32_t reasonCounts[8] = {0};
         uint32_t hardSlowVotes = 0;
         uint32_t regularSlowVotes = 0;
+        uint32_t sourceLimitedSamples = 0;
+        uint32_t processorLimitedSamples = 0;
     };
     std::map<pid_t, ProcAgg> procAggs;
     std::map<std::string, pid_t> procLastPid; ///< proc config -> last seen pid, for restart counting

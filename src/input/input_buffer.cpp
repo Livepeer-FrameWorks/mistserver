@@ -1,5 +1,7 @@
 #include "input_buffer.h"
 
+#include "processing_rate.h"
+
 #include <mist/bitfields.h>
 #include <mist/defines.h>
 #include <mist/langcodes.h>
@@ -38,11 +40,10 @@ namespace Mist{
     allProcsRunning = false;
     processOverrideResolved = false;
     effectiveSpeed = 0;
+    startupSeedApplied = false;
     lastRateUpdateMs = 0;
+    rateJitterMs = (uint32_t)(((uint64_t)getpid() * 1103515245u + 12345u) % 251u);
     rampLockoutTicks = 0;
-    procProfileResolved = false;
-    negotiatedFullyResolved = false;
-    procProfile = defaultProcessingProfile();
 
     capa["optional"].removeMember("realtime");
 
@@ -534,88 +535,39 @@ namespace Mist{
   void InputBuffer::updateProcessingRate(){
     if (runningProcs.empty()){return;}
     uint64_t now = Util::bootMS();
-    if (lastRateUpdateMs && now - lastRateUpdateMs < 1000){return;}
+    uint64_t interval = effectiveSpeed ? 1000 + rateJitterMs : 100;
+    if (lastRateUpdateMs && now - lastRateUpdateMs < interval) { return; }
     lastRateUpdateMs = now;
 
-    // Read operator-set realtime_speed cap from stream config (if any).
-    // For processing streams it acts as a ceiling on the profile's maxSpeed,
-    // never as a target. For non-processing streams the legacy meaning is
-    // unchanged (it IS the cap).
-    uint64_t opCap = 0;
-    bool opCapWasSet = false;
+    uint64_t operatorCap = 0;
     {
       std::string strName = config->getString("streamname");
       Util::sanitizeName(strName);
-      strName = strName.substr(0, (strName.find_first_of("+ ")));
-      char tmpBuf[NAME_BUFFER_SIZE];
-      snprintf(tmpBuf, NAME_BUFFER_SIZE, SHM_STREAM_CONF, strName.c_str());
-      Util::DTSCShmReader rStrmConf(tmpBuf);
-      DTSC::Scan streamCfg = rStrmConf.getScan();
-      if (streamCfg && streamCfg.getMember("realtime_speed")){
-        opCap = streamCfg.getMember("realtime_speed").asInt();
-        opCapWasSet = true;
-      }
+      strName = strName.substr(0, strName.find_first_of("+ "));
+      char confName[NAME_BUFFER_SIZE];
+      snprintf(confName, sizeof(confName), SHM_STREAM_CONF, strName.c_str());
+      Util::DTSCShmReader configReader(confName);
+      DTSC::Scan cfg = configReader.getScan();
+      if (cfg && cfg.getMember("realtime_speed")) { operatorCap = cfg.getMember("realtime_speed").asInt(); }
     }
 
-    // Resolve the effective cap for this stream.
-    //   processing stream:
-    //     opCap unset OR opCap == 0  -> profile.maxSpeed (hard cap from profile)
-    //     opCap > 0                  -> min(opCap, profile.maxSpeed)
-    //   profile.maxSpeed is ALWAYS the safety guardrail. Past it the proc
-    //   can't keep up, so there's no upside to letting opCap=0 mean
-    //   "unlimited". opCap=0 means "no additional operator cap" only.
-    //   non-processing stream:
-    //     legacy semantic: return early below unless opCap > 1.
-    uint64_t realtimeSpeed;
-    if (procProfileResolved) {
-      if (!opCapWasSet || opCap == 0) {
-        realtimeSpeed = procProfile.maxSpeed;
-      } else {
-        realtimeSpeed = std::min(opCap, procProfile.maxSpeed);
-      }
-    } else { return; }
+    bool allContractsReady = true;
+    bool anyHardSlow = false, hardLockout = false, anyRegularSlow = false;
+    bool anyStaleHold = false, anyCpuPrimary = false, sawFresh = false;
+    bool tickSourceLimited = false, tickProcessorLimited = false, tickWarmup = false;
+    uint64_t targetSpeed = 0;
+    uint32_t tickInputQ = 0, tickOutputQ = 0, tickCapacityQ = 0;
+    size_t requiredCount = 0;
 
-    // Read normalized pressure from every running proc and aggregate to a
-    // single verdict for this stream. Tightest bottleneck wins:
-    //   - any proc with reason {retry, queue_full} -> hard slow + lockout
-    //   - any proc with !canAcceptMore             -> hard slow
-    //   - any proc with pressure > 0.7             -> ramp down 20%
-    //   - any proc with observedSpeed < feeder*0.9 -> ramp down 20% (downstream
-    //                                                 can't keep up)
-    //   - every proc with pressure < 0.2 (and obs keeping up)
-    //                                              -> ramp up 20%
-    //   - otherwise / no valid proc                -> hold
-    bool anyHardSlow = false;
-    bool anyHardSlowLockout = false;
-    bool anyRegularSlow = false;
-    bool allSpeedUpOk = true;
-    bool sawValidProc = false;
-    bool anyStaleHold = false; // a required proc was unobservable/stale this tick
-    std::vector<ProcessingProfileKind> negotiatedKinds;
-    size_t requiredProcCount = 0; // non-inconsequential procs, denominator for allReported
-
-    // Restart accounting: a proc config whose pid changed was restarted.
-    for (auto & rp : runningProcs) {
-      if (!rp.second) { continue; }
-      auto lastIt = procLastPid.find(rp.first);
-      if (lastIt != procLastPid.end() && lastIt->second != rp.second) {
-        ++procRestarts;
-        INFO_MSG("Processing proc restarted (pid %d -> %d), %u restart(s) so far this job", (int)lastIt->second,
-                 (int)rp.second, procRestarts);
-      }
-      procLastPid[rp.first] = rp.second;
-    }
-
-    // Drop freshness state for procs that have exited.
     for (auto it = lastConsumedUpdateMs.begin(); it != lastConsumedUpdateMs.end();) {
-      bool found = false;
-      for (auto &rp : runningProcs){
+      bool alive = false;
+      for (auto & rp : runningProcs) {
         if (rp.second == it->first) {
-          found = true;
+          alive = true;
           break;
         }
       }
-      if (!found){
+      if (!alive) {
         procsReadyForSpeedUp.erase(it->first);
         it = lastConsumedUpdateMs.erase(it);
       } else {
@@ -626,69 +578,35 @@ namespace Mist{
     for (auto &rp : runningProcs){
       pid_t pid = rp.second;
       if (!pid){continue;}
+      JSON::Value args = JSON::fromString(rp.first);
+      bool inconsequential = args.isMember("inconsequential") && args["inconsequential"].asBool();
+      if (!inconsequential) { ++requiredCount; }
 
-      // Whether this proc is best-effort. Inconsequential procs:
-      //   - don't block ramp-up when their ProcState is missing/stale/invalid
-      //     (a hung Thumbs in a VOD job shouldn't pin the others at 1x)
-      //   - don't count toward the negotiatedKinds tally for cap purposes
-      //     (matches the classifier's inconsequential-skip semantics)
-      //   - don't count toward the "all procs reported" denominator that
-      //     gates authoritative profile promotion
-      // The exemption applies regardless of process kind. VOD configs in
-      // particular mark Thumbs (a known kind) inconsequential.
-      bool inconsequential = false;
-      {
-        JSON::Value args = JSON::fromString(rp.first);
-        if (args.isMember("inconsequential") && args["inconsequential"].asBool()) { inconsequential = true; }
-      }
-      if (!inconsequential) { ++requiredProcCount; }
+      auto lastPid = procLastPid.find(rp.first);
+      if (lastPid != procLastPid.end() && lastPid->second != pid) { ++procRestarts; }
+      procLastPid[rp.first] = pid;
 
-      char statsName[NAME_BUFFER_SIZE];
-      snprintf(statsName, NAME_BUFFER_SIZE, SHM_PROC_STATE, pid);
-      IPC::sharedPage sp;
-      sp.init(statsName, 0, false, false);
-      // Any running proc we can't observe (no page, invalid schema, stale)
-      // must block ramp-up UNLESS Foghorn flagged it as inconsequential.
-      if (!sp || !sp.mapped || sp.len < sizeof(ProcState)) {
-        if (!inconsequential) {
-          allSpeedUpOk = false;
-          anyStaleHold = true;
-          procsReadyForSpeedUp.erase(pid);
-        }
-        ++procAggs[pid].staleTicks;
-        continue;
-      }
-      if (!ProcState::isValid(sp)) {
-        const ProcState *bad = (const ProcState *)sp.mapped;
-        if (bad->schemaVersion || bad->structSize) {
-          static std::set<pid_t> warnedVersions;
-          if (!warnedVersions.count(pid)) {
-            warnedVersions.insert(pid);
-            WARN_MSG(
-              "ProcState SHM for pid %d has unexpected schema (version=%u, size=%u, expected version=%u, size=%zu)",
-              (int)pid, bad->schemaVersion, bad->structSize, PROC_STATE_VERSION, sizeof(ProcState));
-          }
-        }
-        sp.master = false;
-        if (!inconsequential) {
-          allSpeedUpOk = false;
-          anyStaleHold = true;
-          procsReadyForSpeedUp.erase(pid);
-        }
-        ++procAggs[pid].staleTicks;
-        continue;
-      }
+      char pageName[NAME_BUFFER_SIZE];
+      snprintf(pageName, sizeof(pageName), SHM_PROC_STATE, pid);
+      IPC::sharedPage page(pageName, 0, false, false);
       ProcState cur;
-      memcpy(&cur, sp.mapped, sizeof(ProcState));
-      sp.master = false;
-
-      // Stale (proc not updating) -> hold. Don't let a hung proc force a
-      // verdict; don't count it as "valid"; and explicitly block ramp-up so
-      // a healthy peer can't drag the feeder past a silent neighbour.
-      // Inconsequential procs skip the ramp gate.
-      if (!cur.lastUpdateMs || now - cur.lastUpdateMs > 10000) {
+      if (!ProcState::readSnapshot(page, cur)) {
         if (!inconsequential) {
-          allSpeedUpOk = false;
+          allContractsReady = false;
+          anyStaleHold = true;
+          procsReadyForSpeedUp.erase(pid);
+        }
+        ++procAggs[pid].staleTicks;
+        if (page) { page.master = false; }
+        continue;
+      }
+      page.master = false;
+
+      bool stale = !cur.lastUpdateMs || now < cur.lastUpdateMs || now - cur.lastUpdateMs > 5000;
+      bool contractReady = cur.phase >= PRC_PHASE_STARTUP && cur.recommendedFeedQ16_16;
+      if (stale || !contractReady) {
+        if (!inconsequential) {
+          allContractsReady = false;
           anyStaleHold = true;
           procsReadyForSpeedUp.erase(pid);
         }
@@ -696,214 +614,143 @@ namespace Mist{
         continue;
       }
 
-      // Always carry the proc's negotiated kind into the reclassification
-      // tally, even on quiet ticks where there's no new sample to act on,
-      // so the negotiated profile stays stable rather than reverting to
-      // default {1,1} between publishes. Inconsequential procs are excluded
-      // (consistent with the classifier's static-config skip).
-      if (!inconsequential && cur.negotiatedKind != PRC_KIND_UNKNOWN) {
-        negotiatedKinds.push_back((ProcessingProfileKind)cur.negotiatedKind);
-      }
+      uint64_t recommended = std::max((uint64_t)1, (uint64_t)(cur.recommendedFeedQ16_16 / 65536));
+      if (cur.recommendedFeedQ16_16 & 0xFFFF) { recommended += 1; }
+      if (!inconsequential && (!targetSpeed || recommended < targetSpeed)) { targetSpeed = recommended; }
+      if (!inconsequential && cur.primaryResource == PRC_RESOURCE_CPU) { anyCpuPrimary = true; }
+      if (!inconsequential && cur.phase < PRC_PHASE_READY) { tickWarmup = true; }
 
-      // Freshness gate: if this is the same lastUpdateMs we already acted on
-      // last tick, skip the per-proc decision logic. Otherwise the same
-      // publish drives multiple ramp bumps over its 5s validity window.
-      auto consumedIt = lastConsumedUpdateMs.find(pid);
-      bool freshSample = (consumedIt == lastConsumedUpdateMs.end() || cur.lastUpdateMs > consumedIt->second);
+      bool fresh = !lastConsumedUpdateMs.count(pid) || cur.lastUpdateMs > lastConsumedUpdateMs[pid];
       lastConsumedUpdateMs[pid] = cur.lastUpdateMs;
-      if (!freshSample) { continue; }
-      sawValidProc = true;
-      bool procAllowsSpeedUp = false;
+      if (!fresh) { continue; }
+      sawFresh = true;
 
-      // Per-proc observation aggregates for the periodic summary log.
-      {
-        ProcAgg & agg = procAggs[pid];
-        agg.kind = cur.negotiatedKind;
-        ++agg.freshSamples;
-        agg.pressureSum += cur.pressureQ0_16;
-        if (cur.pressureQ0_16 > agg.pressureMax) { agg.pressureMax = cur.pressureQ0_16; }
-        if (cur.reasonCode < 8) { ++agg.reasonCounts[cur.reasonCode]; }
+      ProcAgg & agg = procAggs[pid];
+      agg.resource = cur.primaryResource;
+      ++agg.freshSamples;
+      agg.pressureSum += cur.pressureQ0_16;
+      if (cur.pressureQ0_16 > agg.pressureMax) { agg.pressureMax = cur.pressureQ0_16; }
+      if (cur.reasonCode < 8) { ++agg.reasonCounts[cur.reasonCode]; }
+      if (cur.flags & PRC_FLAG_SOURCE_LIMITED) { ++agg.sourceLimitedSamples; }
+      if (cur.flags & PRC_FLAG_PROCESSOR_LIMITED) { ++agg.processorLimitedSamples; }
+
+      if (inconsequential) { continue; }
+      if (cur.flags & PRC_FLAG_SOURCE_LIMITED) { tickSourceLimited = true; }
+      if (cur.flags & PRC_FLAG_PROCESSOR_LIMITED) { tickProcessorLimited = true; }
+      if (cur.inputSpeedQ16_16 && (!tickInputQ || cur.inputSpeedQ16_16 < tickInputQ)) {
+        tickInputQ = cur.inputSpeedQ16_16;
+      }
+      if (cur.outputSpeedQ16_16 && (!tickOutputQ || cur.outputSpeedQ16_16 < tickOutputQ)) {
+        tickOutputQ = cur.outputSpeedQ16_16;
+      }
+      if ((cur.flags & PRC_FLAG_CAPACITY_VALID) && !(cur.flags & PRC_FLAG_SOURCE_LIMITED) && cur.confidenceQ0_16 &&
+          cur.capacitySpeedQ16_16 && (!tickCapacityQ || cur.capacitySpeedQ16_16 < tickCapacityQ)) {
+        tickCapacityQ = cur.capacitySpeedQ16_16;
       }
 
-      // Check reason FIRST so retry/queue_full set the lockout flag even when
-      // the proc also dropped canAcceptMore (which Livepeer does).
-      if (cur.reasonCode == PRC_REASON_RETRY || cur.reasonCode == PRC_REASON_QUEUE_FULL) {
+      ProcFeedVote feedVote = classifyProcFeedVote(cur.flags, cur.reasonCode, cur.canAcceptMore, cur.pressureQ0_16);
+      if (feedVote == PROC_FEED_HARD_LOCKOUT) {
         anyHardSlow = true;
-        anyHardSlowLockout = true;
-        allSpeedUpOk = false;
-        ++procAggs[pid].hardSlowVotes;
-      } else if (!cur.canAcceptMore) {
+        hardLockout = true;
+        procsReadyForSpeedUp.erase(pid);
+        ++agg.hardSlowVotes;
+      } else if (feedVote == PROC_FEED_HARD) {
         anyHardSlow = true;
-        allSpeedUpOk = false;
-        ++procAggs[pid].hardSlowVotes;
+        procsReadyForSpeedUp.erase(pid);
+        ++agg.hardSlowVotes;
+      } else if (feedVote == PROC_FEED_SLOW) {
+        anyRegularSlow = true;
+        procsReadyForSpeedUp.erase(pid);
+        ++agg.regularSlowVotes;
       } else {
-        double pressure = (double)cur.pressureQ0_16 / 65535.0;
-        double obsSpeed = (double)cur.observedSpeedQ16_16 / 65536.0;
-        double feederSpeed = (double)effectiveSpeed;
-
-        // Downstream-can't-keep-up: if the proc reports it's processing
-        // meaningfully slower than the feeder, slow down directly. Don't
-        // route this through the pressure scalar where, say, 4x-vs-8x lands
-        // at 0.5 (just under the 0.7 slow-down threshold) and we'd hold.
-        // Threshold: 10% headroom. obs < feeder*0.9 -> slow.
-        // obs in [feeder*0.9, feeder)                -> hold (no speed-up).
-        // obs >= feeder                              -> proc keeping pace.
-        bool obsBelowFeeder = (obsSpeed > 0.0 && feederSpeed > 1.0 && obsSpeed < feederSpeed * 0.9);
-        bool obsBorderline = (obsSpeed > 0.0 && feederSpeed > 1.0 && obsSpeed < feederSpeed && !obsBelowFeeder);
-        // Also fold the under-speed gap into the logged pressure for visibility.
-        if (obsBelowFeeder) {
-          double externalPressure = 1.0 - (obsSpeed / feederSpeed);
-          if (externalPressure > pressure) { pressure = externalPressure; }
-        }
-
-        if (obsBelowFeeder || pressure > 0.7) {
-          anyRegularSlow = true;
-          allSpeedUpOk = false;
-          ++procAggs[pid].regularSlowVotes;
-        } else if (!obsBorderline && pressure < 0.2 &&
-                   ((obsSpeed > 0.0 && obsSpeed >= feederSpeed) || cur.reasonCode == PRC_REASON_SOURCE_WAIT)) {
-          // Proc explicitly says it can keep up: either it published a
-          // throughput sample at or above feeder speed, OR it reported
-          // SOURCE_WAIT (i.e. it's idle waiting on input, so feed faster).
-          // obsSpeed == 0 with no SOURCE_WAIT signal is "no evidence yet"
-          // and falls through to hold below.
-          procAllowsSpeedUp = true;
-        } else {
-          allSpeedUpOk = false; // hold (includes the "no observation yet" case)
-        }
-      }
-      if (!inconsequential) {
-        if (procAllowsSpeedUp) {
-          procsReadyForSpeedUp.insert(pid);
-        } else {
-          procsReadyForSpeedUp.erase(pid);
-        }
-      }
-      HIGH_MSG("ProcState pid=%d kind=%u reason=%u pressure=%u/65535 obsSpeed=%u/65536 accept=%u inflight=%u queue=%u "
-               "retries=%u extWait=%" PRIu64 "us",
-               (int)pid, cur.negotiatedKind, cur.reasonCode, cur.pressureQ0_16, cur.observedSpeedQ16_16,
-               cur.canAcceptMore, cur.inflight, cur.queueDepth, cur.retryCount, cur.totalExternalWait);
-    }
-
-    // Re-derive the profile from the negotiated kinds the procs reported.
-    // Corrects e.g. HW-AV (which static config cannot see) and picks the
-    // tightest bottleneck across a mix.
-    //
-    // Until every running proc has reported its kind at least once, only
-    // allow this to LOWER the cap. Otherwise a mixed job whose Livepeer
-    // proc reports before audio/thumbs would temporarily widen the cap to
-    // Livepeer's 24x and let the feeder overshoot before snapping back.
-    // After everyone has reported once (sticky flag), trust negotiated
-    // fully. That's the only path that lets HW-AV legitimately raise the
-    // cap above the SW-video static guess.
-    if (procProfileResolved && !negotiatedKinds.empty()) {
-      ProcessingProfile fromKinds = classifyFromNegotiatedKinds(negotiatedKinds);
-      // Denominator: non-inconsequential procs only. Inconsequential procs
-      // that never publish a kind would otherwise block authoritative
-      // promotion forever, leaving the controller stuck on the static
-      // SW-video guess for a real HW AV job that just happens to have an
-      // inconsequential third-party sibling.
-      bool allReported = (negotiatedKinds.size() >= requiredProcCount);
-      if (allReported && !negotiatedFullyResolved) {
-        negotiatedFullyResolved = true;
-        INFO_MSG("All %zu procs reported negotiated kind; trusting negotiated profile authoritatively", negotiatedKinds.size());
-      }
-
-      bool apply = false;
-      if (negotiatedFullyResolved) {
-        apply = (fromKinds.maxSpeed != procProfile.maxSpeed || fromKinds.startSpeed != procProfile.startSpeed);
-      } else if (fromKinds.maxSpeed < procProfile.maxSpeed) {
-        // Partial info: only tightening allowed.
-        apply = true;
-      }
-
-      if (apply) {
-        INFO_MSG("Processing profile reclassified from negotiated kinds: %s (start=%" PRIu64 "x, max=%" PRIu64 "x)%s",
-                 fromKinds.name ? fromKinds.name : "?", fromKinds.startSpeed, fromKinds.maxSpeed,
-                 negotiatedFullyResolved ? "" : " [partial]");
-        procProfile = fromKinds;
-        // Recompute realtimeSpeed cap with the new profile. Same rule as
-        // the initial resolution above: opCap unset OR 0 -> profile cap;
-        // opCap > 0 -> min(opCap, profile cap).
-        if (!opCapWasSet || opCap == 0) {
-          realtimeSpeed = procProfile.maxSpeed;
-        } else {
-          realtimeSpeed = std::min(opCap, procProfile.maxSpeed);
-        }
+        // SOURCE_LIMITED is intentionally eligible: requested and achieved
+        // rates are separate, and source starvation must not score the proc.
+        procsReadyForSpeedUp.insert(pid);
       }
     }
 
-    uint64_t prevEffectiveSpeed = effectiveSpeed;
+    if (!targetSpeed) { targetSpeed = 1; }
+    if (operatorCap) { targetSpeed = std::min(targetSpeed, operatorCap); }
+    if (!allContractsReady) { targetSpeed = 1; }
 
-    // First-tick init: for processing streams start at profile.startSpeed
-    // (clamped to cap) instead of the cap, so we don't slam into the bottleneck
-    // before the controller has a chance to observe pressure. realtimeSpeed
-    // is guaranteed nonzero past this point: processing streams resolve to
-    // profile.maxSpeed (>=1) above, and non-processing streams with cap <=1
-    // early-returned at the top of the function.
-    if (!effectiveSpeed) {
-      if (procProfileResolved) {
-        effectiveSpeed = procProfile.startSpeed;
-        if (effectiveSpeed > realtimeSpeed) { effectiveSpeed = realtimeSpeed; }
-        if (effectiveSpeed < 1) { effectiveSpeed = 1; }
-      } else {
-        effectiveSpeed = realtimeSpeed;
+    bool nodeHold = false, nodeSlow = false;
+    if (anyCpuPrimary) {
+      IPC::sharedPage nodePage(SHM_NODE_PRESSURE, 0, false, false);
+      NodePressureState node;
+      if (NodePressureState::readSnapshot(nodePage, node) && node.lastUpdateMs && now >= node.lastUpdateMs &&
+          now - node.lastUpdateMs <= 3000) {
+        uint8_t verdict = node.cpuVerdict();
+        nodeHold = verdict >= 1;
+        nodeSlow = verdict >= 2;
       }
+      if (nodePage) { nodePage.master = false; }
     }
 
-    // Decay ramp lockout (set by retry/queue_full hard-slows).
-    if (rampLockoutTicks > 0) { --rampLockoutTicks; }
-
-    size_t readyAtDecision = procsReadyForSpeedUp.size();
-    bool allRequiredReadyForSpeedUp = requiredProcCount ? (readyAtDecision >= requiredProcCount) : allSpeedUpOk;
-
+    uint64_t previous = effectiveSpeed;
+    if (rampLockoutTicks) { --rampLockoutTicks; }
+    size_t readyVoteCount = procsReadyForSpeedUp.size();
+    bool allReady = requiredCount && readyVoteCount >= requiredCount;
+    ProcessingRateInput rateInput;
+    // The first complete, unpressured contract set is the proc-authored
+    // bootstrap seed, not a ramp destination. Before it arrives the feeder
+    // runs at its normal 1x fallback. This avoids losing several seconds to
+    // 1->2->3->... merely because InputBuffer observed the BOOTING page first.
+    bool applyStartupSeed = !startupSeedApplied && allContractsReady && !anyHardSlow && !anyRegularSlow && !nodeHold && !nodeSlow;
+    rateInput.current = applyStartupSeed ? 0 : effectiveSpeed;
+    rateInput.target = targetSpeed;
+    rateInput.hardSlow = anyHardSlow;
+    rateInput.regularSlow = anyRegularSlow;
+    rateInput.nodeSlow = nodeSlow;
+    rateInput.nodeHold = nodeHold;
+    rateInput.freshVoteRound = sawFresh && allReady;
+    rateInput.contractsReady = allContractsReady;
+    rateInput.rampLocked = rampLockoutTicks;
+    ProcessingRateResult rateResult = decideProcessingRate(rateInput);
+    effectiveSpeed = rateResult.speed;
+    if (allContractsReady) { startupSeedApplied = true; }
     if (anyHardSlow) {
-      effectiveSpeed = 1;
       procsReadyForSpeedUp.clear();
       ++speedStats.hardSlowTicks;
-      if (anyHardSlowLockout) {
-        rampLockoutTicks = 10; // ~10 ticks (~10s) before we may ramp back up
-      }
-    } else if (anyRegularSlow) {
-      effectiveSpeed = std::max((uint64_t)((double)effectiveSpeed * 0.8), (uint64_t)1);
+      if (hardLockout) { rampLockoutTicks = 10; }
+    } else if (anyRegularSlow || nodeSlow) {
       procsReadyForSpeedUp.clear();
       ++speedStats.regularSlowTicks;
-    } else if (sawValidProc && allSpeedUpOk && allRequiredReadyForSpeedUp && rampLockoutTicks == 0 && effectiveSpeed < realtimeSpeed) {
-      uint64_t bumped = (uint64_t)((double)effectiveSpeed * 1.2 + 1);
-      effectiveSpeed = std::min(bumped, realtimeSpeed);
+      if (nodeSlow) { ++speedStats.nodeLimitedTicks; }
+    } else if (previous && targetSpeed < previous) {
+      procsReadyForSpeedUp.clear();
+    } else if (rateResult.ramped) {
       procsReadyForSpeedUp.clear();
       ++speedStats.rampUps;
+    } else if (nodeHold) {
+      ++speedStats.nodeLimitedTicks;
     }
-    // No valid proc reported in this tick -> hold (don't ramp up unsupervised).
-    if (rampLockoutTicks > 0) { ++speedStats.lockoutTicks; }
+    if (operatorCap && effectiveSpeed > operatorCap) { effectiveSpeed = operatorCap; }
+    if (rampLockoutTicks) { ++speedStats.lockoutTicks; }
     if (anyStaleHold) { ++speedStats.staleHoldTicks; }
-
-    // Always clamp to the current cap, regardless of which branch above ran.
-    // The cap can drop mid-stream (negotiated reclassification lowering
-    // profile.maxSpeed, or an operator pushing realtime_speed down) and the
-    // ramp branches only adjust upward/downward from the previous speed.
-    // they don't enforce the absolute ceiling.
-    if (effectiveSpeed > realtimeSpeed) { effectiveSpeed = realtimeSpeed; }
-
-    if (effectiveSpeed != prevEffectiveSpeed) {
-      INFO_MSG("Processing rate changed: %" PRIu64 "x -> %" PRIu64 "x (cap=%" PRIu64
-               "x, profile=%s, ready=%zu/%zu, hard=%d, slow=%d, lockout=%u)",
-               prevEffectiveSpeed, effectiveSpeed, realtimeSpeed, procProfile.name ? procProfile.name : "?",
-               readyAtDecision, requiredProcCount, anyHardSlow ? 1 : 0, anyRegularSlow ? 1 : 0, rampLockoutTicks);
+    if (tickWarmup) { ++speedStats.warmupTicks; }
+    if (tickSourceLimited) { ++speedStats.sourceLimitedTicks; }
+    if (tickProcessorLimited) { ++speedStats.processorLimitedTicks; }
+    if (tickInputQ) { speedStats.inputSpeedSumQ16 += tickInputQ; }
+    if (tickOutputQ) { speedStats.outputSpeedSumQ16 += tickOutputQ; }
+    if (tickCapacityQ) {
+      speedStats.capacitySpeedSumQ16 += tickCapacityQ;
+      ++speedStats.capacitySamples;
     }
 
-    // Per-job aggregates: 1s ticks make the sum a time-weighted average.
+    if (previous != effectiveSpeed) {
+      INFO_MSG("Processing rate changed: %" PRIu64 "x -> %" PRIu64 "x (target=%" PRIu64
+               "x, ready=%zu/%zu, hard=%d, slow=%d, nodeHold=%d, lockout=%u)",
+               previous, effectiveSpeed, targetSpeed, readyVoteCount, requiredCount, anyHardSlow,
+               anyRegularSlow || nodeSlow, nodeHold, rampLockoutTicks);
+    }
+
     ++speedStats.ticks;
     speedStats.speedSum += effectiveSpeed;
-    if (!speedStats.speedMin || effectiveSpeed < speedStats.speedMin) {
-      speedStats.speedMin = (uint32_t)effectiveSpeed;
-    }
-    if (effectiveSpeed > speedStats.speedMax) { speedStats.speedMax = (uint32_t)effectiveSpeed; }
-
+    if (!speedStats.speedMin || effectiveSpeed < speedStats.speedMin) { speedStats.speedMin = effectiveSpeed; }
+    if (effectiveSpeed > speedStats.speedMax) { speedStats.speedMax = effectiveSpeed; }
     if (streamStatus && streamStatus.len >= 16){
       memcpy(streamStatus.mapped + STRMSTATE_EFFECTIVE_SPEED_OFFSET, &effectiveSpeed, sizeof(uint64_t));
     }
-    // Plain bounds check before writing the stats block.
     if (streamStatus && streamStatus.len >= STRMSTATE_PAGE_LEN) {
       memcpy(streamStatus.mapped + STRMSTATE_SPEED_TICKS_OFFSET, &speedStats.ticks, sizeof(uint32_t));
       memcpy(streamStatus.mapped + STRMSTATE_SPEED_MIN_OFFSET, &speedStats.speedMin, sizeof(uint32_t));
@@ -914,8 +761,15 @@ namespace Mist{
       memcpy(streamStatus.mapped + STRMSTATE_LOCKOUT_TICKS_OFFSET, &speedStats.lockoutTicks, sizeof(uint32_t));
       memcpy(streamStatus.mapped + STRMSTATE_STALE_HOLD_TICKS_OFFSET, &speedStats.staleHoldTicks, sizeof(uint32_t));
       memcpy(streamStatus.mapped + STRMSTATE_SPEED_SUM_OFFSET, &speedStats.speedSum, sizeof(uint64_t));
+      memcpy(streamStatus.mapped + STRMSTATE_WARMUP_TICKS_OFFSET, &speedStats.warmupTicks, sizeof(uint32_t));
+      memcpy(streamStatus.mapped + STRMSTATE_SOURCE_LIMITED_TICKS_OFFSET, &speedStats.sourceLimitedTicks, sizeof(uint32_t));
+      memcpy(streamStatus.mapped + STRMSTATE_PROCESSOR_LIMITED_TICKS_OFFSET, &speedStats.processorLimitedTicks, sizeof(uint32_t));
+      memcpy(streamStatus.mapped + STRMSTATE_NODE_LIMITED_TICKS_OFFSET, &speedStats.nodeLimitedTicks, sizeof(uint32_t));
+      memcpy(streamStatus.mapped + STRMSTATE_CAPACITY_SAMPLES_OFFSET, &speedStats.capacitySamples, sizeof(uint32_t));
+      memcpy(streamStatus.mapped + STRMSTATE_INPUT_SPEED_SUM_OFFSET, &speedStats.inputSpeedSumQ16, sizeof(uint64_t));
+      memcpy(streamStatus.mapped + STRMSTATE_OUTPUT_SPEED_SUM_OFFSET, &speedStats.outputSpeedSumQ16, sizeof(uint64_t));
+      memcpy(streamStatus.mapped + STRMSTATE_CAPACITY_SPEED_SUM_OFFSET, &speedStats.capacitySpeedSumQ16, sizeof(uint64_t));
     }
-
     if (!lastSpeedSummaryMs) { lastSpeedSummaryMs = now; }
     if (now - lastSpeedSummaryMs >= 30000) {
       lastSpeedSummaryMs = now;
@@ -929,19 +783,23 @@ namespace Mist{
     if (!speedStats.ticks) { return; }
     double avg = (double)speedStats.speedSum / (double)speedStats.ticks;
     INFO_MSG("Processing speed summary (%s): min=%ux avg=%.1fx max=%ux over %u ticks "
-             "(hardSlow=%u, slow=%u, rampUps=%u, lockout=%u, staleHold=%u, procRestarts=%u)",
+             "(hardSlow=%u, slow=%u, rampUps=%u, lockout=%u, staleHold=%u, warmup=%u, "
+             "sourceLimited=%u, processorLimited=%u, nodeLimited=%u, procRestarts=%u)",
              label, speedStats.speedMin, avg, speedStats.speedMax, speedStats.ticks, speedStats.hardSlowTicks,
-             speedStats.regularSlowTicks, speedStats.rampUps, speedStats.lockoutTicks, speedStats.staleHoldTicks, procRestarts);
+             speedStats.regularSlowTicks, speedStats.rampUps, speedStats.lockoutTicks, speedStats.staleHoldTicks,
+             speedStats.warmupTicks, speedStats.sourceLimitedTicks, speedStats.processorLimitedTicks,
+             speedStats.nodeLimitedTicks, procRestarts);
     for (auto & pa : procAggs) {
       const ProcAgg & a = pa.second;
       double pAvg = a.freshSamples ? ((double)a.pressureSum / (double)a.freshSamples / 65535.0) : 0.0;
-      INFO_MSG("Processing proc summary (%s): pid=%d kind=%u samples=%u staleTicks=%u "
+      INFO_MSG("Processing proc summary (%s): pid=%d resource=%u samples=%u staleTicks=%u "
                "pressureAvg=%.2f pressureMax=%.2f hardVotes=%u slowVotes=%u "
+               "sourceLimited=%u processorLimited=%u "
                "reasons[none=%u cpu=%u srcWait=%u sinkWait=%u hwSlot=%u extWait=%u queueFull=%u retry=%u]",
-               label, (int)pa.first, a.kind, a.freshSamples, a.staleTicks, pAvg, (double)a.pressureMax / 65535.0,
-               a.hardSlowVotes, a.regularSlowVotes, a.reasonCounts[PRC_REASON_UNKNOWN], a.reasonCounts[PRC_REASON_CPU],
-               a.reasonCounts[PRC_REASON_SOURCE_WAIT], a.reasonCounts[PRC_REASON_SINK_WAIT],
-               a.reasonCounts[PRC_REASON_HW_SLOT], a.reasonCounts[PRC_REASON_EXTERNAL_WAIT],
+               label, (int)pa.first, a.resource, a.freshSamples, a.staleTicks, pAvg, (double)a.pressureMax / 65535.0,
+               a.hardSlowVotes, a.regularSlowVotes, a.sourceLimitedSamples, a.processorLimitedSamples,
+               a.reasonCounts[PRC_REASON_UNKNOWN], a.reasonCounts[PRC_REASON_CPU], a.reasonCounts[PRC_REASON_SOURCE_WAIT],
+               a.reasonCounts[PRC_REASON_SINK_WAIT], a.reasonCounts[PRC_REASON_HW_SLOT], a.reasonCounts[PRC_REASON_EXTERNAL_WAIT],
                a.reasonCounts[PRC_REASON_QUEUE_FULL], a.reasonCounts[PRC_REASON_RETRY]);
     }
   }
@@ -991,17 +849,7 @@ namespace Mist{
           configuredProcesses = streamCfg.getMember("processes").asJSON();
         }
         /*LTS-END*/
-        // Resolve per-instance processing profile from the processes array.
-        // Stored on this InputBuffer instance, never written back to shared
-        // `processing.*` config. That would be global across all processing+<hash>
-        // jobs on the node.
         processControlledRealtime = streamCfg.getMember("process_controlled_realtime").asBool();
-        if (processControlledRealtime && !procProfileResolved && configuredProcesses.isArray() && configuredProcesses.size()) {
-          procProfile = classifyProcessingProfile(configuredProcesses);
-          procProfileResolved = true;
-          INFO_MSG("Processing profile resolved: %s (start=%" PRIu64 "x, max=%" PRIu64 "x)",
-                   procProfile.name ? procProfile.name : "?", procProfile.startSpeed, procProfile.maxSpeed);
-        }
         checkProcesses(configuredProcesses);
         // Published after checkProcesses so retired procs (hard-failed or
         // restart-disabled) drop out of the expectation on the same tick.
@@ -1557,10 +1405,10 @@ namespace Mist{
             snprintf(shmName, NAME_BUFFER_SIZE, SHM_PROC_STATE, deadPid);
             IPC::sharedPage sp;
             sp.init(shmName, 0, false, false);
-            if (sp && sp.mapped && sp.len >= sizeof(ProcState) && ProcState::isValid(sp)) {
-              ProcState *state = (ProcState *)sp.mapped;
-              if (state->shortReason[0]) { shortReason = state->shortReason; }
-              if (state->longReason[0]) { longReason = state->longReason; }
+            ProcState state;
+            if (ProcState::readSnapshot(sp, state)) {
+              if (state.shortReason[0]) { shortReason = state.shortReason; }
+              if (state.longReason[0]) { longReason = state.longReason; }
             }
             // Clean up the SHM page
             if (sp) {

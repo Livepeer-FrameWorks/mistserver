@@ -250,8 +250,8 @@ static inline void show_stackframe(){}
 #define STRMSTATE_PROCESS_OUTPUTS_EXPECTED_OFFSET 4
 #define STRMSTATE_EFFECTIVE_SPEED_OFFSET 8
 // Speed/verdict aggregates written by the buffer's rate controller each tick;
-// recording outputs read them at exit to enrich RECORDING_END. Pages created
-// before this block existed are 16 bytes — readers must check len >= 64.
+// recording outputs read them at exit to enrich RECORDING_END. Readers must
+// check STRMSTATE_PAGE_LEN before accessing the complete diagnostics block.
 #define STRMSTATE_SPEED_TICKS_OFFSET 16 // u32 controller ticks observed
 #define STRMSTATE_SPEED_MIN_OFFSET 20 // u32 lowest effectiveSpeed (0 = unset)
 #define STRMSTATE_SPEED_MAX_OFFSET 24 // u32 highest effectiveSpeed
@@ -261,7 +261,15 @@ static inline void show_stackframe(){}
 #define STRMSTATE_LOCKOUT_TICKS_OFFSET 40 // u32 ticks spent under ramp lockout
 #define STRMSTATE_STALE_HOLD_TICKS_OFFSET 44 // u32 ticks held because a required proc was unobservable
 #define STRMSTATE_SPEED_SUM_OFFSET 48 // u64 sum of effectiveSpeed over ticks (avg = sum/ticks)
-#define STRMSTATE_PAGE_LEN 64
+#define STRMSTATE_WARMUP_TICKS_OFFSET 56 // u32 ticks before all proc measurements were ready
+#define STRMSTATE_SOURCE_LIMITED_TICKS_OFFSET 60 // u32 source-starved ticks
+#define STRMSTATE_PROCESSOR_LIMITED_TICKS_OFFSET 64 // u32 proc-capacity-limited ticks
+#define STRMSTATE_NODE_LIMITED_TICKS_OFFSET 68 // u32 node-pressure hold/slow ticks
+#define STRMSTATE_CAPACITY_SAMPLES_OFFSET 72 // u32 capacity samples included in sum
+#define STRMSTATE_INPUT_SPEED_SUM_OFFSET 80 // u64 sum Q16.16 achieved input speed
+#define STRMSTATE_OUTPUT_SPEED_SUM_OFFSET 88 // u64 sum Q16.16 achieved output speed
+#define STRMSTATE_CAPACITY_SPEED_SUM_OFFSET 96 // u64 sum Q16.16 clean proc capacity
+#define STRMSTATE_PAGE_LEN 112
 
 #define SHM_JWK "/MstJWK"
 #define JWK_PERM_ADMIN 1

@@ -1,7 +1,5 @@
 #include "input.h"
 
-#include "processing_profile.h"
-
 #include <mist/auth.h>
 #include <mist/defines.h>
 #include <mist/encode.h>
@@ -1206,6 +1204,21 @@ namespace Mist{
       INFO_MSG("Realtime speed set to %" PRIu64 "x", realtimeSpeed);
     }else if (processControlledRealtime) {
       INFO_MSG("Process-controlled realtime: deferring speed to InputBuffer effectiveSpeed");
+      // Provider inputs do not own the stream lock and therefore do not map
+      // streamStatus during the common startup path. Map the buffer-owned page
+      // here so the pacing loop below can actually consume effectiveSpeed.
+      if (!streamStatus || streamStatus.len < 16) {
+        std::string stateStream = streamName;
+        Util::sanitizeName(stateStream);
+        stateStream = stateStream.substr(0, stateStream.find_first_of("+ "));
+        char stateName[NAME_BUFFER_SIZE];
+        snprintf(stateName, sizeof(stateName), SHM_STREAM_STATE, stateStream.c_str());
+        streamStatus.init(stateName, STRMSTATE_PAGE_LEN, false, true);
+        streamStatus.master = false;
+        if (!streamStatus || streamStatus.len < 16) {
+          WARN_MSG("Could not map process-controlled stream state; using 1x fallback");
+        }
+      }
     }
 
     DTSC::Meta liveMeta(config->getString("streamname"), false);

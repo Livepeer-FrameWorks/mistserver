@@ -4,6 +4,7 @@
 #include "process.hpp"
 
 #include <mist/pixels.h>
+#include <mist/proc_stats.h>
 #include <mist/procs.h>
 #include <mist/util.h>
 
@@ -1444,6 +1445,9 @@ int main(int argc, char *argv[]) {
       Mist::opt = JSON::fromString(json.c_str());
     }
   }
+
+  ProcStateHeartbeat procState;
+  procState.publishStartup(1.0, PRC_RESOURCE_CPU);
 
   if (Mist::opt.isMember("copyaudio") && (Mist::opt["copyaudio"].asStringRef().size() || Mist::opt["copyaudio"].isInt())) {
     audioSource = Mist::opt["copyaudio"].asString();
