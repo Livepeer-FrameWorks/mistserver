@@ -114,7 +114,8 @@ namespace Mist{
       if (opt.isMember("target_mask") && !opt["target_mask"].isNull() && opt["target_mask"].asString() != ""){
         DTSC::trackValidDefault = opt["target_mask"].asInt();
       } else {
-        if (codecOut == "UYVY" || codecOut == "YUYV" || codecOut == "PCM" || codecOut == "NV12") {
+        if (codecOut == "UYVY" || codecOut == "YUYV" || codecOut == "I420" ||
+            codecOut == "PCM" || codecOut == "NV12") {
           DTSC::trackValidDefault = TRACK_VALID_EXT_HUMAN | TRACK_VALID_INT_PROCESS;
         } else {
           DTSC::trackValidDefault = TRACK_VALID_EXT_HUMAN | TRACK_VALID_EXT_PUSH;
@@ -496,9 +497,10 @@ namespace Mist{
         capa["codecs"][0u][0u].append("YUYV");
         capa["codecs"][1u][0u].append("UYVY");
         capa["codecs"][2u][0u].append("NV12");
-        capa["codecs"][3u][0u].append("H264");
-        capa["codecs"][4u][0u].append("AV1");
-        capa["codecs"][5u][0u].append("JPEG");
+        capa["codecs"][3u][0u].append("I420");
+        capa["codecs"][4u][0u].append("H264");
+        capa["codecs"][5u][0u].append("AV1");
+        capa["codecs"][6u][0u].append("JPEG");
       }else{
         capa["codecs"][0u][0u].append("PCM");
         capa["codecs"][1u][0u].append("opus");
@@ -804,7 +806,6 @@ namespace Mist{
         }
 
         tmpCtx->bit_rate = Mist::opt["bitrate"].asInt();
-        tmpCtx->time_base = (AVRational){1, (int)M.getRate(getMainSelectedTrack())};
         tmpCtx->codec_type = AVMEDIA_TYPE_AUDIO;
         tmpCtx->strict_std_compliance = FF_COMPLIANCE_EXPERIMENTAL;
 
@@ -885,7 +886,6 @@ namespace Mist{
         }else if (codecOut == "opus"){
           tmpCtx->sample_fmt = AV_SAMPLE_FMT_S16;
           tmpCtx->sample_rate = 48000;
-          tmpCtx->time_base = (AVRational){1, 48000};
           if (tmpCtx->bit_rate < 500){
             WARN_MSG("Opus does not support a bitrate of %lu, clipping to 500", tmpCtx->bit_rate);
             tmpCtx->bit_rate = 500;
@@ -902,6 +902,11 @@ namespace Mist{
           ERROR_MSG("Unsupported audio codec %s.", codecOut.c_str());
           return;
         }
+
+        // Timestamp base MUST match the FINAL output sample rate (set here, after all
+        // sample_rate assignments/overrides). Otherwise output packet times at :1732 are
+        // scaled by outRate/srcRate (e.g. 16000/44100), making the track look time-shifted.
+        tmpCtx->time_base = (AVRational){1, (int)tmpCtx->sample_rate};
 
         // Set globals so the output can set meta track info correctly
         outAudioRate = tmpCtx->sample_rate;
@@ -1020,6 +1025,8 @@ namespace Mist{
           pixelFormat = AV_PIX_FMT_UYVY422;
         }else if(codecIn == "NV12"){
           pixelFormat = AV_PIX_FMT_NV12;
+        }else if(codecIn == "I420"){
+          pixelFormat = AV_PIX_FMT_YUV420P;
         }else if(codecIn == "H264"){
           if (!allowHW || !tryDecoder("h264_cuvid", AV_HWDEVICE_TYPE_CUDA, AV_PIX_FMT_CUDA, AV_PIX_FMT_YUV420P)){
             // if (!allowHW || !tryDecoder("h264_qsv", AV_HWDEVICE_TYPE_QSV, AV_PIX_FMT_QSV, AV_PIX_FMT_YUV420P)){
@@ -1317,6 +1324,10 @@ namespace Mist{
         convertToPixFmt = AV_PIX_FMT_YUYV422;
       }else if (codecOut == "UYVY"){
         convertToPixFmt = AV_PIX_FMT_UYVY422;
+      }else if (codecOut == "NV12"){
+        convertToPixFmt = AV_PIX_FMT_NV12;
+      }else if (codecOut == "I420"){
+        convertToPixFmt = AV_PIX_FMT_YUV420P;
       }
 
       if (frameDecodeHW && frameDecodeHW != frame_RAW && (!frameInHW || softDecodeFormat != convertToPixFmt )){
@@ -1740,10 +1751,12 @@ namespace Mist{
 
     /// @brief Sends RAW video frames to the output using `ptr` rather than going through LibAV's contexts
     void sendRawVideo(){
-      int sizeNeeded = av_image_get_buffer_size((AVPixelFormat)frameConverted->format, frameConverted->width, frameConverted->height, 32);
+      // DTSC raw-video packets have no stride field, so emit canonical tightly packed planes
+      // even when LibAV allocated aligned source rows.
+      int sizeNeeded = av_image_get_buffer_size((AVPixelFormat)frameConverted->format, frameConverted->width, frameConverted->height, 1);
       ptr.allocate(sizeNeeded);
       ptr.truncate(0);
-      int bytes = av_image_copy_to_buffer((uint8_t*)(char*)ptr, ptr.rsize(), frameConverted->data, frameConverted->linesize, (AVPixelFormat)frameConverted->format, frameConverted->width, frameConverted->height, 32);
+      int bytes = av_image_copy_to_buffer((uint8_t*)(char*)ptr, ptr.rsize(), frameConverted->data, frameConverted->linesize, (AVPixelFormat)frameConverted->format, frameConverted->width, frameConverted->height, 1);
       if (bytes > 0){
         {
           uint64_t sleepTime = Util::getMicros();
@@ -1993,6 +2006,7 @@ int main(int argc, char *argv[]){
   capa["codecs"][0u][0u].append("YUYV");
   capa["codecs"][0u][0u].append("NV12");
   capa["codecs"][0u][0u].append("UYVY");
+  capa["codecs"][0u][0u].append("I420");
   capa["codecs"][0u][0u].append("H264");
   capa["codecs"][0u][0u].append("AV1");
   capa["codecs"][0u][0u].append("JPEG");
@@ -2114,6 +2128,12 @@ int main(int argc, char *argv[]){
     capa["required"]["codec"][0u]["select"][2u] = "JPEG";
     capa["required"]["codec"][0u]["select"][3u][0u] = "UYVY";
     capa["required"]["codec"][0u]["select"][3u][1u] = "UYVY: Raw YUV 4:2:2 pixels";
+    capa["required"]["codec"][0u]["select"][4u][0u] = "NV12";
+    capa["required"]["codec"][0u]["select"][4u][1u] = "NV12: Raw YUV 4:2:0 pixels (recommended for ONNX)";
+    capa["required"]["codec"][0u]["select"][5u][0u] = "I420";
+    capa["required"]["codec"][0u]["select"][5u][1u] = "I420: Raw planar YUV 4:2:0 pixels";
+    capa["required"]["codec"][0u]["select"][6u][0u] = "YUYV";
+    capa["required"]["codec"][0u]["select"][6u][1u] = "YUYV: Raw YUV 4:2:2 pixels";
     capa["required"]["codec"][0u]["sort"] = "b";
     capa["required"]["codec"][0u]["value"] = "H264";
     capa["required"]["codec"][0u]["dependent"]["x-LSP-kind"] = "video"; // this field is only shown if x-LSP-kind is set to "video"
@@ -2158,6 +2178,9 @@ int main(int argc, char *argv[]){
     capa["optional"]["bitrate"][0u]["dependent"]["x-LSP-kind"] = "video"; // this field is only shown if x-LSP-kind is set to "video"
     capa["optional"]["bitrate"][0u]["dependent_not"]["codec"].append("JPEG"); // this field should not be shown if codec is set to "JPEG"
     capa["optional"]["bitrate"][0u]["dependent_not"]["codec"].append("UYVY"); // this field should not be shown if codec is set to "UYVY"
+    capa["optional"]["bitrate"][0u]["dependent_not"]["codec"].append("YUYV");
+    capa["optional"]["bitrate"][0u]["dependent_not"]["codec"].append("NV12");
+    capa["optional"]["bitrate"][0u]["dependent_not"]["codec"].append("I420");
     capa["optional"]["bitrate"][0u]["display"] = "always";
 
     capa["optional"]["bitrate"][1u] = capa["optional"]["bitrate"][0u];
@@ -2357,6 +2380,14 @@ int main(int argc, char *argv[]){
   }else if (Mist::opt["codec"].asStringRef() == "UYVY"){
     isVideo = true;
     codecOut = "UYVY";
+    codec_out = 0;
+  }else if (Mist::opt["codec"].asStringRef() == "NV12"){
+    isVideo = true;
+    codecOut = "NV12";
+    codec_out = 0;
+  }else if (Mist::opt["codec"].asStringRef() == "I420"){
+    isVideo = true;
+    codecOut = "I420";
     codec_out = 0;
   }else if (Mist::opt["codec"].asStringRef() == "PCM"){
     isVideo = false;

@@ -66,6 +66,12 @@ namespace Mist{
     capa["codecs"]["video"].append("theora");
     capa["codecs"]["video"].append("MPEG2");
     capa["codecs"]["video"].append("JPEG");
+    capa["codecs"]["video"].append("YUYV");
+    capa["codecs"]["video"].append("UYVY");
+    capa["codecs"]["video"].append("NV12");
+    capa["codecs"]["video"].append("I420");
+    capa["codecs"]["video"].append("I422");
+    capa["codecs"]["video"].append("I444");
     capa["codecs"]["audio"].append("opus");
     capa["codecs"]["audio"].append("vorbis");
     capa["codecs"]["audio"].append("AAC");
@@ -248,7 +254,6 @@ namespace Mist{
         return false;
       }
       EBML::Element E(readBuffer + readBufferOffset, readingMinimal);
-
       if (E.getID() == EBML::EID_CLUSTER){
         // Live streams stop parsing the header as soon as the first Cluster is encountered
         if (!needsLock()) { break; }

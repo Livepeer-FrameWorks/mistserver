@@ -86,6 +86,11 @@ if have_libxml2
   headers += ['device_onvif.h', 'soap.h', 'xml.h']
 endif
 
+if have_onnx
+  headers += 'onnx.h'
+  headers += 'imagenet_classes.h'
+endif
+
 install_headers(headers, subdir: 'mist')
 
 libmist = library('mist',
@@ -187,4 +192,18 @@ if have_libxml2
     install: true
   )
   onvif_lib_dep = declare_dependency(link_with: [libonvif])
+endif
+
+if have_onnx
+  onnx_cpp_std = ['cpp_std=c++17']
+  libonnx = library(
+    'mistonnx',
+    'onnx.cpp',
+    include_directories: incroot,
+    dependencies: [libmist_dep, onnx_libs],
+    cpp_args: onnx_defines,
+    override_options: onnx_cpp_std,
+    install: true,
+  )
+  onnx_dep = declare_dependency(link_with: [libonnx])
 endif

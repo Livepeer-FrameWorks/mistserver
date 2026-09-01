@@ -290,5 +290,48 @@ test('Chunked HTTP response, lingering connection', httpparsertest, suite: 'HTTP
 amftest = executable('amftest', 'amf.cpp', header_tgts, dependencies: libmist_dep)
 test('AMF parser', amftest, suite: 'AMF parser', protocol:'tap')
 
+if have_onnx
+  test('Verified model-pack manifest', find_program('sh'),
+       args: [meson.project_source_root() / 'test/onnx_model_manifest.sh',
+              meson.project_source_root() / 'scripts/ONNX/models.manifest.tsv',
+              meson.project_source_root() / 'scripts/ONNX/dependencies.lock.tsv'],
+       suite: 'ONNX')
+  test('Verified model cache is atomic and repairs corruption', find_program('sh'),
+       args: [meson.project_source_root() / 'test/onnx_model_cache.sh',
+              meson.project_source_root() / 'scripts/ONNX/prepare_models.sh'],
+       suite: 'ONNX')
+  onnxtensorwiretest = executable('onnxtensorwiretest', 'onnx_tensor_wire.cpp', header_tgts,
+                                  dependencies: [libmist_dep, onnx_dep, onnx_libs],
+                                  override_options: onnx_cpp_std)
+  test('ONNXTENSOR binary codec round-trip and validation', onnxtensorwiretest, suite: 'ONNX')
+  onnxresultschematest = executable('onnxresultschematest', 'onnx_result_schema.cpp', header_tgts,
+                                    dependencies: [libmist_dep, onnx_dep, onnx_libs],
+                                    override_options: onnx_cpp_std)
+  test('ONNX result schema v1 and 64-bit timestamps', onnxresultschematest, suite: 'ONNX')
+  onnxsidecartest = executable('onnxsidecartest', 'onnx_sidecar.cpp', header_tgts,
+                               dependencies: [libmist_dep, onnx_dep, onnx_libs],
+                               override_options: onnx_cpp_std)
+  test('Model sidecar parsing (labels + preprocessor config)', onnxsidecartest, suite: 'ONNX')
+  onnxfbanktest = executable('onnxfbanktest', 'onnx_fbank.cpp', header_tgts,
+                             dependencies: [libmist_dep, onnx_dep, onnx_libs],
+                             override_options: onnx_cpp_std)
+  test('Kaldi fbank frontend vs torchaudio reference', onnxfbanktest, suite: 'ONNX')
+  # Compiles the windower source directly (no ORT dependency): fixed-chunk pops,
+  # timestamps, and discontinuity detection.
+  onnxwindowertest = executable('onnxwindowertest', 'onnx_audio_windower.cpp', header_tgts,
+                                dependencies: libmist_dep)
+  test('AudioWindower fixed chunks + discontinuity detection', onnxwindowertest, suite: 'ONNX')
+  # Manual-use tool (not a unit test): loads a model like MistProcONNX does and prints
+  # the resolved type/labels/preprocessing, then runs one synthetic-frame inference.
+  onnxmodelprobe = executable('onnxmodelprobe', 'onnx_model_probe.cpp', header_tgts,
+                              dependencies: [libmist_dep, onnx_dep, onnx_libs],
+                              override_options: onnx_cpp_std)
+  # Manual-use tool: same for single-file audio models (VAD/classification/tagging/
+  # embedding), driving them with synthetic audio and checking state-loop behavior.
+  onnxaudioprobe = executable('onnxaudioprobe', 'onnx_audio_probe.cpp', header_tgts,
+                              dependencies: [libmist_dep, onnx_dep, onnx_libs],
+                              override_options: onnx_cpp_std)
+endif
+
 #abst_test = executable('abst_test', 'abst_test.cpp', dependencies: libmist_dep)
 #test('MP4::ABST Test', abst_test)

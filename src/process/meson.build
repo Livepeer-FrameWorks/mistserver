@@ -86,3 +86,19 @@ executables += {
     'deps' :[libmist_dep],
     'defines': [],
 }
+
+if have_onnx
+  executables += {
+    'name'   : 'MistProcONNX',
+    'sources': [
+      files('process.hpp', 'process_onnx.cpp', 'process_onnx_audio.cpp'),
+      input_cpp,
+      output_cpp,
+      io_cpp,
+      header_tgts
+    ],
+    'deps'   : [ libmist_dep, process_common_dep, onnx_dep, onnx_libs ],
+    'defines': onnx_defines,
+    'override_options': onnx_cpp_std,
+  }
+endif

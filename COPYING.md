@@ -11,10 +11,11 @@ However, note that while __MistServer itself__ is public domain software, __some
 - `librist` is used for RIST support, and available under the BSD 2-Clause "Simplified" License.
 - The optional (disabled by default) MistInAV links against `libav`, which is available under the LGPL or GPL licenses.
 - `quirc` is used by `MistProcComposer` to scan for QR codes with timing information, and available under the ISC license.
+- The optional ONNX processor links against ONNX Runtime (MIT) and a minimal set of OpenCV modules (Apache-2.0).
+- ONNX model packs are downloaded data, not MistServer source, and retain their own terms recorded in `scripts/ONNX/models.manifest.tsv`. The release-default YOLO26n weights are AGPL-3.0; Parakeet TDT weights are CC-BY-4.0. A distribution that includes or automatically deploys YOLO follows the AGPL release profile in `scripts/ONNX/AGPL_DISTRIBUTION.md`.
 
 Note that __all of these dependencies can be disabled__ by toggling build flags - but doing so will of course limit the capabilities of the resulting software accordingly.
 
 __The MistServer name and logo are not public domain either.__ You have permission to use the MistServer name and logo to refer to any version of MistServer published by DDVTech B.V., but __not to refer to versions that contain changes not published by DDVTech B.V.__.
 
 We hope you find MistServer useful, and __encourage mentioning you use MistServer__ and/or based your products/services on MistServer wherever you consider it appropriate. This is not required, but appreciated.
-

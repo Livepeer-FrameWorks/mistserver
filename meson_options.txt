@@ -23,6 +23,10 @@ option('VERSION', description: 'Version string used in the reported version info
 option('DEBUG', description: 'Default debug level. Recommended value for development is 4, recommended value for production is 3', type: 'integer', value: 4)
 option('LOAD_BALANCE', description: 'Build the load balancer (WIP)', type: 'boolean', value: false)
 option('WITH_AV', description: 'Build a generic libav-based input (not distributable!)', type: 'boolean', value: false)
+option('ONNX', description: 'Build ONNX AI processing support', type: 'feature', value: 'auto')
+option('ONNX_STATIC', description: 'Prefer static ONNX Runtime and OpenCV dependencies', type: 'boolean', value: true)
+option('ONNX_PROFILE', description: 'ONNX Runtime execution-provider packaging profile', type: 'combo',
+       choices: ['cpu', 'coreml', 'cuda', 'tensorrt', 'openvino'], value: 'cpu')
 option('WITH_SANITY', description: 'Enable MistOutSanityCheck output for testing purposes', type: 'boolean', value: false)
 option('LOCAL_GENERATORS', description: 'Attempts to find a locally-installed version of sourcery and make_html, instead of compiling it', type: 'boolean', value: false)
 option('DOCKERRUN', description: 'Enables the controller to execute a command that is passed as the first parameter to pass official Docker image requirements', type: 'boolean', value: false)

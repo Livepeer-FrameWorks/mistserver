@@ -352,7 +352,7 @@ namespace EBML{
       tmpElem = E.findChild(EBML::EID_CODECPRIVATE);
       if (tmpElem) {
         std::string bitmapheader = tmpElem.getValStringUntrimmed();
-        if (bitmapheader.substr(16, 4) == "MJPG") {
+        if (bitmapheader.size() >= 20 && bitmapheader.substr(16, 4) == "MJPG") {
           trueCodec = "JPEG";
           trueType = "video";
         }
@@ -361,8 +361,9 @@ namespace EBML{
     if (codec == "V_UNCOMPRESSED") {
       tmpElem = E.findChild(EBML::EID_UNCOMPRESSEDFOURCC);
       if (tmpElem) {
-        std::string fourcc = tmpElem.getValStringUntrimmed();
-        if (fourcc == "UYVY" || fourcc == "NV12" || fourcc == "YUYV") {
+        std::string fourcc = tmpElem.getValString();
+        if (fourcc == "UYVY" || fourcc == "NV12" || fourcc == "YUYV" || fourcc == "I420" ||
+            fourcc == "I422" || fourcc == "I444") {
           trueCodec = fourcc;
           trueType = "video";
         }

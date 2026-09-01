@@ -219,6 +219,49 @@ if get_option('WITH_AV')
   av_libs += dependency('libswresample')
 endif
 
+onnx_libs = []
+onnx_defines = []
+onnx_opt = get_option('ONNX')
+onnx_static = get_option('ONNX_STATIC')
+onnx_profile = get_option('ONNX_PROFILE')
+onnx_required = onnx_opt.enabled()
+
+onnxruntime_dep = dependency('libonnxruntime', 'onnxruntime',
+                             required: onnx_required, static: onnx_static)
+# OpenCV 5 renamed its pkg-config file while retaining the component libraries. Probe
+# both names and request exactly the modules used by libmistonnx. In particular,
+# videoio was never used; imgcodecs, video and geometry are.
+opencv_modules = ['core', 'imgproc', 'imgcodecs', 'video', 'geometry']
+opencv_dep = dependency('opencv4', modules: opencv_modules,
+                        required: false, static: onnx_static)
+if not opencv_dep.found()
+  opencv_dep = dependency('opencv5', modules: opencv_modules,
+                          required: onnx_required, static: onnx_static)
+endif
+
+have_onnx = not onnx_opt.disabled() and onnxruntime_dep.found() and opencv_dep.found()
+if have_onnx
+  onnx_libs += [onnxruntime_dep, opencv_dep]
+  onnx_defines += '-DMIST_ONNX_PROFILE="@0@"'.format(onnx_profile)
+  if onnx_static
+    onnx_defines += '-DMIST_ONNX_STATIC=1'
+  endif
+  message('ONNX support enabled (profile=@0@, static dependencies=@1@)'.format(onnx_profile, onnx_static))
+else
+  missing = []
+  if not onnxruntime_dep.found()
+    missing += 'onnxruntime'
+  endif
+  if not opencv_dep.found()
+    missing += 'opencv4'
+  endif
+  if onnx_opt.disabled()
+    message('ONNX support disabled by -DONNX=disabled')
+  else
+    message('ONNX support disabled (missing: @0@)'.format(', '.join(missing)))
+  endif
+endif
+
 # Add thread dependency since we always have thread code in libmist
 mist_deps += dependency('threads')
 
@@ -311,14 +354,38 @@ exec_tgts = {}
 ## This makes sure all (installable) executables are build in top level directory
 ## Done because MistController expects its binaries to all be in the same directory
 foreach exec : executables
+  exec_override_options = []
+  if exec.has_key('override_options')
+    exec_override_options = exec.get('override_options')
+  endif
   exec_tgts += { exec.get('name'): executable(
     exec.get('name'),
     exec.get('sources'),
     dependencies: exec.get('deps'),
     cpp_args: exec.get('defines'),
+    override_options: exec_override_options,
     install: true,
   ) }
 endforeach
+
+# Ship the ONNX model-provisioning scripts next to the binaries (same dir MistController
+# expects its siblings in), so MistProcONNX can locate and run them at runtime via
+# Util::getMyPath(). Installed under the prefix, so the Docker image's `COPY /usr/local/`
+# picks them up automatically. Only relevant when ONNX support is built.
+if have_onnx
+  install_data(
+    ['scripts/ONNX/prepare_models.sh', 'scripts/ONNX/export_models.py'],
+    install_dir: get_option('bindir'),
+    install_mode: 'rwxr-xr-x',
+  )
+  install_data(
+    ['scripts/ONNX/README.md', 'scripts/ONNX/RELEASE_CHECKLIST.md',
+     'scripts/ONNX/AGPL_DISTRIBUTION.md',
+     'scripts/ONNX/dependencies.lock.tsv', 'scripts/ONNX/models.manifest.tsv'],
+    install_dir: get_option('bindir'),
+    install_mode: 'rw-r--r--',
+  )
+endif
 
 # Tests may use names in exec_tgts so we load it last
 subdir('test')
@@ -334,7 +401,6 @@ if doxygen.found()
   })
   run_target('docs', command: [doxygen, doxyfile])
 endif
-
 # Feature summary (printed last so all detection is complete)
 
 # WebRTC data channels depend on both SSL and usrsctp
@@ -365,6 +431,7 @@ message('===============')
 message('')
 message('  Codecs & Processing')
 message('    libav (FFmpeg):         ' + (get_option('WITH_AV') ? 'YES' : 'NO  (enable: -DWITH_AV=true)'))
+message('    ONNX AI processing:     ' + (have_onnx ? 'YES (profile=' + onnx_profile + ')' : 'NO'))
 message('')
 message('  Devices & Discovery')
 message('    NDI:                    ' + (have_ndi ? 'COMPILED (runtime resolved and reported at startup)' : 'NO  (disabled via -DNONDI)'))
