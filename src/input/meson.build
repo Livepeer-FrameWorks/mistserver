@@ -36,8 +36,12 @@ if get_option('WITH_AV')
   inputs += {'name' : 'AV', 'format' : 'av', 'extra': 'with_av'}
 endif
 
-if ccpp.has_header('linux/videodev2.h')
+if have_v4l2
   inputs += {'name' : 'V4L2', 'format' : 'v4l2'}
+endif
+
+if have_ndi
+  inputs += {'name' : 'NDI', 'format' : 'ndi', 'extra': 'with_ndi'}
 endif
 
 inputs_tgts = []
@@ -55,6 +59,10 @@ foreach input : inputs
     endif
     if input.get('extra').contains('with_av')
       deps += av_libs
+    endif
+    if input.get('extra').contains('with_ndi')
+      deps += ndi_lib_dep
+      deps += ndi_sdk_dep
     endif
   endif
   if input.get('name').contains('AV')

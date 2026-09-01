@@ -566,6 +566,7 @@ namespace Mist {
     capa["optional"]["acceptable"]["select"][2u][0u] = 2;
     capa["optional"]["acceptable"]["select"][2u][1u] = "Allow only incoming connections";
     capa["optional"]["acceptable"]["sort"] = "aaa";
+    capa["optional"]["acceptable"]["display"] = "always";
     capa["optional"]["maxkbps"]["name"] = "Max. kbps";
     capa["optional"]["maxkbps"]["help"] =
         "Maximum bitrate to allow in the ingest direction, in kilobits per second.";
@@ -573,6 +574,7 @@ namespace Mist {
     capa["optional"]["maxkbps"]["short"] = "K";
     capa["optional"]["maxkbps"]["default"] = 0;
     capa["optional"]["maxkbps"]["type"] = "uint";
+    capa["optional"]["maxkbps"]["display"] = "advanced";
 
 #ifdef SSL
     capa["optional"]["cert"]["name"] = "Certificate";
@@ -585,6 +587,7 @@ namespace Mist {
     capa["optional"]["cert"]["type"] = "inputlist";
     capa["optional"]["cert"]["input"]["type"] = "browse";
     capa["optional"]["cert"]["sort"] = "aab";
+    capa["optional"]["cert"]["display"] = "advanced";
     capa["optional"]["key"]["name"] = "Key";
     capa["optional"]["key"]["help"] =
       "Path to private key for SSL. When multiple are used make sure they are in order matching the certificates.";
@@ -594,6 +597,7 @@ namespace Mist {
     capa["optional"]["key"]["type"] = "inputlist";
     capa["optional"]["key"]["input"]["type"] = "browse";
     capa["optional"]["key"]["sort"] = "aac";
+    capa["optional"]["key"]["display"] = "advanced";
 #endif
 
     cfg->addConnectorOptions(1935, capa);

@@ -94,6 +94,8 @@ namespace Mist{
     capa["optional"]["transport"]["select"].append("TCP");
     capa["optional"]["transport"]["select"].append("UDP");
     capa["optional"]["transport"]["default"] = "TCP";
+    capa["optional"]["DVR"]["display"] = "always";
+    capa["optional"]["transport"]["display"] = "always";
   }
 
   void InputRTSP::sendCommand(const std::string &cmd, const std::string &cUrl, const std::string &body,

@@ -1,4 +1,6 @@
 # We don't format the LSP or embed code directories (yet?)
 lsp/*
 embed/*
+# Vendored NDI SDK headers - keep upstream formatting intact (recursive)
+lib/ndi/
 

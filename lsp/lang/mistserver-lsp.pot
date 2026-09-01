@@ -1,0 +1,5742 @@
+msgid ""
+msgstr ""
+"Project-Id-Version: mistserver-lsp\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+msgid "%s day, "
+msgid_plural "%s days, "
+msgstr[0] ""
+msgstr[1] ""
+
+msgid "%s hour"
+msgid_plural "%s hours"
+msgstr[0] ""
+msgstr[1] ""
+
+msgid "%s hour, "
+msgid_plural "%s hours, "
+msgstr[0] ""
+msgstr[1] ""
+
+msgid "%s minute"
+msgid_plural "%s minutes"
+msgstr[0] ""
+msgstr[1] ""
+
+msgid "%s minute, "
+msgid_plural "%s minutes, "
+msgstr[0] ""
+msgstr[1] ""
+
+msgid "%s second"
+msgid_plural "%s seconds"
+msgstr[0] ""
+msgstr[1] ""
+
+msgid "Active"
+msgstr ""
+
+msgid "Add"
+msgstr ""
+
+msgid "Add item"
+msgstr ""
+
+msgid "Advanced mode"
+msgstr ""
+
+msgid "Advanced mode is active. Switch to Guided for a simplified UI."
+msgstr ""
+
+msgid "An error occurred while attempting to communicate with %s:"
+msgstr ""
+
+msgid ""
+"Automatic copying failed%s. Instead you can manually copy from the field "
+"below."
+msgstr ""
+
+msgid "Automations"
+msgstr ""
+
+msgid "Back"
+msgstr ""
+
+msgid "Bypass tokens for allowing incoming stream pushes"
+msgstr ""
+
+msgid "Camera Detail"
+msgstr ""
+
+msgid "Cancel"
+msgstr ""
+
+msgid "Cancel request"
+msgstr ""
+
+msgid "Changelog"
+msgstr ""
+
+msgid "Close"
+msgstr ""
+
+msgid "Configure"
+msgstr ""
+
+msgid "Confirm"
+msgstr ""
+
+msgid "Connected"
+msgstr ""
+
+msgid "Connection error"
+msgstr ""
+
+msgid "Connection status details"
+msgstr ""
+
+msgid "Connections"
+msgstr ""
+
+msgid "Continue"
+msgstr ""
+
+msgid "Copy to clipboard"
+msgstr ""
+
+msgid "Create"
+msgstr ""
+
+msgid "Dark theme"
+msgstr ""
+
+msgid "Data sent, waiting for a reply.."
+msgstr ""
+
+msgid "Delete"
+msgstr ""
+
+msgid "Description"
+msgstr ""
+
+msgid "Devices"
+msgstr ""
+
+msgid "Disabled"
+msgstr ""
+
+msgid "Disconnect"
+msgstr ""
+
+msgid "Disconnected"
+msgstr ""
+
+msgid "Discovered network devices and PTZ controls"
+msgstr ""
+
+msgid "Documentation"
+msgstr ""
+
+msgid "Edit"
+msgstr ""
+
+msgid "Email for Help"
+msgstr ""
+
+msgid "Embed"
+msgstr ""
+
+msgid "Enabled"
+msgstr ""
+
+msgid "Enabling"
+msgstr ""
+
+msgid "Error"
+msgstr ""
+
+msgid "Event-driven rules for authentication, redirects, and more"
+msgstr ""
+
+msgid "Filter..."
+msgstr ""
+
+msgid "General"
+msgstr ""
+
+msgid "Guided mode"
+msgstr ""
+
+msgid "Guided mode is active. Switch to Advanced for full controls."
+msgstr ""
+
+msgid "Hide advanced settings"
+msgstr ""
+
+msgid "Inactive"
+msgstr ""
+
+msgid "Language"
+msgstr ""
+
+msgid "Learn more"
+msgstr ""
+
+msgid "Light theme"
+msgstr ""
+
+msgid "Live, filterable list of active viewer, input, and output connections"
+msgstr ""
+
+msgid "Loading.."
+msgstr ""
+
+msgid "Loading..."
+msgstr ""
+
+msgid "Logs"
+msgstr ""
+
+msgid "Manage input and output protocols for stream delivery"
+msgstr ""
+
+msgid "Mode"
+msgstr ""
+
+msgid "Move down"
+msgstr ""
+
+msgid "Move up"
+msgstr ""
+
+msgid "Name"
+msgstr ""
+
+msgid "Next"
+msgstr ""
+
+msgid "No items configured."
+msgstr ""
+
+msgid "No matches"
+msgstr ""
+
+msgid "No recent logs."
+msgstr ""
+
+msgid "No results for “%s”"
+msgstr ""
+
+msgid "Not available"
+msgstr ""
+
+msgid "Open in %s →"
+msgstr ""
+
+msgid "Overview"
+msgstr ""
+
+msgid "Please enable JavaScript."
+msgstr ""
+
+msgid "Press Ctrl+K or start typing to find settings, protocols, and more."
+msgstr ""
+
+msgid "Preview"
+msgstr ""
+
+msgid "Previous"
+msgstr ""
+
+msgid "Protocols"
+msgstr ""
+
+msgid "PTZ Control"
+msgstr ""
+
+msgid "Push"
+msgstr ""
+
+msgid "Recent logs"
+msgstr ""
+
+msgid "Recent server log messages and diagnostic output"
+msgstr ""
+
+msgid "Remove"
+msgstr ""
+
+msgid "Remove this item?"
+msgstr ""
+
+msgid "Save"
+msgstr ""
+
+msgid "Search"
+msgstr ""
+
+msgid "Search MistServer settings"
+msgstr ""
+
+msgid "Search settings, protocols..."
+msgstr ""
+
+msgid "Select"
+msgstr ""
+
+msgid "Select..."
+msgstr ""
+
+msgid "Send server request again"
+msgstr ""
+
+msgid "Send streams to external servers or record to files"
+msgstr ""
+
+msgid "Server health, stream metrics, and viewer analytics"
+msgstr ""
+
+msgid "Server log output. Use the actions to inspect or export log contents."
+msgstr ""
+
+msgid "Server name, debug levels, and global configuration"
+msgstr ""
+
+msgid "Server status, active streams, and version information"
+msgstr ""
+
+msgid "Settings"
+msgstr ""
+
+msgid "Show advanced settings"
+msgstr ""
+
+msgid "Show help"
+msgstr ""
+
+msgid "Show help for %s"
+msgstr ""
+
+msgid "Skip"
+msgstr ""
+
+msgid "Standby"
+msgstr ""
+
+msgid "Statistics"
+msgstr ""
+
+msgid "Status"
+msgstr ""
+
+msgid "Stream keys"
+msgstr ""
+
+msgid "Streams"
+msgstr ""
+
+msgid "Switch to advanced mode"
+msgstr ""
+
+msgid "Switch to dark theme"
+msgstr ""
+
+msgid "Switch to guided mode"
+msgstr ""
+
+msgid "Switch to light theme"
+msgstr ""
+
+msgid "Text"
+msgstr ""
+
+msgid "The connection timed out or was aborted. "
+msgstr ""
+
+msgid "The credentials you provided are incorrect."
+msgstr ""
+
+msgid "Theme"
+msgstr ""
+
+msgid "This tab does not exist."
+msgstr ""
+
+msgid "Top picks"
+msgstr ""
+
+msgid "Try different keywords or check the spelling."
+msgstr ""
+
+msgid "Type"
+msgstr ""
+
+msgid "Type to filter..."
+msgstr ""
+
+msgid "Unavailable"
+msgstr ""
+
+msgid "Unknown"
+msgstr ""
+
+msgid "Unknown, checking.."
+msgstr ""
+
+msgid "Updated %s"
+msgstr ""
+
+msgid "View, create, and manage your media streams"
+msgstr ""
+
+msgid "Warning"
+msgstr ""
+
+#: lsp/modules/cameras/camera_detail.js:28
+#: lsp/modules/cameras/ptz_control.js:27
+msgid "Camera not found: "
+msgstr ""
+
+#: lsp/modules/cameras/camera_detail.js:73
+msgid "Connecting to MJPEG preview…"
+msgstr ""
+
+#: lsp/modules/cameras/camera_detail.js:80
+msgid "No MJPEG preview process on this stream."
+msgstr ""
+
+#: lsp/modules/cameras/camera_detail.js:86
+#: lsp/modules/cameras/camera_detail.js:92
+msgid "Add MJPEG process"
+msgstr ""
+
+#: lsp/modules/cameras/camera_detail.js:89 lsp/modules/cameras/dom.js:227
+msgid "Adding…"
+msgstr ""
+
+#: lsp/modules/cameras/camera_detail.js:120
+msgid "Preview unavailable"
+msgstr ""
+
+#: lsp/modules/cameras/camera_detail.js:127
+msgid "No preview available for this device."
+msgstr ""
+
+#: lsp/modules/cameras/camera_detail.js:203
+msgid "ONVIF Credentials"
+msgstr ""
+
+#: lsp/modules/cameras/camera_detail.js:216
+msgid "Failed to save credentials: "
+msgstr ""
+
+#: lsp/modules/cameras/camera_detail.js:249
+msgid "Failed to save PTZ settings: "
+msgstr ""
+
+#: lsp/modules/cameras/camera_detail.js:277
+msgid "Default playback:"
+msgstr ""
+
+#: lsp/modules/cameras/camera_detail.js:286
+#, javascript-format
+msgid "Stream %s"
+msgstr ""
+
+#: lsp/modules/cameras/camera_detail.js:324
+msgid "Active as: "
+msgstr ""
+
+#: lsp/modules/cameras/camera_detail.js:330
+msgid "Add to "
+msgstr ""
+
+#: lsp/modules/cameras/camera_detail.js:376
+msgid "Supported Modules"
+msgstr ""
+
+#: lsp/modules/cameras/camera_detail.js:388
+msgid "Active Rules"
+msgstr ""
+
+#: lsp/modules/cameras/camera_detail.js:400
+msgid "Object Classifications"
+msgstr ""
+
+#: lsp/modules/cameras/camera_list.js:117
+msgid "Add camera"
+msgstr ""
+
+#: lsp/modules/cameras/camera_list.js:124
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:392
+msgid "Multiview"
+msgstr ""
+
+#: lsp/modules/cameras/camera_list.js:139
+msgid "Continuously discover devices via ONVIF, VISCA and NDI"
+msgstr ""
+
+#: lsp/modules/cameras/camera_list.js:144
+msgid "Discovery"
+msgstr ""
+
+#: lsp/modules/cameras/camera_list.js:163
+msgid "Auto-add all devices as streams"
+msgstr ""
+
+#: lsp/modules/cameras/camera_list.js:168
+msgid "Auto-add streams"
+msgstr ""
+
+#: lsp/modules/cameras/camera_list.js:174
+msgid "Disable auto-add? This will remove all auto-created camera streams."
+msgstr ""
+
+#: lsp/modules/cameras/camera_list.js:193
+msgid "Enable MJPEG thumbnailing on auto-camera streams"
+msgstr ""
+
+#: lsp/modules/cameras/camera_list.js:198
+msgid "Thumbnailing"
+msgstr ""
+
+#: lsp/modules/cameras/camera_list.js:281
+msgid "No devices discovered"
+msgstr ""
+
+#: lsp/modules/cameras/camera_list.js:283
+msgid ""
+"Devices will appear automatically as they are found via ONVIF, VISCA, and "
+"NDI on your network."
+msgstr ""
+
+#: lsp/modules/cameras/camera_list.js:286
+msgid "Add a camera"
+msgstr ""
+
+#: lsp/modules/cameras/camera_list.js:360
+#: lsp/modules/cameras/camera_list.js:567 lsp/modules/pushes/push.js:668
+#: lsp/modules/pushes/push.js:903 lsp/modules/streams/streamkeys.js:298
+#: lsp/modules/streams/streams.js:319 lsp/modules/streams/streams.js:526
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:27
+msgid "Actions"
+msgstr ""
+
+#: lsp/modules/cameras/camera_list.js:528 lsp/modules/streams/streams.js:477
+msgid "Reverse"
+msgstr ""
+
+#: lsp/modules/cameras/camera_list.js:740
+msgid "Remove this camera from the list?"
+msgstr ""
+
+#: lsp/modules/cameras/camera_list.js:745
+msgid "Failed to remove camera: "
+msgstr ""
+
+#: lsp/modules/cameras/camera_list.js:836
+msgid "Failed to add camera: "
+msgstr ""
+
+#: lsp/modules/cameras/component.js:36
+msgid "Loading camera data…"
+msgstr ""
+
+#: lsp/modules/cameras/dom.js:147
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:470
+msgid "Protocol"
+msgstr ""
+
+#: lsp/modules/cameras/dom.js:151
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:71
+msgid "Auto"
+msgstr ""
+
+#: lsp/modules/cameras/dom.js:186
+#, javascript-format
+msgid "%s unavailable - fell back to %s"
+msgstr ""
+
+#: lsp/modules/cameras/dom.js:220
+#, javascript-format
+msgid "Audio (%s) - add Opus transcode for WHEP playback"
+msgstr ""
+
+#: lsp/modules/cameras/dom.js:224 lsp/modules/cameras/dom.js:234
+msgid "Add Opus transcode"
+msgstr ""
+
+#: lsp/modules/cameras/dom.js:230
+msgid "Opus transcode added."
+msgstr ""
+
+#: lsp/modules/cameras/dom.js:231
+msgid "Added"
+msgstr ""
+
+#: lsp/modules/cameras/multiview.js:101
+msgid "Loading cameras..."
+msgstr ""
+
+#: lsp/modules/cameras/multiview.js:116
+msgid "Composer not available"
+msgstr ""
+
+#: lsp/modules/cameras/multiview.js:118
+msgid ""
+"The Composer process (MistProcComposer) is required to create multiview "
+"streams. Please ensure it is compiled and available."
+msgstr ""
+
+#: lsp/modules/cameras/multiview.js:138
+msgid "Select cameras"
+msgstr ""
+
+#: lsp/modules/cameras/multiview.js:249
+msgid "Layout preview"
+msgstr ""
+
+#: lsp/modules/cameras/multiview.js:258
+msgid "Select cameras above to preview the layout."
+msgstr ""
+
+#: lsp/modules/cameras/multiview.js:287
+msgid "Create multiview stream"
+msgstr ""
+
+#: lsp/modules/cameras/multiview.js:293
+msgid "Select at least 2 cameras."
+msgstr ""
+
+#: lsp/modules/cameras/multiview.js:299
+msgid "Creating streams and composing..."
+msgstr ""
+
+#: lsp/modules/cameras/multiview.js:345
+msgid "Multiview stream created! Opening stream…"
+msgstr ""
+
+#: lsp/modules/cameras/multiview.js:349
+msgid "Stream creation sent. Check Streams page for result."
+msgstr ""
+
+#: lsp/modules/cameras/ptz_control.js:61
+msgid ""
+"Press and hold movement controls for continuous motion. Release to stop."
+msgstr ""
+
+#: lsp/modules/cameras/ptz_control.js:124
+msgid "Snapshot unavailable"
+msgstr ""
+
+#: lsp/modules/cameras/ptz_control.js:136
+msgid "No live preview available."
+msgstr ""
+
+#: lsp/modules/cameras/ptz_control.js:168
+msgid "Motion speed"
+msgstr ""
+
+#: lsp/modules/cameras/ptz_control.js:190
+msgid "Direction"
+msgstr ""
+
+#: lsp/modules/cameras/ptz_control.js:242
+msgid "Zoom"
+msgstr ""
+
+#: lsp/modules/cameras/ptz_control.js:277
+msgid "Focus"
+msgstr ""
+
+#: lsp/modules/cameras/ptz_control.js:280
+msgid "Near"
+msgstr ""
+
+#: lsp/modules/cameras/ptz_control.js:282
+msgid "Far"
+msgstr ""
+
+#: lsp/modules/cameras/ptz_control.js:306
+msgid "Iris"
+msgstr ""
+
+#: lsp/modules/cameras/ptz_control.js:311
+msgid "Open"
+msgstr ""
+
+#: lsp/modules/cameras/ptz_control.js:338
+msgid "Home Position"
+msgstr ""
+
+#: lsp/modules/cameras/ptz_control.js:350
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:457
+msgid "Presets"
+msgstr ""
+
+#: lsp/modules/cameras/ptz_control.js:353
+msgid "Click to recall. Long press to save."
+msgstr ""
+
+#: lsp/modules/cameras/stream_dialog.js:67
+msgid "Failed to create stream: "
+msgstr ""
+
+#: lsp/modules/components/composer.js:357
+msgid "Sources and labels"
+msgstr ""
+
+#: lsp/modules/components/composer.js:382
+msgid "Show stream name"
+msgstr ""
+
+#: lsp/modules/components/composer.js:383
+msgid "No label"
+msgstr ""
+
+#: lsp/modules/components/composer.js:384
+msgid "Custom label"
+msgstr ""
+
+#: lsp/modules/components/composer.js:417
+msgid "Remove source"
+msgstr ""
+
+#: lsp/modules/components/composer.js:432
+msgid "Add source"
+msgstr ""
+
+#: lsp/modules/components/composer.js:445
+msgid "Output resolution"
+msgstr ""
+
+#: lsp/modules/components/composer.js:474
+msgid "Grid layout"
+msgstr ""
+
+#: lsp/modules/components/composer.js:493
+msgid "Switching away from freestyle will reset custom positions. Continue?"
+msgstr ""
+
+#: lsp/modules/components/composer.js:511
+msgid ""
+"In 'freestyle' mode, click a cell to select it, then drag to move and drag "
+"edges to resize."
+msgstr ""
+
+#: lsp/modules/components/composer.js:522
+msgid "Select cell: "
+msgstr ""
+
+#: lsp/modules/components/composer.js:630
+#, javascript-format
+msgid "Source %s"
+msgstr ""
+
+#: lsp/modules/components/composer.js:656
+msgid "Move forward"
+msgstr ""
+
+#: lsp/modules/components/composer.js:671
+msgid "Move backward"
+msgstr ""
+
+#: lsp/modules/components/composer.js:739
+#: lsp/modules/streams/stream_utils.js:2072
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:58
+msgid "Apply"
+msgstr ""
+
+#: lsp/modules/components/composer.js:813
+msgid "Open designer"
+msgstr ""
+
+#: lsp/modules/components/composer.js:858
+#: lsp/modules/streams/stream_config.js:592
+msgid "Save process"
+msgstr ""
+
+#: lsp/modules/core/form_engine.js:378
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:409
+msgid "Now"
+msgstr ""
+
+#: lsp/modules/core/form_engine.js:574 lsp/modules/pages/overview.js:89
+#: lsp/modules/pages/overview.js:708 lsp/modules/pages/overview.js:734
+#: lsp/modules/pages/overview.js:765 lsp/modules/streams/stream_utils.js:1379
+msgid "None."
+msgstr ""
+
+#: lsp/modules/core/form_engine.js:939
+msgid "QR"
+msgstr ""
+
+#: lsp/modules/core/form_engine.js:964
+msgid "QR renderer unavailable"
+msgstr ""
+
+#: lsp/modules/core/form_engine.js:1006 lsp/modules/core/form_engine.js:1018
+#: lsp/modules/streams/streamkeys.js:494
+msgid "Copy"
+msgstr ""
+
+#: lsp/modules/core/form_engine.js:1016 lsp/modules/pages/connections.js:59
+msgid "Copied!"
+msgstr ""
+
+#: lsp/modules/core/form_engine.js:1059
+msgid "Browse"
+msgstr ""
+
+#: lsp/modules/core/form_engine.js:1096
+msgid "Current folder:"
+msgstr ""
+
+#: lsp/modules/core/form_engine.js:1112
+msgid "Folder up"
+msgstr ""
+
+#: lsp/modules/core/form_engine.js:1301
+msgid "Blacklist"
+msgstr ""
+
+#: lsp/modules/core/form_engine.js:1305
+msgid "Whitelist"
+msgstr ""
+
+#: lsp/modules/core/form_engine.js:1313
+msgid "[Select a country]"
+msgstr ""
+
+#: lsp/modules/core/form_engine.js:2044
+#, javascript-format
+msgid "%s parameters"
+msgstr ""
+
+#: lsp/modules/core/formatters.js:232
+msgid "). This equals:"
+msgstr ""
+
+#: lsp/modules/core/ui_core.js:450
+msgid "Items per page:"
+msgstr ""
+
+#: lsp/modules/fun/duck_swarm.js:44
+msgid "QUACK QUACK QUACK!"
+msgstr ""
+
+#: lsp/modules/pages/auth.js:113
+msgid "No account has been created yet at "
+msgstr ""
+
+#: lsp/modules/pages/auth.js:123
+msgid "Select other host"
+msgstr ""
+
+#: lsp/modules/pages/connections.js:107
+msgid ""
+"Are you sure you want to stop this session?\n"
+"A stopped session will disconnect any currently open connections, and, if "
+"the USER_NEW trigger is in use, prevent new connections from opening for at "
+"least ten seconds."
+msgstr ""
+
+#: lsp/modules/pages/connections.js:113
+msgid ""
+"Are you sure you want to invalidate this session?\n"
+"This will re-trigger the USER_NEW trigger (if in use), allowing you to close "
+"the existing connections after they have been previously allowed."
+msgstr ""
+
+#: lsp/modules/pages/connections.js:277
+msgid "Your current filters would yield "
+msgstr ""
+
+#: lsp/modules/pages/connections.js:289
+msgid "Filter connections"
+msgstr ""
+
+#: lsp/modules/pages/dashboard.js:215
+msgid "Resources"
+msgstr ""
+
+#: lsp/modules/pages/dashboard.js:220
+msgid "Load"
+msgstr ""
+
+#: lsp/modules/pages/dashboard.js:225
+msgid "Processors"
+msgstr ""
+
+#: lsp/modules/pages/dashboard.js:332 lsp/modules/pages/dashboard.js:344
+msgid "Physical memory"
+msgstr ""
+
+#: lsp/modules/pages/dashboard.js:351
+msgid "Shared memory"
+msgstr ""
+
+#: lsp/modules/pages/dashboard.js:364
+msgid "Swap"
+msgstr ""
+
+#: lsp/modules/pages/dashboard.js:615
+msgid "Online"
+msgstr ""
+
+#: lsp/modules/pages/dashboard.js:617
+msgid "Offline"
+msgstr ""
+
+#: lsp/modules/pages/dashboard.js:708
+msgid "Active Viewers"
+msgstr ""
+
+#: lsp/modules/pages/dashboard.js:836
+msgid "No viewer data available."
+msgstr ""
+
+#: lsp/modules/pages/dashboard.js:930 lsp/modules/pages/dashboard.js:997
+msgid "Add data set"
+msgstr ""
+
+#: lsp/modules/pages/dashboard.js:999
+msgid "Add to: "
+msgstr ""
+
+#: lsp/modules/pages/dashboard.js:1003
+msgid "Graph name: "
+msgstr ""
+
+#: lsp/modules/pages/dashboard.js:1007
+msgid "Data type: "
+msgstr ""
+
+#: lsp/modules/pages/dashboard.js:1012
+msgid "Data origin:"
+msgstr ""
+
+#: lsp/modules/pages/dashboard.js:1132
+msgid "Remove graph \""
+msgstr ""
+
+#: lsp/modules/pages/dashboard.js:1216
+msgid "A graph with this name already exists."
+msgstr ""
+
+#: lsp/modules/pages/general.js:27
+msgid "Saving.."
+msgstr ""
+
+#: lsp/modules/pages/general.js:29
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:558
+msgid "Saved!"
+msgstr ""
+
+#: lsp/modules/pages/general.js:80
+msgid "dark / light"
+msgstr ""
+
+#: lsp/modules/pages/general.js:264
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:134
+msgid "Command line"
+msgstr ""
+
+#: lsp/modules/pages/general.js:266
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:740
+msgid "URI protocols handled"
+msgstr ""
+
+#: lsp/modules/pages/general.js:290 lsp/modules/streams/stream_config.js:95
+#: lsp/modules/streams/stream_config.js:842
+#: lsp/modules/streams/stream_config.js:863
+msgid "None"
+msgstr ""
+
+#: lsp/modules/pages/general.js:303
+msgid "Are you sure you want to remove the Uploader '"
+msgstr ""
+
+#: lsp/modules/pages/general.js:396
+msgid "URL"
+msgstr ""
+
+#: lsp/modules/pages/general.js:401
+msgid "Viewing"
+msgstr ""
+
+#: lsp/modules/pages/general.js:406
+msgid "Input"
+msgstr ""
+
+#: lsp/modules/pages/general.js:411
+msgid "MI and API"
+msgstr ""
+
+#: lsp/modules/pages/general.js:417 lsp/modules/pages/general.js:418
+#, javascript-format
+msgid "For streams: %s"
+msgstr ""
+
+#: lsp/modules/pages/general.js:418
+msgid "For all streams"
+msgstr ""
+
+#: lsp/modules/pages/general.js:434
+msgid "Are you sure you want to delete this key?\n"
+msgstr ""
+
+#: lsp/modules/pages/general.js:452
+msgid "Key id or url to key set"
+msgstr ""
+
+#: lsp/modules/pages/general.js:454
+msgid "Key type"
+msgstr ""
+
+#: lsp/modules/pages/general.js:456
+msgid "Can permit"
+msgstr ""
+
+#: lsp/modules/pages/general.js:692
+msgid "New variable"
+msgstr ""
+
+#: lsp/modules/pages/general.js:766
+msgid "New external writer"
+msgstr ""
+
+#: lsp/modules/pages/general.js:789
+msgid "Add JWK"
+msgstr ""
+
+#: lsp/modules/pages/general.js:943
+msgid "Keys"
+msgstr ""
+
+#: lsp/modules/pages/general.js:947 lsp/modules/pages/general.js:973
+msgid "Upload JWKS file"
+msgstr ""
+
+#: lsp/modules/pages/general.js:1003
+msgid "Grant permissions"
+msgstr ""
+
+#: lsp/modules/pages/general.js:1164
+msgid "Back to Streams"
+msgstr ""
+
+#: lsp/modules/pages/help.js:90
+msgid "Sending.."
+msgstr ""
+
+#: lsp/modules/pages/overview.js:146
+msgid "Server"
+msgstr ""
+
+#: lsp/modules/pages/overview.js:188
+msgid "Recent problems"
+msgstr ""
+
+#: lsp/modules/pages/overview.js:236
+#, javascript-format
+msgid ""
+"Force an immediate save to the config.json %s uses to save your settings."
+msgstr ""
+
+#: lsp/modules/pages/overview.js:247
+#, javascript-format
+msgid "Download the current %s configuration file as a backup."
+msgstr ""
+
+#: lsp/modules/pages/overview.js:303
+#, javascript-format
+msgid ""
+"Upload a %s configuration file to restore a backup or import from another "
+"instance. Your current config will be overwritten!"
+msgstr ""
+
+#: lsp/modules/pages/overview.js:475 lsp/modules/pages/overview.js:552
+msgid "Updating.."
+msgstr ""
+
+#: lsp/modules/pages/overview.js:534
+msgid "Failed to check for updates."
+msgstr ""
+
+#: lsp/modules/pages/overview.js:545
+msgid "Your version is up to date."
+msgstr ""
+
+#: lsp/modules/pages/overview.js:559
+#, javascript-format
+msgid "On %s version %s became available."
+msgstr ""
+
+#: lsp/modules/pages/overview.js:566
+msgid "Rolling update"
+msgstr ""
+
+#: lsp/modules/pages/overview.js:570
+msgid "Are you sure you want to execute a rolling update?"
+msgstr ""
+
+#: lsp/modules/pages/overview.js:573
+msgid "Rolling update command sent.."
+msgstr ""
+
+#: lsp/modules/pages/overview.js:585
+msgid "Manual download"
+msgstr ""
+
+#: lsp/modules/pages/overview.js:605
+msgid "Product"
+msgstr ""
+
+#: lsp/modules/pages/overview.js:607
+msgid "Updates until"
+msgstr ""
+
+#: lsp/modules/pages/overview.js:609
+msgid "Use until"
+msgstr ""
+
+#: lsp/modules/pages/overview.js:611
+msgid "Max. simul. instances"
+msgstr ""
+
+#: lsp/modules/pages/overview.js:636
+msgid "None. "
+msgstr ""
+
+#: lsp/modules/pages/overview.js:639
+msgid "More details"
+msgstr ""
+
+#: lsp/modules/pages/overview.js:746
+msgid ""
+"HTTPS is not enabled. Enable HTTPS or use a reverse proxy for secure "
+"playback."
+msgstr ""
+
+#: lsp/modules/pages/protocols.js:68 lsp/modules/pages/triggers.js:127
+msgid " configured"
+msgstr ""
+
+#: lsp/modules/pages/protocols.js:70
+msgid "Not currently enabled"
+msgstr ""
+
+#: lsp/modules/pages/protocols.js:312
+msgid ""
+"Instance was not added - the server rejected it as a duplicate. Change at "
+"least one setting to differentiate this instance."
+msgstr ""
+
+#: lsp/modules/pages/protocols.js:382
+msgid "Add another instance"
+msgstr ""
+
+#: lsp/modules/pages/protocols.js:430
+msgid "Remove this instance of "
+msgstr ""
+
+#: lsp/modules/pages/protocols.js:659
+msgid "Enable default protocols"
+msgstr ""
+
+#: lsp/modules/pages/protocols.js:662
+msgid "Disable all configured protocols?"
+msgstr ""
+
+#: lsp/modules/pages/protocols.js:667
+msgid "Disable all protocols"
+msgstr ""
+
+#: lsp/modules/pages/triggers.js:215
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:57
+msgid "Applies to"
+msgstr ""
+
+#: lsp/modules/pages/triggers.js:216 lsp/modules/streams/stream_utils.js:1557
+msgid "All streams"
+msgstr ""
+
+#: lsp/modules/pages/triggers.js:231
+msgid ""
+"<code>live</code> exact match only • <code>live+</code> all wildcard "
+"children • <code>#tag</code> any stream with this tag"
+msgstr ""
+
+#: lsp/modules/pages/triggers.js:236 lsp/modules/pushes/push_config.js:212
+msgid "No matching streams"
+msgstr ""
+
+#: lsp/modules/pages/triggers.js:558
+msgid "Handler URL or path is required."
+msgstr ""
+
+#: lsp/modules/pages/triggers.js:614
+msgid "Review your automation rule"
+msgstr ""
+
+#: lsp/modules/pages/triggers.js:661 lsp/modules/pages/triggers.js:751
+msgid "Handler is required."
+msgstr ""
+
+#: lsp/modules/pages/triggers.js:670
+msgid "Delete this "
+msgstr ""
+
+#: lsp/modules/pages/triggers.js:688 lsp/modules/streams/stream_utils.js:1565
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:89
+msgid "Blocking"
+msgstr ""
+
+#: lsp/modules/pages/triggers.js:803
+msgid "New rule"
+msgstr ""
+
+#: lsp/modules/pages/triggers.js:879 lsp/modules/pages/triggers.js:967
+msgid "No automation rules configured"
+msgstr ""
+
+#: lsp/modules/pages/triggers.js:880 lsp/modules/pages/triggers.js:968
+msgid ""
+"Automation rules let you react to server events - authenticate viewers, "
+"redirect streams, track activity, and more."
+msgstr ""
+
+#: lsp/modules/pages/triggers.js:884 lsp/modules/pages/triggers.js:970
+msgid "Create your first automation"
+msgstr ""
+
+#: lsp/modules/pages/triggers.js:901
+msgid "Delete all configured automation rules? This cannot be undone."
+msgstr ""
+
+#: lsp/modules/pages/triggers.js:905
+msgid "Delete all automation rules"
+msgstr ""
+
+#: lsp/modules/pages/triggers.js:982
+msgid "No automation rules match the current filters"
+msgstr ""
+
+#: lsp/modules/pages/triggers.js:984
+#, javascript-format
+msgid "You have %s automation rule configured. Clear filters to view it."
+msgid_plural ""
+"You have %s automation rules configured. Clear filters to view them."
+msgstr[0] ""
+msgstr[1] ""
+
+#: lsp/modules/pages/triggers.js:990
+msgid "Clear filters"
+msgstr ""
+
+#: lsp/modules/pages/variables.js:23
+msgid "No custom variables yet"
+msgstr ""
+
+#: lsp/modules/pages/variables.js:24
+msgid ""
+"Create one to reuse values in stream sources, push targets, and file paths."
+msgstr ""
+
+#: lsp/modules/pages/variables.js:90
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:778
+msgid "Variable"
+msgstr ""
+
+#: lsp/modules/pages/variables.js:91
+msgid "Latest value"
+msgstr ""
+
+#: lsp/modules/pages/variables.js:92
+msgid "Command or url"
+msgstr ""
+
+#: lsp/modules/pages/variables.js:93
+msgid "Check interval"
+msgstr ""
+
+#: lsp/modules/pages/variables.js:94
+msgid "Last checked"
+msgstr ""
+
+#: lsp/modules/pages/variables.js:134
+#, javascript-format
+msgid "At %s"
+msgstr ""
+
+#: lsp/modules/pages/variables.js:134 lsp/modules/pages/variables.js:140
+msgid "Not yet"
+msgstr ""
+
+#: lsp/modules/pages/variables.js:139
+#, javascript-format
+msgid "%s ago"
+msgstr ""
+
+#: lsp/modules/pages/variables.js:149
+msgid "Never"
+msgstr ""
+
+#: lsp/modules/pages/variables.js:167
+msgid "Are you sure you want to remove the custom variable $"
+msgstr ""
+
+#: lsp/modules/pages/variables.js:234
+msgid "Invalid variable type"
+msgstr ""
+
+#: lsp/modules/pushes/push.js:67 lsp/modules/pushes/push.js:955
+msgid "New Push"
+msgstr ""
+
+#: lsp/modules/pushes/push.js:84
+msgid "No pushes configured"
+msgstr ""
+
+#: lsp/modules/pushes/push.js:85
+msgid ""
+"Push a stream to another server, record to a file, or stream to platforms "
+"like YouTube and Twitch."
+msgstr ""
+
+#: lsp/modules/pushes/push.js:86
+msgid "Create your first push"
+msgstr ""
+
+#: lsp/modules/pushes/push.js:160 lsp/modules/pushes/push.js:1016
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:30
+msgid "Active Pushes"
+msgstr ""
+
+#: lsp/modules/pushes/push.js:195 lsp/modules/pushes/push.js:1023
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:74
+msgid "Automatic Pushes"
+msgstr ""
+
+#: lsp/modules/pushes/push.js:217 lsp/modules/pushes/push.js:1036
+#: lsp/modules/pushes/push_config.js:102
+msgid "Variables"
+msgstr ""
+
+#: lsp/modules/pushes/push.js:218
+msgid ""
+"Variables are substituted in push targets, recording paths, and stream "
+"sources. Use them for reusable paths or conditional push scheduling."
+msgstr ""
+
+#: lsp/modules/pushes/push.js:219 lsp/modules/pushes/push.js:1040
+#: lsp/modules/pushes/push_config.js:1627
+msgid "New Variable"
+msgstr ""
+
+#: lsp/modules/pushes/push.js:318
+msgid "Stop"
+msgstr ""
+
+#: lsp/modules/pushes/push.js:321 lsp/modules/pushes/push.js:337
+#: lsp/modules/pushes/push.js:619
+msgid "Stop this push?\n"
+msgstr ""
+
+#: lsp/modules/pushes/push.js:486 lsp/modules/pushes/push.js:814
+msgid "Remove this automatic push?\n"
+msgstr ""
+
+#: lsp/modules/pushes/push.js:530 lsp/modules/pushes/push.js:737
+#: lsp/modules/streams/streamkeys.js:295
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:650
+msgid "Stream"
+msgstr ""
+
+#: lsp/modules/pushes/push.js:531 lsp/modules/pushes/push.js:738
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:683
+msgid "Target"
+msgstr ""
+
+#: lsp/modules/pushes/push.js:739
+msgid "Conditions"
+msgstr ""
+
+#: lsp/modules/pushes/push.js:740
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:407
+msgid "Notes"
+msgstr ""
+
+#: lsp/modules/pushes/push.js:979
+msgid "Automatic Push Settings"
+msgstr ""
+
+#: lsp/modules/pushes/push_config.js:43
+#, javascript-format
+msgid "%s parameter"
+msgid_plural "%s parameters"
+msgstr[0] ""
+msgstr[1] ""
+
+#: lsp/modules/pushes/push_config.js:43 lsp/modules/streams/stream_config.js:92
+msgid "Defaults"
+msgstr ""
+
+#: lsp/modules/pushes/push_config.js:140
+msgid "Click to insert"
+msgstr ""
+
+#: lsp/modules/pushes/push_config.js:211
+msgid "Stream hints"
+msgstr ""
+
+#: lsp/modules/pushes/push_config.js:268
+msgid "Quick time"
+msgstr ""
+
+#: lsp/modules/pushes/push_config.js:293
+msgid "Clear"
+msgstr ""
+
+#: lsp/modules/pushes/push_config.js:445
+msgid "Please select a scenario first."
+msgstr ""
+
+#: lsp/modules/pushes/push_config.js:1240
+msgid "Track Selection"
+msgstr ""
+
+#: lsp/modules/pushes/push_config.js:1241
+msgid ""
+"Selectors are grouped by track type. Metadata-based hints load automatically "
+"for active streams."
+msgstr ""
+
+#: lsp/modules/pushes/push_config.js:1265
+msgid "Timing"
+msgstr ""
+
+#: lsp/modules/pushes/push_config.js:1266
+#: lsp/modules/pushes/push_config.js:1412
+msgid "Media timing bounds will be filled from stream metadata when available."
+msgstr ""
+
+#: lsp/modules/pushes/push_config.js:1335
+msgid "Recording"
+msgstr ""
+
+#: lsp/modules/pushes/push_config.js:1384
+#, javascript-format
+msgid "Detected tracks: %s video, %s audio, %s subtitle."
+msgstr ""
+
+#: lsp/modules/pushes/push_config.js:1390
+msgid ""
+"No live track metadata found for this stream yet. Generic selector hints are "
+"shown."
+msgstr ""
+
+#: lsp/modules/pushes/push_config.js:1395
+#, javascript-format
+msgid "Detected media range: %sms to %sms (max duration %ss)."
+msgstr ""
+
+#: lsp/modules/pushes/push_config.js:1504
+msgid " Parameters"
+msgstr ""
+
+#: lsp/modules/pushes/push_config.js:1516
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:177
+msgid "Custom"
+msgstr ""
+
+#: lsp/modules/pushes/push_config.js:1585
+msgid "The push will start immediately when you click Save."
+msgstr ""
+
+#: lsp/modules/pushes/push_config.js:1597
+msgid ""
+"The push will run whenever the stream is active and will retry on failure."
+msgstr ""
+
+#: lsp/modules/pushes/push_config.js:1651
+msgid "Start condition"
+msgstr ""
+
+#: lsp/modules/pushes/push_config.js:1686
+msgid "Stop condition (optional)"
+msgstr ""
+
+#: lsp/modules/pushes/push_config.js:1809
+#: lsp/modules/streams/stream_config.js:90
+#: lsp/modules/streams/stream_config.js:804
+#: lsp/modules/streams/stream_config.js:809
+msgid "(not set)"
+msgstr ""
+
+#: lsp/modules/pushes/push_config.js:1901
+#, javascript-format
+msgid ""
+"Warning: stream \"%s\" is not currently configured. The push may fail if "
+"this stream does not exist."
+msgstr ""
+
+#: lsp/modules/pushes/push_config.js:1907
+msgid ""
+"This is a one-time push that starts immediately. It will not automatically "
+"restart if the stream goes offline."
+msgstr ""
+
+#: lsp/modules/pushes/push_config.js:2038
+msgid "Target:"
+msgstr ""
+
+#: lsp/modules/pushes/pushes.js:44
+msgid "Automatic push settings"
+msgstr ""
+
+#: lsp/modules/pushes/pushes.js:162 lsp/modules/streams/streamkeys.js:358
+#: lsp/modules/streams/streams.js:891
+msgid "Edit stream"
+msgstr ""
+
+#: lsp/modules/pushes/pushes.js:164
+msgid "Edit <b>"
+msgstr ""
+
+#: lsp/modules/pushes/pushes.js:222 lsp/modules/pushes/pushes.js:552
+#: lsp/modules/pushes/pushes.js:872
+msgid "Are you sure you want to "
+msgstr ""
+
+#: lsp/modules/pushes/pushes.js:229 lsp/modules/pushes/pushes.js:557
+msgid "Done."
+msgstr ""
+
+#: lsp/modules/pushes/pushes.js:243 lsp/modules/pushes/pushes.js:275
+#: lsp/modules/pushes/pushes.js:598 lsp/modules/pushes/pushes.js:637
+msgid "Stop pushes"
+msgstr ""
+
+#: lsp/modules/pushes/pushes.js:257 lsp/modules/pushes/pushes.js:579
+#: lsp/modules/pushes/pushes.js:618
+msgid "Stopping pushes.."
+msgstr ""
+
+#: lsp/modules/pushes/pushes.js:267 lsp/modules/pushes/pushes.js:590
+#: lsp/modules/pushes/pushes.js:629 lsp/modules/pushes/pushes.js:874
+#: lsp/modules/pushes/pushes.js:992
+msgid "Stopping.."
+msgstr ""
+
+#: lsp/modules/pushes/pushes.js:358
+msgid "Latency: "
+msgstr ""
+
+#: lsp/modules/pushes/pushes.js:360
+msgid ""
+"This the difference between the last sent timestamp and the theoretically "
+"highest possible playback position. This is usually mostly jitter buffers."
+msgstr ""
+
+#: lsp/modules/pushes/pushes.js:554
+msgid "Removing.."
+msgstr ""
+
+#: lsp/modules/pushes/pushes.js:956
+msgid "Automatic pushes"
+msgstr ""
+
+#: lsp/modules/pushes/pushes.js:958
+msgid "Add an automatic push"
+msgstr ""
+
+#: lsp/modules/pushes/pushes.js:970
+msgid "Active pushes"
+msgstr ""
+
+#: lsp/modules/pushes/pushes.js:972
+msgid "Start a push"
+msgstr ""
+
+#: lsp/modules/pushes/pushes.js:978
+msgid "Stop all pushes listed below"
+msgstr ""
+
+#: lsp/modules/pushes/pushes.js:988
+msgid "Are you sure you want to stop "
+msgstr ""
+
+#: lsp/modules/pushes/pushes.js:1034
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:499
+msgid "Pushes and recordings"
+msgstr ""
+
+#: lsp/modules/streams/stream_config.js:95
+#, javascript-format
+msgid "%s process"
+msgid_plural "%s processes"
+msgstr[0] ""
+msgstr[1] ""
+
+#: lsp/modules/streams/stream_config.js:180
+msgid "Please select a stream type first."
+msgstr ""
+
+#: lsp/modules/streams/stream_config.js:205
+#, javascript-format
+msgid ""
+"<strong>Wildcard template</strong> - Push to <code>%1$s+identifier</code> "
+"(e.g. <code>%1$s+alice</code>, <code>%1$s+cam2</code>) to create independent "
+"child streams that inherit this configuration. Each child has its own buffer "
+"and viewer sessions."
+msgstr ""
+
+#: lsp/modules/streams/stream_config.js:233
+msgid "Discovering sources..."
+msgstr ""
+
+#: lsp/modules/streams/stream_config.js:375
+msgid ""
+"Configure input-specific options. Common settings are shown first; expand "
+"'Advanced' for tuning options."
+msgstr ""
+
+#: lsp/modules/streams/stream_config.js:385
+msgid "No additional settings for this input type."
+msgstr ""
+
+#: lsp/modules/streams/stream_config.js:413
+msgid "No input-specific settings available. Set a source first."
+msgstr ""
+
+#: lsp/modules/streams/stream_config.js:429
+msgid "Loading device options…"
+msgstr ""
+
+#: lsp/modules/streams/stream_config.js:442
+msgid "Could not load device options. Using defaults."
+msgstr ""
+
+#: lsp/modules/streams/stream_config.js:465
+msgid "No stream processes available on this server."
+msgstr ""
+
+#: lsp/modules/streams/stream_config.js:634
+msgid ""
+"This step configures stream-name/key rules for push:// ingest sources only. "
+"This stream uses a direct source, so those key rules do not apply. You can "
+"still enforce access with Automations (for example STREAM_PUSH/CONN_OPEN/"
+"USER_NEW), and for SRT-style ingest use protocol-level settings such as "
+"passphrase and network ACLs."
+msgstr ""
+
+#: lsp/modules/streams/stream_config.js:640
+msgid ""
+"Control who can push to this stream using push:// name/key matching. You can "
+"also manage stream keys from the Stream Keys page, or use automations "
+"(triggers) for dynamic access control."
+msgstr ""
+
+#: lsp/modules/streams/stream_config.js:648
+#: lsp/modules/streams/streamkeys.js:216
+msgid "Generate"
+msgstr ""
+
+#: lsp/modules/streams/stream_config.js:750
+msgid ""
+"Design your multiview layout. Add input streams, choose a grid mode, and "
+"arrange sources in the preview below."
+msgstr ""
+
+#: lsp/modules/streams/stream_config.js:781
+msgid ""
+"Review your configuration before saving. Click 'Edit' on any section to make "
+"changes."
+msgstr ""
+
+#: lsp/modules/streams/stream_config.js:808
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:622
+msgid "Source"
+msgstr ""
+
+#: lsp/modules/streams/stream_config.js:814
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:49
+msgid "Always on"
+msgstr ""
+
+#: lsp/modules/streams/stream_config.js:815
+msgid "Yes"
+msgstr ""
+
+#: lsp/modules/streams/stream_config.js:829
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:529
+msgid "Resolution"
+msgstr ""
+
+#: lsp/modules/streams/stream_config.js:835
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:352
+msgid "Layout"
+msgstr ""
+
+#: lsp/modules/streams/stream_config.js:840
+msgid "Sources"
+msgstr ""
+
+#: lsp/modules/streams/stream_config.js:871
+msgid "Preset: "
+msgstr ""
+
+#: lsp/modules/streams/stream_config.js:875
+#, javascript-format
+msgid "%s stream key configured"
+msgid_plural "%s stream keys configured"
+msgstr[0] ""
+msgstr[1] ""
+
+#: lsp/modules/streams/stream_config.js:879
+msgid ""
+"No stream keys configured - anyone who knows the stream name can push to it."
+msgstr ""
+
+#: lsp/modules/streams/stream_config.js:944
+msgid "New Stream"
+msgstr ""
+
+#: lsp/modules/streams/stream_config.js:984
+msgid "Source:"
+msgstr ""
+
+#: lsp/modules/streams/stream_hints.js:368
+msgid "Full url:"
+msgstr ""
+
+#: lsp/modules/streams/stream_hints.js:382
+msgid "Or URL:"
+msgstr ""
+
+#: lsp/modules/streams/stream_hints.js:382
+msgid "URL:"
+msgstr ""
+
+#: lsp/modules/streams/stream_hints.js:389
+msgid "with key:"
+msgstr ""
+
+#: lsp/modules/streams/stream_hints.js:576
+msgid "Configure your source to push to"
+msgstr ""
+
+#: lsp/modules/streams/stream_hints.js:582
+msgid "There is no valid push endpoint with your current settings."
+msgstr ""
+
+#: lsp/modules/streams/stream_utils.js:176
+msgid ""
+"Your settings have not been saved. Are you sure you want to navigate away?"
+msgstr ""
+
+#: lsp/modules/streams/stream_utils.js:238
+msgid "Return"
+msgstr ""
+
+#: lsp/modules/streams/stream_utils.js:433
+msgid "Why am I seeing this?"
+msgstr ""
+
+#: lsp/modules/streams/stream_utils.js:435
+msgid ""
+"If you think one of the urls above should have worked, try clicking the "
+"link. <br>If something went wrong, your browser may give you more "
+"information about what it is. <br>If you see something like this:"
+msgstr ""
+
+#: lsp/modules/streams/stream_utils.js:438
+msgid ""
+"<h1>Unsupported Media Type</h1>The server isn't quite sure what you wanted "
+"to receive from it."
+msgstr ""
+
+#: lsp/modules/streams/stream_utils.js:442
+#, javascript-format
+msgid ""
+"then %s <i>can</i> be reached there but it couldn't be called from this "
+"page, possibly because of mixed content (if you're on an https website, your "
+"browser will refuse to load http content: create an https output) or CORS "
+"issues (if the HTTP output is accessible on a domain other than '%s' and "
+"that is not configured to allow cross-domain requests: check your proxy "
+"configuration)."
+msgstr ""
+
+#: lsp/modules/streams/stream_utils.js:452
+msgid "I've not tried anything yet. I'm cluessless. Please help."
+msgstr ""
+
+#: lsp/modules/streams/stream_utils.js:460
+#, javascript-format
+msgid ""
+"Something went wrong: I could not locate %s's HTTP%s output URL. Where can "
+"it be reached?"
+msgstr ""
+
+#: lsp/modules/streams/stream_utils.js:463
+msgid "I've attempted:"
+msgstr ""
+
+#: lsp/modules/streams/stream_utils.js:582
+msgid "Transient tags can be added here once the stream is active."
+msgstr ""
+
+#: lsp/modules/streams/stream_utils.js:599
+msgid "Add transient tag"
+msgstr ""
+
+#: lsp/modules/streams/stream_utils.js:606
+msgid "Adding.."
+msgstr ""
+
+#: lsp/modules/streams/stream_utils.js:608
+msgid "Add tag"
+msgstr ""
+
+#: lsp/modules/streams/stream_utils.js:712
+msgid "Stop all sessions"
+msgstr ""
+
+#: lsp/modules/streams/stream_utils.js:714
+msgid ""
+"Are you sure you want to disconnect all sessions (viewers, pushes and "
+"possibly the input) from this stream?"
+msgstr ""
+
+#: lsp/modules/streams/stream_utils.js:720
+msgid "Invalidate sessions"
+msgstr ""
+
+#: lsp/modules/streams/stream_utils.js:722 lsp/modules/streams/streams.js:916
+msgid "Are you sure you want to invalidate all sessions for the stream '"
+msgstr ""
+
+#: lsp/modules/streams/stream_utils.js:728
+msgid "Nuke stream"
+msgstr ""
+
+#: lsp/modules/streams/stream_utils.js:730 lsp/modules/streams/streams.js:923
+msgid "Are you sure you want to completely shut down the stream '"
+msgstr ""
+
+#: lsp/modules/streams/stream_utils.js:813
+msgid "Type:"
+msgstr ""
+
+#: lsp/modules/streams/stream_utils.js:818
+msgid "Buffer window:"
+msgstr ""
+
+#: lsp/modules/streams/stream_utils.js:823
+msgid "Jitter:"
+msgstr ""
+
+#: lsp/modules/streams/stream_utils.js:880
+msgid "Track "
+msgstr ""
+
+#: lsp/modules/streams/stream_utils.js:885
+msgid "Jitter: "
+msgstr ""
+
+#: lsp/modules/streams/stream_utils.js:986
+msgid "Include metadata in graph:"
+msgstr ""
+
+#: lsp/modules/streams/stream_utils.js:990
+msgid "Track timing:"
+msgstr ""
+
+#: lsp/modules/streams/stream_utils.js:1217
+msgid "Track metadata:"
+msgstr ""
+
+#: lsp/modules/streams/stream_utils.js:1281
+msgid "Open raw json"
+msgstr ""
+
+#: lsp/modules/streams/stream_utils.js:1290
+#: lsp/modules/streams/stream_utils.js:1298
+msgid "Freeze"
+msgstr ""
+
+#: lsp/modules/streams/stream_utils.js:1293
+msgid "Frozen"
+msgstr ""
+
+#: lsp/modules/streams/stream_utils.js:1565
+msgid "Non-blocking"
+msgstr ""
+
+#: lsp/modules/streams/stream_utils.js:1585
+msgid "Remove from stream"
+msgstr ""
+
+#: lsp/modules/streams/stream_utils.js:1610
+msgid "Are you sure you want to delete this "
+msgstr ""
+
+#: lsp/modules/streams/stream_utils.js:1637
+msgid "Add automation rule"
+msgstr ""
+
+#: lsp/modules/streams/stream_utils.js:1670
+msgid "New push"
+msgstr ""
+
+#: lsp/modules/streams/stream_utils.js:1743
+#: lsp/modules/streams/stream_utils.js:1955
+#: lsp/modules/streams/stream_utils.js:3286
+msgid "Open raw"
+msgstr ""
+
+#: lsp/modules/streams/stream_utils.js:1847
+msgid "helloPlayer"
+msgstr ""
+
+#: lsp/modules/streams/stream_utils.js:1848
+msgid "Waiting for player.."
+msgstr ""
+
+#: lsp/modules/streams/stream_utils.js:1974
+msgid "Stream Preview"
+msgstr ""
+
+#: lsp/modules/streams/stream_utils.js:1975
+msgid "Engine: MistPlayer"
+msgstr ""
+
+#: lsp/modules/streams/stream_utils.js:2065
+msgid "Use base URL:"
+msgstr ""
+
+#: lsp/modules/streams/stream_utils.js:2495
+msgid "Self-hosted"
+msgstr ""
+
+#: lsp/modules/streams/stream_utils.js:2496
+msgid "CDN"
+msgstr ""
+
+#: lsp/modules/streams/stream_utils.js:2497
+msgid "npm"
+msgstr ""
+
+#: lsp/modules/streams/stream_utils.js:2500
+msgid "IIFE"
+msgstr ""
+
+#: lsp/modules/streams/stream_utils.js:2501
+msgid "ESM"
+msgstr ""
+
+#: lsp/modules/streams/stream_utils.js:2508
+msgid ""
+"Also available via jsdelivr: https://cdn.jsdelivr.net/npm/@optimist-video/"
+"mistplayer-core/dist/player.iife.js"
+msgstr ""
+
+#: lsp/modules/streams/stream_utils.js:2513
+msgid ""
+"Load the player from a public CDN. You still need to point host at your "
+"MistServer instance."
+msgstr ""
+
+#: lsp/modules/streams/stream_utils.js:2515
+msgid ""
+"Install via npm for use with bundlers (webpack, vite, esbuild, etc.). The "
+"ESM export gives you createPlayer plus full access to all player internals."
+msgstr ""
+
+#: lsp/modules/streams/stream_utils.js:2517
+msgid ""
+"ES Module - use with bundlers, modern apps, or <script type=\"module\">. "
+"Gives you a clean API with queries, mutations & callbacks."
+msgstr ""
+
+#: lsp/modules/streams/stream_utils.js:2519
+msgid ""
+"Classic script tag - works everywhere, no build step needed. Loads the "
+"player globally and calls mistPlay()."
+msgstr ""
+
+#: lsp/modules/streams/stream_utils.js:2582
+msgid ""
+"The player is built for <b>white-labelling</b> - use built-in themes, bring "
+"your own CSS, or replace any element with custom components. <a "
+"href=\"https://www.npmjs.com/package/@optimist-video/mistplayer-core\" "
+"target=\"_blank\" rel=\"noopener\">npm</a> · <a href=\"https://"
+"docs.mistserver.org/\" target=\"_blank\" rel=\"noopener\">Docs</a>"
+msgstr ""
+
+#: lsp/modules/streams/stream_utils.js:2734
+#, javascript-format
+msgid ""
+"Warning: the provided base URL <a href=\"%1$s\">%1$s</a> could not be "
+"reached. These links are my best guess but will probably not work properly."
+msgstr ""
+
+#: lsp/modules/streams/streamkeys.js:175
+msgid "Add stream key(s)"
+msgstr ""
+
+#: lsp/modules/streams/streamkeys.js:238
+msgid "0 keys across 0 streams."
+msgstr ""
+
+#: lsp/modules/streams/streamkeys.js:239
+msgid "No stream keys found."
+msgstr ""
+
+#: lsp/modules/streams/streamkeys.js:296
+msgid "Key"
+msgstr ""
+
+#: lsp/modules/streams/streamkeys.js:311
+#, javascript-format
+msgid "Keys: %s · Streams: %s"
+msgstr ""
+
+#: lsp/modules/streams/streamkeys.js:358 lsp/modules/streams/streams.js:891
+#, javascript-format
+msgid "Edit <b>%s</b>"
+msgstr ""
+
+#: lsp/modules/streams/streamkeys.js:360
+msgid "Create stream"
+msgstr ""
+
+#: lsp/modules/streams/streamkeys.js:360
+#, javascript-format
+msgid "Create <b>%s</b>"
+msgstr ""
+
+#: lsp/modules/streams/streamkeys.js:419
+msgid "for "
+msgstr ""
+
+#: lsp/modules/streams/streamkeys.js:432
+msgid "Are you sure you want to remove the key '"
+msgstr ""
+
+#: lsp/modules/streams/streamkeys.js:451
+msgid "Are you sure you want to remove all "
+msgstr ""
+
+#: lsp/modules/streams/streamkeys.js:506
+msgid "Delete stream keys"
+msgstr ""
+
+#: lsp/modules/streams/streamkeys.js:551
+msgid "Pagination"
+msgstr ""
+
+#: lsp/modules/streams/streamkeys.js:563
+msgid "Rows per page"
+msgstr ""
+
+#: lsp/modules/streams/streams.js:124
+msgid "New stream"
+msgstr ""
+
+#: lsp/modules/streams/streams.js:189
+msgid "No streams configured"
+msgstr ""
+
+#: lsp/modules/streams/streams.js:190
+msgid "Create your first stream to start delivering media."
+msgstr ""
+
+#: lsp/modules/streams/streams.js:191
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:166
+msgid "Create a stream"
+msgstr ""
+
+#: lsp/modules/streams/streams.js:196
+msgid "You can also use New stream or Stream keys at the top."
+msgstr ""
+
+#: lsp/modules/streams/streams.js:303
+msgid "This is a folder stream: it points to a folder with media files inside."
+msgstr ""
+
+#: lsp/modules/streams/streams.js:306
+msgid "Found "
+msgstr ""
+
+#: lsp/modules/streams/streams.js:375 lsp/modules/streams/streams.js:575
+msgid ""
+"This stream has no configuration and will disappear once it goes offline."
+msgstr ""
+
+#: lsp/modules/streams/streams.js:391
+msgid ""
+"This is a folder stream: it points to a folder with media files inside. "
+"Click to request its sub streams."
+msgstr ""
+
+#: lsp/modules/streams/streams.js:445 lsp/modules/streams/streams.js:633
+#, javascript-format
+msgid "%s active wildcard instance inheriting this configuration"
+msgid_plural "%s active wildcard instances inheriting this configuration"
+msgstr[0] ""
+msgstr[1] ""
+
+#: lsp/modules/streams/streams.js:543
+msgid "This is a wildcard stream: its config is inherited from its parent: '"
+msgstr ""
+
+#: lsp/modules/streams/streams.js:582
+#, javascript-format
+msgid ""
+"This is a wildcard stream: its config is inherited from its parent: '%s'."
+msgstr ""
+
+#: lsp/modules/streams/streams.js:593
+msgid ""
+"This is a folder stream: it points to a folder with media files inside. "
+"Click the '➕' to request its sub streams."
+msgstr ""
+
+#: lsp/modules/streams/streams.js:900
+msgid "Are you sure you want to delete the stream \""
+msgstr ""
+
+#: lsp/modules/streams/streams.js:909
+msgid ""
+"Are you sure you want to disconnect all sessions (viewers, pushes and "
+"possibly the input) for the stream '"
+msgstr ""
+
+#: lsp/modules/streams/streams.js:933
+msgid "Create <b>"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:2
+msgid "- and / or -"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:3
+msgid "../../$basename.m3u8"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:4
+msgid "/recordings/$basename/$yday/$hour/$minute_$segmentCounter.ts"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:5
+msgid "/recordings/$stream_$datetime.ts"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:6
+msgid "1 minute"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:7
+msgid "10K lines"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:8
+msgid "15 minutes"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:9
+msgid "1K lines"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:10
+msgid "5 minutes"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:11
+msgid "50K lines"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:12
+msgid "5K lines"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:13
+msgid "A basic html containing the embedded stream."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:14
+msgid "A convenient name to describe this "
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:15
+msgid "A human readable name for the external writer."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:16
+msgid "A human-readable name for this "
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:17
+msgid ""
+"A trigger response is positive if it starts with 1, yes, true, or cont - "
+"anything else denies the request."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:18
+msgid "Aborted"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:19
+msgid "AbortError"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:20
+msgid "ABR Ladder (1080/720/480)"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:21
+msgid ""
+"Accept or reject incoming stream pushes based on the source address, stream "
+"name, or custom logic."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:22
+msgid "Access"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:23
+msgid "Access Control"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:24
+msgid "Access log"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:25
+msgid "Access logs"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:26
+msgid "Account created"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:28
+msgid "Active licenses"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:29
+msgid ""
+"Active processes like transcoding or AI analysis are listed with their "
+"current state."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:31
+msgid "Active streams"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:32
+msgid "Active viewers table and protocol breakdown"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:34
+msgid ""
+"Add ?dl=1 to any stream URL to download it as a file instead of streaming it."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:35
+msgid ""
+"Add a tag to this stream's current tags.\n"
+"Note that tags added here will not be applied when the stream restarts. To "
+"do that, add the tag through the stream settings."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:36
+msgid "Add Camera"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:37
+msgid "Add instance"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:38
+msgid ""
+"Add JSON Web Keys to enable JWT-based authentication - valid tokens bypass "
+"all triggers and security hooks."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:39
+msgid "Add process"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:40
+msgid ""
+"Add processes to a stream for on-the-fly transcoding, compositing, or AI "
+"analysis."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:41
+msgid "Add Stream to "
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:42
+msgid ""
+"Add three H.264 video transcode processes for adaptive bitrate streaming."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:43
+msgid "Additional <code>name=value</code> parameters not covered above."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:44
+msgid "All"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:45
+msgid "Allow or deny a connection when it attempts to start playing a stream."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:46
+msgid ""
+"Allow or deny individual connections as they come in, before any stream "
+"interaction occurs."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:47
+msgid ""
+"Allow or prevent a stream input from loading. Useful for scheduling or "
+"capacity management."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:48
+msgid "Always active"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:50
+msgid ""
+"Always On keeps the stream connected even when no viewers are watching - "
+"required for DVR and RTSP cameras."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:51
+msgid "An HTTP URL to call, or a full path to an executable on the server."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:52
+msgid "Analytics & AI"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:53
+msgid "API authentication"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:54
+msgid "Appearance"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:55
+msgid "Append to existing playlist"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:56
+msgid "Applied!"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:59
+msgid "Apply to"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:60
+msgid "Approve Config Changes"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:61
+msgid "Approve New Streams"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:62
+msgid "Approve Stream Loading"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:63
+msgid "Approve Stream Removal"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:64
+msgid "Aspect ratio"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:65
+msgid "At what interval, in seconds, "
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:66
+msgid "Audio Processing"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:67
+msgid "Audio to AAC"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:68
+msgid "Audio to Opus"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:69
+msgid "Audio track"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:70
+msgid "Authenticate Viewers"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:72
+msgid "Auto-Add Camera Streams"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:73
+msgid ""
+"Automatic push rules use wildcards - a single rule can match many streams at "
+"once."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:75
+msgid ""
+"Automatic pushes can record every stream that goes live - no manual "
+"intervention needed."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:76
+msgid ""
+"Automatic pushes start whenever their matched stream goes live and retry on "
+"failure."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:77
+msgid "Automatically create streams for discovered cameras"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:78
+msgid "Automation rules"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:79
+msgid "Autoplay"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:80
+msgid "Available"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:81
+msgid "Ayu Mirage"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:82
+msgid "Back to Devices"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:83
+msgid "Bandwidth"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:84
+msgid "Bandwidth (down)"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:85
+msgid "Bandwidth (up)"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:86
+msgid "Bandwidth exceptions"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:87
+msgid "Base name only, before + (e.g. live)"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:88
+msgid "binary name"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:90
+msgid "bucket/path/$stream_$datetime.mp4"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:91
+msgid "Buffer State Changes"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:92
+msgid "Build MistVideo again"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:93
+msgid "Bundle input sessions by"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:94
+msgid "Bundle output sessions by"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:95
+msgid "Bundle unspecified sessions by"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:96
+msgid "Bundle viewer sessions by"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:97
+msgid "Cached"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:99
+msgid "Camera Devices"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:101
+msgid "Capture from a local video device (Linux)."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:102
+msgid "Capture video from an NDI source on your local network."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:103
+msgid "Catppuccin"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:104
+msgid ""
+"Change the way input connections are bundled into sessions.<br>Default: "
+"stream name, input IP, token and protocol"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:105
+msgid ""
+"Change the way output connections are bundled into sessions.<br>Default: "
+"stream name, output IP, token and protocol"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:106
+msgid "Change the way the session token gets passed to and from "
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:107
+msgid ""
+"Change the way the stream info connection gets treated.<br>Default: as a "
+"viewer session"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:108
+msgid ""
+"Change the way unspecified connections are bundled into sessions."
+"<br>Default: none"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:109
+msgid ""
+"Change the way viewer connections are bundled into sessions.<br>Default: "
+"stream name, viewer IP and token"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:110
+msgid ""
+"Change where an outgoing push goes right before it starts. Useful for "
+"dynamic recording paths."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:111
+msgid ""
+"Check the Logs page for real-time server output, filterable by keyword or "
+"severity."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:112
+msgid ""
+"Check the NPM package @optimist-video/mistplayer-core for advanced player "
+"integration."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:113
+msgid ""
+"Check with your auth server before allowing a new viewer session. Deny or "
+"allow based on tokens, geo-location, or account status."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:114
+msgid "Checking interval"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:115
+msgid ""
+"Choose .ts or .mkv for recordings that need to survive crashes or power "
+"loss. Fragmented .fmp4 is also resilient."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:116
+msgid ""
+"Choose a preset for common configurations, or pick a process type to "
+"configure manually."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:117
+msgid "Choose by which attribute the devices listed below should be sorted."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:118
+msgid "Choose by which attribute the streams listed below should be sorted"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:119
+msgid "Choose Event"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:120
+msgid "Choose how this stream will receive its media data."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:121
+msgid "Click a section header to collapse or expand it for a cleaner view."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:122
+msgid ""
+"Click any protocol name in the Enabled/Disabled lists to jump to the "
+"Protocols configuration page."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:123
+msgid ""
+"Click on a protocol card to configure it, or use the toggle to enable or "
+"disable."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:124
+msgid ""
+"Click the snap-to-bottom button to auto-scroll to the latest log entries."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:125
+msgid "Click to show / hide these options"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:126
+msgid "Client-side log buffer size"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:127
+msgid ""
+"Clip and download stream segments by adding ?startunix, ?duration, and ?dl=1 "
+"to a stream URL."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:129
+msgid "Close and discard"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:130
+msgid "Color theme for this browser"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:131
+msgid ""
+"Combine multiple streams into a single composited output with a visual "
+"layout designer."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:132
+msgid ""
+"Combine split=N with m3u8=path/playlist.m3u8 for seekable segmented "
+"recordings."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:133
+msgid "Command"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:135
+msgid ""
+"Command line for a local command (with optional arguments) which will write "
+"media data to the target."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:136
+msgid "Communicate session token"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:137
+msgid ""
+"Compare the variable with this value. You can also use another variable."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:138
+msgid "Compose"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:139
+msgid "Compose / Multiview"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:140
+msgid "Conditional"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:141
+msgid ""
+"Configuration auto-saves one minute after the last change, and reloads if it "
+"detects external edits to the config file."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:142
+msgid "Configuration files"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:144
+msgid ""
+"Configure Prometheus stats output under General to export metrics for "
+"Grafana or other dashboards."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:145
+msgid "Configure protocols"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:146
+msgid "Configured streams"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:147
+msgid "Connect"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:149
+msgid "Connection Closed"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:151
+msgid "Connector Started"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:152
+msgid "Connector Stopped"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:153
+msgid "Contact support with server config attached"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:154
+msgid "Controls"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:155
+msgid "Controls how much detail "
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:156
+msgid "Copy key"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:157
+msgid "Copy push target"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:158
+msgid ""
+"Copy the embed code to place a player on any web page with a single script "
+"tag."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:160
+msgid "Cores"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:161
+msgid "CPU"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:162
+msgid "CPU usage"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:163
+msgid "CPU use"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:164
+msgid "CPU, memory, bandwidth, and viewer charts"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:165
+msgid "Create a new account"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:167
+msgid "Create new account"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:168
+msgid "Create or edit push targets"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:169
+msgid "Create or edit stream settings"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:170
+msgid "Create Stream"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:171
+msgid "Current bitrate"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:172
+msgid "Current connections"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:173
+msgid "Current day number"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:174
+msgid "Current input"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:175
+msgid "Current month number"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:176
+msgid "Current year"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:178
+msgid "Custom Graphs"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:179
+msgid "Custom output handlers for unsupported targets"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:180
+msgid "Custom parameters"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:181
+msgid "Custom Platform"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:182
+msgid "Custom variables"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:183
+msgid "Custom Variables"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:184
+msgid ""
+"Custom variables come in two types: static (fixed text, 63-char limit) and "
+"dynamic (execute commands on a schedule, 511-char limit)."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:185
+msgid ""
+"Custom variables defined under General can be referenced in push targets and "
+"trigger URLs."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:186
+msgid "Data downloaded"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:187
+msgid "Data fields sent to the handler (read-only reference)."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:188
+msgid ""
+"Data sent to the hosts and subnets listed here will not count towards "
+"reported bandwidth usage.<br>Examples:<ul><li>192.168.0.0/16</"
+"li><li>localhost</li><li>10.0.0.0/8</li><li>fe80::/16</li></ul>"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:189
+msgid "Day of year (1–366)"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:190
+msgid "debug level"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:191
+msgid "Debug level"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:192
+msgid ""
+"Debug levels: 0 = off, 1 = failures, 2 = errors, 3 = warnings (recommended "
+"for production), 4–10 = increasing developer detail."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:193
+msgid ""
+"Default ports: HTTP 8080, HTTPS 4433, RTMP 1935, RTSP 5554, SRT 8889, API "
+"4242."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:194
+msgid "Default response"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:195
+msgid "Define constants and dynamic variables for substitution"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:196
+msgid "Delay before retry"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:198
+msgid "Delete all keys for this stream"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:199
+msgid "Delete key"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:200
+msgid "Desired password"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:201
+msgid "Desired username"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:202
+msgid "Detail"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:204
+msgid "Devices that do not match the text you enter here will be hidden."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:205
+msgid ""
+"Disconnect sessions for this stream. Disconnecting a session will kill any "
+"currently open connections (viewers, pushes and possibly the input). If the "
+"USER_NEW trigger is in use, it will be triggered again by any reconnecting "
+"connections."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:206
+msgid "Discovered cameras and device management"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:207
+msgid ""
+"Discovered devices on your network. Devices are automatically found via "
+"ONVIF, VISCA, and NDI protocols. Click a device for details, or use the PTZ "
+"controls."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:208
+msgid "Discovery protocol."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:209
+msgid "Display name"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:210
+msgid ""
+"Do not write the end tag. Use for continuous streams so players treat it as "
+"live."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:211
+msgid "Don't close"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:212
+msgid "Done!"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:213
+msgid "Download"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:214
+msgid ""
+"Download a backup of your current configuration from the header actions on "
+"this page."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:215
+msgid ""
+"Download your configuration as a backup from the Overview page before making "
+"big changes."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:216
+msgid "Dracula"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:217
+msgid "DTSC is the most efficient protocol for pulling streams between "
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:218
+msgid "Duration"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:219
+msgid "Duration of each segment in seconds (split at keyframe boundaries)."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:220
+msgid ""
+"DVR recording requires TS format - it’s the only format supported on the "
+"input side for DVR playback."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:221
+msgid ""
+"DVR-style seeking in live streams requires TS-based segmented recording - "
+"not a built-in protocol feature."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:222
+msgid ""
+"DVR-style seeking in live streams requires TS-based segmented recording with "
+"an M3U8 playlist."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:223
+msgid ""
+"Dynamically change where a stream pulls its media from. Useful for failover "
+"or multi-source switching."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:225
+msgid "Edit external writer"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:226
+msgid "Edit JWK"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:227
+msgid "Edit Protocol"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:228
+msgid "Edit variable"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:230
+msgid "Email Support"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:232
+msgid "Embed code"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:233
+msgid ""
+"Embed URLs must match the page protocol - mixing HTTP and HTTPS causes "
+"browser mixed-content errors."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:234
+msgid "Enable"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:235
+msgid "Enable access logs for viewer connections."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:236
+msgid "Enable access logs."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:237
+msgid ""
+"Enable Always On to keep a stream active even when no viewers are connected "
+"- required for DVR and RTSP cameras."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:238
+msgid "Enable HTTPS for secure playback - either directly in "
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:239
+msgid "Enable HTTPS for secure playback, or terminate TLS at a reverse proxy."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:240
+msgid "Enable protocols"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:242
+msgid "Enabled Protocols"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:243
+msgid ""
+"Encode video frames as MJPEG. Useful for thumbnail generation and camera "
+"snapshot streams."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:244
+msgid "End time"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:245
+msgid "Enforce Bandwidth Limits"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:246
+msgid "Enter a JWK or a JWKS: a json object or array of objects."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:247
+msgid "Enter one or more keys"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:248
+msgid "Enter one or more urls where "
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:249
+msgid ""
+"Enter the stream for which this stream key will be valid. You can enter a "
+"stream with wildcard. You can add stream keys for streams that do not exist "
+"yet."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:250
+msgid "Enter the stream source URI or browse for a file."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:251
+msgid ""
+"Enter your desired password. In the future, you will need this to access the "
+"Management Interface."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:252
+msgid ""
+"Enter your desired username. In the future, you will need this to access the "
+"Management Interface."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:253
+msgid "Equal Grid"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:255
+msgid "Event"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:256
+msgid "Event-driven rules that react to "
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:257
+msgid ""
+"Export metrics to Prometheus for long-term storage and custom Grafana "
+"dashboards."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:258
+msgid "External writers"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:259
+msgid ""
+"External writers route stream data to an external command via stdin - useful "
+"for custom outputs like S3 uploads or HTTP PUT."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:260
+msgid "Facebook Live"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:261
+msgid "Failed"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:262
+msgid "Fallback for Missing Streams"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:263
+msgid "Fallback response when the handler fails or this rule is non-blocking."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:264
+msgid "Fallback stream"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:265
+msgid "FB-xxxx-xxxx-xxxx-xxxx"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:266
+msgid "File / VoD"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:267
+msgid "Fill available space"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:268
+msgid ""
+"Filter by session, stream, protocol, or host. Click a column header to sort, "
+"drag its edge to resize, and right-click a row to inspect, copy, or stop a "
+"session."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:269
+msgid "Filter by stream name, target, or notes."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:270
+msgid "Filter devices"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:271
+msgid "Filter files and folders"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:272
+msgid "Filter logs…"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:273
+msgid "Filter pushes"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:274
+msgid "Filter rules"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:275
+msgid "Filter streams"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:276
+msgid "Filter the pushes below"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:277
+msgid "Filter triggers by type to quickly find the ones you need."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:278
+msgid "Firmware"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:279
+msgid "First media timestamp of the segment (DVR)"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:280
+msgid "Focused"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:281
+msgid "Focussed"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:282
+msgid "Folder"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:283
+msgid ""
+"For 24/7 DVR, add noendlist=1 and append=1 to keep playlists usable across "
+"recording restarts."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:284
+msgid ""
+"For RTMP targets, include the stream key in the URL path: rtmp://host/app/"
+"streamkey."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:285
+msgid ""
+"For RTMPS targets (e.g. Facebook), add a trailing ? to the URL to prevent "
+"parameter parsing."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:286
+msgid ""
+"For RTSP cameras, enable Always On to keep the connection alive continuously."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:287
+msgid "For stream name"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:288
+msgid "Force player"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:289
+msgid "Force type"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:290
+msgid "Freestyle"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:291
+msgid "Full stream name (e.g. live+alice)"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:292
+msgid "Full timestamp (YYYY.MM.DD.HH.MM.SS)"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:293
+msgid "Gate Connections"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:294
+msgid "Gate Incoming Pushes"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:295
+msgid "Gate Playback"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:296
+msgid "General settings"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:297
+msgid ""
+"Get notified when a live stream buffer changes state (empty, full, dry, or "
+"recovering)."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:298
+msgid ""
+"Get notified when a protocol connector starts listening for connections."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:299
+msgid "Get notified when a protocol connector stops listening."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:300
+msgid ""
+"Get notified when a recording (push to file) finishes. Includes file size, "
+"duration, and timestamps."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:301
+msgid ""
+"Get notified when a stream ends after a period of activity. Includes total "
+"bytes and viewer counts."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:302
+msgid ""
+"Get notified when a stream input process exits with an error. Includes "
+"reason and source URI."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:303
+msgid ""
+"Get notified when a viewer connection is closed. Useful for analytics and "
+"session tracking."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:304
+msgid ""
+"Get notified when a viewer session ends. Includes duration, bytes "
+"transferred, and session tags."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:305
+msgid ""
+"Get notified when an outgoing push stops for any reason. Includes logs and "
+"push status."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:306
+msgid ""
+"Get notified when any output finishes. Includes bytes, duration, and "
+"timestamps."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:307
+msgid "Get notified when the list of tracks in a live stream changes."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:308
+msgid "GitHub Dark"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:309
+msgid "Graph name"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:310
+msgid "Gruvbox"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:311
+msgid "Handler"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:312
+msgid "Handler (URL or executable)"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:313
+msgid "Height"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:314
+msgid ""
+"HLS and DASH are the most widely supported formats for web and mobile "
+"playback."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:315
+msgid "Host"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:316
+msgid "hostname/app/streamkey"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:317
+msgid "hostname:port"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:318
+msgid "Hour when stream was received"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:319
+msgid "How long the delay should be before "
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:320
+msgid "How to compare the variable."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:321
+msgid "HTML page"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:322
+msgid ""
+"HTTP Progressive (HTTPTS, FLV) provides simple low-latency streaming for "
+"compatible players."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:323
+msgid ""
+"HTTP trigger handlers receive a POST with the trigger name in the X-Trigger "
+"header and event details in the body."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:324
+msgid ""
+"HTTPS is not configured. For secure playback, either enable the HTTPS "
+"protocol in "
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:325
+msgid "https://example.com/stream.m3u8"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:326
+msgid "Human readable name"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:327
+msgid "If the video should restart when the end is reached."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:328
+msgid ""
+"Include this code on your webpage to embed the stream. The options below can "
+"be used to configure how your content is displayed."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:329
+msgid ""
+"Increase the debug level on the General page to see more detail in the logs."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:330
+msgid "Information about this stream as a json page."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:331
+msgid ""
+"Ingest live streams via RTMP, SRT, WebRTC (WHIP), RTSP, RIST, or direct TS "
+"push."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:332
+msgid "Inhibitor"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:333
+msgid "Input access preset"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:334
+msgid "Input Error"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:335
+msgid ""
+"Intercept stream configuration changes and approve, reject, or modify them."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:336
+msgid ""
+"Intercept stream creation and approve or reject new configurations before "
+"they take effect."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:337
+msgid ""
+"Invalidate all the currently active sessions for this stream. This has the "
+"effect of re-triggering the USER_NEW trigger, allowing you to selectively "
+"close some of the existing connections after they have been previously "
+"allowed. If you don't have a USER_NEW trigger configured, this will not have "
+"any effect."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:338
+msgid "IP address or hostname of the camera."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:339
+msgid "is playing"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:340
+msgid ""
+"It can either be a static value or a dynamic one returned by a command or "
+"url."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:341
+msgid "JSON web key (set)"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:342
+msgid "JSON web keys (JWK)"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:343
+msgid "JWKS files"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:344
+msgid ""
+"JWT authentication validates tokens using configured JWKs, without needing "
+"an external trigger endpoint."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:345
+msgid ""
+"JWT keys let you authenticate viewers without trigger scripts. Triggers "
+"offer more control but require a handler endpoint."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:346
+msgid ""
+"JWT-approved sessions persist up to 10 minutes after disconnect. Use the "
+"invalidate_sessions API call to revoke access immediately."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:347
+msgid "Keep playlist open (no EXT-X-ENDLIST)"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:348
+msgid ""
+"Keep streams alive beyond their normal idle timeout by preventing automatic "
+"unloading."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:349
+msgid "Keep this stream active even when there are no viewers. "
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:350
+msgid "Kick"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:351
+msgid "Label text"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:353
+msgid "Leave blank to not have an automatic stop condition."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:354
+msgid "Licensed to"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:355
+msgid "line number"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:356
+msgid ""
+"List of proxy server addresses that are allowed to override the viewer IP "
+"address to arbitrary values.<br>You may use a hostname or IP address."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:357
+msgid "Live DVR (HLS Recording)"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:358
+msgid "Live source"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:359
+msgid "live_xxxxxxxxxx_xxxxxxxxxx"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:360
+msgid "Livepeer Segment Rejected"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:361
+msgid "Load balancer"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:362
+msgid "Load balancer settings let multiple "
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:364
+msgid ""
+"Localhost API connections skip authentication entirely. Remote access uses "
+"MD5 challenge-response."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:365
+msgid "Location settings for proximity routing"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:366
+msgid ""
+"Log entries are colour-coded by severity - errors and failures are "
+"highlighted in red."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:367
+msgid "Login"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:368
+msgid "Loop"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:369
+msgid "Lost"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:370
+msgid "Low-latency push over Secure Reliable Transport."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:371
+msgid "Make stats available in Prometheus format via "
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:372
+msgid "Manage and monitor all configured streams"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:373
+msgid "Manufacturer"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:374
+msgid "Max playlist entries"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:375
+msgid "Max segment age"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:376
+msgid ""
+"Maximum number of segments kept in the playlist. 0 or empty for unlimited."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:377
+msgid "Maximum retries"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:378
+msgid "Media time"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:379
+msgid "Memory"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:380
+msgid "Memory usage"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:381
+msgid "metrics"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:382
+msgid "Minute when stream was received"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:383
+msgid "MJPEG Snapshots"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:384
+msgid "Model"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:385
+msgid "Monitoring & Events"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:386
+msgid "Monitoring action"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:387
+msgid "Move item up"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:388
+msgid ""
+"MP4 and MKV inputs support S3 sources directly - use s3+http:// or "
+"s3+https:// as the source URL."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:389
+msgid "MPEG-TS (UDP/TCP/RTP)"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:390
+msgid "Multi-camera composed stream"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:391
+msgid ""
+"Multiple API commands can be combined in a single request for efficient "
+"automation."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:394
+msgid "Name for the multiview output stream."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:395
+msgid "Name, debug level, access logs"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:396
+msgid "name=value"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:397
+msgid "NDI Source"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:398
+msgid ""
+"NDI sources are auto-discovered on the local network for zero-config video "
+"capture."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:399
+msgid ""
+"NDI sources are auto-discovered on the local network. Select from the "
+"dropdown or type a custom name."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:400
+msgid "No processes configured. Add one below."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:401
+msgid ""
+"No protocols are enabled. Viewers won't be able to connect until you enable "
+"at least one output protocol."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:402
+msgid "No rules in this category."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:403
+msgid ""
+"No streams configured yet. Create your first stream to start publishing or "
+"serving media."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:404
+msgid "none"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:405
+msgid "Nord"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:406
+msgid "Note: the stream status on this page does not update automatically."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:408
+msgid ""
+"Notified when a segment is rejected by the Livepeer transcoding network."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:410
+msgid "On Stream Ready"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:411
+msgid "One Dark"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:412
+msgid "One-time push, starts immediately."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:413
+msgid "Only rows that contain this text are shown. Pagination applies to rows."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:414
+msgid "Only use this particular player."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:415
+msgid "Only use this particular source."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:416
+msgid "Open logs in a raw window for easier copying, searching, and sharing."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:417
+msgid ""
+"Open the preview in a new window for a full-screen, distraction-free view."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:418
+msgid "Operator"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:419
+msgid "Optional description or notes for this push."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:420
+msgid "Optional display name."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:421
+msgid "Optional friendly name for this process."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:422
+msgid ""
+"Optional list of tags and/or stream names: if any match the stream, this "
+"push will not start."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:423
+msgid "Other"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:424
+msgid "Other Protocol"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:425
+msgid "Output"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:426
+msgid "Output codec"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:427
+msgid "Output Finished"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:428
+msgid "Override Push Target"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:429
+msgid "Override Stream Source"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:431
+msgid "Packets lost"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:432
+msgid "Packets received"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:433
+msgid "Packets retransmitted"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:434
+msgid "Pan, tilt, zoom camera controls"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:435
+msgid "Parameters"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:436
+msgid ""
+"Parse incoming push URLs on any protocol to extract a custom stream name."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:437
+msgid "Password"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:438
+msgid "Path"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:439
+msgid ""
+"Path for the .m3u8 playlist file. Can be relative (to the segment path) or "
+"absolute."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:440
+msgid "Pauze updating the stream metadata information below"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:441
+msgid "Payload sent to handler"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:442
+msgid "Per-Stream"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:443
+msgid "Per-Stream Statistics"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:444
+msgid ""
+"Per-Stream stats let you compare bandwidth and viewer counts across all "
+"active streams."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:445
+msgid "pid"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:446
+msgid "Playback rate"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:447
+msgid "Player control"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:448
+msgid ""
+"Player skins and keyboard shortcuts are fully configurable via the "
+"MistVideoObject API."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:449
+msgid "Playlist path (m3u8)"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:450
+msgid "Please enter your password here."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:451
+msgid "Please enter your username here."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:452
+msgid "Please specify the url at which "
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:453
+msgid "Port"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:454
+msgid "Poster"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:455
+msgid "Pre-select these tracks."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:456
+msgid "Preselect tracks"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:458
+msgid ""
+"Prevent accidental stream deletion by requiring approval before a stream is "
+"removed."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:459
+msgid "Prevent Stream Unloading"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:461
+msgid ""
+"Preview any stream from the Streams page to verify output quality before "
+"going live."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:462
+msgid ""
+"Preview the stream directly from this page to verify what viewers will see."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:463
+msgid "Prioritize type"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:464
+msgid "Processes"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:465
+msgid ""
+"Processes can transcode, analyse with AI, overlay graphics, or transform "
+"streams in real time."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:466
+msgid ""
+"Processes run on the stream in real time - transcode, overlay, analyse, or "
+"composite."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:467
+msgid "Professional SDI video capture."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:468
+msgid "Prometheus"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:469
+msgid ""
+"Prometheus export requires a passphrase configured under General - access it "
+"at /passphrase on the API port."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:471
+msgid "Protocol connector status"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:473
+msgid "PTZ Protocol"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:474
+msgid "Public keys for JWT validation"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:475
+msgid "Pull a stream from a remote URL (HTTP, HTTPS, RTMP, and more)."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:476
+msgid "Pull a stream from an IP camera or other RTSP source."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:477
+msgid ""
+"Pull from IP cameras using RTSP, or capture local devices with V4L2 or NDI."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:478
+msgid ""
+"Pull streams fetch media from a remote URL on demand - great for restreaming "
+"or proxying."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:479
+msgid "Pull URL"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:480
+msgid "Push an MPEG-TS stream over UDP, TCP, or RTP."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:481
+msgid "Push Config"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:482
+msgid "Push Configuration"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:483
+msgid ""
+"Push source syntax: push://[host][@passphrase] - host supports CIDR notation "
+"like 192.168.0.0/16."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:484
+msgid "Push Stopped"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:485
+msgid "Push Stream"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:486
+msgid ""
+"Push streams accept incoming media from encoders like OBS, vMix, or FFmpeg "
+"via RTMP, SRT, or WebRTC (WHIP)."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:487
+msgid ""
+"Push streams are automatic wildcard templates - push to streamname+anything "
+"to create independent child streams that inherit the parent config."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:488
+msgid "Push target"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:489
+msgid "Push this many seconds of media, then stop. Leave empty for unlimited."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:490
+msgid "Push to an RTMP or RTMPS server."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:491
+msgid ""
+"Push to external platforms like YouTube, Twitch, or Facebook using RTMP or "
+"RTMPS targets."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:492
+msgid "Push to Facebook Live via RTMPS."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:493
+msgid "Push to Kick via RTMPS."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:494
+msgid "Push to Platform"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:495
+msgid "Push to Server"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:496
+msgid "Push to Twitch via RTMP."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:497
+msgid "Push to YouTube Live via RTMP."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:498
+msgid ""
+"PUSH_REWRITE triggers can remap incoming push URLs to wildcard stream names "
+"- use this for token-based authentication on multi-user platforms."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:500
+msgid ""
+"Pushes that do not contain this text in their stream, target or notes will "
+"be hidden."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:501
+msgid "React before the server shuts down. Can abort the shutdown."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:502
+msgid "React to server startup. Can prevent boot if the handler returns false."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:503
+msgid ""
+"React when a stream finishes loading and is ready for playback. Can shut "
+"down the input if rejected."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:504
+msgid "Receive"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:505
+msgid "Receive a live stream pushed into "
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:506
+msgid "Record"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:507
+msgid ""
+"Record as .ts or .mkv for crash resilience. Fragmented .fmp4 also survives "
+"interrupted writes."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:508
+msgid ""
+"Record as TS segments with an HLS playlist for seekable live playback with a "
+"rolling buffer window."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:509
+msgid "Record to Amazon S3 or compatible cloud storage."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:510
+msgid "Record to Cloud"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:511
+msgid "Record to File"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:512
+msgid "Recording Finished"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:513
+msgid ""
+"RECORDING_END triggers fire when a file recording finishes, with details "
+"like bytes written, duration, and exit reason."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:514
+msgid ""
+"Redirect a viewer to a different stream than the one they requested. Useful "
+"for A/B testing or load distribution."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:515
+msgid "Redirect Playback"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:516
+msgid ""
+"Regular MP4 must finalize headers on close - a crash means a broken file. "
+"Use .ts, .mkv, or .fmp4 instead."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:517
+msgid ""
+"Regular MP4 needs to finalize headers on close - a crash means a broken "
+"file. Use .ts, .mkv, or .fmp4 for long recordings."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:518
+msgid "Reliable Internet Stream Transport for broadcast-quality delivery."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:519
+msgid "Reload player"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:520
+msgid "Reload the video source"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:521
+msgid "Reload video"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:523
+msgid "Remove graph"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:524
+msgid "Remove item"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:525
+msgid ""
+"Remove segments older than this many seconds. Leave empty to rely only on "
+"max entries."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:526
+msgid "Repeat password"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:527
+msgid "Repeat your desired password."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:528
+msgid "Require stream key"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:530
+msgid ""
+"Restart the recording every N seconds at keyframe boundaries. Useful for "
+"creating segments."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:531
+msgid "Retransmitted"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:532
+msgid "Reusable values for stream sources, push targets, and file paths"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:533
+msgid "Reuse the playlist file if it already exists when the push restarts."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:534
+msgid "Reverse proxies must forward the X-Real-IP header - without it, "
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:535
+msgid "Review"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:536
+msgid ""
+"Rewrite incoming RTMP push URLs to custom formatting (e.g., stream key to "
+"stream name)."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:537
+msgid "Rewrite Push Stream Names"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:538
+msgid "Rewrite RTMP Push URLs"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:539
+msgid ""
+"Right-click any stream for quick actions like preview, embed code, or "
+"deletion."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:540
+msgid ""
+"Right-click any stream on the Streams page for quick actions like preview, "
+"embed code, or deletion."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:541
+msgid "Right-click most UI elements for contextual quick actions."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:542
+msgid "RIST"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:543
+msgid ""
+"RIST supports AES-128 and AES-256 encryption with automatic key rotation."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:544
+msgid "RIST, RTSP, WHIP, DTSC, NDI, CMAF, or any other supported protocol."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:545
+msgid "Rosé Pine"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:546
+msgid "Routing & Rewrites"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:547
+msgid "RTMP / RTMPS"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:548
+msgid "rtmp://ingest.example.com/live/streamkey"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:549
+msgid "RTSP Camera"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:550
+msgid "RTSP output lets other servers or software pull streams directly from "
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:551
+msgid "Running push outputs and their statistics"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:552
+msgid "Runs whenever the stream is active. Retries on failure."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:554
+msgid "Save "
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:555
+msgid "Save a stream to disk as MP4, MKV, or TS."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:556
+msgid "Save and close"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:557
+msgid "Save Credentials"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:559
+msgid "Saving..."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:560
+msgid "Scan this URI"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:561
+msgid "Schedule"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:562
+msgid ""
+"Schedule recordings using custom variables with date-checking logic, or "
+"calendar-based schedules."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:563
+msgid "Scheduled"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:564
+msgid "Scheduled and conditional push rules"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:565
+msgid "SDI Input"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:566
+msgid "SDI input requires additional licensing."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:568
+msgid "Search by event name, title, handler, or stream name."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:569
+msgid ""
+"Search configured push streams and click one to fill the stream name field."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:570
+msgid "Search streams and keys"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:571
+msgid "Seconds when stream was received"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:572
+msgid ""
+"Secure Reliable Transport for low-latency streaming over unpredictable "
+"networks."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:573
+msgid ""
+"See which viewers are currently connected, with session details and "
+"connection info."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:574
+msgid "Segment duration"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:575
+msgid "Segment file path"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:576
+msgid "Select a discovered source or type a custom value"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:577
+msgid "Select a stream..."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:578
+msgid ""
+"Select by codec (<code>h264</code>, <code>aac</code>), language (<code>eng</"
+"code>), "
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:579
+msgid "Select folder"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:580
+msgid "Selecting..."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:581
+msgid "Send"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:582
+msgid "Sequential segment number (DVR)"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:583
+msgid "Serial"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:584
+msgid "Serve"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:585
+msgid "Serve a folder of media files as on-demand wildcard streams."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:586
+msgid ""
+"Serve a folder of media files as on-demand wildcard sub-streams for easy VoD "
+"delivery."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:587
+msgid "Serve a media file for on-demand playback."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:588
+msgid "Server Boot"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:589
+msgid "Server Information"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:590
+msgid "Server latitude"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:591
+msgid "Server location name"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:592
+msgid "Server longitude"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:593
+msgid "Server name"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:594
+msgid "Server Overview"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:595
+msgid "Server Shutdown"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:596
+msgid "Server Statistics"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:597
+msgid "Server Stats"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:598
+msgid "Server time"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:599
+msgid "Server's bandwidth limit"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:600
+msgid "Service port (default 80)."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:601
+msgid "Session bundling and token handling"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:602
+msgid "Session Ended"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:603
+msgid "Session Id"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:604
+msgid ""
+"Session settings control how viewers are identified - a new session starts "
+"when stream name, token, or IP changes."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:605
+msgid "Sessions"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:606
+msgid "Set a base URL if "
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:607
+msgid "Set a public address if "
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:608
+msgid ""
+"Set the debug level higher to see more detail in the logs. Level 3 is "
+"recommended for production."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:609
+msgid ""
+"Set the name this stream will be recognised by for players and/or stream "
+"pushing."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:610
+msgid "Set up HTTPS"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:612
+msgid ""
+"Shut down a live stream if its bitrate exceeds a threshold. Protects your "
+"server from runaway encoders."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:613
+msgid ""
+"Shut down a running stream completely and/or clean up any potentially left "
+"over stream data in memory. It attempts a clean shutdown of the running "
+"stream first, followed by a forced shut down, and then follows up by "
+"checking for left over data in memory and cleaning that up if any is found."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:614
+msgid "sk_xxxxxxxxxxxxxxxxxxxx"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:616
+msgid "Snap to bottom"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:617
+msgid "Solarized"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:618
+msgid ""
+"Some parameters only apply to file-based targets and are hidden for network "
+"protocols."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:619
+msgid ""
+"Some protocols support multiple instances - click a protocol to see options."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:620
+msgid "Sort devices by"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:621
+msgid "Sort streams by"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:623
+msgid "Source URI will appear here as you configure the stream"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:624
+msgid "Specifies the maximum time, in seconds, "
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:625
+msgid "Speed"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:626
+msgid ""
+"Speed at which media is written. Use \"as fast as possible\" for offline "
+"transcoding of VoD content."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:627
+msgid "Split interval"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:628
+msgid "SRT"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:629
+msgid ""
+"SRT passphrases must be between 10 and 79 characters. Connections fail "
+"silently on mismatch."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:630
+msgid ""
+"SRT pushes provide reliable, low-latency delivery over unpredictable "
+"networks."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:631
+msgid ""
+"SRT supports Caller and Listener modes - Caller connects out, Listener waits "
+"for connections."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:632
+msgid ""
+"SRT supports Forward Error Correction (FEC) and passphrase-based encryption "
+"for secure delivery."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:633
+msgid ""
+"SRT: use separate ports for input and output to avoid a ~3-second latency "
+"penalty on some systems."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:634
+msgid "Standard grid"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:635
+msgid "Start a new push or recording directly from the stream status page."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:636
+msgid "Start and/or stop at specific times."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:637
+msgid "Start at (media time)"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:638
+msgid "Start muted"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:639
+msgid "Start now"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:640
+msgid "Start Push"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:641
+msgid "Start pushing from this media timestamp in milliseconds."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:642
+msgid "Start the video without audio."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:643
+msgid "Start time"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:645
+msgid ""
+"Statistics for inactive sessions are retained for approximately 10 minutes."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:647
+msgid "Stop at (media time)"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:648
+msgid "Stop pushing at this media timestamp in milliseconds."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:649
+msgid ""
+"Stopping an automatic push that still matches will cause it to reactivate. "
+"Use $variables in file names to avoid overwrites."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:651
+msgid "Stream \""
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:652
+msgid "Stream Config"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:653
+msgid "Stream Configuration"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:654
+msgid "Stream Ended"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:655
+msgid ""
+"Stream health is monitored in real time - check the Status page for bitrate, "
+"codec, and error details."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:656
+msgid "Stream info json"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:657
+msgid "Stream info script"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:658
+msgid "Stream key(s)"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:660
+msgid ""
+"Stream keys add an extra layer of ingest security - only encoders with the "
+"right key can push."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:661
+msgid ""
+"Stream keys are a method to bypass all security and allow an incoming push "
+"for the given stream. If a token that matches a stream is used it will be "
+"accepted. This will even apply to vod or unconfigured streams, making them "
+"active as a live stream with default settings. <br>Note: A stream with "
+"source 'push://' and a stream key would accept both its stream name and "
+"stream key for input. To avoid this enable the 'Require stream key' option."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:662
+msgid ""
+"Stream keys let you restrict who can push to a stream - configure them in "
+"the stream’s settings."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:663
+msgid "Stream Lifecycle"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:664
+msgid "Stream metadata"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:665
+msgid "Stream Name"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:666
+msgid "Stream name"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:667
+msgid "stream name"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:668
+msgid "Stream name or .png path"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:669
+msgid ""
+"Stream names are limited to 100 characters: lowercase a–z, digits, "
+"underscores, dashes, and periods only."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:670
+msgid ""
+"Stream names that do not contain the text you enter here will be hidden."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:671
+msgid "Stream status"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:672
+msgid ""
+"STREAM_BUFFER triggers fire when a stream’s buffer state changes (fill, "
+"empty, etc.)."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:673
+msgid ""
+"STREAM_PUSH triggers fire before an incoming push is accepted - return true "
+"to allow or false to reject."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:675
+msgid ""
+"Streams are your media sources - live ingest via RTMP/SRT/WebRTC, IP cameras "
+"via RTSP, local files for VoD, or folders for wildcard delivery. Each stream "
+"can have processes attached for transcoding, AI analytics, or recording."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:676
+msgid "Subpath"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:677
+msgid "Subtitle track"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:678
+msgid ""
+"Switch between thumbnail and list view using the view toggle in the toolbar."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:679
+msgid "Switch to the next available player and source combination"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:680
+msgid "System"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:681
+msgid "Tag name"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:682
+msgid "Tags"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:684
+msgid "Target URI will appear here as you configure the push"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:686
+msgid "text files"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:687
+msgid "The "
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:688
+msgid ""
+"The command that should be executed or the url that should be downloaded to "
+"retrieve the value for this variable.<br>For example:<br><code>/usr/bin/date "
+"+%A</code><br>There is a character limit of 511 characters."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:689
+msgid ""
+"The embed player auto-selects the best protocol for each viewer’s browser "
+"and network conditions."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:690
+msgid ""
+"The embed script will append this string to the video url, useful for "
+"sending through params."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:691
+msgid ""
+"The keys listed above should only grant access to the streams configured "
+"here.<br>You may use STREAMNAME+* to include all wildcard children."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:692
+msgid ""
+"The maximum amount of retries per second (for all automatic pushes).<br>If "
+"set to 0, there is no limit."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:693
+msgid ""
+"The overview refreshes automatically - active stream and viewer counts "
+"update in real time."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:694
+msgid ""
+"The player is designed for white-labelling - use built-in skins, custom CSS, "
+"or your own component library."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:695
+msgid ""
+"The preview player uses the same technology as your viewers - what you see "
+"is what they get."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:696
+msgid ""
+"The static value that this variable should be replaced with. There is a "
+"character limit of 63 characters."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:697
+msgid ""
+"The Statistics page tracks viewer counts, protocols, and bandwidth in real "
+"time."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:698
+msgid ""
+"The status page shows real-time stream health including bitrate, codec, and "
+"connection details."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:699
+msgid ""
+"The stream to push.<br><b>Matching patterns:</b> <code>live</code> - exact "
+"match only. <code>live+</code> - all wildcard children. <code>live+alice</"
+"code> - one specific child. <code>#tag</code> - any stream with this tag."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:700
+msgid "The type of controls that should be shown."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:701
+msgid "The variable that determines if this push should start."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:702
+msgid ""
+"The video will fit the available space in its container, even if the video "
+"stream has a smaller resolution."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:703
+msgid ""
+"The wizard guides you through source, settings, access, and processes step "
+"by step."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:704
+msgid "These settings only apply to automatic pushes."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:705
+msgid "This is the amount of traffic this server is willing to handle."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:706
+msgid ""
+"This script loads information about this stream into a mistvideo javascript "
+"object."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:707
+msgid "This setting is only useful when "
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:708
+msgid "Threads"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:709
+msgid "Tokyo Night"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:710
+msgid "Top streams by viewers"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:711
+msgid "Total"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:712
+msgid "Track List Updated"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:713
+msgid "Traffic limits and reporting exceptions"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:714
+msgid "Transcode audio to AAC for broad compatibility."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:715
+msgid "Transcode audio to Opus for WebRTC delivery."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:716
+msgid "Transcode video to 1080p H.264 with hardware acceleration."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:717
+msgid "Transcode video to 480p H.264 with hardware acceleration."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:718
+msgid "Transcode video to 720p H.264 with hardware acceleration."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:719
+msgid "Treat HTTP-only sessions as"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:720
+msgid "Trigger based on server variable values."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:721
+msgid ""
+"Triggers can be scoped globally (all streams) or limited to specific streams "
+"for fine-grained control."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:722
+msgid ""
+"Triggers can call external URLs (HTTP POST with X-Trigger header) or run "
+"local executables with the payload on stdin."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:723
+msgid ""
+"Triggers fire on events like stream start, viewer connect, push start, "
+"recording end, and more - 32 types in total."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:724
+msgid "Trusted proxies"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:725
+msgid "Try next combination"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:726
+msgid ""
+"Try to use this source type first, but fall back to something else if it is "
+"not available."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:727
+msgid ""
+"TS and MKV recordings survive interrupted writes - ideal for always-on "
+"recording."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:728
+msgid "Twitch"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:730
+msgid "type a host"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:731
+msgid "Type a stream name, wildcard (name+), or tag (#tag)…"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:732
+msgid "Type to filter files and folders."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:733
+msgid "Type to filter streams..."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:735
+msgid "Unlimited"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:736
+msgid "Upload"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:737
+msgid "Upload a JWKS file from your computer."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:738
+msgid ""
+"Upload a saved configuration to restore a backup or migrate settings from "
+"another instance."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:739
+msgid "Uploading..."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:741
+msgid "URI protocols which the external writer will be handling."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:742
+msgid "URL to an image that is displayed when the video is not playing."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:743
+msgid "Url(s) to JSON web key set (JWKS)"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:744
+msgid ""
+"Use $datetime and $day variables in push paths for automatic date-stamped "
+"recordings."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:745
+msgid ""
+"Use $stream, $datetime, $day, and $currentMediaTime in file paths to "
+"generate unique file names automatically."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:746
+msgid "Use certbot or your own PEM certificates to enable HTTPS directly in "
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:747
+msgid ""
+"Use Compose to combine multiple streams into a single multiview or "
+"composited output."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:748
+msgid ""
+"Use folders to serve a directory of media files as wildcard sub-streams - "
+"each file becomes streamname+filename."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:749
+msgid "Use keys to permit stream input"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:750
+msgid "Use keys to permit viewing"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:751
+msgid ""
+"Use passphrases or IP whitelists (CIDR notation) in the push:// source to "
+"control who can ingest."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:752
+msgid ""
+"Use PUSH_REWRITE triggers to authenticate incoming pushes and remap them to "
+"wildcard stream names for secure multi-user ingest."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:753
+msgid ""
+"Use PUSH_REWRITE triggers to dynamically remap incoming push stream names or "
+"reject unauthorised pushes."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:754
+msgid ""
+"Use split=N in push targets to restart recording every ~N seconds, aligned "
+"to the nearest keyframe."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:755
+msgid ""
+"Use streamname+ (with trailing +) in auto-push rules to match all wildcard "
+"children. Combine with $wildcard in file paths for per-user recordings."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:756
+msgid ""
+"Use the Access step to restrict who can push to this stream by IP (CIDR "
+"notation) or passphrase."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:757
+msgid ""
+"Use the API base URL shown in the intro to build custom stats integrations."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:758
+msgid ""
+"Use the clipping API to extract time-based segments from recordings without "
+"re-encoding."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:759
+msgid ""
+"Use the clipping API to extract time-based segments without re-encoding "
+"(requires "
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:760
+msgid ""
+"Use the Compose scenario to combine multiple streams into a single multiview "
+"output."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:761
+msgid "Use the filter bar to quickly find streams by name or source type."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:762
+msgid ""
+"Use the filter input to search logs by keyword, stream name, or error "
+"message."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:763
+msgid ""
+"Use the protocol selector to test different output formats (HLS, DASH, "
+"WebRTC, etc.)."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:764
+msgid ""
+"Use the Protocols page to configure which output formats are available to "
+"your viewers."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:765
+msgid ""
+"Use track selectors to control which audio/video tracks are delivered - e.g. "
+"for multi-language streams."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:766
+msgid "Use USER_NEW triggers to authenticate viewers before they can watch."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:767
+msgid ""
+"Use variables like $stream, $datetime, $day, and $currentMediaTime in "
+"recording paths for dynamic file names."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:768
+msgid "Used"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:769
+msgid "User-defined charts and data visualization"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:770
+msgid "user:password@host:554/path"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:771
+msgid ""
+"USER_END triggers fire when a viewer disconnects - useful for analytics or "
+"session cleanup."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:772
+msgid "Username"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:773
+msgid "Utility"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:774
+msgid "V4L2 Device"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:775
+msgid ""
+"Valid JWTs bypass all triggers and security hooks. Use the "
+"invalidate_sessions API call to revoke access immediately."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:776
+msgid "Value"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:777
+msgid "Value variable hints"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:779
+msgid "Variable hints"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:780
+msgid "Variable name"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:781
+msgid "Version"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:782
+msgid "Version "
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:783
+msgid "Version check"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:784
+msgid "Video Processing"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:785
+msgid "Video track"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:786
+msgid "Video URL addition"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:787
+msgid "View streams"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:788
+msgid "Viewer Analytics"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:789
+msgid ""
+"Viewer Analytics shows connection counts and protocols used. Geographic data "
+"requires a separate GeoIP setup."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:790
+msgid "Viewers"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:791
+msgid "Viewers, bandwidth, and packet loss per stream"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:792
+msgid "Visit the "
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:793
+msgid ""
+"VoD streams serve a media file for on-demand playback - MP4, MKV, FLV, TS, "
+"and more are supported."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:794
+msgid "Wait time"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:795
+msgid ""
+"WebRTC offers the lowest latency (<1s) - ideal for interactive or real-time "
+"applications."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:796
+msgid ""
+"WebRTC preview gives the lowest latency - ideal for verifying real-time "
+"interactions."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:797
+msgid ""
+"WebRTC requires B-frames to be disabled in the encoder - they cause stutters "
+"and visual artifacts."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:798
+msgid ""
+"What should the variable be called? A dollar sign will automatically be "
+"prepended."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:799
+msgid "What should this automation react to?"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:800
+msgid "What the player should do when playback is poor."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:801
+msgid "What would you like to do with this push?"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:802
+msgid ""
+"When a valid JWT - signed with one of these keys - is provided, access "
+"should be granted to input the stream."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:803
+msgid ""
+"When a valid JWT - signed with one of these keys - is provided, access "
+"should be granted to the "
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:804
+msgid ""
+"When a valid JWT - signed with one of these keys - is provided, access "
+"should be granted to view the stream."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:805
+msgid ""
+"When a viewer requests a stream that does not exist or is offline, they will "
+"be redirected to this stream instead."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:806
+msgid ""
+"When a viewer requests a stream that doesn't exist or is offline, redirect "
+"them to a fallback."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:807
+msgid ""
+"When disabled, the automatic push will not start new pushes but stays "
+"configured."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:808
+msgid "When the push will become active. Leave empty to start immediately."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:809
+msgid "When the push will stop. Leave empty to never stop automatically."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:810
+msgid ""
+"When this is set, if someone attempts to view a stream that does not exist, "
+"or is offline, they will be redirected to this stream instead. $stream may "
+"be used to refer to the original stream name."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:811
+msgid ""
+"Where each .ts segment is written. Use <b>template variables</b> (shown "
+"below) for dynamic naming."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:812
+msgid "Whether or not the video should play as the page is loaded."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:813
+msgid "Width"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:814
+msgid "Wildcard part only, after + (e.g. alice)"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:815
+msgid ""
+"Wildcard streams use + as the separator (streamname+identifier). The total "
+"length must stay under 100 bytes."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:816
+msgid "Wildcard with + prefix (e.g. +alice, or empty if no wildcard)"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:817
+msgid ""
+"Would you like to enable all (currently) available protocols with their "
+"default settings?"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:818
+msgid ""
+"X (Twitter), Instagram, TikTok, Restream, or any other RTMP/RTMPS ingest."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:819
+msgid "xxxx-xxxx-xxxx-xxxx-xxxx"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:820
+msgid "You can name your "
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:821
+msgid "You can set the amount of debug information "
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:822
+msgid ""
+"You can use JSON web tokens (JWT) to control permissions for viewing certain "
+"streams, inputting a stream or even access to this Management Interface."
+"<br>Here, you can add your public keys (JWK) that will be used to validate "
+"the JWT's. You can also supply an url from which "
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:823
+msgid "You can use this form to email "
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:824
+msgid "You have "
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:825
+msgid "Your config file"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:826
+msgid "Your email address"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:827
+msgid "Your message"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:828
+msgid "Your name"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.5nL9WJwhMP/lsp-markers.js:829
+msgid "YouTube Live"
+msgstr ""
+
+#: lsp/modules/pushes/push_config.js:457
+#, javascript-format
+msgid "Configure the stream source and %s destination."
+msgstr ""
+
+#: lsp/modules/pushes/push_config.js:458
+msgid "Configure the stream source and push target."
+msgstr ""
+
+#: lsp/modules/components/composer.js:574
+msgid ""
+"The 'layered' layout overlays all sources, which is useful for transparent "
+"or intermittently offline layers."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.PZ0WZ8JsmT/lsp-markers.js:352
+msgid "Layered"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.PZ0WZ8JsmT/lsp-markers.js:405
+msgid "No tracks"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.PZ0WZ8JsmT/lsp-markers.js:449
+msgid "Playback source priority weighing"
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.PZ0WZ8JsmT/lsp-markers.js:450
+msgid ""
+"Playback sources are scored across these categories and sorted from highest "
+"to lowest expected performance."
+msgstr ""
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.PZ0WZ8JsmT/lsp-markers.js:602
+msgid "Server tags"
+msgstr ""
+
+#: lsp/modules/streams/stream_config.js:749
+msgid "Composer works with raw media only"
+msgstr ""
+
+#: lsp/modules/streams/stream_config.js:750
+msgid ""
+"Most streams are encoded. MistProcAV must decode each video source to UYVY "
+"(and the selected audio source to PCM) before MistProcComposer can use it. "
+"The composed UYVY output normally needs a second MistProcAV step for "
+"delivery. SDI/raw inputs and PNG images do not need a video decoder."
+msgstr ""
+
+#: lsp/modules/streams/stream_config.js:798
+msgid ""
+"MistProcAV is unavailable. Only already-raw sources can be composed, and the "
+"result cannot be encoded here."
+msgstr ""
+
+#: lsp/modules/streams/stream_config.js:828
+msgid "Media pipeline"
+msgstr ""
+
+#: lsp/modules/streams/stream_config.js:838
+msgid ""
+" Add missing MistProcAV UYVY decoders to configured source streams when "
+"saving (recommended)"
+msgstr ""
+
+#: lsp/modules/streams/stream_config.js:841
+msgid "Delivery output "
+msgstr ""
+
+#: lsp/modules/streams/stream_config.js:856
+msgid ""
+"Audio is optional. Select a stream under Settings → Copy audio; it must "
+"provide PCM. With automatic preparation enabled, a PCM decoder is added to "
+"that configured source as well. For bitrate, presets, or multiple output "
+"renditions, configure MistProcAV in the Processes step."
+msgstr ""
+
+#: lsp/modules/streams/stream_config.js:954
+msgid "Delivery output"
+msgstr ""
+
+#: lsp/modules/streams/stream_config.js:955
+msgid "Raw UYVY"
+msgstr ""
+
+#: lsp/modules/streams/stream_config.js:955
+msgid " via MistProcAV"
+msgstr ""
+
+#: lsp/modules/streams/streams.js:105
+msgid "Show active wildcard instances"
+msgstr ""

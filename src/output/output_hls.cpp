@@ -290,6 +290,7 @@ namespace Mist{
     capa["optional"]["listlimit"]["default"] = 0;
     capa["optional"]["listlimit"]["type"] = "uint";
     capa["optional"]["listlimit"]["option"] = "--list-limit";
+    capa["optional"]["listlimit"]["display"] = "advanced";
 
     cfg->addOption("chunkedsegments", R"-({
       "short":"C","long":"chunked-segments",
@@ -302,6 +303,7 @@ namespace Mist{
     capa["optional"]["chunkedsegments"]["option"] = "--chunked-segments";
     capa["optional"]["chunkedsegments"]["short"] = "C";
     capa["optional"]["chunkedsegments"]["default"] = false;
+    capa["optional"]["chunkedsegments"]["display"] = "advanced";
 
     cfg->addOption("chunkpath", R"-({
       "arg":"string","default":"",
@@ -316,6 +318,7 @@ namespace Mist{
     capa["optional"]["chunkpath"]["option"] = "--chunkpath";
     capa["optional"]["chunkpath"]["short"] = "e";
     capa["optional"]["chunkpath"]["default"] = "";
+    capa["optional"]["chunkpath"]["display"] = "advanced";
   }
 
   void OutHLS::respondHTTP(const HTTP::Parser & req, bool headersOnly) {

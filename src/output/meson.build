@@ -46,6 +46,10 @@ if get_option('WITH_SANITY')
   outputs += {'name' : 'SanityCheck', 'format' : 'sanitycheck'}
 endif
 
+if have_ndi
+  outputs += {'name' : 'NDI', 'format' : 'ndi', 'extra': 'with_ndi'}
+endif
+
 #Referenced by targets in process
 output_ebml_cpp = files('output_ebml.cpp')
 output_http_cpp = files('output_http.cpp')
@@ -90,6 +94,10 @@ foreach output : outputs
     if extra.contains('with_srt')
       deps += libmist_srt_dep
       deps += libsrt
+    endif
+    if extra.contains('with_ndi')
+      deps += ndi_lib_dep
+      deps += ndi_sdk_dep
     endif
     if extra.contains('srtp')
       sources += files('output_webrtc_srtp.cpp', 'output_webrtc_srtp.h')

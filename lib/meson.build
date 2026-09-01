@@ -4,6 +4,7 @@ headers = [
   'amf.h',
   'auth.h',
   'av1.h',
+  'embedded_fs.h',
   'encode.h',
   'bitfields.h',
   'bitstream.h',
@@ -13,6 +14,7 @@ headers = [
   'comms.h',
   'config.h',
   'defines.h',
+  'device.h',
   'dtsc.h',
   'ev.h',
   'flv_tag.h',
@@ -36,6 +38,7 @@ headers = [
   'ogg.h',
   'pixels.h',
   'procs.h',
+  'device_visca.h',
   'rtmpchunks.h',
   'rtp_fec.h',
   'rtp.h',
@@ -53,6 +56,7 @@ headers = [
   'util.h',
   'vorbis.h',
   'triggers.h',
+  'tr.h',
   'opus.h',
   'riff.h',
   'ebml.h',
@@ -74,6 +78,14 @@ if usessl
   extra_code += ['stun.cpp', 'certificate.cpp', 'encryption.cpp',]
 endif
 
+if have_ndi
+  headers += 'device_ndi.h'
+endif
+
+if have_libxml2
+  headers += ['device_onvif.h', 'soap.h', 'xml.h']
+endif
+
 install_headers(headers, subdir: 'mist')
 
 libmist = library('mist',
@@ -87,6 +99,7 @@ libmist = library('mist',
   'cmaf.cpp',
   'comms.cpp',
   'config.cpp',
+  'device.cpp',
   'dtsc.cpp',
   'ev.cpp',
   'flv_tag.cpp',
@@ -110,6 +123,7 @@ libmist = library('mist',
   'ogg.cpp',
   'pixels.cpp',
   'procs.cpp',
+  'device_visca.cpp',
   'rtmpchunks.cpp',
   'rtp_fec.cpp',
   'rtp.cpp',
@@ -149,4 +163,28 @@ libmist_dep = declare_dependency(
 if have_srt
   libmist_srt = library('mist_srt', 'socket_srt.cpp', dependencies: [libsrt, libmist_dep], install: true)
   libmist_srt_dep = declare_dependency(link_with: [libmist_srt])
+endif
+
+if have_ndi
+  libndi = library(
+    'mistndi',
+    'device_ndi.cpp',
+    include_directories: incroot,
+    dependencies: [libmist_dep, ndi_sdk_dep],
+    install: true
+  )
+  ndi_lib_dep = declare_dependency(link_with: [libndi])
+endif
+
+if have_libxml2
+  libonvif = library(
+    'mistonvif',
+    'xml.cpp',
+    'soap.cpp',
+    'device_onvif.cpp',
+    include_directories: incroot,
+    dependencies: [libmist_dep, libxml2],
+    install: true
+  )
+  onvif_lib_dep = declare_dependency(link_with: [libonvif])
 endif

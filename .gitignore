@@ -66,12 +66,11 @@ aes_ctr128
 /embed/testing
 *test
 !test/
-!test/http_response.cpp
-!test/hls_live_window.cpp
-!test/cmaf_muxed.cpp
+!test/*.cpp
 CMakeDoxyfile.in
 RelAccXSampler
 subprojects/
 !subprojects/packagefiles/
 !subprojects/*.wrap
 .vscode/
+node_modules/

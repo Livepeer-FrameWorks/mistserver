@@ -168,6 +168,7 @@ namespace Socket{
     mbedtls_ctr_drbg_context *ctr_drbg;
     mbedtls_ssl_context *ssl;
     mbedtls_ssl_config *conf;
+    mbedtls_x509_crt *caCert;
 #endif
 
   public:
@@ -186,7 +187,8 @@ namespace Socket{
     ~Connection();
     // generic methods
     void open(int sockNo); // Open from existing socket connection.
-    void open(std::string host, int port, bool nonblock, bool with_ssl = false, const std::string & hostname = ""); // Open TCP connection.
+    void open(std::string host, int port, bool nonblock, bool with_ssl = false, const std::string & hostname = "",
+              bool verifyPeer = false, const std::string &caFile = ""); // Open TCP connection.
     void open(std::string adres, bool nonblock = false); // Open Unix connection.
     void open(int write, int read);                      // Open from two existing file descriptors.
 #ifdef SSL
@@ -303,7 +305,7 @@ namespace Socket{
   public:
     Util::ResizeablePointer data;
     UDPConnection(const UDPConnection &o);
-    UDPConnection(bool nonblock = false);
+    UDPConnection(bool nonblock = false, int family = AF_INET6);
     UDPConnection(const void * dest, size_t destLen, const void * loc, size_t locLen);
     UDPConnection(const Socket::Address & remote, const Socket::Address & local = unsetAddress);
     ~UDPConnection();

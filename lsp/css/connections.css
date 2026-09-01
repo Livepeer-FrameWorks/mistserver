@@ -1,0 +1,92 @@
+/* The page intro already carries the slab seam via slab-shell--seamed,
+   so drop its own bottom border to avoid a doubled divider. */
+.connections-shell > .input_container > .text_container.page-intro {
+  border-bottom: 0;
+}
+
+/* The context menu is an overlay child of the shell; keep the seam off it. */
+.connections-shell > .context_menu {
+  border-top: 0;
+}
+
+/* Filter + result are slab sections: just give them gutters and let the
+   native .input_container / .UIelement form layout handle field alignment. */
+.connections-shell > .connections-filter,
+.connections-shell > .connections-result {
+  padding: var(--sp-md) var(--sp-lg);
+}
+.connections-shell > .connections-filter > .input_container {
+  margin: 0;
+}
+.connections-shell > .connections-filter h3 {
+  margin: 0 0 var(--sp-sm);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--secondaryTextColor);
+}
+
+.connections-shell > .connections-result {
+  min-width: 0;
+}
+.connections-shell > .connections-result > .table-scroll {
+  margin: 0;
+}
+.connections-shell > .connections-result > p.description {
+  margin: 0;
+}
+
+/* 13-column table can overflow narrow viewports; keep cells on one line and
+   let the .table-scroll wrapper handle horizontal overflow. */
+.connections-table {
+  width: 100%;
+  white-space: nowrap;
+}
+.connections-table th,
+.connections-table td {
+  vertical-align: top;
+}
+/* When a column is resized narrower than its content, clip with an ellipsis so
+   the body cell shrinks with the header instead of overflowing into neighbours. */
+.connections-table td {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.connections-table td > * {
+  max-width: 100%;
+}
+.connections-table td .clickable {
+  color: var(--accentColor);
+  cursor: pointer;
+}
+
+/* Numeric columns (durations, bytes, packet counts) read better right-aligned. */
+.connections-table td.numeric,
+.connections-table th.numeric {
+  text-align: right;
+}
+
+/* Tags: the global `.tags .tag` uses a translucent accent background with the
+   near-white default text color, which is low-contrast here. Give them a
+   readable chip styling that holds up in both light and dark themes. */
+.connections-result .tags {
+  display: flex;
+  flex-flow: row wrap;
+  gap: var(--sp-xs);
+}
+.connections-result .tags .tag {
+  background-color: color-mix(in srgb, var(--accentColor), transparent 82%);
+  color: var(--textColor);
+  border: 1px solid color-mix(in srgb, var(--accentColor), transparent 55%);
+  cursor: default;
+  margin-right: 0;
+}
+
+@media (max-width: 768px) {
+  .connections-shell > .connections-filter,
+  .connections-shell > .connections-result {
+    padding-left: var(--sp-md);
+    padding-right: var(--sp-md);
+  }
+}

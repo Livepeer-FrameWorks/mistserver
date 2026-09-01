@@ -1,0 +1,25 @@
+{
+  "name": "@mistserver/lsp",
+  "private": true,
+  "type": "module",
+  "version": "1.0.0",
+  "description": "MistServer web management interface",
+  "scripts": {
+    "dev": "npx esbuild modules/main.js --bundle --format=esm --outfile=bundle.js --watch",
+    "build": "./generateLSP.sh",
+    "test": "node --test test/lsp/*.test.js",
+    "preflight": "./scripts/lsp_preflight.sh"
+  },
+  "dependencies": {
+    "@optimist-video/mistplayer-core": "workspace:*",
+    "@livepeer-frameworks/player-wc": "^0.1.8",
+    "@livepeer-frameworks/streamcrafter-wc": "^0.1.9",
+    "chart.js": "^4.5.0",
+    "chartjs-adapter-date-fns": "^3.0.0",
+    "lucide": "^0.469.0"
+  },
+  "devDependencies": {
+    "esbuild": "^0.27.3",
+    "terser": "^5.0.0"
+  }
+}

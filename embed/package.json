@@ -1,16 +1,38 @@
 {
-  "name": "mistserver-metaplayer",
-  "version": "3.1.0",
-  "description": "Meta-player for use with MistServer",
-  "scripts": {
-    "minimize": "./minimize_internal.sh"
+  "name": "@optimist-video/mistplayer-core",
+  "version": "1.1.4",
+  "description": "Adaptive streaming media player with automatic protocol selection, multi-player support, and fully customizable.",
+  "type": "module",
+  "main": "dist/player.iife.js",
+  "module": "dist/index.js",
+  "unpkg": "dist/player.iife.js",
+  "jsdelivr": "dist/player.iife.js",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "default": "./dist/player.iife.js"
+    },
+    "./iife": "./dist/player.iife.js",
+    "./skins/*": "./dist/skins/*"
   },
-  "dependencies": {
+  "files": [
+    "dist/",
+    "src/"
+  ],
+  "scripts": {
+    "build": "bash build.sh",
+    "dev": "npx esbuild src/iife.js --bundle --format=iife --outfile=dist/player.iife.js --watch"
+  },
+  "license": "Unlicense",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/DDVTECH/mistserver.git",
+    "directory": "embed"
+  },
+  "devDependencies": {
     "@videojs/html": "10.0.0-beta.32",
-    "clean-css-cli": "^4.3.0",
     "dashjs": "5.2.1",
-    "esbuild": "0.25.9",
-    "hls.js": "1.7.1",
-    "terser": "^3.17.0"
+    "esbuild": "^0.27.3",
+    "hls.js": "1.7.1"
   }
 }

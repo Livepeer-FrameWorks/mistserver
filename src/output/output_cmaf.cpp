@@ -269,6 +269,7 @@ namespace Mist{
     capa["optional"]["chunkedsegments"]["option"] = "--chunked-segments";
     capa["optional"]["chunkedsegments"]["short"] = "C";
     capa["optional"]["chunkedsegments"]["default"] = false;
+    capa["optional"]["chunkedsegments"]["display"] = "advanced";
 
     cfg->addOption("mergesessions",
                    JSON::fromString("{\"short\":\"M\",\"long\":\"mergesessions\",\"help\":\"Merge "

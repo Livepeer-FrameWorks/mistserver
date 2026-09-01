@@ -1,0 +1,3400 @@
+msgid ""
+msgstr ""
+"Project-Id-Version: mistserver-backend\n"
+"PO-Revision-Date: 2026-08-19 00:00+0200\n"
+"Last-Translator: Automatically generated\n"
+"Language-Team: Spanish\n"
+"Language: es-ES\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=2; plural=(n != 1);\n"
+
+msgid "After a new connection is accepted"
+msgstr "Después de aceptar una nueva conexión"
+
+msgid "After a new connection is closed"
+msgstr "Después de cerrar una nueva conexión"
+
+msgid "After MistServer boot"
+msgstr "Después del arranque de MistServer"
+
+msgid "After the list of valid tracks has been updated"
+msgstr "Después de que se haya actualizado la lista de pistas válidas"
+
+msgid "Apple segmented over HTTP (HLS)"
+msgstr "Apple segmentado a través de HTTP (HLS)"
+
+msgid "Aspect ratio handling"
+msgstr "Manejo de la relación de aspecto"
+
+msgid "Audio channels"
+msgstr "Canales de audio"
+
+msgid "Before a connector starts listening for connections"
+msgstr "Antes de que un conector comience a escuchar conexiones"
+
+msgid "Before a connector stops listening for connections"
+msgstr "Antes de que un conector deje de escuchar conexiones"
+
+msgid "Before a new stream is configured"
+msgstr "Antes de configurar una nueva transmisión"
+
+msgid "Before a stream input is loaded"
+msgstr "Antes de cargar una entrada de flujo"
+
+msgid "Before a stream input is unloaded"
+msgstr "Antes de descargar una entrada de flujo"
+
+msgid "Before an existing stream is removed"
+msgstr "Antes de eliminar una transmisión existente"
+
+msgid "Before an incoming push is accepted"
+msgstr "Antes de que se acepte un envío entrante"
+
+msgid "Before MistServer shuts down"
+msgstr "Antes de que MistServer se apague"
+
+msgid "Bitrate"
+msgstr "tasa de bits"
+
+msgid "connector configuration (JSON)"
+msgstr "configuración del conector (JSON)"
+
+msgid "Copy audio"
+msgstr "copiar audio"
+
+msgid "Don't print"
+msgstr "no imprimir"
+
+msgid "Every time a live stream buffer changes state"
+msgstr "Cada vez que un búfer de transmisión en vivo cambia de estado"
+
+msgid "Every time a new session is added to the session cache"
+msgstr "Cada vez que se agrega una nueva sesión al caché de sesiones"
+
+msgid "Every time a push stops, for any reason"
+msgstr "Cada vez que se detiene un empujón, por cualquier motivo"
+
+msgid "Every time a stream's configuration changes"
+msgstr "Cada vez que cambia la configuración de una transmisión"
+
+msgid "Every time an Input process exits with an error"
+msgstr "Cada vez que un proceso de entrada sale con un error"
+
+msgid "Everything"
+msgstr "todo"
+
+msgid "Frame rate"
+msgstr "Velocidad de fotogramas"
+
+msgid "Free Lossless Audio Codec"
+msgstr "Códec de audio sin pérdidas gratuito"
+
+msgid "Hardware acceleration"
+msgstr "Aceleración de hardware"
+
+msgid "HTTP"
+msgstr "HTTP"
+
+msgid "HTTP connection handler, provides all enabled HTTP-based outputs"
+msgstr ""
+"Controlador de conexión HTTP, proporciona todas las salidas basadas en HTTP "
+"habilitadas"
+
+msgid "HTTPS (HTTP+TLS)"
+msgstr "HTTPS (HTTP+TLS)"
+
+msgid "HTTPS connection handler, provides all enabled HTTP-based outputs"
+msgstr ""
+"Controlador de conexión HTTPS, proporciona todas las salidas basadas en HTTP "
+"habilitadas"
+
+msgid "If false, aborts shutdown."
+msgstr "Si es falso, cancela el apagado."
+
+msgid "If false, shuts down the server."
+msgstr "Si es falso, apaga el servidor."
+
+msgid "JSON over HTTP"
+msgstr "JSON sobre HTTP"
+
+msgid "Keep original value"
+msgstr "Mantener el valor original"
+
+msgid "MP4 over HTTP"
+msgstr "MP4 sobre HTTP"
+
+msgid "NDI input using NDI SDK"
+msgstr "Entrada NDI usando NDI SDK"
+
+msgid "NDI output"
+msgstr "salida NDI"
+
+msgid "None."
+msgstr "Ninguno."
+
+msgid "Nothing"
+msgstr "nada"
+
+msgid "Offline stream action"
+msgstr "Acción de transmisión sin conexión"
+
+msgid "OGG over HTTP"
+msgstr "OGG sobre HTTP"
+
+msgid "Output track mask"
+msgstr "Máscara de pista de salida"
+
+msgid "Print timing"
+msgstr "Tiempo de impresión"
+
+msgid "Provides WebRTC output"
+msgstr "Proporciona salida WebRTC"
+
+msgid "Pseudostreaming in FLAC format over HTTP"
+msgstr "Pseudostreaming en formato FLAC sobre HTTP"
+
+msgid "Pseudostreaming in MP4 format over HTTP"
+msgstr "Pseudostreaming en formato MP4 a través de HTTP"
+
+msgid "Pseudostreaming in MPEG2/TS format over HTTP"
+msgstr "Pseudostreaming en formato MPEG2/TS a través de HTTP"
+
+msgid "Pseudostreaming in OGG format over HTTP"
+msgstr "Pseudostreaming en formato OGG a través de HTTP"
+
+msgid "Pseudostreaming in WAV format over HTTP"
+msgstr "Pseudostreaming en formato WAV sobre HTTP"
+
+msgid "Quality"
+msgstr "Calidad"
+
+msgid "Real Time Streaming in RTSP, over both RTP UDP and TCP"
+msgstr "Streaming en tiempo real en RTSP, a través de RTP, UDP y TCP"
+
+msgid "Real time streaming over Adobe RTMP"
+msgstr "Transmisión en tiempo real a través de Adobe RTMP"
+
+msgid "Removal timeout"
+msgstr "Tiempo de espera de eliminación"
+
+msgid "RTMP"
+msgstr "RTMP"
+
+msgid "RTSP"
+msgstr "RTSP"
+
+msgid "Sample rate"
+msgstr "Frecuencia de muestreo"
+
+msgid "Scaling algorithm"
+msgstr "Algoritmo de escala"
+
+msgid "Source selector(s)"
+msgstr "Selector(es) de fuente"
+
+msgid "Source track mask"
+msgstr "Máscara de pista de origen"
+
+msgid "stream name (string)"
+msgstr "nombre de la secuencia (cadena)"
+
+msgid "Target framerate"
+msgstr "Velocidad de fotogramas objetivo"
+
+msgid "Target stream"
+msgstr "Flujo objetivo"
+
+msgid "TS over HTTP"
+msgstr "TS sobre HTTP"
+
+msgid "WAV over HTTP"
+msgstr "WAV sobre HTTP"
+
+msgid "WebRTC"
+msgstr "WebRTC"
+
+msgid "When a push to file finishes"
+msgstr "Cuando finaliza un envío para presentar"
+
+msgid "When a stream finished loading and is ready for playback"
+msgstr ""
+"Cuando una transmisión terminó de cargarse y está lista para reproducirse"
+
+msgid "When an output finishes"
+msgstr "Cuando finaliza una salida"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:3
+msgid ""
+"(Root) certificate file(s) to append to chain. If unset, these will be taken "
+"from a configured HTTPS protocol (if any), or fall back to an auto-generated "
+"self-signed certificate for every connection."
+msgstr ""
+"Archivo(s) de certificado (raíz) para anexar a la cadena. Si no se "
+"configuran, estos se tomarán de un protocolo HTTPS configurado (si "
+"corresponde) o recurrirán a un certificado autofirmado generado "
+"automáticamente para cada conexión."
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:4
+msgid ""
+"(string) Output device capabilities for given device in JSON format, then "
+"exit"
+msgstr ""
+"(cadena) Capacidades del dispositivo de salida para un dispositivo "
+"determinado en formato JSON, luego salga"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:5
+msgid "0 for async (default), 1 for sync"
+msgstr "0 para asíncrono (predeterminado), 1 para sincronización"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:6
+msgid "a KID:KEY combo for auto-encrypting tracks"
+msgstr "un combo KID:KEY para pistas de cifrado automático"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:7
+msgid ""
+"A non-empty response will set the push target to the response value. An "
+"empty response will abort the push. Variable substitution will still take "
+"place."
+msgstr ""
+"Una respuesta que no esté vacía establecerá el objetivo de inserción en el "
+"valor de respuesta. Una respuesta vacía abortará el envío. La sustitución de "
+"variables seguirá teniendo lugar."
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:8
+msgid ""
+"A non-empty response will set the stream source to the response value. An "
+"empty response will cause the stream source to not be changed from the "
+"normally configured stream source."
+msgstr ""
+"Una respuesta que no esté vacía establecerá la fuente de la transmisión en "
+"el valor de la respuesta. Una respuesta vacía hará que la fuente de la "
+"transmisión no se cambie respecto de la fuente de la transmisión normalmente "
+"configurada."
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:9
+msgid ""
+"A raw media composer that lets you create picture-in-picture feeds, "
+"multiviewers, add image overlays or backgrounds, have fallbacks when sources "
+"go down, and much more. It only acts on raw media (UYVY video, PCM audio) so "
+"its sources must be decoded before it can use them, and the result will "
+"usually need to be encoded before it can be send over a network connection."
+msgstr ""
+"Un compositor de medios sin formato que le permite crear feeds de imagen en "
+"imagen, visualizadores múltiples, agregar superposiciones de imágenes o "
+"fondos, tener respaldos cuando las fuentes fallan y mucho más. Solo actúa en "
+"medios sin procesar (video UYVY, audio PCM), por lo que sus fuentes deben "
+"decodificarse antes de poder usarlas y, por lo general, será necesario "
+"codificar el resultado antes de poder enviarlo a través de una conexión de "
+"red."
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:10
+msgid "AAC"
+msgstr "CAA"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:11
+msgid "AAC over HTTP"
+msgstr "AAC sobre HTTP"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:12
+msgid "AAC progressive"
+msgstr "CAA progresiva"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:13
+msgid "Acceptable connection types"
+msgstr "Tipos de conexión aceptables"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:14
+msgid "Acceptable pushed streamids"
+msgstr "Streamids empujados aceptables"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:15
+msgid ""
+"Acceptable pushed streamids (0 = use streamid as wildcard, 1 = ignore all "
+"streamids, 2 = disallow non-matching streamids)"
+msgstr ""
+"Streamids enviados aceptables (0 = usar streamid como comodín, 1 = ignorar "
+"todos los streamids, 2 = no permitir streamids que no coincidan)"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:16
+msgid "Access token"
+msgstr "token de acceso"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:17
+msgid "Active players"
+msgstr "Jugadores activos"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:21
+msgid "Algorithm used for scaling input sources to fit grid cells"
+msgstr ""
+"Algoritmo utilizado para escalar fuentes de entrada para que se ajusten a "
+"las celdas de la cuadrícula"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:22
+msgid ""
+"All available socket options to libSRT are available as parameter, look for "
+"'TSSRT Push parameters' in the documentations. Example of the most popular "
+"parameters:\n"
+" ?streamid=streamname&latency=1000&passphrase=10characterpassphrase"
+msgstr ""
+"Todas las opciones de socket disponibles para libSRT están disponibles como "
+"parámetro; busque 'Parámetros de inserción TSRT' en la documentación. "
+"Ejemplo de los parámetros más populares:\n"
+" ?streamid=nombre de la transmisión&latency=1000&frase de contraseña=frase "
+"de contraseña de 10 caracteres"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:23
+msgid "Allows loading AAC files"
+msgstr "Permite cargar archivos AAC"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:24
+msgid "Allows loading FLAC files for Audio on Demand."
+msgstr "Permite cargar archivos FLAC para Audio on Demand."
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:25
+msgid "Allows loading FLV files for Video on Demand."
+msgstr "Permite cargar archivos FLV para Video on Demand."
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:26
+msgid ""
+"Allows loading MKV, MKA, MK3D, MKS and WebM files for Video on Demand, or "
+"accepts live streams in those formats over standard input."
+msgstr ""
+"Permite cargar archivos MKV, MKA, MK3D, MKS y WebM para video bajo demanda, "
+"o acepta transmisiones en vivo en esos formatos a través de entrada estándar."
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:27
+msgid "Alternative API URL path"
+msgstr "Ruta URL de API alternativa"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:28
+msgid ""
+"Alternative stream to load for playback when there is no active broadcast"
+msgstr ""
+"Transmisión alternativa para cargar para reproducción cuando no hay una "
+"transmisión activa"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:29
+msgid "Amount of frames before a new keyframe is sent."
+msgstr "Cantidad de fotogramas antes de enviar un nuevo fotograma clave."
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:30
+msgid ""
+"Amount of packets any track will wait for a packet to arrive before "
+"considering it lost"
+msgstr ""
+"Cantidad de paquetes que cualquier pista esperará a que llegue un paquete "
+"antes de considerarlo perdido"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:31
+msgid ""
+"Amount of packets any track will wait for a packet to arrive before "
+"considering it lost, on mobile connections"
+msgstr ""
+"Cantidad de paquetes que cualquier pista esperará a que llegue un paquete "
+"antes de considerarlo perdido, en conexiones móviles"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:32
+msgid ""
+"Amount of packets any track will wait for a packet to arrive before NACKing "
+"it"
+msgstr ""
+"Cantidad de paquetes que cualquier pista esperará a que llegue un paquete "
+"antes de realizar NACK"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:33
+msgid ""
+"Amount of packets any track will wait for a packet to arrive before NACKing "
+"it, on mobile connections"
+msgstr ""
+"Cantidad de paquetes que cualquier pista esperará hasta que llegue un "
+"paquete antes de realizar NACK, en conexiones móviles"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:34
+msgid "Any additional SRT socket options to apply"
+msgstr "Cualquier opción de enchufe SRT adicional que se pueda aplicar"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:35
+msgid "Any timestamps before this will be cut from the live buffer"
+msgstr ""
+"Cualquier marca de tiempo anterior a esto se eliminará del búfer en vivo."
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:36
+msgid "Any timestamps before this will be cut from the live buffer."
+msgstr ""
+"Cualquier marca de tiempo anterior a esta se eliminará del búfer en vivo."
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:39
+msgid "Attempt to sync sources by UTC timestamps"
+msgstr "Intento de sincronizar fuentes mediante marcas de tiempo UTC"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:40
+msgid "Audio channel count"
+msgstr "Recuento de canales de audio"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:42
+msgid "Audio streams"
+msgstr "transmisiones de audio"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:43
+msgid ""
+"Automatically set by the MistUtilCertbot authentication hook for certbot. "
+"Not intended to be set manually."
+msgstr ""
+"Configurado automáticamente por el enlace de autenticación MistUtilCertbot "
+"para certbot. No está diseñado para configurarse manualmente."
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:44
+msgid "AV"
+msgstr "AV"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:45
+msgid "Balancer"
+msgstr "equilibrador"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:46
+msgid ""
+"Before a connection first starts playback, right after connecting to the "
+"stream"
+msgstr ""
+"Antes de que una conexión inicie la reproducción por primera vez, justo "
+"después de conectarse a la transmisión"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:47
+msgid ""
+"Before a connection first starts playback, right before connecting to the "
+"stream"
+msgstr ""
+"Antes de que una conexión inicie la reproducción por primera vez, justo "
+"antes de conectarse a la transmisión"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:51
+msgid "Before a push out (to file or other target type) is started"
+msgstr ""
+"Antes de que se inicie una expulsión (a un archivo u otro tipo de objetivo)"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:57
+msgid "Bitrate of the encoding"
+msgstr "Tasa de bits de la codificación"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:58
+msgid "Broadcaster switches since start"
+msgstr "La emisora cambia desde el principio"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:59
+msgid "Buffer"
+msgstr "búfer"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:60
+msgid "Buffer time (ms)"
+msgstr "Tiempo de amortiguación (ms)"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:61
+msgid "buydrm"
+msgstr "comprardrm"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:62
+msgid "BuyDRM User Key."
+msgstr "Clave de usuario de BuyDRM."
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:63
+msgid "Certbot validation token"
+msgstr "Token de validación de Certbot"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:64
+msgid "Certificate"
+msgstr "Certificado"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:65
+msgid "Child process command"
+msgstr "Comando de proceso hijo"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:66
+msgid "Child process PID"
+msgstr "PID de proceso hijo"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:67
+msgid "Chunks will be served from this path."
+msgstr "Se servirán trozos de este camino."
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:68
+msgid ""
+"Chunks will be served from this path. This also disables sessions IDs for "
+"chunks."
+msgstr ""
+"Se servirán trozos de este camino. Esto también deshabilita los ID de sesión "
+"para fragmentos."
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:69
+msgid "CMAF"
+msgstr "CMAF"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:70
+msgid "CMAF (fMP4) over HTTP (DASH, HLS7, HSS)"
+msgstr "CMAF (fMP4) sobre HTTP (DASH, HLS7, HSS)"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:71
+msgid "Codec"
+msgstr "Códec"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:72
+msgid ""
+"Comma separated list of audio codecs you want to support in preferred order. "
+"e.g. opus,ALAW,ULAW"
+msgstr ""
+"Lista separada por comas de códecs de audio que desea admitir en el orden "
+"preferido. p.ej. opus,ALAW,ULAW"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:73
+msgid ""
+"Comma separated list of video codecs you want to support in preferred order. "
+"e.g. H264,VP8"
+msgstr ""
+"Lista separada por comas de códecs de vídeo que desea admitir en el orden "
+"preferido. p.ej. H264,VP8"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:74
+msgid "Commonly used SRT options"
+msgstr "Opciones SRT de uso común"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:75
+msgid "Composer"
+msgstr "Compositor"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:77
+msgid "Constant Rate Factor (software only)"
+msgstr "Factor de tasa constante (solo software)"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:78
+msgid "contentid"
+msgstr "contento"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:79
+msgid "Control the SRT connection"
+msgstr "Controlar la conexión SRT"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:80
+msgid "Control whether hardware acceleration is used or not"
+msgstr "Controlar si se utiliza o no la aceleración de hardware"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:82
+msgid ""
+"Copy audio from the given stream name. You can change this mid-stream, but "
+"all sources must have the same sampling rate and sample size. The stream "
+"need not be used for visuals as well, but if it is, it will be kept in sync."
+msgstr ""
+"Copie el audio del nombre de la transmisión dado. Puede cambiar esto a mitad "
+"de la transmisión, pero todas las fuentes deben tener la misma frecuencia de "
+"muestreo y tamaño de muestra. No es necesario utilizar la transmisión "
+"también para imágenes, pero si lo es, se mantendrá sincronizada."
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:83
+msgid ""
+"current defaultStream setting (string)\n"
+"requested stream name (string)\n"
+"viewer host (string)\n"
+"output type (string)\n"
+"full request URL (string, may be blank for non-URL-based requests!)"
+msgstr ""
+"configuración actual de defaultStream (cadena)\n"
+"nombre de la transmisión solicitada (cadena)\n"
+"anfitrión del espectador (cadena)\n"
+"tipo de salida (cadena)\n"
+"URL de solicitud completa (cadena, puede estar en blanco para solicitudes no "
+"basadas en URL)"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:84
+msgid "Currently used broadcaster"
+msgstr "Emisora utilizada actualmente"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:85
+msgid "Custom API URL"
+msgstr "URL de API personalizada"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:86
+msgid "Cut time (ms)"
+msgstr "Tiempo de corte (ms)"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:87
+msgid "DASH"
+msgstr "GUIÓN"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:88
+msgid "Data to pretend arrived on the socket before parsing the socket."
+msgstr "Los datos para fingir llegaron al socket antes de analizarlo."
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:89
+msgid "debug"
+msgstr "depurar"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:90
+msgid "Declared frame rate of target stream, copy input frame rate if unset"
+msgstr ""
+"Velocidad de fotogramas declarada de la transmisión de destino, copia la "
+"velocidad de fotogramas de entrada si no está configurada"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:91
+msgid "Decode time"
+msgstr "tiempo de decodificación"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:92
+msgid "Decoder"
+msgstr "Decodificador"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:93
+msgid "Default sync mode"
+msgstr "Modo de sincronización predeterminado"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:94
+msgid "Default track sorting"
+msgstr "Clasificación de pistas predeterminada"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:95
+msgid ""
+"Delays tracks becoming visible until all supported tracks in all PATs are "
+"ready (parameter is max wait time, zero disables the wait)"
+msgstr ""
+"Retrasa que las pistas se vuelvan visibles hasta que todas las pistas "
+"admitidas en todos los PAT estén listas (el parámetro es el tiempo de espera "
+"máximo, cero desactiva la espera)"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:96
+msgid "Demuxer: MPEG-TS"
+msgstr "Demultiplexor: MPEG-TS"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:97
+msgid "Development tool: Sanity checker"
+msgstr "Herramienta de desarrollo: verificador de cordura"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:98
+msgid "Device resolution, framerate and pixel format"
+msgstr ""
+"Resolución del dispositivo, velocidad de fotogramas y formato de píxeles"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:99
+msgid "Disable reading of the streamid field"
+msgstr "Deshabilitar la lectura del campo streamid"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:100
+msgid "Disable streamid"
+msgstr "Deshabilitar streaming"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:101
+msgid ""
+"Disables chunked transfer encoding, forcing per-segment buffering. Reduces "
+"performance significantly, but increases compatibility somewhat."
+msgstr ""
+"Desactiva la codificación de transferencia fragmentada, lo que fuerza el "
+"almacenamiento en búfer por segmento. Reduce significativamente el "
+"rendimiento, pero aumenta un poco la compatibilidad."
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:102
+msgid "Disallow NACKs for viewers"
+msgstr "No permitir NACK para los espectadores"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:103
+msgid "Disallows viewers to send NACKs for lost packets"
+msgstr "No permite a los espectadores enviar NACK por paquetes perdidos"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:104
+msgid "Do not add all local addresses"
+msgstr "No agregue todas las direcciones locales"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:105
+msgid "Do not add resolved hostnames"
+msgstr "No agregue nombres de host resueltos"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:106
+msgid "Do not reconnect"
+msgstr "no volver a conectar"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:107
+msgid "Do not start input if not already started"
+msgstr "No inicie la entrada si aún no ha comenzado"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:108
+msgid "Does sanity check on a stream"
+msgstr "¿Se verifica la cordura en una transmisión?"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:109
+msgid "DTSC"
+msgstr "DTSC"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:110
+msgid "DTSC over stdout"
+msgstr "DTSC sobre salida estándar"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:111
+msgid "DVR buffer time in ms"
+msgstr "Tiempo de búfer del DVR en ms"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:112
+msgid "EBML"
+msgstr "EBML"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:113
+msgid "Enable raw MPEG-TS passthrough mode"
+msgstr "Habilitar el modo de transferencia MPEG-TS sin formato"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:114
+msgid "Enable resuming support (1) or disable resuming support (0, default)"
+msgstr ""
+"Habilite la reanudación del soporte (1) o deshabilite la reanudación del "
+"soporte (0, predeterminado)"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:115
+msgid "Enables DTSC Input"
+msgstr "Habilita la entrada DTSC"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:116
+msgid "Enables Playlist Input"
+msgstr "Habilita la entrada de listas de reproducción"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:117
+msgid "Encode preset"
+msgstr "Codificar preestablecido"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:118
+msgid "Encode profile"
+msgstr "Codificar perfil"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:119
+msgid "Encode time"
+msgstr "codificar el tiempo"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:120
+msgid "Encode tuning"
+msgstr "Codificar sintonización"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:121
+msgid "Encoder"
+msgstr "Codificador"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:122
+msgid "Encoder: FFMPEG"
+msgstr "Codificador: FFMPEG"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:123
+msgid "Encoder: libav (ffmpeg library)"
+msgstr "Codificador: libav (biblioteca ffmpeg)"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:124
+msgid "Encoder: Livepeer network encoding"
+msgstr "Codificador: codificación de red Livepeer"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:125
+msgid "encryption"
+msgstr "cifrado"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:126
+msgid "Encryption key length"
+msgstr "Longitud de la clave de cifrado"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:127
+msgid "Encryption key."
+msgstr "Clave de cifrado."
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:129
+msgid "Every time a new live stream key frame is received"
+msgstr "Cada vez que se recibe un nuevo fotograma clave de transmisión en vivo"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:132
+msgid "Every time a session ends (same time it is written to the access log)"
+msgstr ""
+"Cada vez que finaliza una sesión (al mismo tiempo que se escribe en el "
+"registro de acceso)"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:133
+msgid "Every time a stream ends (no more viewers after a period of activity)"
+msgstr ""
+"Cada vez que finaliza una transmisión (no más espectadores después de un "
+"período de actividad)"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:135
+msgid "Every time an Input process exits"
+msgstr "Cada vez que sale un proceso de entrada"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:137
+msgid "Executable"
+msgstr "ejecutable"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:138
+msgid "Executable: Matroska In/Out"
+msgstr "Ejecutable: Matroska Entrada/Salida"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:139
+msgid "Extra flags to add to the end of the transcode command"
+msgstr ""
+"Banderas adicionales para agregar al final del comando de transcodificación"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:140
+msgid "Failures due to non-200 response codes"
+msgstr "Fallos debido a códigos de respuesta distintos de 200"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:141
+msgid "Failures due to other reasons"
+msgstr "Fallos por otras razones"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:142
+msgid "Failures due to parse errors in TS response data"
+msgstr "Fallos debido a errores de análisis en los datos de respuesta de TS"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:143
+msgid "Failures due to timeout"
+msgstr "Fallos por tiempo de espera"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:144
+msgid "Fallback stream"
+msgstr "Flujo de reserva"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:145
+msgid "Feed the results of this input in realtime to the buffer"
+msgstr "Alimentar los resultados de esta entrada en tiempo real al buffer"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:146
+msgid "FFMPEG"
+msgstr "FFMPEG"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:147
+msgid "FLAC"
+msgstr "FLAC"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:148
+msgid "FLAC progressive"
+msgstr "FLAC progresivo"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:149
+msgid "Flags"
+msgstr "Banderas"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:150
+msgid "Flash Dynamic (HDS)"
+msgstr "Flash dinámico (HDS)"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:151
+msgid "Flash progressive over HTTP (FLV)"
+msgstr "Flash progresivo sobre HTTP (FLV)"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:152
+msgid "Flash segmented over HTTP (HDS)"
+msgstr "Flash segmentado sobre HTTP (HDS)"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:153
+msgid "FLV"
+msgstr "FLV"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:154
+msgid "FLV progressive"
+msgstr "FLV progresivo"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:155
+msgid "Folder"
+msgstr "Carpeta"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:156
+msgid ""
+"For bufferless or live inputs like HLS, set the timeout in seconds for old, "
+"inactive pages to be deleted. A longer value results in more memory usage, "
+"but ensures that recently buffered data stays in memory for longer"
+msgstr ""
+"Para entradas en vivo o sin búfer como HLS, establezca el tiempo de espera "
+"en segundos para que se eliminen las páginas antiguas e inactivas. Un valor "
+"más largo genera un mayor uso de memoria, pero garantiza que los datos "
+"recientemente almacenados en el buffer permanezcan en la memoria por más "
+"tiempo."
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:158
+msgid "Framerate"
+msgstr "Velocidad de fotogramas"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:159
+msgid "Framerate of the output. Zero means to match the input (= the default)."
+msgstr ""
+"Velocidad de fotogramas de la salida. Cero significa coincidir con la "
+"entrada (= el valor predeterminado)."
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:160
+msgid "Frames ingested"
+msgstr "Fotogramas ingeridos"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:161
+msgid "Frames outputted"
+msgstr "Marcos generados"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:163
+msgid ""
+"full current push url (string)\n"
+"connection hostname (string)\n"
+"currently parsed stream name (string)"
+msgstr ""
+"URL push actual completa (cadena)\n"
+"nombre de host de conexión (cadena)\n"
+"nombre de la secuencia actualmente analizada (cadena)"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:164
+msgid ""
+"full current RTMP url (string)\n"
+"connection hostname (string)"
+msgstr ""
+"URL RTMP actual completa (cadena)\n"
+"nombre de host de conexión (cadena)"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:165
+msgid "Full public address this output is available as, if being proxied"
+msgstr ""
+"Dirección pública completa como esta salida está disponible, si se está "
+"utilizando proxy"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:166
+msgid "Generate .dtsh, then exit"
+msgstr "Genere .dtsh, luego salga"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:167
+msgid ""
+"Generic video encoder that directly integrates with the ffmpeg library "
+"rather than calling a binary and transmuxing twice"
+msgstr ""
+"Codificador de video genérico que se integra directamente con la biblioteca "
+"ffmpeg en lugar de llamar a un binario y transmutar dos veces"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:168
+msgid "GOP Size"
+msgstr "Tamaño del Partido Republicano"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:169
+msgid "Graceless disconnect"
+msgstr "Desconexión sin gracia"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:170
+msgid "H264"
+msgstr "H264"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:171
+msgid "H264 Profile"
+msgstr "Perfil H264"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:172
+msgid "H264/H265 over HTTP"
+msgstr "H264/H265 sobre HTTP"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:173
+msgid "Hardcoded broadcasters"
+msgstr "Emisoras codificadas"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:175
+msgid "HDS"
+msgstr "HDS"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:176
+msgid "Height"
+msgstr "Altura"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:177
+msgid ""
+"Height in pixels of the output. Defaults to match aspect with width, or "
+"source height if both are default. If only height is given and the source "
+"height is greater than the source width, width and height will swap and do "
+"what you most likely wanted to do (e.g. follow your config in portrait mode "
+"instead of landscape mode)."
+msgstr ""
+"Alto en píxeles de la salida. El valor predeterminado es hacer coincidir el "
+"aspecto con el ancho o la altura de origen si ambos son predeterminados. Si "
+"solo se proporciona la altura y la altura de la fuente es mayor que el ancho "
+"de la fuente, el ancho y la altura se intercambiarán y harán lo que "
+"probablemente quisiera hacer (por ejemplo, seguir su configuración en modo "
+"vertical en lugar de modo horizontal)."
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:178
+msgid ""
+"Height to scale the layer to, use -1 to keep aspect ratio if only width is "
+"known."
+msgstr ""
+"Altura para escalar la capa, use -1 para mantener la relación de aspecto si "
+"solo se conoce el ancho."
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:179
+msgid "HLS"
+msgstr "HLS"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:180
+msgid "HLS (CMAF)"
+msgstr "HLS (CMAF)"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:181
+msgid "HLS (TS)"
+msgstr "HL (TS)"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:182
+msgid "Horizontal distance of this layer to the origin corner."
+msgstr "Distancia horizontal de esta capa a la esquina de origen."
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:183
+msgid "Host"
+msgstr "Anfitrión"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:184
+msgid "Host to bind SRTP UDP sockets to. Defaults to all interfaces."
+msgstr ""
+"Host al que vincular los sockets SRTP UDP. El valor predeterminado es todas "
+"las interfaces."
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:185
+msgid "How long the input should remain loaded without activity"
+msgstr "Cuánto tiempo debe permanecer cargada la entrada sin actividad"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:186
+msgid "How to handle aspect ratio mismatches between input and grid cells"
+msgstr ""
+"Cómo manejar las discrepancias en la relación de aspecto entre las celdas de "
+"entrada y de la cuadrícula"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:187
+msgid "How to transform the timestamps."
+msgstr "Cómo transformar las marcas de tiempo."
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:190
+msgid "HTTPMinimalServer"
+msgstr "HTTPServidormínimo"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:191
+msgid "HTTPS"
+msgstr "HTTPS"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:194
+msgid "HTTPTS"
+msgstr "HTTPTS"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:195
+msgid ""
+"If checked, disables reconnecting so that a single failure stops the push"
+msgstr ""
+"Si está marcado, desactiva la reconexión para que una sola falla detenga el "
+"empuje."
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:196
+msgid ""
+"If enabled, merges together all views from a single user into a single "
+"combined session. If disabled, each view (main playlist request) is a "
+"separate session."
+msgstr ""
+"Si está habilitado, combina todas las vistas de un solo usuario en una única "
+"sesión combinada. Si está deshabilitada, cada vista (solicitud de lista de "
+"reproducción principal) es una sesión separada."
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:197
+msgid ""
+"if enabled, merges together all views from a single user into a single "
+"combined session. if disabled, each view (reconnection of the signalling "
+"websocket) is a separate session."
+msgstr ""
+"si está habilitado, combina todas las vistas de un solo usuario en una única "
+"sesión combinada. si está deshabilitado, cada vista (reconexión del "
+"websocket de señalización) es una sesión separada."
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:198
+msgid ""
+"If enabled, the buffer will linger after source disconnect to allow resuming "
+"the stream later. If disabled, the buffer will instantly close on source "
+"disconnect."
+msgstr ""
+"Si está habilitado, el búfer permanecerá después de la desconexión de la "
+"fuente para permitir reanudar la transmisión más tarde. Si está "
+"deshabilitado, el búfer se cerrará instantáneamente al desconectarse la "
+"fuente."
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:200
+msgid "If false, aborts the unload and keeps the stream loaded."
+msgstr "Si es falso, cancela la descarga y mantiene la transmisión cargada."
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:201
+msgid ""
+"If false, denies the session while it remains in the cache. If true, accepts "
+"the session while it remains in the cache."
+msgstr ""
+"Si es falso, niega la sesión mientras permanezca en la caché. Si es "
+"verdadero, acepta la sesión mientras permanece en la caché."
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:202
+msgid "If false, does not accept the new stream."
+msgstr "Si es falso, no acepta la nueva transmisión."
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:203
+msgid "If false, prevents loading of stream input."
+msgstr "Si es falso, evita la carga de la entrada del flujo."
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:204
+msgid "If false, prevents removal and reverts to current configuration."
+msgstr "Si es falso, evita la eliminación y vuelve a la configuración actual."
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:205
+msgid ""
+"If false, rejects new configuration and reverts to current configuration."
+msgstr ""
+"Si es falso, rechaza la nueva configuración y vuelve a la configuración "
+"actual."
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:206
+msgid "If false, rejects the connection."
+msgstr "Si es falso, rechaza la conexión."
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:207
+msgid "If false, rejects the incoming push."
+msgstr "Si es falso, rechaza el envío entrante."
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:208
+msgid "If false, rejects the playback attempt."
+msgstr "Si es falso, rechaza el intento de reproducción."
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:210
+msgid "If false, shuts down the stream buffer."
+msgstr "Si es falso, cierra el búfer de transmisión."
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:211
+msgid "If false, shuts down the stream input."
+msgstr "Si es falso, cierra la entrada de flujo."
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:212
+msgid ""
+"If non-empty, overrides the full RTMP url to the response value. If empty, "
+"denies the incoming RTMP push."
+msgstr ""
+"Si no está vacío, anula la URL RTMP completa al valor de respuesta. Si está "
+"vacío, niega el envío RTMP entrante."
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:213
+msgid ""
+"If non-empty, overrides the parsed stream name to the response value. If "
+"empty, denies the incoming push."
+msgstr ""
+"Si no está vacío, anula el nombre de la secuencia analizada al valor de "
+"respuesta. Si está vacío, niega el envío entrante."
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:214
+msgid "If set, requires a SRT passphrase to connect"
+msgstr ""
+"Si está configurado, requiere una frase de contraseña SRT para conectarse"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:215
+msgid ""
+"If/when the process exits or fails, the masks for input tracks will be reset "
+"to defaults. (NOT to previous value, but to defaults!)"
+msgstr ""
+"Si el proceso sale o falla, las máscaras para las pistas de entrada se "
+"restablecerán a los valores predeterminados. (¡NO al valor anterior, sino a "
+"los valores predeterminados!)"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:216
+msgid "Ignore sending port #"
+msgstr "Ignorar el puerto de envío #"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:217
+msgid "Ignore the sending port number of incoming data"
+msgstr "Ignorar el número de puerto de envío de datos entrantes"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:218
+msgid "Ignored, only exists to handle targetParams"
+msgstr "Ignorado, sólo existe para manejar targetParams"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:219
+msgid "Input inactivity timeout"
+msgstr "Tiempo de espera de inactividad de entrada"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:220
+msgid "Input selection"
+msgstr "Selección de entrada"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:221
+msgid "Input stream name(s)"
+msgstr "Nombre(s) de flujo de entrada"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:222
+msgid "Input type"
+msgstr "Tipo de entrada"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:223
+msgid ""
+"Interval of keyframes / duration of GOPs for the transcode. \"0.0\" means to "
+"match input (= the default), 'intra' means to send only key frames. "
+"Otherwise, fractional seconds between keyframes."
+msgstr ""
+"Intervalo de fotogramas clave/duración de GOP para la transcodificación. "
+"\"0.0\" significa hacer coincidir la entrada (= el valor predeterminado), "
+"'intra' significa enviar solo fotogramas clave. De lo contrario, fracciones "
+"de segundo entre fotogramas clave."
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:224
+msgid "IP"
+msgstr "IP"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:225
+msgid "IP of forwarded connection."
+msgstr "IP de la conexión reenviada."
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:226
+msgid "ISMV"
+msgstr "ISMV"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:227
+msgid "JPEG image"
+msgstr "imagen JPEG"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:228
+msgid "JPEG stream"
+msgstr "secuencia JPEG"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:229
+msgid "JPG"
+msgstr "JPEG"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:230
+msgid "JSON"
+msgstr "JSON"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:231
+msgid "JSON configuration, or - (default) to read from stdin"
+msgstr "Configuración JSON, o - (predeterminado) para leer desde stdin"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:232
+msgid "JSON lines over raw TCP"
+msgstr "Líneas JSON sobre TCP sin formato"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:234
+msgid "JSON progressive"
+msgstr "JSON progresivo"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:235
+msgid "JSON WebSocket"
+msgstr "JSON WebSocket"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:236
+msgid "JSONLine"
+msgstr "Línea JSON"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:237
+msgid "Key"
+msgstr "clave"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:238
+msgid "Key interval"
+msgstr "Intervalo clave"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:239
+msgid "Key interval in frames"
+msgstr "Intervalo clave en fotogramas"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:240
+msgid "Key interval in seconds"
+msgstr "Intervalo clave en segundos"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:241
+msgid "Keyframe interval / GOP size"
+msgstr "Intervalo de fotograma clave/tamaño del GOP"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:242
+msgid "Keyframes"
+msgstr "Fotogramas clave"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:243
+msgid "keyid"
+msgstr "ID de clave"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:244
+msgid "Kick off source if not already active"
+msgstr "Fuente de inicio si aún no está activa"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:245
+msgid "Language"
+msgstr "Idioma"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:246
+msgid "Layers"
+msgstr "capas"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:247
+msgid "Limits the output to a specific H.264 profile"
+msgstr "Limita la salida a un perfil H.264 específico"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:248
+msgid ""
+"List of sources to overlay on top of each other, in order. If left empty, "
+"simply uses the input track without modifications and nothing else."
+msgstr ""
+"Lista de fuentes para superponer una encima de otra, en orden. Si se deja "
+"vacío, simplemente usa la pista de entrada sin modificaciones y nada más."
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:249
+msgid ""
+"Live buffer window in ms. Segments within this range from the live point "
+"will be kept in memory"
+msgstr ""
+"Ventana de buffer en vivo en ms. Los segmentos dentro de este rango desde el "
+"punto en vivo se mantendrán en la memoria."
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:250
+msgid "Live playlist limit"
+msgstr "Límite de lista de reproducción en vivo"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:251
+msgid "Live stream DVR buffer time in ms"
+msgstr "Tiempo de búfer de DVR de transmisión en vivo en ms"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:252
+msgid "Livepeer"
+msgstr "compañero en vivo"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:253
+msgid "Livepeer transcode ID"
+msgstr "ID de transcodificación de Livepeer"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:254
+msgid ""
+"Load DTSC files as Video on Demand sources, or dtsc:// URLs from other "
+"instances for live sources. This is the optimal method to pull live sources "
+"from MistServer compatible instances."
+msgstr ""
+"Cargue archivos DTSC como fuentes de Video on Demand o URL dtsc:// de otras "
+"instancias para fuentes en vivo. Este es el método óptimo para extraer "
+"fuentes en vivo de instancias compatibles con MistServer."
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:255
+msgid "Location of folder to watch for files."
+msgstr "Ubicación de la carpeta para buscar archivos."
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:256
+msgid "Location where MistServer can find the input file."
+msgstr "Ubicación donde MistServer puede encontrar el archivo de entrada."
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:257
+msgid "Main directory where files are served from."
+msgstr "Directorio principal desde donde se sirven los archivos."
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:258
+msgid "Make streams available as a RTP stream, using the SDP"
+msgstr ""
+"Hacer que las transmisiones estén disponibles como una transmisión RTP, "
+"usando el SDP"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:259
+msgid "Make this input run as a simulated live stream"
+msgstr "Haga que esta entrada se ejecute como una transmisión en vivo simulada"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:260
+msgid "Max RTP packet size"
+msgstr "Tamaño máximo de paquete RTP"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:261
+msgid "Max track idle time in ms"
+msgstr "Tiempo máximo de inactividad de la pista en ms"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:262
+msgid "Max. kbps"
+msgstr "Máx. kbps"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:263
+msgid "Maximum bitrate"
+msgstr "Tasa de bits máxima"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:264
+msgid "Maximum bitrate of the encoding"
+msgstr "Tasa de bits máxima de la codificación"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:265
+msgid ""
+"Maximum bitrate to allow in the ingest direction, in kilobits per second."
+msgstr ""
+"Tasa de bits máxima que se permitirá en la dirección de ingesta, en kilobits "
+"por segundo."
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:266
+msgid ""
+"Maximum distance in milliseconds to fall behind the live point for stable "
+"playback."
+msgstr ""
+"Distancia máxima en milisegundos para quedar detrás del punto en vivo para "
+"una reproducción estable."
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:267
+msgid "Maximum live keep-away distance"
+msgstr "Distancia máxima de mantenimiento en vivo"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:268
+msgid "Maximum number of parts in live playlists. (0 = infinite)"
+msgstr ""
+"Número máximo de partes en listas de reproducción en vivo. (0 = infinito)"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:269
+msgid "Maximum size of RTP packets in bytes"
+msgstr "Tamaño máximo de paquetes RTP en bytes"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:270
+msgid ""
+"Maximum size of RTP packets. Note: this is -before- SRTP encryption is "
+"applied, so up to 28 bytes bigger is still possible."
+msgstr ""
+"Tamaño máximo de paquetes RTP. Nota: esto es antes de que se aplique el "
+"cifrado SRTP, por lo que aún es posible hasta 28 bytes más."
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:271
+msgid ""
+"Maximum tolerated duration a track will be allowed to be idle for before "
+"being deleted. If a track is idle for more than 5 seconds and its last "
+"timestamp differs from still-active tracks by at least this much, it will "
+"also be deleted."
+msgstr ""
+"Duración máxima tolerada que una pista podrá estar inactiva antes de ser "
+"eliminada. Si una pista está inactiva durante más de 5 segundos y su última "
+"marca de tiempo difiere al menos de esta cantidad de las pistas aún activas, "
+"también se eliminará."
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:272
+msgid "Memory page timeout"
+msgstr "Tiempo de espera de la página de memoria"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:273
+msgid "Merge sessions"
+msgstr "Fusionar sesiones"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:274
+msgid "merge sessions"
+msgstr "fusionar sesiones"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:275
+msgid "Minimum bitrate"
+msgstr "Tasa de bits mínima"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:276
+msgid "Minimum bitrate of the encoding"
+msgstr "Tasa de bits mínima de la codificación."
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:277
+msgid "Minimum viewers"
+msgstr "Mínimo de espectadores"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:278
+msgid "MKV progressive"
+msgstr "MKV progresivo"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:279
+msgid "MKVExec"
+msgstr "MKVExec"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:280
+msgid "Mode"
+msgstr "Modo"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:281
+msgid "More SRT options"
+msgstr "Más opciones de SRT"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:282
+msgid "MP3"
+msgstr "MP3"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:283
+msgid "MP3 over HTTP"
+msgstr "MP3 sobre HTTP"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:284
+msgid "MP3 progressive"
+msgstr "MP3 progresivo"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:285
+msgid "MP4"
+msgstr "MP4"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:287
+msgid "MP4 progressive"
+msgstr "MP4 progresivo"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:288
+msgid "MP4 WebSocket"
+msgstr "MP4 WebSocket"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:289
+msgid "MPEG Data track parser"
+msgstr "Analizador de pistas de datos MPEG"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:290
+msgid "MS Smooth Streaming"
+msgstr "Transmisión fluida de MS"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:291
+msgid "Multiview"
+msgstr "Vista múltiple"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:292
+msgid "Name"
+msgstr "Nombre"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:293
+msgid "Name for the profile. Must be unique within this transcode."
+msgstr ""
+"Nombre para el perfil. Debe ser único dentro de esta transcodificación."
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:294
+msgid "Name of the input file or - for stdin"
+msgstr "Nombre del archivo de entrada o - para stdin"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:295
+msgid "Name of the output file or - for stdout"
+msgstr "Nombre del archivo de salida o - para stdout"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:296
+msgid "Name(s) of the input(s) that should be displayed"
+msgstr "Nombre(s) de la(s) entrada(s) que deben mostrarse"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:297
+msgid "NDI"
+msgstr "NDI"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:298
+msgid "NDI bandwidth mode"
+msgstr "Modo de ancho de banda NDI"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:299
+msgid "NDI bandwidth mode (audio-only, lowest, or highest)"
+msgstr "Modo de ancho de banda NDI (solo audio, más bajo o más alto)"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:300
+msgid "NDI color format"
+msgstr "Formato de color NDI"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:301
+msgid "NDI color format (UYVY_BGRA, UYVY_RGBA, or BGRX_BGRA)"
+msgstr "Formato de color NDI (UYVY_BGRA, UYVY_RGBA o BGRX_BGRA)"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:306
+msgid "OGG"
+msgstr "OGG"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:308
+msgid "OGG progressive"
+msgstr "OGG progresivo"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:309
+msgid ""
+"On all incoming pushes on any protocol, allows parsing the push URL to/from "
+"custom formatting to an internal stream name"
+msgstr ""
+"En todos los envíos entrantes en cualquier protocolo, permite analizar la "
+"URL de envío hacia/desde el formato personalizado a un nombre de transmisión "
+"interna."
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:310
+msgid ""
+"On incoming RTMP pushes, allows rewriting the RTMP URL to/from custom "
+"formatting"
+msgstr ""
+"En envíos RTMP entrantes, permite reescribir la URL RTMP hacia/desde el "
+"formato personalizado"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:311
+msgid "Origin corner"
+msgstr "Esquina de origen"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:312
+msgid "Output connector info in JSON format, then exit."
+msgstr "Envíe la información del conector en formato JSON y luego salga."
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:313
+msgid ""
+"Output is connected to the returned stream name instead of the requested "
+"stream name."
+msgstr ""
+"La salida se conecta al nombre de la secuencia devuelta en lugar del nombre "
+"de la secuencia solicitada."
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:314
+msgid "Output MistIn info in JSON format, then exit"
+msgstr "Genere información de MistIn en formato JSON, luego salga"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:315
+msgid "Output MistIn supported devices in JSON format, then exit"
+msgstr ""
+"Salida de dispositivos compatibles con MistIn en formato JSON, luego salga"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:316
+msgid "Output sample rate in Hz (by default copies input rate if possible)"
+msgstr ""
+"Frecuencia de muestreo de salida en Hz (de forma predeterminada, copia la "
+"frecuencia de entrada si es posible)"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:318
+msgid "Override external host/ip"
+msgstr "Anular host/ip externo"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:319
+msgid "Override external port"
+msgstr "Anular puerto externo"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:320
+msgid ""
+"Overrides the default stream setting (for this view) to the response value. "
+"If empty, fails loading the stream and returns an error to the viewer/user."
+msgstr ""
+"Anula la configuración de transmisión predeterminada (para esta vista) al "
+"valor de respuesta. Si está vacío, no se puede cargar la transmisión y "
+"devuelve un error al espectador/usuario."
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:321
+msgid "Passphrase"
+msgstr "frase de contraseña"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:322
+msgid "Path to certificate"
+msgstr "Camino al certificado"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:323
+msgid "Path to key"
+msgstr "Camino a la clave"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:324
+msgid ""
+"Path to private key for SSL. When multiple are used make sure they are in "
+"order matching the certificates."
+msgstr ""
+"Ruta a la clave privada para SSL. Cuando se utilizan varios, asegúrese de "
+"que estén en orden y coincidan con los certificados."
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:325
+msgid ""
+"Path to the file(s) containing certificate chain(s). When multiple chains "
+"are used make sure to provide their matching keys in the same order."
+msgstr ""
+"Ruta a los archivos que contienen las cadenas de certificados. Cuando se "
+"utilizan varias cadenas, asegúrese de proporcionar las claves "
+"correspondientes en el mismo orden."
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:326
+msgid "Percentage for VoD transcodes"
+msgstr "Porcentaje de transcodificaciones VoD"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:327
+msgid ""
+"Pipe MKV in, expect MKV out. You choose the executable in between yourself."
+msgstr ""
+"Introduzca MKV, espere que salga MKV. El ejecutable lo eliges tú mismo."
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:328
+msgid "Playlist"
+msgstr "Lista de reproducción"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:329
+msgid "playready"
+msgstr "listo para jugar"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:330
+msgid "Preferred audio codecs"
+msgstr "Códecs de audio preferidos"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:331
+msgid "Preferred video codecs"
+msgstr "Códecs de vídeo preferidos"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:332
+msgid "Prefix for control URL (DELETE/PATCH requests)"
+msgstr "Prefijo para URL de control (solicitudes DELETE/PATCH)"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:333
+msgid "Prepend path for chunks"
+msgstr "Anteponer ruta para fragmentos"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:334
+msgid "Preset for encoding speed and compression ratio"
+msgstr ""
+"Preestablecido para velocidad de codificación y relación de compresión."
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:335
+msgid "Previous request"
+msgstr "Solicitud anterior"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:337
+msgid "Print timing information"
+msgstr "Imprimir información de tiempo"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:338
+msgid "Private key for SSL"
+msgstr "Clave privada para SSL"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:339
+msgid "Profile to use. Defaults to \"High\"."
+msgstr "Perfil a utilizar. El valor predeterminado es \"Alto\"."
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:340
+msgid "Profiles"
+msgstr "Perfiles"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:342
+msgid "Pseudostreaming in AAC format over HTTP"
+msgstr "Pseudostreaming en formato AAC a través de HTTP"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:343
+msgid "Pseudostreaming in Adobe Flash FLV format over HTTP"
+msgstr "Pseudostreaming en formato Adobe Flash FLV a través de HTTP"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:344
+msgid "Pseudostreaming in DTSC format over standard output"
+msgstr "Pseudostreaming en formato DTSC sobre salida estándar"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:346
+msgid "Pseudostreaming in JSON format over HTTP"
+msgstr "Pseudostreaming en formato JSON sobre HTTP"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:347
+msgid "Pseudostreaming in MKV and WebM (EBML) formats over HTTP"
+msgstr "Pseudostreaming en formatos MKV y WebM (EBML) a través de HTTP"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:348
+msgid "Pseudostreaming in MP3 format over HTTP"
+msgstr "Pseudostreaming en formato MP3 a través de HTTP"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:352
+msgid "Pseudostreaming in raw H264/H265 Annex B format over HTTP"
+msgstr "Pseudostreaming en formato raw H264/H265 Anexo B a través de HTTP"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:353
+msgid "Pseudostreaming in SubRip Text (SRT) and WebVTT formats over HTTP"
+msgstr ""
+"Pseudostreaming en formatos SubRip Text (SRT) y WebVTT a través de HTTP"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:355
+msgid "Public address"
+msgstr "megafonía"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:356
+msgid ""
+"push ID (integer)\n"
+"stream name (string)\n"
+"target URI, before variables/triggers affected it (string)\n"
+"target URI, afterwards, as actually used (string)\n"
+"last 10 log messages (JSON array string)\n"
+"most recent push status (JSON object string)"
+msgstr ""
+"ID de inserción (entero)\n"
+"nombre de la secuencia (cadena)\n"
+"URI de destino, antes de que las variables/disparadores lo afectaran "
+"(cadena)\n"
+"URI de destino, luego, como se usa realmente (cadena)\n"
+"últimos 10 mensajes de registro (cadena de matriz JSON)\n"
+"estado de envío más reciente (cadena de objeto JSON)"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:358
+msgid "RAW"
+msgstr "CRUDO"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:359
+msgid "Raw input mode"
+msgstr "Modo de entrada sin procesar"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:360
+msgid "Raw progressive"
+msgstr "Progresivo crudo"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:361
+msgid "Raw video and audio composer"
+msgstr "Compositor de audio y video sin procesar"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:362
+msgid "Raw WebSocket"
+msgstr "WebSocket sin formato"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:363
+msgid "Raw/WS"
+msgstr "Crudo/WS"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:364
+msgid ""
+"Real time JSON line-by-line input over a raw TCP socket or standard input"
+msgstr ""
+"Entrada JSON línea por línea en tiempo real a través de un socket TCP sin "
+"formato o entrada estándar"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:365
+msgid "Real time streaming in MPEG2/TS format over TCP, UDP or RTP"
+msgstr "Transmisión en tiempo real en formato MPEG2/TS sobre TCP, UDP o RTP"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:368
+msgid ""
+"Real time streaming over DTSC (proprietary protocol for efficient inter-"
+"server streaming)"
+msgstr ""
+"Transmisión en tiempo real a través de DTSC (protocolo propietario para una "
+"transmisión eficiente entre servidores)"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:369
+msgid "Remote address in the format remoteIP/remotePort/rendezvous"
+msgstr "Dirección remota en el formato IP remota/Puerto remoto/rendezvous"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:371
+msgid ""
+"Requested format, like 'MJPG-1920x1080@90.00'. FPS is optional. Defaults to "
+"using the highest surface area and FPS if not given"
+msgstr ""
+"Formato solicitado, como 'MJPG-1920x1080@90.00'. Los FPS son opcionales. De "
+"forma predeterminada, se utiliza el área de superficie más alta y FPS si no "
+"se proporciona"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:372
+msgid ""
+"Requested resolution, framerate and pixel format, like "
+"'MJPG-1920x1080@90.00'. FPS is optional. Defaults to using the highest "
+"surface area and FPS if not given"
+msgstr ""
+"Resolución solicitada, velocidad de fotogramas y formato de píxeles, como "
+"'MJPG-1920x1080@90.00'. Los FPS son opcionales. De forma predeterminada, se "
+"utiliza el área de superficie más alta y FPS si no se proporciona"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:373
+msgid "resolution"
+msgstr "resolución"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:374
+msgid "Resolution of the output stream, e.g. 1920x1080"
+msgstr "Resolución del flujo de salida, p.e. 1920x1080"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:375
+msgid "Resume support"
+msgstr "Reanudar soporte"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:376
+msgid "Returned as Location header for controlling WebRTC sessions"
+msgstr "Devuelto como encabezado de Ubicación para controlar sesiones WebRTC"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:377
+msgid "RIST profile"
+msgstr "perfil RIST"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:378
+msgid "RIST profile (0=Simple, 1=Main)"
+msgstr "Perfil RIST (0=Simple, 1=Principal)"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:379
+msgid "RIST profile to use"
+msgstr "Perfil RIST a utilizar"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:381
+msgid "RTP lost timeout"
+msgstr "RTP perdió el tiempo de espera"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:382
+msgid "RTP lost timeout (mobile)"
+msgstr "RTP perdió el tiempo de espera (móvil)"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:383
+msgid "RTP NACK timeout"
+msgstr "Tiempo de espera de RTP NACK"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:384
+msgid "RTP NACK timeout (mobile)"
+msgstr "Tiempo de espera de RTP NACK (móvil)"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:385
+msgid "RTP streams using SDP"
+msgstr "Flujos RTP usando SDP"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:387
+msgid ""
+"Run whatever command is given as if it's ran in the terminal. MistServer "
+"will expect to receive raw H264 Annex B data from the command."
+msgstr ""
+"Ejecute cualquier comando que se le proporcione como si se ejecutara en la "
+"terminal. MistServer esperará recibir datos sin procesar del Anexo B H264 "
+"del comando."
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:389
+msgid "SanityCheck"
+msgstr "Control de cordura"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:390
+msgid "Scaler"
+msgstr "escalador"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:392
+msgid "SDP"
+msgstr "SDP"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:393
+msgid "Seek point"
+msgstr "Punto de búsqueda"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:394
+msgid "Segment size (ms)"
+msgstr "Tamaño del segmento (ms)"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:395
+msgid ""
+"Segmented streaming in Adobe/Flash (FLV-based) format over HTTP ( = HTTP "
+"Dynamic Streaming)"
+msgstr ""
+"Streaming segmentado en formato Adobe/Flash (basado en FLV) a través de HTTP "
+"(= HTTP Dynamic Streaming)"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:396
+msgid ""
+"Segmented streaming in Apple (TS-based) format over HTTP ( = HTTP Live "
+"Streaming)"
+msgstr ""
+"Transmisión segmentada en formato Apple (basado en TS) a través de HTTP (= "
+"HTTP Live Streaming)"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:397
+msgid "Segmented streaming in CMAF (fMP4) format over HTTP"
+msgstr "Streaming segmentado en formato CMAF (fMP4) a través de HTTP"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:398
+msgid "Select encoding profile"
+msgstr "Seleccionar perfil de codificación"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:399
+msgid "Send only a single video keyframe"
+msgstr "Enviar solo un fotograma clave de vídeo"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:400
+msgid "Send whole segments"
+msgstr "Enviar segmentos completos"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:401
+msgid "Serves static files over HTTP from a set folder"
+msgstr ""
+"Sirve archivos estáticos a través de HTTP desde una carpeta establecida"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:402
+msgid ""
+"session identifier (hexadecimal string)\n"
+"stream name (string)\n"
+"connector (string)\n"
+"connection address (string)\n"
+"duration in seconds (integer)\n"
+"uploaded bytes total (integer)\n"
+"downloaded bytes total (integer)\n"
+"tags (string)"
+msgstr ""
+"identificador de sesión (cadena hexadecimal)\n"
+"nombre de la secuencia (cadena)\n"
+"conector (cadena)\n"
+"dirección de conexión (cadena)\n"
+"duración en segundos (entero)\n"
+"total de bytes cargados (entero)\n"
+"total de bytes descargados (entero)\n"
+"etiquetas (cadena)"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:403
+msgid "Set if this is a connection handler instead of a listener"
+msgstr ""
+"Establezca si se trata de un controlador de conexión en lugar de un oyente"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:404
+msgid "Set the encode tuning"
+msgstr "Establecer el ajuste de codificación"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:405
+msgid "Set the target bitrate in bits per second"
+msgstr "Establezca la tasa de bits objetivo en bits por segundo"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:406
+msgid "Set to - to connect stdio"
+msgstr "Establecer en - para conectar stdio"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:407
+msgid ""
+"Set up a listening RIST socket on one of your interfaces by adding the @. Do "
+"not include the @ if you want to pull from another location. Due to "
+"backwards compatibility with Simple profile EVEN ports are enforced."
+msgstr ""
+"Configure un conector RIST de escucha en una de sus interfaces agregando @. "
+"No incluya la @ si desea extraer datos desde otra ubicación. Debido a la "
+"compatibilidad con versiones anteriores del perfil simple, se aplican "
+"puertos INCLUSO."
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:408
+msgid ""
+"Set up a load balanced input, connect to the given MistServer load balancer "
+"to receive the matching stream name. Use the fallback input if the stream is "
+"not available within the network. You can use push:// for push as a fallback "
+"option."
+msgstr ""
+"Configure una entrada con equilibrio de carga, conéctese al equilibrador de "
+"carga de MistServer proporcionado para recibir el nombre de flujo "
+"coincidente. Utilice la entrada alternativa si la transmisión no está "
+"disponible dentro de la red. Puede utilizar push:// para enviar como opción "
+"alternativa."
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:409
+msgid ""
+"Set up another application/server to push a stream into MistServer. [Host] "
+"and [@password] are optional, but enforced if set up. Host only allows the "
+"matching address to push into MistServer, a matching password allows non-"
+"matching addresses to push into MistServer as well. For a list of matching "
+"methods see below. Methods such as stream keys, the USER_NEW trigger and "
+"JWTs will bypass this matching."
+msgstr ""
+"Configure otra aplicación/servidor para enviar una transmisión a MistServer. "
+"[Host] y [@contraseña] son ​​opcionales, pero se aplican si se configuran. El "
+"host solo permite que la dirección coincidente ingrese a MistServer, una "
+"contraseña coincidente permite que direcciones que no coinciden también "
+"ingresen a MistServer. Para obtener una lista de métodos de coincidencia, "
+"consulte a continuación. Métodos como las claves de transmisión, el "
+"activador USER_NEW y los JWT omitirán esta coincidencia."
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:410
+msgid ""
+"Sets the transport protocol to either TCP (default) or UDP. UDP requires "
+"ephemeral UDP ports to be open, TCP does not."
+msgstr ""
+"Establece el protocolo de transporte en TCP (predeterminado) o UDP. UDP "
+"requiere que los puertos UDP efímeros estén abiertos, TCP no."
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:411
+msgid "shutdown reason (string)"
+msgstr "motivo de apagado (cadena)"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:412
+msgid ""
+"Similar to the `crf` option in FFMPEG. Must be a value between 0 and 51. You "
+"will want to use a value between 17 and 28. A lower value provides a better "
+"quality output, 17 should be visually lossless.<br>This only applies to "
+"software encoding. If set, the 'Bitrate'-setting will be used as a maximum "
+"allowed bitrate."
+msgstr ""
+"Similar a la opción `crf` en FFMPEG. Debe ser un valor entre 0 y 51. Querrá "
+"utilizar un valor entre 17 y 28. Un valor más bajo proporciona una salida de "
+"mejor calidad, 17 no debe tener pérdidas visuales.<br>Esto solo se aplica a "
+"la codificación de software. Si se establece, la configuración 'Bitrate' se "
+"utilizará como tasa de bits máxima permitida."
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:413
+msgid ""
+"Similar to the `qscale` option in FFMPEG. Must be a value between 1 and 31. "
+"A lower value provides a better quality output."
+msgstr ""
+"Similar a la opción `qscale` en FFMPEG. Debe ser un valor entre 1 y 31. Un "
+"valor más bajo proporciona un resultado de mejor calidad."
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:414
+msgid "Simulated Live"
+msgstr "Simulado en vivo"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:415
+msgid "Sink sleep time"
+msgstr "hundir el tiempo de sueño"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:416
+msgid "Sink timestamp"
+msgstr "Marca de tiempo del fregadero"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:417
+msgid ""
+"Skips adding all detected local addresses to the list of IP addresses sent "
+"to clients"
+msgstr ""
+"Omite agregar todas las direcciones locales detectadas a la lista de "
+"direcciones IP enviadas a los clientes"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:418
+msgid ""
+"Skips adding resolved versions of hostnames to the list of IP addresses sent "
+"to clients"
+msgstr ""
+"Omite agregar versiones resueltas de nombres de host a la lista de "
+"direcciones IP enviadas a los clientes"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:419
+msgid "Source"
+msgstr "Fuente"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:420
+msgid ""
+"Source image/video file or URL to overlay. Leave empty to apply original "
+"source."
+msgstr ""
+"Archivo de imagen/vídeo de origen o URL para superponer. Déjelo vacío para "
+"aplicar la fuente original."
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:422
+msgid "Source sleep time"
+msgstr "fuente de tiempo de sueño"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:423
+msgid "Source timestamp"
+msgstr "Marca de tiempo de origen"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:425
+msgid ""
+"Specify the host to which we should connect. When set, we will open a "
+"connection to this host instead of the host specified in the RTMP target url "
+"as defined above. We will stil use the host value of the RTMP target URL "
+"when for the `tcUrl` that is send to the remote server. This option is "
+"relevant when you want to manually specify which server to connect to when "
+"dealing with CDNs."
+msgstr ""
+"Especifica el host al que debemos conectarnos. Cuando esté configurado, "
+"abriremos una conexión a este host en lugar del host especificado en la URL "
+"de destino RTMP como se definió anteriormente. Seguiremos usando el valor de "
+"host de la URL de destino RTMP cuando se envíe el `tcUrl` al servidor "
+"remoto. Esta opción es relevante cuando desea especificar manualmente a qué "
+"servidor conectarse cuando se trata de CDN."
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:426
+msgid "SRT"
+msgstr "TER"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:427
+msgid "SRT socket options"
+msgstr "Opciones de enchufe SRT"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:428
+msgid "SRT subtitle progressive"
+msgstr "Subtítulo SRT progresivo"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:429
+msgid "Start in the past"
+msgstr "Empezar en el pasado"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:430
+msgid ""
+"Start the transcode as far back in the past as possible, instead of at the "
+"most-live point of the stream."
+msgstr ""
+"Inicie la transcodificación lo más atrás posible en el pasado, en lugar de "
+"en el punto más activo de la transmisión."
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:431
+msgid "Stream"
+msgstr "corriente"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:432
+msgid "Stream app"
+msgstr "Aplicación de transmisión"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:433
+msgid "Stream key"
+msgstr "Clave de transmisión"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:435
+msgid ""
+"stream name (string)\n"
+"buffer state: EMPTY, FULL, DRY or RECOVER (string)\n"
+"buffer health information (only if not EMPTY) (JSON)"
+msgstr ""
+"nombre de la secuencia (cadena)\n"
+"estado del búfer: VACÍO, LLENO, SECO o RECUPERAR (cadena)\n"
+"información de estado del búfer (solo si no está VACÍO) (JSON)"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:436
+msgid ""
+"stream name (string)\n"
+"connection address (string)\n"
+"connection identifier (integer)\n"
+"connector (string)\n"
+"request url (string)\n"
+"session identifier (integer)"
+msgstr ""
+"nombre de la secuencia (cadena)\n"
+"dirección de conexión (cadena)\n"
+"identificador de conexión (entero)\n"
+"conector (cadena)\n"
+"URL de solicitud (cadena)\n"
+"identificador de sesión (entero)"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:437
+msgid ""
+"stream name (string)\n"
+"connection address (string)\n"
+"connector (string)\n"
+"request url (string)"
+msgstr ""
+"nombre de la secuencia (cadena)\n"
+"dirección de conexión (cadena)\n"
+"conector (cadena)\n"
+"URL de solicitud (cadena)"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:438
+msgid ""
+"stream name (string)\n"
+"current bytes per second (integer)"
+msgstr ""
+"nombre de la secuencia (cadena)\n"
+"bytes actuales por segundo (entero)"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:439
+msgid ""
+"stream name (string)\n"
+"downloaded bytes (integer)\n"
+"uploaded bytes (integer)\n"
+"total viewers (integer)\n"
+"total inputs (integer)\n"
+"total outputs (integer)\n"
+"viewer seconds (integer)"
+msgstr ""
+"nombre de la secuencia (cadena)\n"
+"bytes descargados (entero)\n"
+"bytes cargados (entero)\n"
+"espectadores totales (entero)\n"
+"entradas totales (entero)\n"
+"salidas totales (entero)\n"
+"segundos de espectador (entero)"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:440
+msgid ""
+"stream name (string)\n"
+"input type (string)"
+msgstr ""
+"nombre de la secuencia (cadena)\n"
+"tipo de entrada (cadena)"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:441
+msgid ""
+"stream name (string)\n"
+"new stream configuration (JSON)"
+msgstr ""
+"nombre de la secuencia (cadena)\n"
+"nueva configuración de flujo (JSON)"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:442
+msgid ""
+"stream name (string)\n"
+"push target (string)"
+msgstr ""
+"nombre de la secuencia (cadena)\n"
+"empujar el objetivo (cadena)"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:443
+msgid ""
+"stream name (string)\n"
+"push target (string)\n"
+"connector / filetype (string)\n"
+"bytes recorded (integer)\n"
+"seconds spent recording (integer)\n"
+"unix time output started (integer)\n"
+"unix time output stopped (integer)\n"
+"total milliseconds of media data recorded (integer)\n"
+"millisecond timestamp of first media packet (integer)\n"
+"millisecond timestamp of last media packet (integer)\n"
+"machine-readable reason for exit (string, enum)\n"
+"human-readable reason for exit (string)"
+msgstr ""
+"nombre de la secuencia (cadena)\n"
+"empujar el objetivo (cadena)\n"
+"conector/tipo de archivo (cadena)\n"
+"bytes registrados (entero)\n"
+"segundos dedicados a la grabación (entero)\n"
+"salida de tiempo de Unix iniciada (entero)\n"
+"salida de tiempo de Unix detenida (entero)\n"
+"milisegundos totales de datos multimedia grabados (entero)\n"
+"Marca de tiempo de milisegundos del primer paquete de medios (entero)\n"
+"Marca de tiempo de milisegundos del último paquete de medios (entero)\n"
+"motivo de salida legible por máquina (cadena, enumeración)\n"
+"motivo de salida legible por humanos (cadena)"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:444
+msgid ""
+"stream name (string)\n"
+"push target (string)\n"
+"connector / filetype (string)\n"
+"bytes recorded (integer)\n"
+"seconds spent recording (integer)\n"
+"unix time recording started (integer)\n"
+"unix time recording stopped (integer)\n"
+"total milliseconds of media data recorded (integer)\n"
+"millisecond timestamp of first media packet (integer)\n"
+"millisecond timestamp of last media packet (integer)\n"
+"machine-readable reason for exit (string, enum)\n"
+"human-readable reason for exit (string)"
+msgstr ""
+"nombre de la secuencia (cadena)\n"
+"empujar el objetivo (cadena)\n"
+"conector/tipo de archivo (cadena)\n"
+"bytes registrados (entero)\n"
+"segundos dedicados a la grabación (entero)\n"
+"Hora de inicio de grabación en Unix (entero)\n"
+"grabación de tiempo de Unix detenida (entero)\n"
+"milisegundos totales de datos multimedia grabados (entero)\n"
+"Marca de tiempo de milisegundos del primer paquete de medios (entero)\n"
+"Marca de tiempo de milisegundos del último paquete de medios (entero)\n"
+"motivo de salida legible por máquina (cadena, enumeración)\n"
+"motivo de salida legible por humanos (cadena)"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:445
+msgid ""
+"stream name (string)\n"
+"remote host (string)\n"
+"binary name (string)\n"
+"pid (integer)\n"
+"machine-readable reason for exit (string, enum)\n"
+"human-readable reason for exit (string)\n"
+"Listing of track IDs, codecs and types that were being pushed (JSON object)"
+msgstr ""
+"nombre de la secuencia (cadena)\n"
+"host remoto (cadena)\n"
+"nombre binario (cadena)\n"
+"pid (entero)\n"
+"motivo de salida legible por máquina (cadena, enumeración)\n"
+"motivo de salida legible por humanos (cadena)\n"
+"Listado de ID de pista, códecs y tipos que se estaban enviando (objeto JSON)"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:446
+msgid ""
+"stream name (string)\n"
+"source URI (string)\n"
+"binary name (string)\n"
+"pid (integer)\n"
+"machine-readable reason for exit (string, enum)\n"
+"human-readable reason for exit (string)"
+msgstr ""
+"nombre de la secuencia (cadena)\n"
+"URI de origen (cadena)\n"
+"nombre binario (cadena)\n"
+"pid (entero)\n"
+"motivo de salida legible por máquina (cadena, enumeración)\n"
+"motivo de salida legible por humanos (cadena)"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:447
+msgid ""
+"stream name (string)\n"
+"stream configuration (JSON)"
+msgstr ""
+"nombre de la secuencia (cadena)\n"
+"configuración de flujo (JSON)"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:448
+msgid ""
+"stream name (string)\n"
+"track list (JSON)\n"
+msgstr ""
+"nombre de la secuencia (cadena)\n"
+"lista de pistas (JSON)\n"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:449
+msgid "Stream unavailable text"
+msgstr "Transmitir texto no disponible"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:450
+msgid "STUN/TURN config"
+msgstr "Configuración de aturdir/girar"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:451
+msgid "SubRip"
+msgstr "SubRip"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:452
+msgid "SubRip (SRT/WebVTT) over HTTP"
+msgstr "SubRip (SRT/WebVTT) sobre HTTP"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:453
+msgid "Support both single-frame JPEG and motion JPEG (e.g. MJPEG) over HTTP"
+msgstr ""
+"Admite JPEG de un solo cuadro y JPEG en movimiento (por ejemplo, MJPEG) a "
+"través de HTTP"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:454
+msgid "Sync sources"
+msgstr "Sincronizar fuentes"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:455
+msgid "Takes a raw format TS track and demuxes it into tracks"
+msgstr "Toma una pista TS en formato sin formato y la desmultiplexa en pistas."
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:456
+msgid "Target bit rate of the output"
+msgstr "Velocidad de bits objetivo de la salida"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:457
+msgid "Target CMAF URL to push out towards."
+msgstr "Apunte a la URL CMAF hacia la que dirigirse."
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:458
+msgid "Target codec"
+msgstr "Códec de destino"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:459
+msgid ""
+"Target DTSC URL to pretend pushing out towards, when not actually connected "
+"to another host"
+msgstr ""
+"URL DTSC de destino para fingir que se envía hacia afuera, cuando en "
+"realidad no está conectado a otro host"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:460
+msgid "Target DTSC URL to push out towards."
+msgstr "URL DTSC de destino hacia la que dirigirse."
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:461
+msgid "Target filename to store (f)MP4 file as, or - for stdout."
+msgstr ""
+"Nombre del archivo de destino para almacenar el archivo (f)MP4, o - para la "
+"salida estándar."
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:462
+msgid "Target filename to store AAC file as, or - for stdout."
+msgstr ""
+"Nombre de archivo de destino para almacenar el archivo AAC, o - para stdout."
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:463
+msgid "Target filename to store EBML file as, or - for stdout."
+msgstr ""
+"Nombre de archivo de destino para almacenar el archivo EBML, o - para salida "
+"estándar."
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:464
+msgid "Target filename to store FLAC file as, or - for stdout."
+msgstr ""
+"Nombre de archivo de destino para almacenar el archivo FLAC como, o - para "
+"salida estándar."
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:465
+msgid "Target filename to store FLV file as, or - for stdout."
+msgstr ""
+"Nombre de archivo de destino para almacenar el archivo FLV, o - para salida "
+"estándar."
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:466
+msgid "Target filename to store H264 file as, or - for stdout."
+msgstr ""
+"Nombre de archivo de destino para almacenar el archivo H264, o - para salida "
+"estándar."
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:467
+msgid "Target filename to store JPG file as, or - for stdout."
+msgstr ""
+"Nombre de archivo de destino para almacenar el archivo JPG o - para salida "
+"estándar."
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:468
+msgid "Target filename to store MP3 file as, or - for stdout."
+msgstr ""
+"Nombre de archivo de destino para almacenar el archivo MP3, o - para salida "
+"estándar."
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:469
+msgid "Target filename to store SDP file as, or - for stdout."
+msgstr ""
+"Nombre de archivo de destino para almacenar el archivo SDP, o - para stdout."
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:470
+msgid "Target filename to store TS file as or - for stdout."
+msgstr ""
+"Nombre de archivo de destino para almacenar el archivo TS como o - para "
+"stdout."
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:471
+msgid "Target filename to store WAV file as, or - for stdout."
+msgstr ""
+"Nombre de archivo de destino para almacenar el archivo WAV, o - para salida "
+"estándar."
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:473
+msgid "Target NDI device name"
+msgstr "Nombre del dispositivo NDI de destino"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:474
+msgid ""
+"Target output framerate in frames per second. If not set, will wait for any "
+"source to have a fresh frame before outputting, and output at least two "
+"frames per second even if nothing has changed."
+msgstr ""
+"Velocidad de fotogramas de salida objetivo en fotogramas por segundo. Si no "
+"se configura, esperará a que cualquier fuente tenga un fotograma nuevo antes "
+"de generar, y generará al menos dos fotogramas por segundo incluso si nada "
+"ha cambiado."
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:475
+msgid "Target rist:// URL to push out towards."
+msgstr "Apunte a la URL rist:// hacia la que dirigirse."
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:476
+msgid "Target RTMP URL to push out towards."
+msgstr "URL RTMP de destino hacia la que dirigirse."
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:477
+msgid "Target srt:// URL to push out towards."
+msgstr "Apunte a la URL srt:// hacia la que dirigirse."
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:479
+msgid "Target time duration in milliseconds for segments"
+msgstr "Duración del tiempo objetivo en milisegundos para segmentos"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:480
+msgid "Target time duration in milliseconds for segments."
+msgstr "Duración del tiempo objetivo en milisegundos para los segmentos."
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:481
+msgid "Target tsudp:// or tsrtp:// or tstcp:// URL to push out towards."
+msgstr "Apunte a la URL tsudp:// o tsrtp:// o tstcp:// hacia la que dirigirse."
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:482
+msgid "Target WHIP URL to push out towards."
+msgstr "Apunte a la URL WHIP hacia la que dirigirse."
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:483
+msgid "Text or HTML to display when streams are unavailable."
+msgstr ""
+"Texto o HTML para mostrar cuando las transmisiones no están disponibles."
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:484
+msgid ""
+"The connection mode. Can be listener, caller, or rendezvous. By default is "
+"listener if the host is missing from the URL, and is caller otherwise."
+msgstr ""
+"El modo de conexión. Puede ser oyente, llamante o encuentro. De forma "
+"predeterminada, es el oyente si el host no aparece en la URL y, en caso "
+"contrario, es el llamador."
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:485
+msgid ""
+"The content ID for this stream, defaults to an md5 hash of the stream name"
+msgstr ""
+"El ID de contenido de esta transmisión tiene por defecto un hash md5 del "
+"nombre de la transmisión."
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:486
+msgid "The debug level at which messages need to be printed."
+msgstr "El nivel de depuración en el que se deben imprimir los mensajes."
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:487
+msgid "The encryption key length. Default: auto."
+msgstr "La longitud de la clave de cifrado. Valor predeterminado: automático."
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:488
+msgid ""
+"The folder input will make available all supported files in the given folder "
+"as streams under this stream name, in the format STREAMNAME+FILENAME. For "
+"example, if your stream is called 'files' and you have a file called "
+"'movie.flv', you could access this file streamed as 'files+movie.flv'. This "
+"input does not support subdirectories. To support more complex libraries, "
+"look into the documentation for the STREAM_SOURCE trigger."
+msgstr ""
+"La entrada de carpeta pondrá a disposición todos los archivos compatibles en "
+"la carpeta dada como transmisiones bajo este nombre de transmisión, en el "
+"formato NOMBRE DE TRANSMISIÓN+NOMBRE DE ARCHIVO. Por ejemplo, si su "
+"transmisión se llama \"archivos\" y tiene un archivo llamado "
+"\"película.flv\", puede acceder a este archivo transmitido como "
+"\"archivos+película.flv\". Esta entrada no admite subdirectorios. Para "
+"admitir bibliotecas más complejas, consulte la documentación del activador "
+"STREAM_SOURCE."
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:489
+msgid "The header to use for PlayReady encryption"
+msgstr "El encabezado que se utilizará para el cifrado PlayReady"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:490
+msgid "The header to use for PlayReady encryption."
+msgstr "El encabezado que se utilizará para el cifrado PlayReady."
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:491
+msgid "The header to use for Widevine encryption."
+msgstr "El encabezado que se utilizará para el cifrado Widevine."
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:492
+msgid "The Key ID for this stream, defaults to an md5 hash of the content key"
+msgstr ""
+"El ID de clave para esta transmisión tiene por defecto un hash md5 de la "
+"clave de contenido."
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:493
+msgid "The key to en/decrypt the current file with"
+msgstr "La clave para cifrar/descifrar el archivo actual con"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:494
+msgid "The keyid to en/decrypt the current file with"
+msgstr "El ID de clave para cifrar/descifrar el archivo actual"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:495
+msgid "The keyseed to en/decrypt the current file with"
+msgstr "La semilla de clave para cifrar/descifrar el archivo actual con"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:496
+msgid ""
+"The load balancer input restarts itself as the input a load balancer tells "
+"it it should be. The syntax is in the form 'balance:http://HOST:PORT[?"
+"fallback=FALLBACK]', where HOST and PORT are the host and port of the load "
+"balancer and the FALLBACK is the full source URL that should be used if the "
+"load balancer cannot be reached."
+msgstr ""
+"La entrada del balanceador de carga se reinicia sola como la entrada que un "
+"balanceador de carga le indica que debería ser. La sintaxis tiene el formato "
+"'balance:http://HOST:PORT[?fallback=FALLBACK]', donde HOST y PORT son el "
+"host y el puerto del balanceador de carga y FALLBACK es la URL de origen "
+"completa que se debe usar si no se puede acceder al balanceador de carga."
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:497
+msgid "The minimum amount of frames between images."
+msgstr "La cantidad mínima de fotogramas entre imágenes."
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:498
+msgid "The name of the stream that this connector will provide in player mode"
+msgstr ""
+"El nombre de la transmisión que este conector proporcionará en modo "
+"reproductor."
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:499
+msgid ""
+"The target available buffer time for this live stream, in milliseconds. This "
+"is the time available to seek around in, and will automatically be extended "
+"to fit whole keyframes as well as the minimum duration needed for stable "
+"playback."
+msgstr ""
+"El tiempo de búfer disponible objetivo para esta transmisión en vivo, en "
+"milisegundos. Este es el tiempo disponible para buscar y se ampliará "
+"automáticamente para adaptarse a fotogramas clave completos, así como a la "
+"duración mínima necesaria para una reproducción estable."
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:500
+msgid "The time in milliseconds to seek to, 0 by default."
+msgstr "El tiempo en milisegundos para buscar, 0 de forma predeterminada."
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:501
+msgid ""
+"The track IDs of the stream that this connector will transmit separated by "
+"spaces"
+msgstr ""
+"Los ID de pista del flujo que transmitirá este conector separados por "
+"espacios"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:502
+msgid "The type of input to use"
+msgstr "El tipo de entrada a utilizar"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:503
+msgid "This input allows pulling of live RTSP sources over either UDP or TCP."
+msgstr ""
+"Esta entrada permite extraer fuentes RTSP en vivo a través de UDP o TCP."
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:504
+msgid "This input allows pulling of RTP packets using a provided SDP file"
+msgstr ""
+"Esta entrada permite extraer paquetes RTP utilizando un archivo SDP "
+"proporcionado"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:505
+msgid "This input allows streaming of MP4 or MOV files as Video on Demand."
+msgstr ""
+"Esta entrada permite la transmisión de archivos MP4 o MOV como Video on "
+"Demand."
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:506
+msgid "This input allows streaming of OGG files as Video on Demand."
+msgstr ""
+"Esta entrada permite la transmisión de archivos OGG como Video on Demand."
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:507
+msgid ""
+"This input allows you to both play Video on Demand and live HLS streams "
+"stored on the filesystem, as well as pull live HLS streams over HTTP and "
+"HTTPS."
+msgstr ""
+"Esta entrada le permite reproducir video a pedido y transmisiones HLS en "
+"vivo almacenadas en el sistema de archivos, así como extraer transmisiones "
+"HLS en vivo a través de HTTP y HTTPS."
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:508
+msgid "This input allows you to stream ISMV Video on Demand files."
+msgstr ""
+"Esta entrada le permite transmitir archivos de vídeo bajo demanda ISMV."
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:509
+msgid "This input allows you to stream MP3 Video on Demand files."
+msgstr "Esta entrada le permite transmitir archivos de vídeo MP3 bajo demanda."
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:510
+msgid ""
+"This input allows you to stream MPEG2-TS data from static files (/*.ts), "
+"streamed files or named pipes (stream://*.ts), streamed over HTTP (http(s)://"
+"*.ts, http(s)-ts://*), standard input (ts-exec:*), or multicast/unicast UDP "
+"sockets (tsudp://*)."
+msgstr ""
+"Esta entrada le permite transmitir datos MPEG2-TS desde archivos estáticos (/"
+"*.ts), archivos transmitidos o canalizaciones con nombre (stream://*.ts), "
+"transmitidos a través de HTTP (http(s)://*.ts, http(s)-ts://*), entrada "
+"estándar (ts-exec:*) o sockets UDP de multidifusión/unidifusión (tsudp://*)."
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:511
+msgid ""
+"This input allows you to take raw H264 Annex B data over a standard input "
+"pipe, and turn it into a live stream."
+msgstr ""
+"Esta entrada le permite tomar datos sin procesar del Anexo B de H264 a "
+"través de una tubería de entrada estándar y convertirlos en una transmisión "
+"en vivo."
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:512
+msgid ""
+"This input type is both used for push- and pull-based streams. It provides a "
+"buffer for live media data. The push://[host][@password] style source allows "
+"all enabled protocols that support push input to accept a push into "
+"MistServer, where you can accept incoming streams from everyone, based on a "
+"set password, and/or use hostname/IP whitelisting."
+msgstr ""
+"Este tipo de entrada se utiliza tanto para flujos basados en push como en "
+"pull. Proporciona un búfer para datos multimedia en vivo. La fuente de "
+"estilo push://[host][@contraseña] permite que todos los protocolos "
+"habilitados que admiten entrada push acepten un push en MistServer, donde "
+"puede aceptar transmisiones entrantes de todos, según una contraseña "
+"establecida, y/o usar la lista blanca de nombre de host/IP."
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:513
+msgid ""
+"This input uses libavformat to read any type of file. Unfortunately this "
+"input cannot be redistributed, but it is a great tool for testing the other "
+"file-based inputs against."
+msgstr ""
+"Esta entrada utiliza libavformat para leer cualquier tipo de archivo. "
+"Desafortunadamente, esta entrada no se puede redistribuir, pero es una gran "
+"herramienta para probar otras entradas basadas en archivos."
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:514
+msgid ""
+"This should be set to live (the default) unless you know what you're doing."
+msgstr ""
+"Esto debe configurarse para que esté activo (el valor predeterminado) a "
+"menos que sepas lo que estás haciendo."
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:515
+msgid "Time in seconds to keep the input process loaded without activity"
+msgstr ""
+"Tiempo en segundos para mantener el proceso de entrada cargado sin actividad"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:516
+msgid "Timestamps"
+msgstr "Marcas de tiempo"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:517
+msgid "Track ID, codec or language of the source stream to encode."
+msgstr "ID de seguimiento, códec o idioma de la secuencia fuente a codificar."
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:518
+msgid "Track idle time (ms)"
+msgstr "Seguimiento del tiempo de inactividad (ms)"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:519
+msgid "Track inhibitor(s)"
+msgstr "Inhibidores de seguimiento"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:520
+msgid ""
+"Track selector(s) for the audio portion of the source stream. Defaults to "
+"'none' so no audio is passed at all."
+msgstr ""
+"Selector(es) de pista para la parte de audio de la secuencia fuente. El "
+"valor predeterminado es \"ninguno\", por lo que no se pasa ningún audio."
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:521
+msgid ""
+"Track selector(s) of the video portion of the source stream. Defaults to "
+"highest bit rate video track."
+msgstr ""
+"Selector(es) de pista de la parte de vídeo de la secuencia fuente. El valor "
+"predeterminado es la pista de vídeo con la tasa de bits más alta."
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:522
+msgid "Tracks"
+msgstr "Pistas"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:523
+msgid "Tracks to transcode the source into"
+msgstr "Pistas para transcodificar la fuente en"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:524
+msgid ""
+"transcode options (json string)\n"
+"raw segment that was rejected (base64 encoded)\n"
+"information about the source track (json string)\n"
+"first attempted broadcaster URL\n"
+"second attempted broadcaster URL or the text \"N/A\" if no secondary was "
+"available"
+msgstr ""
+"opciones de transcodificación (cadena json)\n"
+"segmento sin procesar que fue rechazado (codificado en base64)\n"
+"información sobre la pista fuente (cadena json)\n"
+"primer intento de URL de emisora\n"
+"URL del segundo intento de transmisión o el texto \"N/A\" si no había "
+"ninguna secundaria disponible"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:525
+msgid "Transcode preset"
+msgstr "Preestablecido de transcodificación"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:526
+msgid "Transcode profile"
+msgstr "Perfil de transcodificación"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:527
+msgid ""
+"Transcode will only be active while this many viewers are watching the "
+"stream."
+msgstr ""
+"La transcodificación solo estará activa mientras tantos espectadores estén "
+"viendo la transmisión."
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:528
+msgid "Transform time"
+msgstr "transformar el tiempo"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:529
+msgid "Transmission type"
+msgstr "Tipo de transmisión"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:530
+msgid "Transport protocol"
+msgstr "Protocolo de transporte"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:531
+msgid "Transport protocol (TCP (default) or UDP)"
+msgstr "Protocolo de transporte (TCP (predeterminado) o UDP)"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:532
+msgid "Triggers only if current bytes per second exceeds this amount (integer)"
+msgstr ""
+"Se activa solo si los bytes actuales por segundo exceden esta cantidad "
+"(entero)"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:533
+msgid "TS"
+msgstr "TS"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:534
+msgid "TS HTTP progressive"
+msgstr "TS HTTP progresivo"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:536
+msgid "TS over RIST"
+msgstr "TS sobre RIST"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:537
+msgid "TS over SRT"
+msgstr "TS sobre SRT"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:538
+msgid "TS over TCP"
+msgstr "TS sobre TCP"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:539
+msgid "TSDemux"
+msgstr "TSDemux"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:540
+msgid "TSRIST"
+msgstr "TSRIST"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:541
+msgid "TSSRT"
+msgstr "TSSRT"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:542
+msgid "UDP bind address"
+msgstr "Dirección de enlace UDP"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:543
+msgid "UDP port"
+msgstr "Puerto UDP"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:544
+msgid "UDP port to listen on"
+msgstr "Puerto UDP para escuchar"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:545
+msgid "Undo masks on process exit/fail"
+msgstr "Deshacer máscaras al salir/fallar el proceso"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:546
+msgid "Use a local FFMPEG installed binary to do encoding"
+msgstr ""
+"Utilice un binario local instalado en FFMPEG para realizar la codificación"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:547
+msgid "Use hardcoded broadcasters, rather than using Livepeer's gateway."
+msgstr ""
+"Utilice emisoras codificadas, en lugar de utilizar la puerta de enlace de "
+"Livepeer."
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:548
+msgid "Use livepeer to transcode video."
+msgstr "Utilice livepeer para transcodificar vídeo."
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:549
+msgid "Utility: Static HTTP file server"
+msgstr "Utilidad: servidor de archivos HTTP estático"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:550
+msgid "V4L2"
+msgstr "V4L2"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:551
+msgid ""
+"V4L2 source to ingest, see the possible sources field for the recognized "
+"inputs."
+msgstr ""
+"Fuente V4L2 para ingerir, consulte el campo de fuentes posibles para las "
+"entradas reconocidas."
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:552
+msgid "Vertical distance of this layer to the origin corner."
+msgstr "Distancia vertical de esta capa a la esquina de origen."
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:553
+msgid "Video input selection"
+msgstr "Selección de entrada de vídeo"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:554
+msgid ""
+"Video quality, ranging from 0 (best) to 51 (worst). This value automatically "
+"scales with resolution. Around 17 is 'visually lossless', and we find 25 to "
+"be a reasonable trade off between quality and bit rate but your mileage may "
+"vary."
+msgstr ""
+"Calidad de vídeo, que va de 0 (mejor) a 51 (peor). Este valor escala "
+"automáticamente con la resolución. Alrededor de 17 es \"visualmente sin "
+"pérdidas\" y consideramos que 25 es una compensación razonable entre calidad "
+"y tasa de bits, pero su kilometraje puede variar."
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:555
+msgid ""
+"Video quality, ranging from 0 (best) to 63 (worst). Higher resolution "
+"requires a better quality to match, and HD (720p/1080p) generally looks good "
+"around 31, but your mileage may vary."
+msgstr ""
+"Calidad de vídeo, que va de 0 (mejor) a 63 (peor). Una resolución más alta "
+"requiere una mejor calidad para igualar, y HD (720p/1080p) generalmente se "
+"ve bien alrededor de 31, pero su kilometraje puede variar."
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:556
+msgid "Wait for all tracks"
+msgstr "Espera todas las pistas"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:557
+msgid "WAV"
+msgstr "WAV"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:559
+msgid "WAV progressive"
+msgstr "WAV progresivo"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:560
+msgid "Web root directory"
+msgstr "Directorio raíz web"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:561
+msgid "WebM/MKV over HTTP"
+msgstr "WebM/MKV sobre HTTP"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:563
+msgid "WebRTC with WebSocket signalling"
+msgstr "WebRTC con señalización WebSocket"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:564
+msgid "WebRTC with WHEP signalling"
+msgstr "WebRTC con señalización WHEP"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:565
+msgid "WebVTT subtitle progressive"
+msgstr "Subtítulos WebVTT progresivos"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:566
+msgid "What codec to ingest as"
+msgstr "¿Qué códec ingerir?"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:567
+msgid ""
+"What corner to use as origin for the X/Y coordinate system for placement."
+msgstr ""
+"Qué esquina usar como origen para el sistema de coordenadas X/Y para la "
+"ubicación."
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:568
+msgid ""
+"What host and/or IP addresses to pass on in the SDP. Defaults to HTTP server "
+"host."
+msgstr ""
+"Qué host y/o direcciones IP transmitir en el SDP. El valor predeterminado es "
+"el host del servidor HTTP."
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:569
+msgid "What internal processes should have access to the ouput track(s)"
+msgstr "¿Qué procesos internos deberían tener acceso a las pistas de salida?"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:570
+msgid "What internal processes should have access to the output track(s)"
+msgstr "¿Qué procesos internos deberían tener acceso a las pistas de salida?"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:571
+msgid "What internal processes should have access to the source track(s)"
+msgstr "¿Qué procesos internos deberían tener acceso a las pistas de origen?"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:572
+msgid "What language to ingest as"
+msgstr "Que idioma ingerir como"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:573
+msgid ""
+"What port to pass on in the SDP (e.g. in case the port is mapped through a "
+"firewall to a different port externally). Defaults to actually bound port."
+msgstr ""
+"Qué puerto pasar en el SDP (por ejemplo, en caso de que el puerto esté "
+"asignado a través de un firewall a un puerto diferente externo). El valor "
+"predeterminado es el puerto realmente vinculado."
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:574
+msgid ""
+"What stream the encoded track should be added to. Defaults to source stream. "
+"May contain variables."
+msgstr ""
+"A qué secuencia se debe agregar la pista codificada. El valor predeterminado "
+"es el flujo fuente. Puede contener variables."
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:575
+msgid "What streamname to serve"
+msgstr "¿Qué nombre de transmisión servir?"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:576
+msgid ""
+"What streamname to serve if no streamid is given by the other end of the "
+"connection"
+msgstr ""
+"Qué nombre de transmisión servir si el otro extremo de la conexión no "
+"proporciona ningún ID de transmisión"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:577
+msgid "What streamname to serve."
+msgstr "Qué nombre de transmisión servir."
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:578
+msgid ""
+"What streamname to serve. For multiple streams, add this protocol multiple "
+"times using different ports."
+msgstr ""
+"Qué nombre de transmisión servir. Para múltiples transmisiones, agregue este "
+"protocolo varias veces usando diferentes puertos."
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:579
+msgid "What to do when a source goes offline or becomes otherwise unavailable"
+msgstr ""
+"Qué hacer cuando una fuente se desconecta o deja de estar disponible de otro "
+"modo"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:580
+msgid "What to do with keyframes"
+msgstr "Qué hacer con los fotogramas clave"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:581
+msgid ""
+"What to do with the streamids for incoming pushes, if this is a listener SRT "
+"connection"
+msgstr ""
+"Qué hacer con los streamids para los envíos entrantes, si se trata de una "
+"conexión SRT de oyente"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:582
+msgid "What to executable to run on the stream data"
+msgstr "Qué ejecutable para ejecutar en los datos de la transmisión"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:583
+msgid ""
+"What tracks are selected first when no specific track selector is used for "
+"playback."
+msgstr ""
+"Qué pistas se seleccionan primero cuando no se utiliza ningún selector de "
+"pistas específico para la reproducción."
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:584
+msgid "What tracks to select for the input. Defaults to audio=all&video=all."
+msgstr ""
+"Qué pistas seleccionar para la entrada. El valor predeterminado es "
+"audio=todo&video=todo."
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:585
+msgid ""
+"What tracks to use as inhibitors. If this track selector is able to select a "
+"track, the profile is not used. Only verified on initial boot of the process "
+"and then never again. Defaults to none."
+msgstr ""
+"Qué pistas utilizar como inhibidores. Si este selector de pista puede "
+"seleccionar una pista, el perfil no se utiliza. Solo se verifica en el "
+"inicio inicial del proceso y nunca más. El valor predeterminado es ninguno."
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:587
+msgid ""
+"When a source goes offline, how long to wait before removing it entirely (0 "
+"= never)"
+msgstr ""
+"Cuando una fuente se desconecta, cuánto tiempo esperar antes de eliminarla "
+"por completo (0 = nunca)"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:589
+msgid "When a stream's source setting is loaded"
+msgstr "Cuando se carga la configuración de origen de una transmisión"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:591
+msgid ""
+"When any user attempts to open a stream that cannot be opened (because it is "
+"either offline or not configured), allows rewriting the stream to a "
+"different one as fallback. Supports variable substitution."
+msgstr ""
+"Cuando cualquier usuario intenta abrir una transmisión que no se puede abrir "
+"(porque está fuera de línea o no configurada), permite reescribir la "
+"transmisión en una diferente como alternativa. Admite sustitución de "
+"variables."
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:592
+msgid ""
+"When set, we will directly close the RTMP connection when shutting down the "
+"stream. This means we don't send a `deleteStream` AMF command to the "
+"receiving media server."
+msgstr ""
+"Cuando esté configurado, cerraremos directamente la conexión RTMP al cerrar "
+"la transmisión. Esto significa que no enviamos un comando AMF `deleteStream` "
+"al servidor de medios receptor."
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:593
+msgid ""
+"Whenever a segment is rejected by MistProcLivepeer with a 422 status code "
+"either twice in a row for different broadcasters, or once with no secondary "
+"broadcasters available."
+msgstr ""
+"Siempre que MistProcLivepeer rechace un segmento con un código de estado "
+"422, ya sea dos veces seguidas para diferentes emisoras o una vez sin "
+"emisoras secundarias disponibles."
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:594
+msgid ""
+"Whether to allow only incoming pushes (2), only outgoing pulls (1), or both "
+"(0, default)"
+msgstr ""
+"Si se permiten solo inserciones entrantes (2), solo extracciones salientes "
+"(1) o ambas (0, predeterminado)"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:595
+msgid "Which codec to encode to"
+msgstr "¿A qué códec codificar?"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:596
+msgid "Which parser to use for data tracks"
+msgstr "Qué analizador usar para pistas de datos"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:597
+msgid "Which players are attempted and in what order."
+msgstr "Qué jugadores se intentan y en qué orden."
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:598
+msgid "widevine"
+msgstr "amplia vid"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:599
+msgid "Width"
+msgstr "Ancho"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:600
+msgid ""
+"Width in pixels of the output. Defaults to match aspect with height, or "
+"source width if both are default."
+msgstr ""
+"Ancho en píxeles de la salida. El valor predeterminado es hacer coincidir el "
+"aspecto con la altura o el ancho de origen si ambos son predeterminados."
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:601
+msgid ""
+"Width to scale the layer to, use -1 to keep aspect ratio if only height is "
+"known."
+msgstr ""
+"Ancho para escalar la capa, use -1 para mantener la relación de aspecto si "
+"solo se conoce la altura."
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:602
+msgid "Write jitter log"
+msgstr "Escribir registro de fluctuación"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:603
+msgid "Write packet log"
+msgstr "Escribir registro de paquetes"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:604
+msgid ""
+"Writes log of frame transmit jitter to /tmp/ for each outgoing connection"
+msgstr ""
+"Escribe el registro de fluctuación de transmisión de tramas en /tmp/ para "
+"cada conexión saliente"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:605
+msgid "Writes log of full packet contents to /tmp/ for each connection"
+msgstr ""
+"Escribe el registro del contenido completo del paquete en /tmp/ para cada "
+"conexión"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:606
+msgid "X position"
+msgstr "posición X"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:607
+msgid "Y position"
+msgstr "posición Y"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:608
+msgid ""
+"You can use the timing tool available at <a href=\"https://mistserver.org/"
+"demos/timing.html\" target=\"_blank\">mistserver.org/demos/timing.html</a> "
+"to sync your sources. Make sure you show the timing QR code to each of your "
+"sources <b>using the same device</b>."
+msgstr ""
+"Puede utilizar la herramienta de sincronización disponible en <a "
+"href=\"https://mistserver.org/demos/timing.html\" "
+"target=\"_blank\">mistserver.org/demos/timing.html</a> para sincronizar sus "
+"fuentes. Asegúrese de mostrar el código QR de sincronización a cada una de "
+"sus fuentes <b>usando el mismo dispositivo</b>."
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:609
+msgid "Your BuyDRM user string"
+msgstr "Su cadena de usuario de BuyDRM"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.xlZUOpLye7/backend-markers.cpp:610
+msgid "Your livepeer access token"
+msgstr "Su token de acceso de LivePeer"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.VjrRBXh5SM/backend-markers.cpp:80
+msgid "Control when the process starts"
+msgstr "Controlar cuándo comienza el proceso"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.VjrRBXh5SM/backend-markers.cpp:91
+msgid "Debug level"
+msgstr "Nivel de depuración"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.VjrRBXh5SM/backend-markers.cpp:92
+msgid ""
+"Debug message level for process. Default inherits from the stream setting."
+msgstr ""
+"Nivel de mensaje de depuración para el proceso. El valor predeterminado "
+"hereda de la configuración de la transmisión."
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.VjrRBXh5SM/backend-markers.cpp:170
+msgid "Generic process options"
+msgstr "Opciones de proceso genéricas"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.VjrRBXh5SM/backend-markers.cpp:219
+msgid ""
+"If set, this process need not be running for a stream to be considered fully "
+"active."
+msgstr ""
+"Si se establece, no es necesario que este proceso se esté ejecutando para "
+"que una transmisión se considere completamente activa."
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.VjrRBXh5SM/backend-markers.cpp:224
+msgid "Inconsequential process"
+msgstr "Proceso intrascendente"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.VjrRBXh5SM/backend-markers.cpp:317
+msgid ""
+"Optional list of tags, if any of them are set on the stream, this process "
+"does not start."
+msgstr ""
+"Lista opcional de etiquetas, si alguna de ellas está configurada en la "
+"transmisión, este proceso no se inicia."
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.VjrRBXh5SM/backend-markers.cpp:346
+msgid "Process start behaviour"
+msgstr "Comportamiento de inicio del proceso"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.VjrRBXh5SM/backend-markers.cpp:383
+msgid "Restart behaviour"
+msgstr "Comportamiento de reinicio"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.VjrRBXh5SM/backend-markers.cpp:384
+msgid "Restart delay"
+msgstr "Retardo de reinicio"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.VjrRBXh5SM/backend-markers.cpp:465
+msgid "Tag inhibitor(s)"
+msgstr "Inhibidores de etiquetas"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.VjrRBXh5SM/backend-markers.cpp:511
+msgid ""
+"The time in milliseconds between restarts. If set to 0 it will restart "
+"immediately"
+msgstr ""
+"El tiempo en milisegundos entre reinicios. Si se establece en 0, se "
+"reiniciará inmediatamente"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.VjrRBXh5SM/backend-markers.cpp:592
+msgid ""
+"What to do when the process exits or fails for any reason. Fixed waits the "
+"restart delay every time. Exponential backoff will increase the delay up to "
+"max the configured delay for each restart. Disabled will not restart the "
+"process."
+msgstr ""
+"Qué hacer cuando el proceso sale o falla por cualquier motivo. Se corrigió "
+"el retraso de reinicio cada vez. El retroceso exponencial aumentará el "
+"retraso hasta alcanzar el máximo del retraso configurado para cada reinicio. "
+"Deshabilitado no reiniciará el proceso."
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.VjrRBXh5SM/backend-markers.cpp:598
+msgid ""
+"What tracks to use as inhibitors. If this track selector is able to select a "
+"track, the process does not start. Defaults to none."
+msgstr ""
+"Qué pistas utilizar como inhibidores. Si este selector de pistas puede "
+"seleccionar una pista, el proceso no comienza. El valor predeterminado es "
+"ninguno."
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.PZ0WZ8JsmT/backend-markers.cpp:34
+msgid "Annex B over WebSocket"
+msgstr "Annex B sobre WebSocket"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.PZ0WZ8JsmT/backend-markers.cpp:35
+msgid "Annex B progressive over HTTP"
+msgstr "Annex B progresivo sobre HTTP"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.PZ0WZ8JsmT/backend-markers.cpp:162
+msgid "Forward"
+msgstr "Reenviar"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.PZ0WZ8JsmT/backend-markers.cpp:163
+msgid "Forward HTTP-pushed data over HTTP without further processing"
+msgstr "Reenviar por HTTP los datos enviados mediante HTTP sin procesamiento adicional"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.PZ0WZ8JsmT/backend-markers.cpp:181
+msgid "H264/WS"
+msgstr "H264/WS"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.PZ0WZ8JsmT/backend-markers.cpp:199
+msgid "HTTP Push Forwarder"
+msgstr "Reenviador de push HTTP"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.PZ0WZ8JsmT/backend-markers.cpp:206
+msgid ""
+"If empty, rejects the connection. Otherwise, response is parsed as local SRT "
+"socket option overrides and applied to the newly accepted connection only. "
+"This can be used to set the passphrase of the connection after receiving the "
+"streamid, for example."
+msgstr ""
+"Si está vacío, rechaza la conexión. De lo contrario, la respuesta se "
+"interpreta como anulaciones locales de opciones del socket SRT y se aplica "
+"únicamente a la conexión recién aceptada. Esto se puede usar, por ejemplo, "
+"para establecer la frase de contraseña de la conexión después de recibir el "
+"streamid."
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.PZ0WZ8JsmT/backend-markers.cpp:268
+msgid ""
+"local host:port (string)\n"
+"remote host:port (string)\n"
+"streamid (string)"
+msgstr ""
+"host:puerto local (cadena)\n"
+"host:puerto remoto (cadena)\n"
+"streamid (cadena)"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.PZ0WZ8JsmT/backend-markers.cpp:375
+msgid "Raw codec data over WebSocket"
+msgstr "Datos de códec sin procesar por WebSocket"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.PZ0WZ8JsmT/backend-markers.cpp:404
+msgid "RTP-based SDP"
+msgstr "SDP basado en RTP"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.PZ0WZ8JsmT/backend-markers.cpp:445
+msgid "SRT (Secure Reliable Transport)"
+msgstr "SRT (transporte seguro y fiable)"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.PZ0WZ8JsmT/backend-markers.cpp:617
+msgid "Whenever an incoming SRT connection is accepted"
+msgstr "Cada vez que se acepta una conexión SRT entrante"
+
+#: /var/folders/w8/0_1t6gv14p5gkdjjjvr3dgnm0000gn/T/tmp.PZ0WZ8JsmT/backend-markers.cpp:630
+msgid "WSRaw"
+msgstr "WSRaw"

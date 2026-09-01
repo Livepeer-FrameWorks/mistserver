@@ -311,6 +311,7 @@ namespace Mist{
     option["short"] = "R";
     option["help"] = "Enable raw MPEG-TS passthrough mode";
     config->addOption("raw", option);
+    capa["optional"]["DVR"]["display"] = "always";
   }
 
   InputTS::~InputTS(){

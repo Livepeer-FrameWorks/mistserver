@@ -1014,6 +1014,7 @@ void Socket::Connection::clear(){
   server_fd = 0;
   ssl = 0;
   conf = 0;
+  caCert = 0;
   ctr_drbg = 0;
   entropy = 0;
 #endif
@@ -1072,11 +1073,20 @@ void Socket::Connection::close(){
 void Socket::Connection::drop(){
   upBuffer.clear();
 #ifdef SSL
-  if (sslConnected){
+  if (server_fd || ssl || conf || caCert || ctr_drbg || entropy){
+    const bool wasSslConnected = sslConnected;
     sslConnected = false;
     DONTEVEN_MSG("SSL close");
-    if (ssl) {
-      mbedtls_ssl_close_notify(ssl);
+    if (wasSslConnected && ssl){mbedtls_ssl_close_notify(ssl);}
+    if (server_fd){
+      int prevFd = server_fd->fd;
+      mbedtls_net_free(server_fd);
+      delete server_fd;
+      server_fd = 0;
+      for (auto cb : closeCallbacks) { cb(prevFd); }
+      closeCallbacks.clear();
+    }
+    if (ssl){
       mbedtls_ssl_free(ssl);
       delete ssl;
       ssl = 0;
@@ -1085,6 +1095,11 @@ void Socket::Connection::drop(){
       mbedtls_ssl_config_free(conf);
       delete conf;
       conf = 0;
+    }
+    if (caCert){
+      mbedtls_x509_crt_free(caCert);
+      delete caCert;
+      caCert = 0;
     }
     if (ctr_drbg){
       mbedtls_ctr_drbg_free(ctr_drbg);
@@ -1095,14 +1110,6 @@ void Socket::Connection::drop(){
       mbedtls_entropy_free(entropy);
       delete entropy;
       entropy = 0;
-    }
-    if (server_fd) {
-      int prevFd = server_fd->fd;
-      for (auto cb : closeCallbacks) { cb(prevFd); }
-      closeCallbacks.clear();
-      mbedtls_net_free(server_fd);
-      delete server_fd;
-      server_fd = 0;
     }
     return;
   }
@@ -1324,7 +1331,8 @@ Socket::Connection::Connection(std::string host, int port, bool nonblock, bool w
 
 /// Open TCP connection.
 /// Closes any existing connections and resets all internal values beforehand.
-void Socket::Connection::open(std::string host, int port, bool nonblock, bool with_ssl, const std::string & hostname) {
+void Socket::Connection::open(std::string host, int port, bool nonblock, bool with_ssl, const std::string & hostname,
+                              bool verifyPeer, const std::string &caFile) {
   drop();
   clear();
   if (with_ssl){
@@ -1443,7 +1451,32 @@ void Socket::Connection::open(std::string host, int port, bool nonblock, bool wi
       close();
       return;
     }
-    mbedtls_ssl_conf_authmode(conf, MBEDTLS_SSL_VERIFY_NONE);
+    if (verifyPeer) {
+      caCert = new mbedtls_x509_crt;
+      mbedtls_x509_crt_init(caCert);
+      int caResult = -1;
+      if (!caFile.empty()) {
+        caResult = mbedtls_x509_crt_parse_file(caCert, caFile.c_str());
+      } else {
+        const char *systemCaFiles[] = {"/etc/ssl/cert.pem", "/etc/ssl/certs/ca-certificates.crt",
+                                       "/etc/pki/tls/certs/ca-bundle.crt"};
+        for (const char *candidate : systemCaFiles) {
+          caResult = mbedtls_x509_crt_parse_file(caCert, candidate);
+          if (caResult >= 0) break;
+        }
+      }
+      if (caResult < 0) {
+        char estr[200];
+        mbedtls_strerror(caResult, estr, sizeof(estr));
+        lastErr = std::string("TLS CA load failed: ") + estr;
+        close();
+        return;
+      }
+      mbedtls_ssl_conf_ca_chain(conf, caCert, NULL);
+      mbedtls_ssl_conf_authmode(conf, MBEDTLS_SSL_VERIFY_REQUIRED);
+    } else {
+      mbedtls_ssl_conf_authmode(conf, MBEDTLS_SSL_VERIFY_NONE);
+    }
     mbedtls_ssl_conf_rng(conf, mbedtls_ctr_drbg_random, ctr_drbg);
     mbedtls_ssl_conf_dbg(conf, my_debug, stderr);
 
@@ -1485,6 +1518,11 @@ void Socket::Connection::open(std::string host, int port, bool nonblock, bool wi
         char estr[200];
         mbedtls_strerror(ret, estr, 200);
         lastErr = estr;
+        if (verifyPeer && mbedtls_ssl_get_verify_result(ssl)) {
+          char verifyInfo[512];
+          mbedtls_x509_crt_verify_info(verifyInfo, sizeof(verifyInfo), "", mbedtls_ssl_get_verify_result(ssl));
+          lastErr = std::string("TLS certificate validation failed: ") + verifyInfo;
+        }
         FAIL_MSG("SSL handshake error %d: %s", ret, lastErr.c_str());
         close();
         return;
@@ -2222,9 +2260,10 @@ int Socket::Server::getSocket(){
 /// Will attempt to create an IPv6 UDP socket, on fail try a IPV4 UDP socket.
 /// If both fail, prints an DLVL_FAIL debug message.
 /// \param nonblock Whether the socket should be nonblocking.
-Socket::UDPConnection::UDPConnection(bool nonblock){
-  init(nonblock);
-} // Socket::UDPConnection UDP Constructor
+/// \param family The address family in case you MUST use a ipv4. Default is AF_INET6 for dual stack.
+Socket::UDPConnection::UDPConnection(bool nonblock, int family){
+  init(nonblock, family);
+} // Socket::UDPConnection UDP Constructor with family
 
 /// Create a new UDP socket, with local sender and/or remote destination pre-set.
 /// This ensure the address family matches, but does not bind or connect.
@@ -2686,6 +2725,27 @@ void Socket::UDPConnection::setAddresses(void * dest, size_t destLen, void * loc
 void Socket::UDPConnection::SetDestination(std::string destIp, uint32_t port){
   DONTEVEN_MSG("Setting destination to %s:%u", destIp.c_str(), port);
 
+  // Special case for broadcast address
+  if (destIp == "255.255.255.255") {
+    INFO_MSG("Setting up broadcast destination (socket=%d)", sock);
+    // Force IPv4 for broadcast
+    family = AF_INET;
+    // Enable broadcast on the socket
+    int broadcast = 1;
+    if (setsockopt(sock, SOL_SOCKET, SO_BROADCAST, &broadcast, sizeof(broadcast)) < 0) {
+      FAIL_MSG("Failed to set SO_BROADCAST: %s", strerror(errno));
+      return;
+    }
+
+    // Allocate and set up broadcast address
+    allocateDestination(false);
+    struct sockaddr_in *baddr = (struct sockaddr_in *)(sockaddr*)destAddr;
+    memset(baddr, 0, sizeof(struct sockaddr_in));
+    baddr->sin_family = AF_INET;
+    baddr->sin_port = htons(port);
+    baddr->sin_addr.s_addr = INADDR_BROADCAST;
+    return;
+  }
   std::deque<Socket::Address> addrs = getAddrs(destIp, port, family);
   for (auto & it : addrs) {
     if (setDestination(it)) { return; }
@@ -2988,6 +3048,15 @@ void Socket::UDPConnection::sendPaced(uint64_t uSendWindow){
 /// Optional, left out means automatically chosen by kernel. \return Actually bound port number, or
 /// zero on error.
 uint16_t Socket::UDPConnection::bind(int port, std::string iface, const std::string &multicastInterfaces){
+  // Store broadcast state if socket exists
+  int broadcast = 0;
+  socklen_t optlen = sizeof(broadcast);
+  bool hadBroadcast = false;
+  if (sock != -1) {
+    getsockopt(sock, SOL_SOCKET, SO_BROADCAST, &broadcast, &optlen);
+    hadBroadcast = (broadcast != 0);
+  }
+
   close(); // we open a new socket for each attempt
   int addr_ret;
   bool multicast = false;
@@ -3038,6 +3107,10 @@ repeatAddressFinding:
       // Allow address re-use
       int on = 1;
       setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, &on, sizeof(on));
+      // Restore broadcast if it was set
+      if (hadBroadcast) {
+        setsockopt(sock, SOL_SOCKET, SO_BROADCAST, &on, sizeof(on));
+      }
     }
     if (rp->ai_family == AF_INET6){
       const int optval = 0;
@@ -3483,4 +3556,3 @@ void Socket::UDPConnection::swapSocket(Socket::UDPConnection & o){
   o.family = tmpFam;
 
 }
-

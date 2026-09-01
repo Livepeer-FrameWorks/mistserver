@@ -1,0 +1,12 @@
+@VARIANT_INCLUDES@
+
+struct LSPVariant {
+  const char *slug;
+  const EmbeddedFile *files;
+  int file_count;
+  bool is_root;
+};
+
+static const LSPVariant lsp_variants[] = {
+@VARIANT_ENTRIES@};
+static const int lsp_variant_count = @VARIANT_COUNT@;

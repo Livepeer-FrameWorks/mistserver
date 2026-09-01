@@ -22,7 +22,7 @@ int main(int argc, char* argv[]) {
     }
 
     output << header.rdbuf();
-    output << "<script>";
+    output << "<script type='module'>";
     for (int i = 5; i < argc; i++) {
         std::ifstream script(argv[i]);
         if (!script.is_open()) {
