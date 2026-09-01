@@ -75,6 +75,9 @@ namespace HTTP{
     bool seenReq;
     bool getChunks;
     bool possiblyComplete;
+    bool responseKeepAlive;
+    bool responseBodyAllowed;
+    bool responseContentLengthAllowed;
     unsigned int doingChunk;
     bool parse(std::string & HTTPbuffer, std::function<void(const char *, size_t)> onData = 0);
     std::string builder;

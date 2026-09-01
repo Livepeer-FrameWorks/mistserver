@@ -37,6 +37,9 @@ void HTTP::Parser::CleanPreserveHeaders(){
   seenHeaders = false;
   seenReq = false;
   possiblyComplete = false;
+  responseKeepAlive = false;
+  responseBodyAllowed = true;
+  responseContentLengthAllowed = true;
   getChunks = false;
   sendingChunks = false;
   doingChunk = 0;
@@ -240,9 +243,7 @@ std::string &HTTP::Parser::BuildResponse(std::string code, std::string message){
   builder = protocol + " " + code + " " + message + "\r\n";
   for (it = headers.begin(); it != headers.end(); it++){
     if ((*it).first != "" && (*it).second != ""){
-      if ((*it).first != "Content-Length" || (*it).second != "0"){
-        builder += (*it).first + ": " + (*it).second + "\r\n";
-      }
+      builder += (*it).first + ": " + (*it).second + "\r\n";
     }
   }
   builder += "\r\n";
@@ -273,10 +274,8 @@ void HTTP::Parser::SendResponse(std::string code, std::string message, Socket::C
   conn.SendNow(builder);
   for (it = headers.begin(); it != headers.end(); it++){
     if ((*it).first != "" && (*it).second != ""){
-      if ((*it).first != "Content-Length" || (*it).second != "0"){
-        builder = (*it).first + ": " + (*it).second + "\r\n";
-        conn.SendNow(builder);
-      }
+      builder = (*it).first + ": " + (*it).second + "\r\n";
+      conn.SendNow(builder);
     }
   }
   conn.SendNow("\r\n", 2);
@@ -292,10 +291,31 @@ void HTTP::Parser::SendResponse(std::string code, std::string message, Socket::C
 void HTTP::Parser::StartResponse(std::string code, std::string message, const HTTP::Parser &request,
                                  Socket::Connection &conn, bool bufferAllChunks){
   std::string prot = request.protocol;
-  bool willSendChunks =
-      (!bufferAllChunks && request.protocol == "HTTP/1.1" && request.GetHeader("Connection") != "close");
+  const std::string requestConnection = request.GetHeader("Connection");
+  const std::string responseConnection = GetHeader("Connection");
+  const bool requestKeepAlive = request.protocol == "HTTP/1.1"
+                                    ? strcasecmp(requestConnection.c_str(), "close") != 0
+                                    : strcasecmp(requestConnection.c_str(), "keep-alive") == 0;
+  const bool connectionAllowsPersistence =
+      requestKeepAlive && strcasecmp(responseConnection.c_str(), "close") != 0;
+  const unsigned int status = strtoul(code.c_str(), 0, 10);
+  const bool responseToHead = request.method == "HEAD";
+  const bool statusForbidsBody = (status >= 100 && status < 200) || status == 204 || status == 304;
+  const bool connectTunnel = request.method == "CONNECT" && status >= 200 && status < 300;
+  const bool bodyAllowed = !responseToHead && !statusForbidsBody && !connectTunnel;
+  const bool contentLengthAllowed =
+      !(status >= 100 && status < 200) && status != 204 && !connectTunnel;
+  const bool willSendChunks = bodyAllowed && !bufferAllChunks && request.protocol == "HTTP/1.1" &&
+                              connectionAllowsPersistence;
   CleanPreserveHeaders();
   sendingChunks = willSendChunks;
+  responseKeepAlive = connectionAllowsPersistence;
+  responseBodyAllowed = bodyAllowed;
+  responseContentLengthAllowed = contentLengthAllowed;
+  // Parsed responses already store their status in url/method. Reuse those fields while building
+  // a buffered response rather than growing every Parser instance with duplicate strings.
+  url = code;
+  method = message;
   protocol = prot;
   if (sendingChunks){
     SetHeader("Transfer-Encoding", "chunked");
@@ -310,7 +330,15 @@ void HTTP::Parser::StartResponse(std::string code, std::string message, const HT
       headers.erase("Content-Length");
     }
   }else{
-    if (!headers.count("Content-Length")){SetHeader("Connection", "close");}
+    clearHeader("Transfer-Encoding");
+    if (!contentLengthAllowed) { clearHeader("Content-Length"); }
+    const bool hasResponseLength = !bodyAllowed || hasHeader("Content-Length") || bufferAllChunks;
+    responseKeepAlive = responseKeepAlive && hasResponseLength;
+    if (!responseKeepAlive){
+      SetHeader("Connection", "close");
+    }else if (request.protocol == "HTTP/1.0"){
+      SetHeader("Connection", "keep-alive");
+    }
   }
   bufferChunks = bufferAllChunks;
   if (!bufferAllChunks){SendResponse(code, message, conn);}
@@ -821,9 +849,17 @@ void HTTP::Parser::Chunkify(const char *data, unsigned int size, Socket::Connect
     if (size){
       body.append(data, size);
     }else{
-      SetHeader("Content-Length", body.length());
-      SetHeader("Connection", "keep-alive");
-      SendResponse("200", "OK", conn);
+      if (responseContentLengthAllowed) { SetHeader("Content-Length", body.length()); }
+      if (!responseBodyAllowed) { body.clear(); }
+      SendResponse(url, method, conn);
+      if (!responseKeepAlive) { conn.close(); }
+      Clean();
+    }
+    return;
+  }
+  if (!responseBodyAllowed) {
+    if (!size) {
+      if (!responseKeepAlive) { conn.close(); }
       Clean();
     }
     return;
@@ -831,12 +867,16 @@ void HTTP::Parser::Chunkify(const char *data, unsigned int size, Socket::Connect
   if (sendingChunks){
     conn.setChunkedMode(true);
     conn.SendNow(data, size);
+    // End of response: reset the parser so a kept-alive connection can parse the next
+    // request. Without this, the stale Transfer-Encoding header makes the parser wait
+    // for a chunked request body that never comes.
+    if (!size) { Clean(); }
   }else{
     // just send the chunk itself
     conn.SendNow(data, size);
     // close the connection if this was the end of the file
     if (!size){
-      conn.close();
+      if (!responseKeepAlive) { conn.close(); }
       Clean();
     }
   }

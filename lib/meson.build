@@ -150,4 +150,3 @@ if have_srt
   libmist_srt = library('mist_srt', 'socket_srt.cpp', dependencies: [libsrt, libmist_dep], install: true)
   libmist_srt_dep = declare_dependency(link_with: [libmist_srt])
 endif
-
