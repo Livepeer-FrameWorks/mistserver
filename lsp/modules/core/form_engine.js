@@ -1942,7 +1942,6 @@ convertBuildOptions: function(input,saveas) {
         }
         case 'json':
         case 'debug':
-        case 'inputlist':
         case 'browse': {
           obj.type = ele.type;
           break;

@@ -162,14 +162,18 @@ function getAppliesToStreams(ctx, capInfo) {
 }
 
 function buildTriggerPayload(ctx, capInfo) {
-  return {
+  const payload = {
     handler: ctx.url,
     sync: ctx.blocking ? true : false,
     streams: getAppliesToStreams(ctx, capInfo),
     params: ctx.params || '',
     'default': ctx['default'] || ''
   };
+  if (ctx.blocking && ctx.onfail) payload.onfail = ctx.onfail;
+  return payload;
 }
+
+export { buildTriggerPayload, buildConfigForm };
 
 function getAllRules() {
   ensureConfig();
@@ -393,6 +397,20 @@ function buildConfigForm(ctx, capInfo) {
     pointer: { main: ctx, index: 'default' }
   });
 
+  if (capInfo && capInfo.actions && capInfo.actions.length) {
+    const choices = [['', tr('Legacy default response')]];
+    for (let i = 0; i < capInfo.actions.length; i++) {
+      if (capInfo.actions[i] !== 'value') choices.push([capInfo.actions[i], capInfo.actions[i]]);
+    }
+    advanced.push({
+      label: tr('On handler failure'),
+      type: 'select',
+      help: tr('Outcome when a blocking handler is unavailable, times out, or returns an invalid action.'),
+      select: choices,
+      pointer: { main: ctx, index: 'onfail' }
+    });
+  }
+
   if (capInfo && capInfo.argument) {
     advanced.push({
       label: 'Parameters',
@@ -602,6 +620,9 @@ function buildReviewStep($container, ctx, callbacks) {
       value: ctx['default']
     });
   }
+  if (ctx.onfail) {
+    items.push({type: 'span', label: tr('On handler failure'), value: ctx.onfail});
+  }
 
   if (ctx.params) {
     items.push({
@@ -640,7 +661,8 @@ function showEditModal(event, ruleIndex, onDone) {
     blocking: source.sync ? true : false,
     streams: source.streams || [],
     params: source.params || '',
-    'default': source['default'] || ''
+    'default': source['default'] || '',
+    onfail: source.onfail || ''
   };
 
   const content = el('div');
@@ -732,7 +754,8 @@ function buildCategoryEditor(catRules, caps, refreshRules) {
         blocking: rule.data.sync ? true : false,
         streams: (rule.data.streams || []).slice(),
         params: rule.data.params || '',
-        'default': rule.data['default'] || ''
+        'default': rule.data['default'] || '',
+        onfail: rule.data.onfail || ''
       };
       const fields = buildConfigForm(ctx, capInfo);
       const cardInfo = getCardInfo(rule.event);

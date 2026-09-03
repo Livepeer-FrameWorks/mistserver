@@ -37,3 +37,22 @@ test('hidden conditional field variants stop influencing the active process form
   codec.observe.call(owner, true);
   assert.equal(style.innerHTML, style._content);
 });
+
+test('input-list capabilities keep their structured field metadata', () => {
+  const ctx = loadModule('modules/core/form_engine.js', {
+    format: { capital(value) { return value; } }
+  });
+  const build = ctx.formEngine.convertBuildOptions({
+    optional: {
+      sources: {
+        type: 'inputlist',
+        input: { validation: ['streamname_with_wildcard_and_variables'] }
+      }
+    }
+  }, {});
+  const sources = build.find(function(item) {
+    return item && item.pointer && item.pointer.index === 'sources';
+  });
+  assert.equal(sources.type, 'inputlist');
+  assert.deepEqual(sources.input, { validation: ['streamname_with_wildcard_and_variables'] });
+});
