@@ -354,34 +354,8 @@ namespace Util{
   /// \param outFile file descriptor which will be used to send data
   /// \param append whether to open this connection in truncate or append mode
   bool externalWriter(const std::string & uri, Socket::Connection & conn, bool append) {
-    // Send final chunk if in chunked mode
-    if (conn && conn.isChunkedMode()) {
-      conn.SendNow(0, 0);
-      HTTP::Parser response;
-      bool gotResponse = false;
-      Event::Loop ev;
-      auto attemptFinish = [&]() {
-        if (response.Read(conn)) {
-          INFO_MSG("Server response to upload (before %s): %s %s", uri.c_str(), response.url.c_str(), response.method.c_str());
-          // If the response is a 2XX code, return 0, otherwise return the default response (2).
-          if (response.url.size() && response.url[0] == '2') {
-            // Success
-          } else {
-            // Failure
-          }
-          gotResponse = true;
-        }
-      };
-      conn.setBlocking(false);
-      ev.addSocket(conn.getSocket(), [&](void *) {
-        while (conn.spool()) { attemptFinish(); }
-      }, 0);
-      uint64_t maxWait = Util::bootMS() + 5000;
-      attemptFinish();
-      while (!gotResponse && Util::bootMS() < maxWait && conn) { ev.await(1000); }
-      if (!gotResponse) { WARN_MSG("No reply from remote server to PUT request"); }
-      conn.close();
-    }
+    // Finish a previously opened writer before replacing it.
+    if (conn && conn.isChunkedMode()) { finishExternalWriter(uri, conn); }
     HTTP::URL target = HTTP::localURIResolver().link(uri);
 
     // Local paths just write to file
@@ -454,6 +428,30 @@ namespace Util{
               uri.c_str(), target.protocol.c_str());
     return false;
   }
+
+  void finishExternalWriter(const std::string & uri, Socket::Connection & conn) {
+    if (conn && conn.isChunkedMode()) {
+      conn.SendNow(0, 0);
+      HTTP::Parser response;
+      bool gotResponse = false;
+      Event::Loop ev;
+      auto attemptFinish = [&]() {
+        if (response.Read(conn)) {
+          INFO_MSG("Server response to upload (before %s): %s %s", uri.c_str(), response.url.c_str(), response.method.c_str());
+          gotResponse = true;
+        }
+      };
+      conn.setBlocking(false);
+      ev.addSocket(conn.getSocket(), [&](void *) {
+        while (conn.spool()) { attemptFinish(); }
+      }, 0);
+      uint64_t maxWait = Util::bootMS() + 5000;
+      attemptFinish();
+      while (!gotResponse && Util::bootMS() < maxWait && conn) { ev.await(1000); }
+      if (!gotResponse) { WARN_MSG("No reply from remote server to PUT request"); }
+    }
+    conn.close();
+  }
   //Returns the time to wait in milliseconds for exponential back-off waiting.
   //If currIter > maxIter, always returns 5ms to prevent tight eternal loops when mistakes are made
   //Otherwise, exponentially increases wait time for a total of maxWait milliseconds after maxIter calls.
@@ -508,13 +506,12 @@ namespace Util{
     randNums[6] = (randNums[6] & 0x0F) | 0x40; // UUID-v4 compliance (byte 6 to xxxx0100)
     randNums[8] = (randNums[8] & 0x3F) | 0x80; // RFC4122 compliance (byte 8 to xxxxxx10)
 
-    std::string uuid = "00000000-0000-4000-D000-000000000000";
-    size_t j = 0;
-    for (size_t i = 0; i < uuid.size(); ++i) {
-      if (uuid[i] == 'D')
-        uuid[i] = charset[8 + randNums[j++] % 4];
-      else if (uuid[i] == '0')
-        uuid[i] = charset[randNums[j++] % 16];
+    std::string uuid;
+    uuid.reserve(36);
+    for (size_t i = 0; i < sizeof(randNums); ++i) {
+      if (i == 4 || i == 6 || i == 8 || i == 10) { uuid += '-'; }
+      uuid += charset[randNums[i] >> 4];
+      uuid += charset[randNums[i] & 0x0F];
     }
     return uuid;
   }
