@@ -221,7 +221,9 @@ void Socket::Address::assign(const void *ptr, size_t len) {
     }
   }
   if (!len || !ptr) {
-    FAIL_MSG("Cannot assign address from size-less pointer: address family not recognized");
+    // Routine for non-socket FDs (file/pipe push targets probe their
+    // "address" at boot); the empty address is handled by every caller.
+    HIGH_MSG("Cannot assign address from size-less pointer: address family not recognized");
     addr.truncate(0);
     return;
   }
@@ -1267,6 +1269,20 @@ static int dumpSecrets(void *user, const unsigned char *ms, const unsigned char 
 }
 #endif
 
+#if MBEDTLS_VERSION_MAJOR > 2
+int Socket::setupTLSContext(mbedtls_ssl_context *ssl, mbedtls_ssl_config *config,
+                            mbedtls_ssl_export_keys_t *keyCallback, void *callbackContext) {
+  if (keyCallback) { mbedtls_ssl_set_export_keys_cb(ssl, keyCallback, callbackContext); }
+  return mbedtls_ssl_setup(ssl, config);
+}
+#elif HAVE_UPSTREAM_MBEDTLS_SRTP
+int Socket::setupTLSContext(mbedtls_ssl_context *ssl, mbedtls_ssl_config *config,
+                            mbedtls_ssl_export_keys_ext_t *keyCallback, void *callbackContext) {
+  if (keyCallback) { mbedtls_ssl_conf_export_keys_ext_cb(config, keyCallback, callbackContext); }
+  return mbedtls_ssl_setup(ssl, config);
+}
+#endif
+
 /// Takes a just-accepted socket and SSL-ifies it.
 bool Socket::Connection::sslAccept(mbedtls_ssl_config * sslConf, mbedtls_ctr_drbg_context * dbgCtx){
   int ret;
@@ -1282,15 +1298,12 @@ bool Socket::Connection::sslAccept(mbedtls_ssl_config * sslConf, mbedtls_ctr_drb
     return false;
   }
 
-#if HAVE_UPSTREAM_MBEDTLS_SRTP && MBEDTLS_VERSION_MAJOR == 2
-  if (getenv("SSLKEYLOGFILE")) { mbedtls_ssl_conf_export_keys_ext_cb(&ssl_conf, dumpSecrets, this); }
-#endif
-#if MBEDTLS_VERSION_MAJOR > 2
-  if (getenv("SSLKEYLOGFILE")) { mbedtls_ssl_set_export_keys_cb(ssl, dumpSecrets, this); }
-#endif
-
   // Set up the SSL connection
+#if HAVE_UPSTREAM_MBEDTLS_SRTP || MBEDTLS_VERSION_MAJOR > 2
+  if ((ret = Socket::setupTLSContext(ssl, sslConf, getenv("SSLKEYLOGFILE") ? dumpSecrets : 0, this)) != 0) {
+#else
   if ((ret = mbedtls_ssl_setup(ssl, sslConf)) != 0){
+#endif
     FAIL_MSG("Could not set up SSL connection");
     close();
     return false;
@@ -1480,18 +1493,12 @@ void Socket::Connection::open(std::string host, int port, bool nonblock, bool wi
     mbedtls_ssl_conf_rng(conf, mbedtls_ctr_drbg_random, ctr_drbg);
     mbedtls_ssl_conf_dbg(conf, my_debug, stderr);
 
-#if HAVE_UPSTREAM_MBEDTLS_SRTP && MBEDTLS_VERSION_MAJOR == 2
-    if (getenv("SSLKEYLOGFILE")){
-      mbedtls_ssl_conf_export_keys_ext_cb(&ssl_conf, dumpSecrets, this);
-    }
+#if HAVE_UPSTREAM_MBEDTLS_SRTP || MBEDTLS_VERSION_MAJOR > 2
+    ret = Socket::setupTLSContext(ssl, conf, getenv("SSLKEYLOGFILE") ? dumpSecrets : 0, this);
+#else
+    ret = mbedtls_ssl_setup(ssl, conf);
 #endif
-#if MBEDTLS_VERSION_MAJOR > 2
-    if (getenv("SSLKEYLOGFILE")){
-      mbedtls_ssl_set_export_keys_cb(ssl, dumpSecrets, this);
-    }
-#endif
-
-    if ((ret = mbedtls_ssl_setup(ssl, conf)) != 0){
+    if (ret != 0) {
       char estr[200];
       mbedtls_strerror(ret, estr, 200);
       lastErr = estr;
@@ -3067,8 +3074,16 @@ uint16_t Socket::UDPConnection::bind(int port, std::string iface, const std::str
   if (destAddr.size()){
     hints.ai_family = destAddr.family();
   }else{
-    hints.ai_family = AF_INET6;
-    repeatWithIPv4 = true;
+    struct in_addr numericIPv4;
+    struct in6_addr numericIPv6;
+    if (iface.size() && inet_pton(AF_INET, iface.c_str(), &numericIPv4) == 1) {
+      hints.ai_family = AF_INET;
+    } else if (iface.size() && inet_pton(AF_INET6, iface.c_str(), &numericIPv6) == 1) {
+      hints.ai_family = AF_INET6;
+    } else {
+      hints.ai_family = AF_INET6;
+      repeatWithIPv4 = true;
+    }
   }
 
   hints.ai_socktype = SOCK_DGRAM;
@@ -3283,7 +3298,7 @@ bool Socket::UDPConnection::connect(){
       WARN_MSG("Could not set IPv6 UDP socket to be dual-stack! %s", strerror(errno));
     }
   }
-  if (::bind(sock, recvAddr, recvAddr.size())) {
+  if (!bindAddr.size() && ::bind(sock, recvAddr, recvAddr.size())) {
     FAIL_MSG("Failed to bind socket %d to %s: %s", sock, recvAddr.toString().c_str(), strerror(errno));
     return false;
   }
@@ -3529,6 +3544,15 @@ int Socket::UDPConnection::getSock(){
   return sock;
 }
 
+/// Relinquishes ownership of the file descriptor without closing it.
+/// The caller becomes responsible for closing the returned descriptor.
+int Socket::UDPConnection::releaseSocket() {
+  const int result = sock;
+  sock = -1;
+  isConnected = false;
+  return result;
+}
+
 /// Swaps the file descriptors of the given sockets and updates their internal state to match
 void Socket::UDPConnection::swapSocket(Socket::UDPConnection & o){
   if (sock < 0 || o.sock < 0){
@@ -3554,5 +3578,4 @@ void Socket::UDPConnection::swapSocket(Socket::UDPConnection & o){
   int tmpFam = family;
   family = o.family;
   o.family = tmpFam;
-
 }

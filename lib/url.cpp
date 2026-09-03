@@ -179,6 +179,7 @@ uint16_t HTTP::URL::getDefaultPort() const{
   if (protocol == "rtmps"){return 443;}
   if (protocol == "dtsc"){return 4200;}
   if (protocol == "rtsp") { return 554; }
+  if (protocol == "srt") { return 8889; }
   return 0;
 }
 
@@ -213,7 +214,7 @@ std::string HTTP::URL::getUrl() const{
     ret += host;
   }
   if (port.size() && getPort() != getDefaultPort()){ret += ":" + port;}
-  if (protocol != "rist" && protocol != "srt") { ret += "/" + getEncodedPath(); }
+  if (protocol != "rist") { ret += "/" + getEncodedPath(); }
   if (args.size()){ret += "?" + args;}
   if (frag.size()){ret += "#" + Encodings::URL::encode(frag, "/:=@[]#?&");}
   return ret;

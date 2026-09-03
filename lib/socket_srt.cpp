@@ -187,9 +187,43 @@ namespace Socket{
     return 0;
   }
 
-  SRTConnection::SRTConnection(Socket::UDPConnection & _udpsocket, const std::string &_direction, const paramList &_params){
+  bool SRTConnection::acquireSocket(Socket::UDPConnection & _udpsocket, bool rendezvous) {
+    Util::Procs::blockSignals();
+    sock = srt_create_socket();
+    Util::Procs::unblockSignals();
+    HIGH_MSG("Opened SRT socket %d", sock);
+    if (sock == SRT_INVALID_SOCK) {
+      ERROR_MSG("Error creating an SRT socket");
+      return false;
+    }
+
+    if (rendezvous) {
+      bool enabled = true;
+      if (srt_setsockopt(sock, 0, SRTO_RENDEZVOUS, &enabled, sizeof enabled) == SRT_ERROR) {
+        close();
+        ERROR_MSG("Could not enable SRT rendezvous mode: %s", srt_getlasterror_str());
+        return false;
+      }
+    }
+
+    if (preConfigureSocket() == SRT_ERROR) {
+      close();
+      ERROR_MSG("Error configuring SRT socket");
+      return false;
+    }
+
+    if (srt_bind_acquire(sock, _udpsocket.getSock()) == SRT_ERROR) {
+      close();
+      ERROR_MSG("Error creating an SRT socket from bound UDP socket: %s", srt_getlasterror_str());
+      return false;
+    }
+    _udpsocket.releaseSocket();
+    return true;
+  }
+
+  SRTConnection::SRTConnection(Socket::UDPConnection & _udpsocket, const std::string & _direction, const paramList & _params) {
     initializeEmpty();
-    direction = "output";
+    direction = _direction;
     handleConnectionParameters("", _params);
     HIGH_MSG("Opening SRT connection in %s mode (%s) on socket %d", modeName.c_str(), direction.c_str(), _udpsocket.getSock());
 
@@ -197,29 +231,9 @@ namespace Socket{
     remoteaddr = _udpsocket.getRemoteAddr();
     HIGH_MSG("SRT remote address: %s", remoteaddr.toString().c_str());
 
-    Util::Procs::blockSignals();
-    sock = srt_create_socket();
-    Util::Procs::unblockSignals();
-    HIGH_MSG("Opened SRT socket %d", sock);
-
-    if (_direction == "rendezvous"){
-      bool v = true;
-      srt_setsockopt(sock, 0, SRTO_RENDEZVOUS, &v, sizeof v);
-    }
-
-    if (preConfigureSocket() == SRT_ERROR){
-      ERROR_MSG("Error configuring SRT socket");
-      return;
-    }
-
-    srt_bind_acquire(sock, _udpsocket.getSock());
-    if (sock == SRT_INVALID_SOCK){
-      ERROR_MSG("Error creating an SRT socket from bound UDP socket");
-      return;
-    }
+    if (!acquireSocket(_udpsocket, false)) { return; }
 
     lastGood = Util::bootMS();
-    if (_direction == "rendezvous"){return;}
     {
       // Install callback for handling SRT_ACCEPT trigger
       ptrs[0] = &params;
@@ -255,6 +269,35 @@ namespace Socket{
     HIGH_MSG("UDP to SRT socket conversion %" PRId32 ": %s", sock, getStateStr());
   }
 
+  SRTConnection::SRTConnection(Socket::UDPConnection & _udpsocket, const Socket::Address & _remote,
+                               const std::string & _direction, const paramList & _params) {
+    initializeEmpty();
+    direction = _direction;
+    handleConnectionParameters(_remote.host(), _params);
+    modeName = "rendezvous";
+    remoteaddr = _remote;
+    HIGH_MSG("Opening SRT rendezvous connection (%s) from UDP socket %d to %s", direction.c_str(), _udpsocket.getSock(),
+             remoteaddr.toString().c_str());
+
+    if (!acquireSocket(_udpsocket, true)) { return; }
+    setBlocking(true);
+    Util::Procs::blockSignals();
+    const int connResult = srt_connect(sock, remoteaddr, remoteaddr.size());
+    Util::Procs::unblockSignals();
+    if (connResult == SRT_ERROR) {
+      ERROR_MSG("Could not establish SRT rendezvous connection to %s: %s", remoteaddr.toString().c_str(), srt_getlasterror_str());
+      close();
+      return;
+    }
+    if (postConfigureSocket() == SRT_ERROR) {
+      ERROR_MSG("Error during postconfigure socket");
+      close();
+      return;
+    }
+    lastGood = Util::bootMS();
+    HIGH_MSG("UDP to rendezvous SRT socket conversion %" PRId32 ": %s", sock, getStateStr());
+  }
+
   const char * SRTConnection::getStateStr(){
     if (rejectReason){return srt_rejectreason_str(rejectReason);}
     if (closedByRemote) { return "closed_by_remote"; }
@@ -270,7 +313,9 @@ namespace Socket{
       case SRTS_CLOSING: return "closing";
       case SRTS_CLOSED: return "closed";
       case SRTS_NONEXIST: return "does not exist";
+#ifdef HAVE_SRTS_SHUTDOWN
       case SRTS_SHUTDOWN: return "closed_by_remote";
+#endif
     }
     return "unknown";
   }
@@ -546,7 +591,8 @@ namespace Socket{
 
   void SRTConnection::SendNow(const char *data, size_t len){
     srt_clearlasterror();
-    int res = srt_sendmsg2(sock, data, len, NULL);
+    SRT_MSGCTRL message = srt_msgctrl_default;
+    int res = srt_sendmsg2(sock, data, len, &message);
 
     if (res == SRT_ERROR){
       int err = srt_getlasterror(0);
@@ -576,7 +622,7 @@ namespace Socket{
     }else{
       lastGood = Util::bootMS();
     }
-    srt_bstats(sock, &performanceMonitor, false);
+    if (modeName != "rendezvous") { srt_bstats(sock, &performanceMonitor, false); }
   }
 
   unsigned int SRTConnection::connTime(){
@@ -584,7 +630,10 @@ namespace Socket{
     return performanceMonitor.msTimeStamp / 1000;
   }
 
-  uint64_t SRTConnection::dataUp(){return performanceMonitor.byteSentTotal;}
+  uint64_t SRTConnection::dataUp() {
+    srt_bstats(sock, &performanceMonitor, false);
+    return performanceMonitor.byteSentTotal;
+  }
 
   uint64_t SRTConnection::dataDown(){return performanceMonitor.byteRecvTotal;}
 
@@ -676,7 +725,7 @@ namespace Socket{
       return SRT_ERROR;
     }
 
-    if (direction == "output"){
+    if (direction == "output") {
       int v = 1;
       if (srt_setsockopt(sock, 0, SRTO_SENDER, &v, sizeof v) == SRT_ERROR){return SRT_ERROR;}
     }
@@ -688,6 +737,7 @@ namespace Socket{
     bool no = false;
     if (srt_setsockopt(sock, 0, SRTO_SNDSYN, &no, sizeof no) == -1){return -1;}
     if (srt_setsockopt(sock, 0, SRTO_RCVSYN, &no, sizeof no) == -1){return -1;}
+    blocking = false;
     if (timeout){
       if (srt_setsockopt(sock, 0, SRTO_SNDTIMEO, &timeout, sizeof timeout) == -1){return -1;}
       if (srt_setsockopt(sock, 0, SRTO_RCVTIMEO, &timeout, sizeof timeout) == -1){return -1;}
@@ -702,7 +752,9 @@ namespace Socket{
 
   void SRTConnection::close() {
     if (sock != INVALID_SRT_SOCKET) {
+#ifdef HAVE_SRTS_SHUTDOWN
       if (srt_getsockstate(sock) == SRTS_SHUTDOWN) { closedByRemote = true; }
+#endif
       HIGH_MSG("Closing SRT socket %d (state = %s)", sock, getStateStr());
       setBlocking(true);
       srt_close(sock);

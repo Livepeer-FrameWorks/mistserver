@@ -4,6 +4,7 @@
 #include <mist/bitfields.h>
 #include <mist/defines.h>
 #include <mist/encode.h>
+#include <mist/foghorn.h>
 #include <mist/http_parser.h>
 #include <mist/socket_srt.h>
 #include <mist/stream.h>
@@ -160,7 +161,11 @@ namespace Mist {
         udpSrv->bind(atoi(internalPort.c_str()), internalIP);
       } else {
         udpSrv = new Socket::UDPConnection(*remoteAddr.begin(), *localAddr.begin());
-        udpSrv->connect();
+        if (rendezvous) {
+          udpSrv->bind(localAddr.front().port(), localAddr.front().host());
+        } else {
+          udpSrv->connect();
+        }
       }
 
       // Create SRT socket
@@ -168,7 +173,11 @@ namespace Mist {
       HTTP::parseVars(target.args, targetParams);
       HTTP::parseVars(config->getString("sockopts"), targetParams);
       evLp.addSocket(1, udpSrv->getSock());
-      srtConn = new Socket::SRTConnection(*udpSrv, rendezvous ? "rendezvous" : "output", targetParams);
+      if (rendezvous) {
+        srtConn = new Socket::SRTConnection(*udpSrv, remoteAddr.front(), "output", targetParams);
+      } else {
+        srtConn = new Socket::SRTConnection(*udpSrv, "output", targetParams);
+      }
       if (!*srtConn) {
         delete srtConn;
         srtConn = 0;
@@ -177,11 +186,7 @@ namespace Mist {
         return;
       }
 
-      // Rendezvous behaviour
-      if (rendezvous) {
-        srtConn->connect(udpSrv->getRemoteAddr(), "output", targetParams);
-        INFO_MSG("UDP to SRT socket conversion: %s", srtConn->getStateStr());
-      }
+      if (rendezvous) { INFO_MSG("UDP to SRT socket conversion: %s", srtConn->getStateStr()); }
     }
 
     // Push output configuration
@@ -192,6 +197,32 @@ namespace Mist {
       initialize();
       std::string addData;
       if (targetParams.count("streamid")){addData = targetParams["streamid"];}
+      Foghorn::Puncher fhp(target, "SRT", addData);
+      bool foghornRendezvous = false;
+
+      if (target.protocol == "srt-fh") {
+        if (!fhp.start()) {
+          onFail("Could not create connection through foghorn!", true);
+          return;
+        }
+        target.protocol = "srt";
+        target.host = fhp.targetHost;
+        target.port = JSON::Value(fhp.targetPort).asString();
+        if (fhp.isOpen()) {
+          srtConn = new Socket::SRTConnection();
+        } else {
+          INFO_MSG("Pushing in rendezvous mode to %s:%s", target.host.c_str(), target.port.c_str());
+          Socket::UDPConnection *punchedSocket = fhp.getSocket();
+          const sa_family_t family = punchedSocket->getBoundAddr().family();
+          std::deque<Socket::Address> peerAddresses = Socket::getAddrs(target.host, target.getPort(), family);
+          if (!peerAddresses.size()) {
+            onFail("Could not resolve the punched SRT peer", true);
+            return;
+          }
+          srtConn = new Socket::SRTConnection(*punchedSocket, peerAddresses.front(), "output", targetParams);
+          foghornRendezvous = true;
+        }
+      }
       if (target.protocol != "srt"){
         FAIL_MSG("Target %s must begin with srt://, aborting", target.getUrl().c_str());
         onFail("Invalid srt target: doesn't start with srt://", true);
@@ -204,17 +235,19 @@ namespace Mist {
       }
       pushOut = true;
       size_t connectCnt = 0;
-      do{
-        if (!srtConn){srtConn = new Socket::SRTConnection();}
-        if (srtConn){srtConn->connect(target.host, target.getPort(), "output", targetParams);}
-        if (!*srtConn){
-          Util::sleep(1000);
-        }else{
-          INFO_MSG("SRT socket %s on attempt %zu", srtConn->getStateStr(), connectCnt+1);
-          break;
-        }
-        ++connectCnt;
-      }while ((!srtConn || !*srtConn) && connectCnt < 5);
+      if (!foghornRendezvous) {
+        do {
+          if (!srtConn) { srtConn = new Socket::SRTConnection(); }
+          if (srtConn) { srtConn->connect(target.host, target.getPort(), "output", targetParams); }
+          if (!*srtConn) {
+            Util::sleep(1000);
+          } else {
+            INFO_MSG("SRT socket %s on attempt %zu", srtConn->getStateStr(), connectCnt + 1);
+            break;
+          }
+          ++connectCnt;
+        } while ((!srtConn || !*srtConn) && connectCnt < 5);
+      }
       if (!srtConn){
         FAIL_MSG("Failed to connect to '%s'!", config->getString("target").c_str());
       }
@@ -478,6 +511,7 @@ namespace Mist {
     capa["optional"]["port"]["help"] = "UDP port to listen on";
     capa["optional"]["port"]["display"] = "always";
     capa["push_urls"].append("srt://*");
+    capa["push_urls"].append("srt-fh://*");
 
     cfg->addStandardPushCapabilities(capa);
     JSON::Value & pp = capa["push_parameters"];
@@ -666,6 +700,21 @@ namespace Mist {
     opt["help"] = "Disable reading of the streamid field";
     cfg->addOption("nostreamid", opt);
 
+    capa["optional"]["foghorn"]["name"] = "Foghorn address";
+    capa["optional"]["foghorn"]["help"] = "If set, connects to the given foghorn server";
+    capa["optional"]["foghorn"]["type"] = "inputlist";
+    capa["optional"]["foghorn"]["option"] = "--foghorn";
+    capa["optional"]["foghorn"]["short"] = "F";
+    capa["optional"]["foghorn"]["default"] = "";
+
+    opt.null();
+    opt["long"] = "foghorn";
+    opt["short"] = "F";
+    opt["arg"] = "string";
+    opt["default"] = "";
+    opt["help"] = "If set, connects to the given foghorn server";
+    cfg->addOption("foghorn", opt);
+
     capa["optional"]["sockopts"]["name"] = "SRT socket options";
     capa["optional"]["sockopts"]["help"] = "Any additional SRT socket options to apply";
     capa["optional"]["sockopts"]["type"] = "string";
@@ -696,7 +745,8 @@ namespace Mist {
     packetBuffer.append(tsData, len);
     if (packetBuffer.size() >= 1316){//7 whole TS packets
       if (!*srtConn){
-        if (!srtConn->rejected() && !targetParams.count("noreconnect") && config->getString("target").size()) {
+        if (!srtConn->rejected() && !targetParams.count("noreconnect") && config->getString("target").size() &&
+            HTTP::URL(config->getString("target")).protocol != "srt-fh") {
           INFO_MSG("Reconnecting...");
           if (srtConn){
             srtConn->close();
@@ -906,6 +956,13 @@ namespace Mist {
 
     Util::Procs::socketList.insert(udpSrv.getSock());
     int maxFD = udpSrv.getSock();
+    Foghorn::List fhl;
+    fhl.setPort(udpSrv.getLocalAddr().port());
+    fhl.setProtocol("SRT");
+    {
+      JSON::Value & fh = conf.getOption("foghorn", true);
+      jsonForEach (fh, it) { fhl.add(it->asString()); }
+    }
 
     HTTP::URL targetStr = "srt://" + HTTP::argStr(arguments);
 
@@ -923,6 +980,7 @@ namespace Mist {
       T.tv_sec = 2;
       T.tv_usec = 0;
       int r = select(maxFD + 1, &rfds, NULL, NULL, &T);
+      uint64_t currTime = Util::bootSecs();
       if (r){
         while(udpSrv.Receive()){
 
@@ -975,6 +1033,55 @@ namespace Mist {
               it = proxyConnections.emplace(remoteRef, proxyConnectionDetails()).first;
               it->second.local = localProxAddr, it->second.pid = pid;
 #endif
+            } else if (Foghorn::isFHData(udpSrv.data)) {
+              if (fhl.parsePacket(udpSrv, currTime)) {
+                const Foghorn::PunchRequest & pReq = fhl.getPunchData();
+                std::map<std::string, std::string> newArgs = arguments;
+                if (pReq.additionalData.size()) {
+                  newArgs["streamid"] = pReq.additionalData;
+                  INFO_MSG("🥊 Hole punching towards %s:%" PRIu16 " (%s)", pReq.host.c_str(), pReq.port,
+                           pReq.additionalData.c_str());
+                } else {
+                  INFO_MSG("🥊 Hole punching towards %s:%" PRIu16, pReq.host.c_str(), pReq.port);
+                }
+
+                std::deque<std::string> cmdArgs;
+                cmdArgs.push_back(Util::getMyPathWithBin());
+
+                cmdArgs.push_back("--remote");
+                Socket::Address remAddr;
+                {
+                  std::deque<Socket::Address> addrList = Socket::getAddrs(pReq.host, pReq.port);
+                  if (addrList.size()) { remAddr = *addrList.begin(); }
+                }
+                std::ostringstream oss;
+                oss << pReq.host << '/' << pReq.port << "/1";
+                cmdArgs.push_back(oss.str());
+
+                HTTP::URL newTgt = "srt://" + HTTP::argStr(newArgs);
+                newTgt.host = pReq.localHost;
+                newTgt.setPort(pReq.localPort);
+                cmdArgs.push_back(newTgt.getUrl());
+
+                conf.fillEffectiveArgs(cmdArgs);
+
+#ifdef PROXYING_SRT
+                Socket::Address localAddr;
+                if (generateChildAddressInRange(localAddr)) continue;
+                setenv("MIST_INTL_UDP", localAddr.toString().c_str(), 1);
+#endif
+                int fdOut = STDOUT_FILENO, fdErr = STDERR_FILENO;
+                pid_t pid = Util::Procs::StartPiped(cmdArgs, 0, &fdOut, &fdErr);
+                Util::Procs::forget(pid);
+
+#ifdef PROXYING_SRT
+                it = proxyConnections.emplace(localAddr, proxyConnectionDetails()).first;
+                it->second.local = remoteRef, it->second.pid = pid;
+
+                it = proxyConnections.emplace(remoteRef, proxyConnectionDetails()).first;
+                it->second.local = localAddr, it->second.pid = pid;
+#endif
+              }
             }
 
 #ifdef PROXYING_SRT
@@ -987,6 +1094,7 @@ namespace Mist {
 #endif
         }
       }
+      fhl.publish(udpSrv, currTime);
     }
 
 #ifdef PROXYING_SRT

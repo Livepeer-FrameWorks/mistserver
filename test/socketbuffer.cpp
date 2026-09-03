@@ -1,4 +1,5 @@
-#include "../lib/socket.cpp"
+#include <mist/socket.h>
+
 #include <iostream>
 #include <unistd.h>
 
@@ -43,4 +44,3 @@ int main(int argc, char **argv){
   std::cout << "Success!" << std::endl;
   return 0;
 }
-

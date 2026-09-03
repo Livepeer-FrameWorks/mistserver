@@ -43,6 +43,8 @@ namespace Socket{
     SRTConnection(const std::string &_host, int _port, const std::string &_direction = "input",
                   const paramList &_params = paramList());
     SRTConnection(Socket::UDPConnection & _udpsocket, const std::string &_direction, const paramList &_params);
+    SRTConnection(Socket::UDPConnection & _udpsocket, const Socket::Address & _remote, const std::string & _direction,
+                  const paramList & _params);
 
     void connect(const std::string &_host, int _port, const std::string &_direction = "input",
                  const paramList &_params = paramList());
@@ -106,6 +108,7 @@ namespace Socket{
     bool tsbpdMode;
 
     void initializeEmpty();
+    bool acquireSocket(Socket::UDPConnection & _udpsocket, bool rendezvous);
     void handleConnectionParameters(const std::string &_host, const paramList &_params);
     int preConfigureSocket();
 

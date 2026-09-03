@@ -51,6 +51,16 @@ namespace Buffer{
 
 /// Holds Socket tools.
 namespace Socket{
+#ifdef SSL
+  /// Configure key logging on the same TLS object that is used to set up the connection.
+#if MBEDTLS_VERSION_MAJOR > 2
+  int setupTLSContext(mbedtls_ssl_context *ssl, mbedtls_ssl_config *config, mbedtls_ssl_export_keys_t *keyCallback, void *callbackContext);
+#elif HAVE_UPSTREAM_MBEDTLS_SRTP
+  int setupTLSContext(mbedtls_ssl_context *ssl, mbedtls_ssl_config *config, mbedtls_ssl_export_keys_ext_t *keyCallback,
+                      void *callbackContext);
+#endif
+#endif
+
   class Address {
     private:
       Util::ResizeablePointer addr;
@@ -327,6 +337,7 @@ namespace Socket{
     bool wasEncrypted;
     void close();
     int getSock();
+    int releaseSocket(); ///< Relinquish the descriptor without closing it.
     void swapSocket(UDPConnection & other);
     uint16_t bind(int port, std::string iface = "", const std::string &multicastAddress = "");
     uint16_t bind(const Socket::Address *addr, const std::string & multicastAddress = "");
