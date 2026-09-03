@@ -43,12 +43,33 @@ if [ -n "$dependencies" ]; then
       if (NF != 5) { print "dependency lock line " NR ": expected 5 fields" > "/dev/stderr"; ok = 0; next }
       if ($1 !~ /^[a-z0-9][a-z0-9._-]*$/ || seen[$1]++) { print "dependency lock line " NR ": invalid/duplicate name" > "/dev/stderr"; ok = 0 }
       if ($2 !~ /^[0-9]+\.[0-9]+\.[0-9]+$/) { print "dependency lock line " NR ": invalid version" > "/dev/stderr"; ok = 0 }
-      if ($3 !~ /^[0-9a-f]{40}$/) { print "dependency lock line " NR ": invalid commit" > "/dev/stderr"; ok = 0 }
+      if ($1 == "onnxruntime" || $1 == "opencv") {
+        if ($3 !~ /^[0-9a-f]{40}$/) { print "dependency lock line " NR ": invalid source commit" > "/dev/stderr"; ok = 0 }
+      } else {
+        if ($3 !~ /^[0-9a-f]{64}$/) { print "dependency lock line " NR ": invalid archive SHA-256" > "/dev/stderr"; ok = 0 }
+        if ($5 !~ /^https:\/\/github\.com\/microsoft\/onnxruntime\/releases\/download\/v[0-9]+\.[0-9]+\.[0-9]+\//) {
+          print "dependency lock line " NR ": runtime archive is not an official versioned release" > "/dev/stderr"
+          ok = 0
+        }
+      }
       if ($4 == "" || $5 !~ /^https:\/\/github\.com\//) { print "dependency lock line " NR ": missing license/source" > "/dev/stderr"; ok = 0 }
     }
     END {
-      if (!seen["onnxruntime"] || !seen["opencv"] || rows != 2) {
-        print "dependency lock must contain exactly onnxruntime and opencv" > "/dev/stderr"
+      required["onnxruntime"] = 1
+      required["opencv"] = 1
+      required["onnxruntime-linux-x64-gpu-cuda12"] = 1
+      required["onnxruntime-linux-x64-gpu-cuda13"] = 1
+      required["onnxruntime-linux-x64"] = 1
+      required["onnxruntime-linux-aarch64"] = 1
+      required["onnxruntime-osx-arm64"] = 1
+      for (dependency in required) {
+        if (!seen[dependency]) {
+          print "dependency lock missing required entry: " dependency > "/dev/stderr"
+          ok = 0
+        }
+      }
+      if (rows != 7) {
+        print "dependency lock contains unexpected entries" > "/dev/stderr"
         ok = 0
       }
       exit !ok

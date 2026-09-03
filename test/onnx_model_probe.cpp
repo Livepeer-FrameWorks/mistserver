@@ -24,12 +24,14 @@ int main(int argc, char **argv) {
               << std::endl;
     return 1;
   }
+  const char *providerEnv = std::getenv("MIST_ONNX_TEST_PROVIDER");
+  const std::string provider = providerEnv && *providerEnv ? providerEnv : "cpu";
 
   if (!strcmp(argv[1], "--tensor")) {
     if (argc < 3) return 1;
     ONNX::SessionRunner runner;
     std::string err;
-    if (!runner.load(argv[2], 1, "cpu", err)) {
+    if (!runner.load(argv[2], 1, provider, err)) {
       std::cerr << "tensor session load failed: " << err << std::endl;
       return 1;
     }
@@ -97,7 +99,7 @@ int main(int argc, char **argv) {
         return 1;
       }
     }
-    std::unique_ptr<ONNX::OCRModel> m = ONNX::ModelFactory::createOCRModel(bundle, 1, "cpu", false);
+    std::unique_ptr<ONNX::OCRModel> m = ONNX::ModelFactory::createOCRModel(bundle, 1, provider, false);
     std::cout << "provisioned+loaded OCR: " << (m ? "ok" : "FAIL") << " det=" << bundle.det << std::endl;
     return m ? 0 : 1;
   }
@@ -112,8 +114,7 @@ int main(int argc, char **argv) {
     bundle.rec = argv[3];
     bundle.dict = argv[4];
     bundle.ok = true;
-    std::unique_ptr<ONNX::OCRModel> ocr =
-        ONNX::ModelFactory::createOCRModel(bundle, 1, "cpu", false);
+    std::unique_ptr<ONNX::OCRModel> ocr = ONNX::ModelFactory::createOCRModel(bundle, 1, provider, false);
     if (!ocr) {
       std::cerr << "createOCRModel failed" << std::endl;
       return 1;
@@ -156,7 +157,7 @@ int main(int argc, char **argv) {
   }
 
   std::unique_ptr<ONNX::DetectionModel> model =
-      ONNX::ModelFactory::createModel(argv[1], inputSize, 1, typeOverride, "cpu", false);
+    ONNX::ModelFactory::createModel(argv[1], inputSize, 1, typeOverride, provider, false);
   if (!model) {
     std::cerr << "createModel failed for " << argv[1] << std::endl;
     return 1;

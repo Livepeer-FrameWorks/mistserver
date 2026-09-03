@@ -2,7 +2,7 @@
 set -eu
 
 usage() {
-  echo "Usage: $0 --build-dir DIR [--model MODEL.onnx] [--image IMAGE] [--allow-shared]" >&2
+  echo "Usage: $0 --build-dir DIR [--expected-profile PROFILE] [--provider PROVIDER] [--model MODEL.onnx] [--image IMAGE] [--allow-shared]" >&2
   exit 2
 }
 
@@ -10,16 +10,24 @@ build_dir=
 model=
 image=
 allow_shared=0
+expected_profile=
+provider=cpu
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --build-dir) [ "$#" -ge 2 ] || usage; build_dir=$2; shift 2 ;;
     --model) [ "$#" -ge 2 ] || usage; model=$2; shift 2 ;;
     --image) [ "$#" -ge 2 ] || usage; image=$2; shift 2 ;;
+    --expected-profile) [ "$#" -ge 2 ] || usage; expected_profile=$2; shift 2 ;;
+    --provider) [ "$#" -ge 2 ] || usage; provider=$2; shift 2 ;;
     --allow-shared) allow_shared=1; shift ;;
     *) usage ;;
   esac
 done
 [ -n "$build_dir" ] || usage
+case "$provider" in
+  cpu|coreml|cuda|tensorrt|openvino) ;;
+  *) echo "Unsupported test provider: $provider" >&2; exit 2 ;;
+esac
 
 proc="$build_dir/MistProcONNX"
 probe="$build_dir/test/onnxmodelprobe"
@@ -47,6 +55,13 @@ for required in \
   }
 done
 
+if [ -n "$expected_profile" ]; then
+  printf '%s' "$capability" | grep -F "This binary packages the '$expected_profile' profile" >/dev/null || {
+    echo "Capability does not report expected ONNX profile: $expected_profile" >&2
+    exit 1
+  }
+fi
+
 if [ "$allow_shared" -eq 0 ]; then
   linkage=
   if command -v otool >/dev/null 2>&1; then
@@ -70,11 +85,29 @@ if [ -n "$model" ]; then
   [ -f "$model" ] || { echo "Missing model: $model" >&2; exit 1; }
   if [ -n "$image" ]; then
     [ -f "$image" ] || { echo "Missing image: $image" >&2; exit 1; }
-    "$probe" "$model" 640 auto "$image"
+    MIST_ONNX_TEST_PROVIDER="$provider" "$probe" "$model" 640 auto "$image"
   else
-    "$probe" "$model" 640
+    MIST_ONNX_TEST_PROVIDER="$provider" "$probe" "$model" 640
   fi
-  "$probe" --tensor "$model"
+  MIST_ONNX_TEST_PROVIDER="$provider" "$probe" --tensor "$model"
+
+  if [ -n "$expected_profile" ]; then
+    rejected_provider=cuda
+    case "$expected_profile" in
+      cuda|tensorrt) rejected_provider=coreml ;;
+    esac
+    rejection_log="$build_dir/meson-logs/onnx-provider-rejection.log"
+    if MIST_ONNX_TEST_PROVIDER="$rejected_provider" "$probe" "$model" 640 \
+         >"$rejection_log" 2>&1; then
+      echo "Unpackaged provider '$rejected_provider' was accepted by '$expected_profile' profile" >&2
+      exit 1
+    fi
+    grep -F "not included in this '$expected_profile' ONNX build profile" "$rejection_log" >/dev/null || {
+      cat "$rejection_log" >&2
+      echo "Unpackaged provider rejection was not explicit" >&2
+      exit 1
+    }
+  fi
 fi
 
 echo "ONNX release checks passed"

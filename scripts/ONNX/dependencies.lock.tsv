@@ -1,3 +1,8 @@
-# dependency	version	commit	license	source
+# dependency	version	revision-or-sha256	license	source
 onnxruntime	1.29.0	2e2543fbe9fae542f921d47a72d21d5a4ef0b710	MIT	https://github.com/microsoft/onnxruntime
+onnxruntime-linux-x64-gpu-cuda12	1.29.0	4ca594a0da83927befbd73fe020d7f569be151d70bb4fe9741ad405f4882e2ad	MIT	https://github.com/microsoft/onnxruntime/releases/download/v1.29.0/onnxruntime-linux-x64-gpu_cuda12-1.29.0.tgz
+onnxruntime-linux-x64-gpu-cuda13	1.29.0	844c64acfc43ab9423215c26493055ea229268e28283146cc644ecef0bdae048	MIT	https://github.com/microsoft/onnxruntime/releases/download/v1.29.0/onnxruntime-linux-x64-gpu_cuda13-1.29.0.tgz
+onnxruntime-linux-x64	1.29.0	c3fddc4f139a045b0c4902c57410f0694f1c2fdf9b6939fbe38b1aeae7cd14ba	MIT	https://github.com/microsoft/onnxruntime/releases/download/v1.29.0/onnxruntime-linux-x64-1.29.0.tgz
+onnxruntime-linux-aarch64	1.29.0	e1799098ebc054b370f6176a450f158720f297818c613e5dc99b92e2ec82346f	MIT	https://github.com/microsoft/onnxruntime/releases/download/v1.29.0/onnxruntime-linux-aarch64-1.29.0.tgz
+onnxruntime-osx-arm64	1.29.0	d0706fc34f315d8c88639d0a8c81f2e09e815f282cabed3493c06a054352cf92	MIT	https://github.com/microsoft/onnxruntime/releases/download/v1.29.0/onnxruntime-osx-arm64-1.29.0.tgz
 opencv	5.0.0	40738fb16ceddb5fb3fea747585f7ce6abb0605b	Apache-2.0	https://github.com/opencv/opencv

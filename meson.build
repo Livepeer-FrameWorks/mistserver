@@ -1,5 +1,6 @@
 project('mistserver', 'cpp', meson_version: '>=1.6.0', default_options: ['cpp_std=c++11'])
 add_project_arguments(['-funsigned-char', '-D_LARGEFILE_SOURCE','-Wno-sign-compare', '-Wparentheses', '-Wno-non-virtual-dtor', '-Wno-strict-aliasing'], language: 'cpp')
+fs = import('fs')
 
 if host_machine.system() == 'darwin'
   add_project_arguments(['-D__APPLE_USE_RFC_3542'], language: 'cpp')
@@ -27,7 +28,6 @@ if git.found()
   rv = run_command(git, 'describe', check: false)
   version = rv.stdout().strip()
   if rv.returncode() != 0
-    fs = import('fs') 
     if fs.is_file('VERSION')
       version = fs.read('VERSION').strip()
     else 
@@ -35,7 +35,6 @@ if git.found()
     endif
   endif
 else
-  fs = import('fs') 
   if fs.is_file('VERSION')
     version = fs.read('VERSION').strip()
   else 
@@ -325,6 +324,33 @@ onnx_required = onnx_opt.enabled()
 
 onnxruntime_dep = dependency('libonnxruntime', 'onnxruntime',
                              required: onnx_required, static: onnx_static)
+onnxruntime_usable = onnxruntime_dep.found()
+if onnxruntime_dep.found() and onnx_static
+  onnxruntime_libdir = onnxruntime_dep.get_variable(pkgconfig: 'libdir', default_value: '')
+  if onnxruntime_libdir == '' or not fs.is_file(onnxruntime_libdir / 'libonnxruntime.a')
+    onnxruntime_usable = false
+    if onnx_required
+      error('ONNX_STATIC=true requires a real libonnxruntime.a archive')
+    endif
+    warning('No static ONNX Runtime archive was found; disabling ONNX')
+  endif
+  onnxruntime_static_probe = '''
+    #include <onnxruntime_c_api.h>
+    int main() {
+      const OrtApiBase *base = OrtGetApiBase();
+      return base && base->GetApi(ORT_API_VERSION) ? 0 : 1;
+    }
+  '''
+  if onnxruntime_usable and not ccpp.links(onnxruntime_static_probe,
+                    dependencies: onnxruntime_dep, args: '-std=c++17',
+                    name: 'ONNX Runtime static dependency closure')
+    onnxruntime_usable = false
+    if onnx_required
+      error('Static ONNX Runtime dependency metadata has an incomplete link closure')
+    endif
+    warning('Static ONNX Runtime dependency metadata has an incomplete link closure; disabling ONNX')
+  endif
+endif
 # OpenCV 5 renamed its pkg-config file while retaining the component libraries. Probe
 # both names and request exactly the modules used by libmistonnx. In particular,
 # videoio was never used; imgcodecs, video and geometry are.
@@ -342,6 +368,15 @@ endif
 # than accepting ONNX support that can compile but never link.
 opencv_static_usable = onnx_static
 if opencv_dep.found() and onnx_static
+  opencv_libdir = opencv_dep.get_variable(pkgconfig: 'libdir', default_value: '')
+  foreach module: opencv_modules
+    if opencv_libdir == '' or not fs.is_file(opencv_libdir / ('libopencv_' + module + '.a'))
+      opencv_static_usable = false
+    endif
+  endforeach
+  if not opencv_static_usable and onnx_required
+    error('ONNX_STATIC=true requires real static archives for every requested OpenCV module')
+  endif
   opencv_static_probe = '''
     #include <opencv2/core.hpp>
     #include <opencv2/imgcodecs.hpp>
@@ -355,8 +390,11 @@ if opencv_dep.found() and onnx_static
       return encoded.empty() || filter.statePre.empty();
     }
   '''
-  if not ccpp.links(opencv_static_probe, dependencies: opencv_dep,
+  if not opencv_static_usable or not ccpp.links(opencv_static_probe, dependencies: opencv_dep,
                     name: 'OpenCV static dependency closure')
+    if onnx_required
+      error('Static OpenCV dependency metadata has an incomplete link closure')
+    endif
     warning('Static OpenCV dependency metadata is incomplete; using shared OpenCV for ONNX')
     opencv_dep = dependency('opencv4', modules: opencv_modules,
                             required: false, static: false)
@@ -368,7 +406,7 @@ if opencv_dep.found() and onnx_static
   endif
 endif
 
-have_onnx = not onnx_opt.disabled() and onnxruntime_dep.found() and opencv_dep.found()
+have_onnx = not onnx_opt.disabled() and onnxruntime_usable and opencv_dep.found()
 if have_onnx
   onnx_libs += [onnxruntime_dep, opencv_dep]
   onnx_defines += '-DMIST_ONNX_PROFILE="@0@"'.format(onnx_profile)
@@ -379,7 +417,7 @@ if have_onnx
           onnx_profile, onnx_static, opencv_static_usable))
 else
   missing = []
-  if not onnxruntime_dep.found()
+  if not onnxruntime_usable
     missing += 'onnxruntime'
   endif
   if not opencv_dep.found()
