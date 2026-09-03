@@ -1,16 +1,16 @@
 # Fork reconstruction audit
 
-Last updated: 2026-09-03
+Last updated: 2026-09-04
 
 This ledger tracks the completed reconstruction of the FrameWorks fork on the current upstream
-base. `master` remains untouched; the clean reconstructed branch is the reviewed handoff. Every
-retained local change has a clear origin, focused regression coverage, an ablation that fails for
-the intended reason, and a clean topical replacement commit.
+base. The reviewed reconstruction has been promoted to `master`. Every retained local change has
+a clear origin, focused regression coverage, an ablation that fails for the intended reason, and
+a clean topical replacement commit.
 
 ## Branches and scope
 
 - Proof/audit branch: `rewrite/master-proof-20260902`
-- Clean reconstructed branch: `rewrite/master-final-clean-20260903`
+- Promoted clean tree: `master` (originated as `rewrite/master-final-clean-20260903`)
 - Pre-proof candidate: `rewrite/master-final-20260902` (`71d1de7dd`)
 - Safety backup: `backup/master-final-pre-proof-audit-20260902`
 - Original local queue: 32 commits after the three preview integrations
@@ -39,12 +39,12 @@ the intended reason, and a clean topical replacement commit.
 | Pending | 0 |
 | Dropped | 3 |
 | Archived behavior/proof commits above the preview stack | 167 |
-| Final reconstructed commits above upstream development | 29 |
+| Final reconstructed commits above upstream development | 32 |
 | Residue hunks already dropped/restored | 27 |
 
-The temporary proof commits remain archived on the proof branch. The clean branch replaces them
+The temporary proof commits remain archived on the proof branch. The clean history replaces them
 with three independently replaceable preview squashes, 25 narrow implementation-and-regression
-commits, and this final audit record.
+commits, this reconstruction record, and three focused ONNX dependency/artifact/release commits.
 
 ## Commit ledger
 
@@ -150,7 +150,7 @@ commits, and this final audit record.
 | ONNX recording readiness integration | keep, added during preview blend | The old local readiness gate predated ONNX and ignored its lazily created tracks, allowing an MKV header to be written before AI output existed. `ProcState` v4 now carries a process-authored output count and coarse input modality. MistProcONNX publishes the contract only after its model/mode has resolved: vision reports one result plus optional annotated MJPEG, while audio and tensor always report one output even if the irrelevant `annotated_video` option is present. InputBuffer leaves recording readiness unresolved during startup and then consumes the exact PID-scoped contract instead of guessing from config; ONNX outputs intentionally masked for processing-only chains are excluded before contract resolution so they cannot deadlock a recorder that may not select them. A selector aimed at a configured AV/FFmpeg intermediate now remains pending until that track exists. Reinstating the guess, suppressing publication, allowing periodic pressure updates to erase the contract, counting mask-invisible outputs, or ignoring configured intermediates each fails its focused assertion. The model-backed AV -> ONNX recording test starts the recorder before ONNX is ready and proves the final MKV has complete A/V and JSON tails. |
 | ONNX processing capacity and exit publication | keep, added as fork adaptation | MistProcONNX now publishes the same versioned PID-scoped `ProcState` contract used by the fork's adaptive VOD feeder, while retaining its existing controller JSON. A modality-aware policy distinguishes tensor queue saturation, audio-buffer drops, genuine vision overload, intentional latest-frame replacement at a satisfied inference cap, and source starvation. It derives achieved input/output speed separately from sustainable media-time/work capacity, retains the last measured capacity across idle samples, reports the actual execution-provider resource, publishes the resolved modality/output-track contract, and persists startup/thread failure reasons through `ProcExitState`. The policy and shared-page writer have focused tests; source-starvation, dropped-audio, intentional-rate-limit, output-publication, and output-retention ablations fail exactly. The real model-backed test resolves the actual ONNX child PID and validates its live shared page: versioned snapshot, phase, provider resource, modality, output count, measured capacity, recommended feed, completed work, and update clock. Normal, ASan, and TSAN tests pass, and the full `MistProcONNX` target builds and serves its capability JSON. |
 | ONNX producer-EOF output drain | keep, added as fork adaptation | Source EOF now stops source consumption and inference but leaves the sink alive until the processing thread has published its final output and every tensor, ordered metadata, latest metadata, and annotated-frame slot is empty. The former main-thread shutdown deactivated the sink immediately and could discard vision/tensor tails; audio alone had a bespoke late-drain loop. A lifecycle decision table covers producer-active waiting, post-processing drain, completed drain, and external sink failure; removing the queued-tail clause fails exactly. A permanent opt-in model-backed integration now feeds 30 seconds of H.264/AAC through AV -> NV12 -> ONNX while recording the first eight seconds; the result decodes silently, contains one video/audio stream and an M_JSON track, carries at least 20 inference results, and reaches the complete A/V and metadata tails. |
-| ONNX static dependency closure | keep, build hardening | `ONNX_STATIC=true` previously accepted Homebrew OpenCV 5 archives whose pkg-config file has an empty `Libs.private`, then failed at final link on TIFF/WebP/PNG/OpenJPEG/LAPACK symbols. Meson now links an imgcodecs/Kalman probe and falls back only OpenCV to its complete shared dependency when the requested static closure is unusable. Suppressing the fallback reproduces the final-link failure; the restored default configuration builds `MistProcONNX` successfully. |
+| ONNX dependency closure | keep, build hardening | `ONNX_STATIC=true` previously accepted Homebrew OpenCV 5 archives whose pkg-config file has an empty `Libs.private`, then failed at final link on TIFF/WebP/PNG/OpenJPEG/LAPACK symbols. Meson links both an ONNX Runtime C-API probe and an imgcodecs/Kalman probe. An explicitly enabled static build now fails at configuration when either closure is incomplete; auto-detection may fall back only OpenCV to a complete shared dependency. The locked dependency builder retains a verified monolithic static ONNX Runtime path for development, while Linux CPU release artifacts consume Microsoft's checksum-pinned architecture-specific shared runtimes and package an audited executable-relative closure. Accelerator profiles retain their provider-specific shared closure. |
 | HLS remap tolerance narrowed from `(interval + 5) * 60` | drop | Stale-base regression; restored current upstream tolerance. |
 | `fillPacket()` packet-count return | drop | Every caller ignored it; no behavior depended on the count. |
 | high-volume `liveSeek` log | drop | Diagnostic residue with no functional consumer. |
@@ -223,8 +223,8 @@ All six acceptance gates are satisfied:
 4. The full build, unit suite, sanitizers, and VOD/live seek/clip/record matrix pass.
 5. The final source tree is byte-identical to the audited proof tree, and every intentionally
    omitted old delta is accounted for above.
-6. `rewrite/master-final-clean-20260903` is ready to be proposed as the new `master`; neither local
-   `master` nor `origin/master` was modified during reconstruction.
+6. The reviewed `rewrite/master-final-clean-20260903` tree has been promoted to local and remote
+   `master`; the proof and safety branches retain the pre-promotion evidence.
 
 ## Final validation evidence
 
@@ -243,7 +243,35 @@ All six acceptance gates are satisfied:
   a complete 1316-byte transport packet through the adopted punched sockets.
 - Production `Dockerfile.mistserver`: the Alpine arm64 image completed all 775 build/install actions
   and produced `mistserver-audit:final`.
+- Locked ONNX CPU dependencies: the static Ubuntu arm64 source-build proof passed all seven ONNX
+  tests, pinned YOLO26n image inference, raw ONNXTENSOR inference, capability/profile checks, and
+  unavailable-provider rejection. The release path now consumes Microsoft's checksum-pinned
+  official AArch64 CPU archive and bundles its shared runtime/OpenCV closure, avoiding that
+  source build while preserving the same provider contract.
+- Locked ONNX CoreML dependencies: native macOS arm64 used Microsoft's checksum-pinned ONNX Runtime
+  archive plus the exact shared OpenCV closure and built the full MistServer target set. The staged
+  native bundle resolves those dylibs through an executable-relative rpath without loader
+  environment overrides. Explicit CoreML inference compiled the pinned YOLO26n graph, assigned
+  353 of 400 nodes to CoreML (the remainder is ORT's normal CPU fallback), and passed image,
+  annotation, raw-tensor, profile, rejection, linkage, and seven-test release gates.
+- Production `Dockerfile.mistserver-onnx`: the Ubuntu arm64 CPU image compiles ONNX, NDI, and ONVIF,
+  advertises only its packaged CPU provider, and contains the locked ONNX Runtime/OpenCV shared
+  closure and notices. The final Dockerfile additionally runs the complete pinned-model
+  ONNX release verifier before installing an image and separates the locked dependency layer from
+  ordinary source edits for caching.
+- CUDA, TensorRT, and OpenVINO (Linux amd64) are fail-closed, SDK-bound
+  shared profiles. Ordinary GitHub-hosted CPU runners build digest-pinned, provider-specific
+  full MistServer platform images and verify their compilation, representative stock binaries
+  (including MistProcAV), ONNX unit tests, capability, loader closure, notices, and packaging.
+  Each platform job also exports a native tarball with a machine-readable OS, package, loader,
+  device, and external vendor-runtime contract for preflighted bare-metal edge deployment.
+  macOS arm64 remains a first-class native CoreML target in the main release workflow, with the
+  same full-MistServer and deployment-contract assertions before signing and notarization.
+  Optional labelled hardware runners pull those exact images for provider-load,
+  YOLO26n, and raw-tensor execution evidence; absence of such a runner no longer prevents building
+  or publishing the image. The generic Linux CPU and macOS CoreML artifacts do not silently
+  advertise another provider.
 - Shell syntax checks pass for every script under `test/` and `scripts/`.
-- The only documented local platform limitation is the pre-existing stale Homebrew pkg-config
-  references in the macOS static-release environment; the clean Ubuntu and production-container
-  gates do not inherit it.
+- The checksum-pinned ONNX Runtime distribution and locked OpenCV prefix remove the previous
+  Homebrew pkg-config ambiguity from the macOS ONNX release path. General media dependencies still
+  use the declared Homebrew release environment.

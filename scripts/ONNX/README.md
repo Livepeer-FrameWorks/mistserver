@@ -287,7 +287,82 @@ when a consumer falls behind the oldest packet is dropped and counted in process
 ## Release builds
 
 ONNX support is a strict Meson feature when explicitly enabled. Release artifacts use
-`ONNX_STATIC=true` and one `ONNX_PROFILE` (`cpu`, `coreml`, `cuda`, `tensorrt`, or
-`openvino`); the profile constrains which execution provider may be selected at runtime.
-The exact dependency commits are recorded in `dependencies.lock.tsv`. See
+one `ONNX_PROFILE` (`cpu`, `coreml`, `cuda`, `tensorrt`, or `openvino`); the profile
+constrains which execution provider may be selected at runtime. Linux amd64 CPU packages a
+static ONNX Runtime/OpenCV closure. Linux arm64 CPU uses Microsoft's checksum-pinned AArch64
+runtime plus a bundled shared OpenCV closure. CoreML uses Microsoft's checksum-pinned macOS arm64 runtime plus the
+exact shared OpenCV libraries in the signed native bundle. CUDA, TensorRT, and OpenVINO use
+shared provider builds because their target SDK and driver runtimes are part of the deployment
+environment.
+
+Build the exact dependency commits and then make ONNX mandatory:
+
+```sh
+scripts/ONNX/build_dependencies.sh \
+  --prefix "$PWD/.deps/onnx/cpu" \
+  --work-dir "$PWD/.build-deps/onnx/cpu" \
+  --profile cpu
+export PKG_CONFIG_PATH="$PWD/.deps/onnx/cpu/lib/pkgconfig:${PKG_CONFIG_PATH:-}"
+export CMAKE_PREFIX_PATH="$PWD/.deps/onnx/cpu:${CMAKE_PREFIX_PATH:-}"
+meson setup build -DONNX=enabled -DONNX_STATIC=true -DONNX_PROFILE=cpu
+```
+
+Use `coreml` on macOS arm64 with `ONNX_STATIC=false` and the locked
+`onnxruntime-osx-arm64` distribution. For `cuda`, `tensorrt`, or `openvino`, start in the
+matching SDK environment and configure Meson with `ONNX_STATIC=false`. CUDA/TensorRT use
+`CUDA_HOME`, `CUDNN_HOME`, `ONNX_CUDA_ARCHITECTURES`, and (for TensorRT)
+`TENSORRT_HOME`; OpenVINO uses the `OpenVINO_DIR` containing `OpenVINOConfig.cmake`. Explicit
+CUDA architectures are mandatory so a headless CI builder never tries to discover a local GPU.
+The builder fails before configuration when a required SDK location is absent.
+
+Linux CPU release builds use `ONNX_STATIC=false` with the locked `onnxruntime-linux-x64` or
+`onnxruntime-linux-aarch64` distribution. Their native bundles package and audit the shared
+runtime closure with executable-relative rpaths. The release workflow builds Linux amd64 CUDA,
+TensorRT, and OpenVINO images on
+ordinary GitHub-hosted CPU runners. Linux arm64 GPU-provider artifacts are intentionally outside
+the first release matrix because upstream publishes no equivalent generic ARM64 GPU archive.
+`accelerator-images.json` pins the vendor build and runtime image digests, SDK paths,
+and dependency strategy. A manual workflow can select one
+architecture for non-publishing diagnosis; publishing requires the complete architecture set so
+an incomplete multi-arch manifest cannot replace a release tag. Those jobs run the
+ONNX unit, capability, dependency, loader, notice, and package checks without claiming that a
+physical accelerator was exercised. The separately opt-in hardware jobs pull the exact produced
+image and run the pinned YOLO26n image and raw-tensor probes on labelled `onnx-cuda`,
+`onnx-tensorrt`, or `onnx-openvino` runners. macOS arm64 is the CoreML target: the main release
+workflow builds and exercises it on GitHub's hosted Apple Silicon runner, emits the full native
+tarball and deployment contract, and passes that artifact through signing/notarization for tags.
+Its staged `lib/` directory is an executable-relative rpath closure, while Homebrew supplies the
+declared general media libraries. There is no macOS container image because Docker images use a
+Linux kernel.
+
+Each provider image is a complete stock MistServer image, not a reduced ONNX appliance. It
+contains the controller, normal inputs and outputs, MistProcAV, NDI/camera support, and every
+other target installed by the regular full build; only the ONNX provider/runtime layer and base
+image differ. NVIDIA artifact audits also require the FFmpeg NVENC/CUVID H.264 and AV1 codecs used
+by MistProcAV. Provider packaging archives the complete Meson install tree; NVIDIA-specific tests
+also verify those hardware codec registrations.
+
+Published tags are `<release>-onnx-cuda`, `<release>-onnx-tensorrt`, and
+`<release>-onnx-openvino`; all three currently target Linux amd64. Digest and pinned base-image
+metadata are attached to the GitHub release. Every platform job also emits a native
+`mistserver-linux-<arch>-onnx-<profile>-<release>.tar.gz` from the exact same image filesystem.
+It contains the complete `bin/` and `lib/` trees plus `/opt/mist-onnx`.
+
+Native bundles contain `share/mistserver/onnx/deployment-contract.json` and a captured
+`runtime-linkage.txt`. The versioned contract tells an edge installer the target Ubuntu/glibc
+baseline, apt prerequisites, install destinations, loader paths, provider runtime/version,
+device probes, CPU-fallback status, and digest-pinned reference runtime image. Vendor userspace
+runtimes and kernel drivers remain external host prerequisites; a deployer such as the Frameworks
+monorepo CLI can preflight them, install a supported vendor package set, write the declared loader
+configuration, run `ldconfig`, and reject an incompatible host before replacing a live binary.
+
+Linux accelerator images are separate because the OS/architecture alone does not define the GPU
+vendor or driver ABI. Each image includes its matching userspace SDK runtime and keeps the shared
+provider closure in `/opt/mist-onnx/lib`; the target host supplies only a compatible kernel driver
+and device. The loader path is registered through `/etc/ld.so.conf.d/mist-onnx.conf` without
+discarding vendor paths inherited from the runtime image.
+
+All production ONNX containers are built from `Dockerfile.mistserver-onnx`; a build fails if
+`MistProcONNX` or the advertised profile is missing. The exact source revisions are recorded in
+`dependencies.lock.tsv`, and accelerator base images in `accelerator-images.json`. See
 `RELEASE_CHECKLIST.md` and run `verify_release.sh` against every candidate artifact.
