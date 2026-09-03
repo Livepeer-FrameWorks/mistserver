@@ -2,6 +2,7 @@
 
 #include "process.hpp"
 
+#include <mist/proc_stats.h>
 #include <mist/procs.h>
 #include <mist/util.h>
 
@@ -29,8 +30,6 @@ std::mutex statsMutex;
 uint64_t statSinkMs = 0;
 uint64_t statSourceMs = 0;
 int64_t bootMsOffset = 0;
-
-uint8_t sinkCommState = COMM_STATUS_ACTSOURCEDNT;
 
 namespace Mist{
 
@@ -72,7 +71,6 @@ namespace Mist{
         std::lock_guard<std::mutex> guard(statsMutex);
         pStat["proc_status_update"]["sink"] = streamName;
         pStat["proc_status_update"]["source"] = opt["source"];
-        if (streamName != opt["source"].asStringRef()) { sinkCommState = COMM_STATUS_ACTIVE | COMM_STATUS_SOURCE; }
       }
       if (opt.isMember("target_mask") && !opt["target_mask"].isNull() && opt["target_mask"].asString() != ""){
         DTSC::trackValidDefault = opt["target_mask"].asInt();
@@ -84,7 +82,7 @@ namespace Mist{
     bool isSingular(){return false;}
     void connStats(Comms::Connections &statComm){
       for (std::map<size_t, Comms::Users>::iterator it = userSelect.begin(); it != userSelect.end(); it++){
-        if (it->second) { it->second.setStatus(sinkCommState | it->second.getStatus()); }
+        if (it->second) { it->second.setStatus(COMM_STATUS_DONOTTRACK | it->second.getStatus()); }
       }
       InputEBML::connStats(statComm);
     }
@@ -119,11 +117,12 @@ namespace Mist{
       OutEBML::dropTrack(trackId, reason, probablyBad);
     }
     void sendHeader(){
-      if (opt.isMember("source_mask")) {
+      if (opt.isMember("source_mask") && !opt["source_mask"].isNull() && opt["source_mask"].asString() != "") {
+        uint64_t sourceMask = opt["source_mask"].asInt();
         for (std::map<size_t, Comms::Users>::iterator ti = userSelect.begin(); ti != userSelect.end(); ++ti){
           if (ti->first == INVALID_TRACK_ID){continue;}
-          INFO_MSG("Masking source track %zu with %zu", ti->first, (size_t)opt["source_mask"].asInt());
-          meta.validateTrack(ti->first, meta.trackValid(ti->first) & opt["source_mask"].asInt());
+          INFO_MSG("Masking source track %zu to %" PRIu64, ti->first, sourceMask);
+          meta.validateTrack(ti->first, sourceMask);
         }
       }
       realTime = 0;
@@ -419,14 +418,18 @@ int main(int argc, char *argv[]){
   }
 
   Util::redirectLogsIfNeeded();
+  ProcStateHeartbeat procState;
 
   // read configuration
   if (config.getString("configuration") != "-") {
-    Mist::opt.fromString(config.getString("configuration"));
+    Mist::opt = JSON::fromString(config.getString("configuration"));
   } else {
+    std::string json, line;
     INFO_MSG("Reading configuration from standard input");
-    Mist::opt.fromStream(std::cin);
+    while (std::getline(std::cin, line)) { json.append(line); }
+    Mist::opt = JSON::fromString(json.c_str());
   }
+  procState.publishStartup(1.0, PRC_RESOURCE_UNKNOWN);
 
   // check config for generic options
   Mist::ProcMKVExec Enc;

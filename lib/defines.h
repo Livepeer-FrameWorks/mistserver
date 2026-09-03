@@ -228,13 +228,51 @@ static inline void show_stackframe(){}
 #define SHM_STREAM_PPID "/MstPPID%s"   //%s stream name
 #define SHM_GLOBAL_CONF "/MstGlobalConfig"
 #define SHM_STREAMKEYS "/MstStrmKeys"
+// Stream state values stored at SHM_STREAM_STATE byte 0.
+// OFF vs OFFLINE:
+//   OFF      = generic inactive (no input running, never booted, page absent).
+//              Outputs may try fallback_stream / DEFAULT_STREAM / restart.
+//   OFFLINE  = deliberate "configured but not currently servable" result from
+//              a start attempt. Outputs clean-disconnect and skip the fallback
+//              chain for that attempt.
 #define STRMSTAT_OFF 0
 #define STRMSTAT_INIT 1
 #define STRMSTAT_BOOT 2
 #define STRMSTAT_WAIT 3
 #define STRMSTAT_READY 4
 #define STRMSTAT_SHUTDOWN 5
+#define STRMSTAT_OFFLINE 6
 #define STRMSTAT_INVALID 255
+
+// Extra bytes in SHM_STREAM_STATE for process-controlled realtime streams.
+// byte 0 remains stream status, byte 1 remains startup progress.
+#define STRMSTATE_PROCESS_OUTPUTS_RESOLVED_OFFSET 2
+#define STRMSTATE_PROCESS_FEED_PAUSED_OFFSET 3
+#define STRMSTATE_PROCESS_OUTPUTS_EXPECTED_OFFSET 4
+#define STRMSTATE_PROCESS_SOURCE_EOF_OFFSET 6 // u8 producer ended after previously supplying media
+#define STRMSTATE_PROCESS_PRODUCERS_FINISHED_OFFSET 7 // u8 configured processors have exited after source EOF
+#define STRMSTATE_EFFECTIVE_SPEED_OFFSET 8
+// Speed/verdict aggregates written by the buffer's rate controller each tick;
+// recording outputs read them at exit to enrich RECORDING_END. Readers must
+// check STRMSTATE_PAGE_LEN before accessing the complete diagnostics block.
+#define STRMSTATE_SPEED_TICKS_OFFSET 16 // u32 controller ticks observed
+#define STRMSTATE_SPEED_MIN_OFFSET 20 // u32 lowest effectiveSpeed (0 = unset)
+#define STRMSTATE_SPEED_MAX_OFFSET 24 // u32 highest effectiveSpeed
+#define STRMSTATE_HARD_SLOW_TICKS_OFFSET 28 // u32 ticks with a hard-slow verdict
+#define STRMSTATE_REGULAR_SLOW_TICKS_OFFSET 32 // u32 ticks with a regular-slow verdict
+#define STRMSTATE_RAMP_UPS_OFFSET 36 // u32 ramp-up events
+#define STRMSTATE_LOCKOUT_TICKS_OFFSET 40 // u32 ticks spent under ramp lockout
+#define STRMSTATE_STALE_HOLD_TICKS_OFFSET 44 // u32 ticks held because a required proc was unobservable
+#define STRMSTATE_SPEED_SUM_OFFSET 48 // u64 sum of effectiveSpeed over ticks (avg = sum/ticks)
+#define STRMSTATE_WARMUP_TICKS_OFFSET 56 // u32 ticks before all proc measurements were ready
+#define STRMSTATE_SOURCE_LIMITED_TICKS_OFFSET 60 // u32 source-starved ticks
+#define STRMSTATE_PROCESSOR_LIMITED_TICKS_OFFSET 64 // u32 proc-capacity-limited ticks
+#define STRMSTATE_NODE_LIMITED_TICKS_OFFSET 68 // u32 node-pressure hold/slow ticks
+#define STRMSTATE_CAPACITY_SAMPLES_OFFSET 72 // u32 capacity samples included in sum
+#define STRMSTATE_INPUT_SPEED_SUM_OFFSET 80 // u64 sum Q16.16 achieved input speed
+#define STRMSTATE_OUTPUT_SPEED_SUM_OFFSET 88 // u64 sum Q16.16 achieved output speed
+#define STRMSTATE_CAPACITY_SPEED_SUM_OFFSET 96 // u64 sum Q16.16 clean proc capacity
+#define STRMSTATE_PAGE_LEN 112
 
 #define SHM_JWK "/MstJWK"
 #define JWK_PERM_ADMIN 1

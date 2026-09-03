@@ -1,5 +1,7 @@
 #include "input.h"
 
+#include "../processing_lifecycle.h"
+
 #include <mist/auth.h>
 #include <mist/defines.h>
 #include <mist/encode.h>
@@ -8,6 +10,8 @@
 #include <mist/triggers.h>
 #include <mist/urireader.h>
 
+#include <algorithm>
+#include <cstring>
 #include <fcntl.h>
 #include <fstream>
 #include <iomanip>
@@ -134,7 +138,7 @@ namespace Mist{
     config = cfg;
     canCancelUnload = true;
     standAlone = true;
-    Util::Config::binaryType = Util::INPUT;
+    Util::Config::claimBinaryType(Util::INPUT);
     inputTimeout = INPUT_TIMEOUT;
 
     JSON::Value option;
@@ -505,9 +509,12 @@ namespace Mist{
         //Set stream status to STRMSTAT_INIT, then close the page in non-master mode to keep it around
         char pageName[NAME_BUFFER_SIZE];
         snprintf(pageName, NAME_BUFFER_SIZE, SHM_STREAM_STATE, streamName.c_str());
-        streamStatus.init(pageName, 2, false, false);
-        if (!streamStatus){streamStatus.init(pageName, 2, true, false);}
-        if (streamStatus){streamStatus.mapped[0] = STRMSTAT_INIT;}
+        streamStatus.init(pageName, STRMSTATE_PAGE_LEN, false, false);
+        if (!streamStatus) { streamStatus.init(pageName, STRMSTATE_PAGE_LEN, true, false); }
+        if (streamStatus) {
+          memset(streamStatus.mapped, 0, streamStatus.len);
+          streamStatus.mapped[0] = STRMSTAT_INIT;
+        }
         streamStatus.master = false;
         streamStatus.close();
         //Set stream input PID to current PID
@@ -552,10 +559,13 @@ namespace Mist{
         // Re-init streamStatus, previously closed
         char pageName[NAME_BUFFER_SIZE];
         snprintf(pageName, NAME_BUFFER_SIZE, SHM_STREAM_STATE, streamName.c_str());
-        streamStatus.init(pageName, 2, false, false);
-        if (!streamStatus){streamStatus.init(pageName, 2, true, false);}
+        streamStatus.init(pageName, STRMSTATE_PAGE_LEN, false, false);
+        if (!streamStatus) { streamStatus.init(pageName, STRMSTATE_PAGE_LEN, true, false); }
         streamStatus.master = false;
-        if (streamStatus){streamStatus.mapped[0] = STRMSTAT_INIT;}
+        if (streamStatus) {
+          memset(streamStatus.mapped, 0, streamStatus.len);
+          streamStatus.mapped[0] = STRMSTAT_INIT;
+        }
       }
       int ret = 1;
       if (preRun()){
@@ -741,6 +751,9 @@ namespace Mist{
     checkHeaderTimes(HTTP::localURIResolver().link(config->getString("input")));
     //needHeader internally calls readExistingHeader which in turn attempts to read header cache
     if (needHeader()){
+      // Whatever readExistingHeader may have loaded was rejected; the header
+      // we serve from is this boot's own parse.
+      headerFromDisk = false;
       uint64_t timer = Util::getMicros();
       if (!readHeader() || (!M && needsLock())){
         Util::logExitReason(ER_READ_START_FAILURE, "Reading header for '%s' failed", config->getString("input").c_str());
@@ -1031,24 +1044,27 @@ namespace Mist{
   void Input::stream(){
     std::map<std::string, std::string> overrides;
     overrides["throughboot"] = "";
-    if (config->getBool("realtime") ||
-        (capa.isMember("hardcoded") && capa["hardcoded"].isMember("resume") && capa["hardcoded"]["resume"])){
-      overrides["resume"] = "1";
+    if (config->getBool("realtime")) { overrides["resume"] = "1"; }
+    if (capa.isMember("hardcoded")) {
+      jsonForEach (capa["hardcoded"], it) { overrides[it.key()] = it->asString(); }
     }
     if (isSingular()){
       if (!config->getBool("realtime") && Util::streamAlive(streamName)){
+        Util::logExitReason(ER_READ_START_FAILURE, "Stream already online, cancelling");
         WARN_MSG("Stream already online, cancelling");
         return;
       }
       overrides["singular"] = "";
       if (!Util::startInput(streamName, "push://INTERNAL_ONLY:" + config->getString("input"), true,
                             true, overrides, &bufferPid)){// manually override stream url to start the buffer
+        Util::logExitReason(ER_READ_START_FAILURE, "Could not start buffer for '%s', cancelling", streamName.c_str());
         WARN_MSG("Could not start buffer, cancelling");
         return;
       }
     }else{
       if (!Util::startInput(streamName, "push://INTERNAL_PUSH:" + capa["name"].asStringRef(), true,
                             true, overrides)){// manually override stream url to start the buffer
+        Util::logExitReason(ER_READ_START_FAILURE, "Could not start buffer for '%s', cancelling", streamName.c_str());
         WARN_MSG("Could not start buffer, cancelling");
         return;
       }
@@ -1166,6 +1182,42 @@ namespace Mist{
     size_t idx;
     Comms::Connections statComm;
 
+    uint64_t realtimeSpeed = 1;
+    bool processControlledRealtime = false;
+    {
+      std::string strName = streamName.substr(0, streamName.find_first_of("+ "));
+      char tmpBuf[NAME_BUFFER_SIZE];
+      snprintf(tmpBuf, NAME_BUFFER_SIZE, SHM_STREAM_CONF, strName.c_str());
+      Util::DTSCShmReader rStrmConf(tmpBuf);
+      DTSC::Scan streamCfg = rStrmConf.getScan();
+      if (streamCfg && streamCfg.getMember("process_controlled_realtime")) {
+        processControlledRealtime = streamCfg.getMember("process_controlled_realtime").asBool();
+      }
+      if (streamCfg && streamCfg.getMember("realtime_speed")) {
+        realtimeSpeed = streamCfg.getMember("realtime_speed").asInt();
+        if (!processControlledRealtime && realtimeSpeed < 1) { realtimeSpeed = 1; }
+      }
+    }
+    if (realtimeSpeed > 1) {
+      INFO_MSG("Realtime speed set to %" PRIu64 "x", realtimeSpeed);
+    } else if (processControlledRealtime) {
+      INFO_MSG("Process-controlled realtime: deferring speed to InputBuffer effectiveSpeed");
+      // Provider inputs do not own the stream lock and therefore do not map
+      // streamStatus during the common startup path. Map the buffer-owned page
+      // here so the pacing loop below can actually consume effectiveSpeed.
+      if (!streamStatus || streamStatus.len < 16) {
+        std::string stateStream = streamName;
+        Util::sanitizeName(stateStream);
+        stateStream = stateStream.substr(0, stateStream.find_first_of("+ "));
+        char stateName[NAME_BUFFER_SIZE];
+        snprintf(stateName, sizeof(stateName), SHM_STREAM_STATE, stateStream.c_str());
+        streamStatus.init(stateName, STRMSTATE_PAGE_LEN, false, true);
+        streamStatus.master = false;
+        if (!streamStatus || streamStatus.len < 16) {
+          WARN_MSG("Could not map process-controlled stream state; using 1x fallback");
+        }
+      }
+    }
 
     DTSC::Meta liveMeta(config->getString("streamname"), false);
     DTSC::veryUglyJitterOverride = SIMULATED_LIVE_BUFFER;
@@ -1270,15 +1322,63 @@ namespace Mist{
         break;
       }
       idx = realTimeTrackMap.count(thisIdx) ? realTimeTrackMap[thisIdx] : INVALID_TRACK_ID;
+      if (idx == INVALID_TRACK_ID && thisIdx != INVALID_TRACK_ID && M.getCodec(thisIdx).size()) {
+        std::set<size_t> validLive = liveMeta.getValidTracks();
+        size_t newID = 0;
+        for (std::set<size_t>::iterator lit = validLive.begin(); lit != validLive.end(); ++lit) {
+          newID = std::max(newID, liveMeta.getID(*lit) + 1);
+        }
+        size_t newIdx = liveMeta.addTrack();
+        realTimeTrackMap[thisIdx] = newIdx;
+        liveMeta.setID(newIdx, newID);
+        liveMeta.setType(newIdx, M.getType(thisIdx));
+        liveMeta.setCodec(newIdx, M.getCodec(thisIdx));
+        liveMeta.setFpks(newIdx, M.getFpks(thisIdx));
+        liveMeta.setInit(newIdx, M.getInit(thisIdx));
+        liveMeta.setLang(newIdx, M.getLang(thisIdx));
+        liveMeta.setRate(newIdx, M.getRate(thisIdx));
+        liveMeta.setSize(newIdx, M.getSize(thisIdx));
+        liveMeta.setWidth(newIdx, M.getWidth(thisIdx));
+        liveMeta.setHeight(newIdx, M.getHeight(thisIdx));
+        INFO_MSG("Mapped late realtime track %zu to live track %zu", thisIdx, newIdx);
+        idx = newIdx;
+      }
       if (thisPacket && !userSelect.count(idx)) { userSelect[idx].reload(streamName, idx, COMM_STATUS_ACTSOURCEDNT); }
       if (userSelect[idx].getStatus() & COMM_STATUS_REQDISCONNECT){
         Util::logExitReason(ER_CLEAN_LIVE_BUFFER_REQ, "buffer requested shutdown");
         break;
       }
-      while (config->is_active && userSelect[idx] &&
-             Util::bootMS() + SIMULATED_LIVE_BUFFER < (thisTime + timeOffset) + bootMsOffset){
-        Util::sleep(std::min(((thisTime + timeOffset) + bootMsOffset) - (Util::getMS() + SIMULATED_LIVE_BUFFER),
-                             (uint64_t)1000));
+      {
+        uint64_t pauseStartedMs = 0;
+        while (processControlledRealtime && streamStatus && streamStatus.len >= 16 &&
+               streamStatus.mapped[STRMSTATE_PROCESS_FEED_PAUSED_OFFSET] && config->is_active && userSelect[idx]) {
+          if (!pauseStartedMs) { pauseStartedMs = Util::bootMS(); }
+          Util::sleep(10);
+        }
+        if (pauseStartedMs) {
+          bootMsOffset += Util::bootMS() - pauseStartedMs;
+          liveMeta.setBootMsOffset(bootMsOffset);
+        }
+        uint64_t activeSpeed = (realtimeSpeed != 0) ? realtimeSpeed : 1;
+        if (processControlledRealtime && streamStatus && streamStatus.len >= 16) {
+          uint64_t effectiveSpeed = 0;
+          memcpy(&effectiveSpeed, streamStatus.mapped + STRMSTATE_EFFECTIVE_SPEED_OFFSET, sizeof(uint64_t));
+          if (effectiveSpeed > 0) { activeSpeed = effectiveSpeed; }
+        }
+        // True sustained N x rate: the deadline is the packet's intended live-clock
+        // time scaled down by activeSpeed. Ordinary simulated-live playback keeps
+        // its fixed readahead window; process-controlled processing starts without
+        // that burst so downstream processors can discover their derived inputs
+        // before the source advances several seconds past them.
+        if (activeSpeed < 1) { activeSpeed = 1; }
+        uint64_t readaheadMs = simulatedLiveReadaheadMs(processControlledRealtime, SIMULATED_LIVE_BUFFER);
+        uint64_t packetSourceMs = (thisTime + timeOffset);
+        int64_t scaledDeadline = bootMsOffset + (int64_t)(packetSourceMs / activeSpeed);
+        while (config->is_active && userSelect[idx] && (int64_t)(Util::bootMS() + readaheadMs) < scaledDeadline) {
+          int64_t remaining = scaledDeadline - (int64_t)(Util::bootMS() + readaheadMs);
+          if (remaining <= 0) { break; }
+          Util::sleep(std::min((uint64_t)remaining, (uint64_t)1000));
+        }
       }
 
       //Buffer the packet
@@ -1609,6 +1709,11 @@ namespace Mist{
       pageIdx = i;
     }
     uint32_t pageNumber = tPages.getInt("firstkey", pageIdx);
+    // Blacklisted after repeated identical load failures (see the failure
+    // path below): pretend handled so consumers stop re-requesting it.
+    if (pageLoadFails.count(idx) && pageLoadFails[idx].count(pageNumber) && pageLoadFails[idx][pageNumber] >= 2) {
+      return true;
+    }
     pageCounter[idx][pageNumber] = Util::bootSecs();
     if (isBuffered(idx, pageNumber, meta)){
       // Mark the page as still actively requested
@@ -1770,6 +1875,29 @@ namespace Mist{
                tPages.getInt("parts", pageIdx), byteCounter);
       pageCounter[idx].erase(pageNumber);
       bufferRemove(idx, pageNumber, pageIdx);
+      // A page that fails identically twice will fail forever: the header and
+      // the file disagree. Headers are generated deterministically, so a
+      // disagreement means the cached header does not describe this file —
+      // regenerate it once (restart; the reboot re-parses the source and
+      // overwrites the .dtsh). If our own freshly-generated header still
+      // disagrees, the file itself is bad: blacklist the page and serve
+      // around it rather than spinning.
+      uint32_t fails = ++pageLoadFails[idx][pageNumber];
+      if (fails >= 2) {
+        if (headerFromDisk) {
+          std::string headerFile = config->getString("input") + ".dtsh";
+          HTTP::URL headerURL = HTTP::localURIResolver().link(headerFile);
+          if (headerURL.isLocalPath() && unlink(headerURL.getFilePath().c_str()) == 0) {
+            FAIL_MSG("Cached header disagrees with file content for track %zu page %" PRIu32
+                     "; removed '%s'; the next input will regenerate it",
+                     idx, pageNumber, headerFile.c_str());
+            Util::logExitReason(ER_FORMAT_SPECIFIC, "cached header disagrees with file content; regenerating");
+            config->is_active = false;
+            return false;
+          }
+        }
+        FAIL_MSG("Track %zu page %" PRIu32 " failed %" PRIu32 " consecutive loads; blacklisting page", idx, pageNumber, fails);
+      }
       return false;
     }else{
       INFO_MSG("Track %zu, page %" PRIu32 " (" PRETTY_PRINT_MSTIME " - " PRETTY_PRINT_MSTIME ") buffered in %" PRIu64 "ms",
@@ -1777,6 +1905,7 @@ namespace Mist{
       INFO_MSG("  (%" PRIu32 "/%" PRIu64 " parts, %" PRIu64 " bytes)", packCounter,
                tPages.getInt("parts", pageIdx), byteCounter);
       pageCounter[idx][pageNumber] = Util::bootSecs();
+      pageLoadFails[idx].erase(pageNumber);
       return true;
     }
   }
@@ -1803,6 +1932,7 @@ namespace Mist{
         if (meta){
           meta.setMaster(true);
           INFO_MSG("Read existing header");
+          headerFromDisk = true;
           return true;
         }
       }
@@ -1825,6 +1955,7 @@ namespace Mist{
       INFO_MSG("Updating wrong version header file from version %u to %u", meta.version, DTSH_VERSION);
       return false;
     }
+    if (meta) { headerFromDisk = true; }
     return meta;
   }
 

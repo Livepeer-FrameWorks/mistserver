@@ -6,6 +6,7 @@
 #include "defines.h"
 #include "ev.h"
 
+#include <map>
 #include <mutex>
 #include <signal.h>
 #include <spawn.h>
@@ -32,6 +33,8 @@ extern char **environ;
 #endif
 
 std::set<pid_t> plist;
+std::map<pid_t, int> exitCodeMap;
+std::set<pid_t> ignoredExitCodePids;
 bool handler_set = false;
 bool thread_handler = false;
 std::mutex plistMutex;
@@ -61,6 +64,9 @@ bool Util::Procs::childRunning(pid_t p) {
       } else if (WIFSIGNALED(status)) {
         exitcode = -WTERMSIG(status);
       }
+      bool ignoreExit = ignoredExitCodePids.count(ret);
+      ignoredExitCodePids.erase(ret);
+      if (!ignoreExit) { exitCodeMap[ret] = exitcode; }
       if (plist.count(ret)) {
         HIGH_MSG("Process %d fully terminated with code %d", ret, exitcode);
         plist.erase(ret);
@@ -277,6 +283,9 @@ void Util::Procs::reap(){
     }
     {
       std::lock_guard<std::mutex> guard(plistMutex);
+      bool ignoreExit = ignoredExitCodePids.count(ret);
+      ignoredExitCodePids.erase(ret);
+      if (!ignoreExit) { exitCodeMap[ret] = exitcode; }
       if (plist.count(ret)){
         HIGH_MSG("Process %d fully terminated with code %d", ret, exitcode);
         plist.erase(ret);
@@ -285,6 +294,24 @@ void Util::Procs::reap(){
       }
     }
   }
+}
+
+/// Discards any stored exit code and ignores the next reap for this pid.
+void Util::Procs::ignoreExitCode(pid_t pid) {
+  std::lock_guard<std::mutex> guard(plistMutex);
+  exitCodeMap.erase(pid);
+  ignoredExitCodePids.insert(pid);
+}
+
+/// Returns stored exit code for a reaped process and removes the entry.
+/// Returns false if the process has not been reaped yet.
+bool Util::Procs::getExitCode(pid_t pid, int & code) {
+  std::lock_guard<std::mutex> guard(plistMutex);
+  auto it = exitCodeMap.find(pid);
+  if (it == exitCodeMap.end()) { return false; }
+  code = it->second;
+  exitCodeMap.erase(it);
+  return true;
 }
 
 /// Runs the given command and returns the stdout output as a string.

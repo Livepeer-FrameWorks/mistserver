@@ -1,18 +1,23 @@
 #pragma once
 #include "../io.h"
-#include <cstdlib>
-#include <map>
+#include "../lookahead_wait_diagnostics.h"
+#include "output_start_policy.h"
+
 #include <mist/comms.h>
 #include <mist/config.h>
 #include <mist/dtsc.h>
+#include <mist/ev.h>
 #include <mist/flv_tag.h>
 #include <mist/json.h>
+#include <mist/process_stream_state.h>
 #include <mist/shared_memory.h>
 #include <mist/socket.h>
-#include <mist/timing.h>
 #include <mist/stream.h>
+#include <mist/timing.h>
 #include <mist/url.h>
-#include <mist/ev.h>
+
+#include <cstdlib>
+#include <map>
 #include <set>
 
 namespace Mist{
@@ -79,6 +84,9 @@ namespace Mist{
     void playbackSleep(uint64_t millis);
 
     void selectAllTracks();
+    bool processingControlledRealtime() const;
+    bool processingControlledRealtimeSelectionEnded();
+    bool processingRecordingTracksReady();
 
     /// Accessors for buffer SyncMode.
     void setSyncMode(bool synced){buffer.setSyncMode(synced);}
@@ -90,14 +98,15 @@ namespace Mist{
     uint64_t pageNumForKey(size_t trackId, size_t keyNum);
     uint64_t pageNumMax(size_t trackId);
     bool isRecordingToFile;
+    PlayRewriteGate playRewriteGate;
     uint64_t lastStats; ///< Time of last sending of stats.
     void reinitPlaylist(std::string &playlistBuffer, uint64_t &maxAge, uint64_t &maxEntries,
                         uint64_t &segmentCount, uint64_t &segmentsRemoved, uint64_t &curTime,
                         std::string targetDuration, HTTP::URL &playlistLocation);
 
     Util::packetSorter buffer; ///< A sorted list of next-to-be-loaded packets.
-    bool sought;          ///< If a seek has been done, this is set to true. Used for seeking on
-                          ///< prepareNext().
+    bool sought; ///< If a seek has been done, this is set to true. Used for seeking on
+                 ///< prepareNext().
     std::string prevHost; ///< Old value for getConnectedBinHost, for caching
     uint64_t lastReceive;
     bool recursingSync;
@@ -112,6 +121,7 @@ namespace Mist{
     bool lastReadAttemptWasAtLivePoint;
 
   protected:              // these are to be messed with by child classes
+    PlayRewriteOutcome applyPlayRewrite(const char *requestType);
     std::string currentTarget;
     virtual bool inlineRestartCapable() const{
       return false;
@@ -119,10 +129,19 @@ namespace Mist{
     void closeMyConn();
     bool pushing;
     std::map<std::string, std::string> targetParams; /*LTS*/
+    bool recordingSourceWasLive; ///< True when a file recording started from a live source before limiters.
     std::string UA;                                  ///< User Agent string, if known.
     uint64_t uaDelay;                                ///< Seconds to wait before setting the UA.
     uint64_t lastRecv;
     uint64_t dataWaitTimeout; ///< How long to wait for new packets before dropping a track, in milliseconds.
+
+    // Processing-recording diagnostics: name the track gating the lookahead
+    // wait, and measure the drain tail after the process-controlled source ends.
+    LookaheadWaitDiagnostics lookaheadWait;
+    uint64_t procSourceEndedSinceMs; ///< bootMS when the buffer first reported producer EOF
+    ProcessStreamState processStreamState; ///< last complete snapshot, retained after SHM teardown
+    std::set<size_t> processingDrainedTracks; ///< tracks fully consumed after their producer ended
+    void refreshProcessStreamState();
 
     // Playback timing related
     uint64_t timingBootMs; ///< System boot time of the last playback speed change.
@@ -159,7 +178,8 @@ namespace Mist{
     virtual bool isRecording();
     virtual bool isFileTarget();
     virtual bool isPushing(){return pushing;};
-    std::string getExitTriggerPayload();
+    virtual void serveOfflineResponse();
+    std::string getExitTriggerPayload(bool includeTrackSummary = false);
     void recEndTrigger();
     void outputEndTrigger();
     bool allowPush(const std::string &passwd);

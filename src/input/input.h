@@ -122,6 +122,13 @@ namespace Mist {
 
     std::map<size_t, std::map<uint32_t, uint64_t> > pageCounter;
 
+    // Consecutive load failures per (track, page). A page that keeps failing
+    // its part-table sanity checks must not retry forever: with a disk-loaded
+    // header we regenerate the header once (restart); with a self-generated
+    // header the page is blacklisted and served around.
+    std::map<size_t, std::map<uint32_t, uint32_t>> pageLoadFails;
+    bool headerFromDisk = false; ///< Whether meta came from a .dtsh / existing page rather than this boot's own parse.
+
     static Input *singleton;
 
     bool hasSrt;

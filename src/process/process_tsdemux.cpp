@@ -8,6 +8,7 @@
 #include <mist/json.h>
 #include <mist/mp4_generic.h>
 #include <mist/nal.h>
+#include <mist/proc_stats.h>
 #include <mist/procs.h>
 #include <mist/ts_stream.h>
 #include <mist/util.h>
@@ -203,7 +204,7 @@ namespace Mist {
 
   class ProcessSource : public Output {
     public:
-      inline virtual bool keepGoing() { return Util::Config::is_active; }
+      inline virtual bool keepGoing() { return Util::Config::is_active.load(std::memory_order_relaxed); }
       bool isRecording() { return false; }
       ProcessSource(Socket::Connection & c, Util::Config & cfg, JSON::Value & capa) : Output(c, cfg, capa) {
         realTime = 0;
@@ -422,6 +423,7 @@ int main(int argc, char *argv[]) {
   }
 
   Util::redirectLogsIfNeeded();
+  ProcStateHeartbeat procState;
 
   // read configuration
   if (config.getString("configuration") != "-") {
@@ -430,6 +432,7 @@ int main(int argc, char *argv[]) {
     INFO_MSG("Reading configuration from standard input");
     Mist::opt.fromStream(std::cin);
   }
+  procState.publishStartup(1.0, PRC_RESOURCE_CPU);
 
   if (!Mist::opt.isMember("source") || !Mist::opt["source"] || !Mist::opt["source"].isString()) {
     FAIL_MSG("invalid source in config!");

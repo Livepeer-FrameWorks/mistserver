@@ -1,10 +1,13 @@
 #pragma once
 
-#include <map>
+#include "packet_drop_limiter.h"
+
 #include <mist/comms.h>
 #include <mist/defines.h>
 #include <mist/dtsc.h>
 #include <mist/shared_memory.h>
+
+#include <map>
 
 namespace Mist{
   ///\brief Class containing all basic input and output functions.
@@ -36,6 +39,10 @@ namespace Mist{
 
   protected:
     void updateTrackFromKeyframe(uint32_t packTrack, const char *packData, size_t packDataSize, DTSC::Meta & aMeta);
+    /// Rate-limits the live-packet drop warnings (per track, ~10s) so silent
+    /// data loss is visible without flooding the log per packet.
+    bool shouldLogPacketDrop(uint32_t packTrack);
+    PacketDropLogLimiter packetDropLogLimiter;
     bool standAlone;
 
     DTSC::Packet thisPacket; // The current packet that is being parsed

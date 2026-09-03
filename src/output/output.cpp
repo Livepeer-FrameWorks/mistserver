@@ -1,9 +1,11 @@
 #include "output.h"
 
+#include "../processing_lifecycle.h"
+#include "dtsc.h"
+
 #include <mist/bitfields.h>
 #include <mist/defines.h>
 #include <mist/encode.h>
-#include <mist/h264.h>
 #include <mist/http_parser.h>
 #include <mist/jwt.h>
 #include <mist/langcodes.h>
@@ -16,6 +18,7 @@
 
 #include <algorithm>
 #include <arpa/inet.h>
+#include <cstring>
 #include <fcntl.h>
 #include <fstream>
 #include <iomanip>
@@ -103,6 +106,7 @@ namespace Mist{
     : capa(_capa), config(&cfg), myConn(conn) {
     liveSeekDisabled = false;
     dataWaitTimeout = 25000;
+    procSourceEndedSinceMs = 0;
     timingBootMs = thisBootMs = Util::bootMS();
     timingMdiaMs = 0;
     lastPacketBootMs = thisBootMs;
@@ -129,12 +133,13 @@ namespace Mist{
     firstData = true;
     newUA = true;
     lastPushUpdate = 0;
-    Util::Config::binaryType = Util::OUTPUT;
+    Util::Config::claimBinaryType(Util::OUTPUT);
 
     lastRecv = Util::bootSecs();
     outputStartMs = thisBootMs;
     totalPlaytime = 0;
     lastSeekPos = 0;
+    recordingSourceWasLive = false;
     if (myConn){
       setBlocking(true);
       //Make sure that if the socket is a non-stdio socket, we close it when forking
@@ -153,7 +158,7 @@ namespace Mist{
     // If we have a target, scan for trailing ?, remove it, parse into targetParams
     if (config->hasOption("target")){
       std::string tgt = config->getString("target");
-      if (tgt.rfind('?') != std::string::npos){
+      if (tgt.rfind('?') != std::string::npos) {
         INFO_MSG("Stripping target options: %s", tgt.substr(tgt.rfind('?') + 1).c_str());
         HTTP::parseVars(tgt.substr(tgt.rfind('?') + 1), targetParams);
         config->getOption("target", true).append(tgt.substr(0, tgt.rfind('?')));
@@ -190,6 +195,21 @@ namespace Mist{
 
   bool Output::isRecording(){
     return config->hasOption("target") && config->getString("target").size() && !pushing;
+  }
+
+  /// Cleanly ends a connection when the stream is intentionally offline.
+  /// Differs from onFail() in that this is not an error: the stream exists
+  /// and may become available later. Connectors that can give the client a
+  /// protocol-level "retry later" hint (e.g. HLS) may override this; the
+  /// default just closes the connection so the player's own retry logic kicks
+  /// in.
+  void Output::serveOfflineResponse() {
+    INFO_MSG("Stream %s offline; ending connection cleanly", streamName.c_str());
+    Util::logExitReason(ER_CLEAN_EOF, "Stream offline");
+    isInitialized = false;
+    wantRequest = false;
+    parseData = false;
+    myConn.close();
   }
 
   /// Called when stream initialization has failed.
@@ -237,24 +257,16 @@ namespace Mist{
   void Output::initialize(){
     MEDIUM_MSG("initialize");
     if (isInitialized){return;}
-    if (!isPushing() && Triggers::shouldTrigger("PLAY_REWRITE", streamName)){
-      std::string payload = streamName + "\n" + getConnectedHost() + "\n" + capa["name"].asStringRef() + "\n" + reqUrl;
-      std::string newStreamName = streamName;
-      Triggers::doTrigger("PLAY_REWRITE", payload, streamName, false, newStreamName);
-      Util::sanitizeName(newStreamName);
-      if (streamName != newStreamName){
-        if (!newStreamName.size()){
-          Util::logExitReason(ER_TRIGGER, "playback rejected by PLAY_REWRITE trigger");
-        }
-        INFO_MSG("Rewriting playback request from '%s' to '%s'", streamName.c_str(), newStreamName.c_str());
-        streamName = newStreamName;
-        Util::setStreamName(streamName);
-      }
+    if (!isPushing() && DTSC::trackValidMask == TRACK_VALID_EXT_HUMAN && applyPlayRewrite("playback") == PLAY_REWRITE_DENIED) {
+      Util::logExitReason(ER_TRIGGER, "playback rejected by PLAY_REWRITE trigger");
+      return;
     }
     if (streamName.size() < 1){
       return; // abort - no stream to initialize...
     }
     reconnect();
+    // reconnect closes myConn on any internal termination; avoid double-failing.
+    if (!myConn) { return; }
     // if the connection failed, fail
     if (!meta || streamName.size() < 1){
       onFail("Could not connect to stream", true);
@@ -267,6 +279,22 @@ namespace Mist{
         onFail("Not allowed to play (CONN_PLAY)");
       }
     }
+  }
+
+  PlayRewriteOutcome Output::applyPlayRewrite(const char *requestType) {
+    if (!playRewriteGate.begin(Triggers::shouldTrigger("PLAY_REWRITE", streamName))) { return PLAY_REWRITE_UNCHANGED; }
+    const std::string oldStreamName = streamName;
+    const std::string payload = oldStreamName + "\n" + getConnectedHost() + "\n" + capa["name"].asStringRef() + "\n" + reqUrl;
+    Triggers::Result triggerResult;
+    triggerResult.response = oldStreamName;
+    Triggers::doTrigger("PLAY_REWRITE", payload, oldStreamName, false, triggerResult);
+    streamName = playRewriteTarget(oldStreamName, triggerResult);
+    Util::sanitizeName(streamName);
+    Util::setStreamName(streamName);
+    if (!streamName.size()) { return PLAY_REWRITE_DENIED; }
+    if (streamName == oldStreamName) { return PLAY_REWRITE_UNCHANGED; }
+    INFO_MSG("Rewriting %s request from '%s' to '%s'", requestType, oldStreamName.c_str(), streamName.c_str());
+    return PLAY_REWRITE_CHANGED;
   }
 
   std::string Output::getConnectedHost(){return myConn.getHost();}
@@ -324,7 +352,9 @@ namespace Mist{
 
     size_t trkCount = 0;
     for (std::set<size_t>::iterator it = trks.begin(); it != trks.end(); ++it){
-      DTSC::Keys keys(M.keys(*it));
+      // getKeys() transparently exposes both ordinary key tables and the
+      // frame-backed key view used by embedded raw tracks.
+      DTSC::Keys keys(M.getKeys(*it));
       if (keys.getValidCount() >= minKeys || M.getLastms(*it) - M.getFirstms(*it) > minMs){
         ++trkCount;
         if (trkCount >= minTracks){return true;}
@@ -379,7 +409,12 @@ namespace Mist{
         return;
       }
     } else {
-      if (!Util::startInput(streamName, sourceOverride, true, isPushing())) {
+      bool wasOffline = false;
+      if (!Util::startInput(streamName, sourceOverride, true, isPushing(), {}, NULL, &wasOffline)) {
+        if (wasOffline) {
+          serveOfflineResponse();
+          return;
+        }
         // If stream is configured, use fallback stream setting, if set.
         JSON::Value strCnf = Util::getStreamConfig(streamName);
         if (strCnf && strCnf["fallback_stream"].asStringRef().size()){
@@ -419,7 +454,12 @@ namespace Mist{
         std::string origStream = streamName;
         streamName = newStrm;
         Util::setStreamName(streamName);
-        if (!Util::startInput(streamName, sourceOverride, true, isPushing())) {
+        bool fallbackWasOffline = false;
+        if (!Util::startInput(streamName, sourceOverride, true, isPushing(), {}, NULL, &fallbackWasOffline)) {
+          if (fallbackWasOffline) {
+            serveOfflineResponse();
+            return;
+          }
           onFail("Stream open failed (fallback stream for '" + origStream + "')", true);
           return;
         }
@@ -496,6 +536,12 @@ namespace Mist{
     uint64_t seekTarget = buffer.getSyncMode()?thisTime:0;
     std::set<size_t> newSelects =
         Util::wouldSelect(M, targetParams, capa, UA, autoSeek ? seekTarget : 0);
+    if (isRecordingToFile && processingControlledRealtime()) {
+      refreshProcessStreamState();
+      for (std::set<size_t>::const_iterator it = processingDrainedTracks.begin(); it != processingDrainedTracks.end(); ++it) {
+        newSelects.erase(*it);
+      }
+    }
 
     if (autoSeek){
       std::set<size_t> toRemove;
@@ -960,7 +1006,7 @@ namespace Mist{
     return ret;
   }
 
-  bool Output::seek(size_t tid, uint64_t pos, bool getNextKey){
+  bool Output::seek(size_t tid, uint64_t pos, bool getNextKey) {
     if (!M.trackValid(tid)){
       MEDIUM_MSG("Aborting seek to %" PRIu64 "ms in track %zu: Invalid track id.", pos, tid);
       userSelect.erase(tid);
@@ -1035,7 +1081,7 @@ namespace Mist{
     tmp.time = tmpPack.getTime();
     char *mpd = curPage[tid].mapped;
     uint64_t nowMs = M.getNowms(tid);
-    while (tmp.time < pos && tmpPack){
+    while (tmp.time < pos && tmpPack) {
       tmp.offset += tmpPack.getDataLen();
       tmpPack.reInit(mpd + tmp.offset, 0, true);
       if (!tmpPack){
@@ -1090,6 +1136,19 @@ namespace Mist{
       if (!keys.getValidCount()) {
         WARN_MSG("Main track has no keyframes, seeking to position zero");
         return 0;
+      }
+      // Every consumer of a process-controlled stream (the recording AND the
+      // transcode processes feeding it) needs the job's whole timeline: start
+      // at the oldest keyframe instead of the live point. A consumer that
+      // attaches after stream boot would otherwise silently skip the head —
+      // for a transcode process that means the renditions never cover the
+      // start of the source and the artifact stops being video-leading. An
+      // explicit recstart/recstartunix still overrides this in initialSeek's
+      // recording branch.
+      if (processingControlledRealtime()) {
+        uint64_t headPos = keys.getTime(keys.getFirstValid());
+        INFO_MSG("Process-controlled stream consumer: starting at buffer head " PRETTY_PRINT_MSTIME, PRETTY_ARG_MSTIME(headPos));
+        return headPos;
       }
       // seek to the newest keyframe, unless that is <5s, then seek to the oldest keyframe
       uint32_t firstKey = keys.getFirstValid();
@@ -1162,6 +1221,7 @@ namespace Mist{
   void Output::initialSeek(bool dryRun) {
     if (!meta) { return; }
     meta.removeLimiter();
+    if (isRecordingToFile && M) { recordingSourceWasLive = M.getLive(); }
     uint64_t seekPos = getInitialSeekPosition();
     /*LTS-START*/
     if (isRecordingToFile){
@@ -1492,19 +1552,23 @@ namespace Mist{
       if (lMs - mKa - needsLookAhead > cTime + 50){
         // We need to speed up!
         uint64_t diff = (lMs - mKa - needsLookAhead) - cTime;
-        if (!rateOnly && diff > 3000){
+        if (!rateOnly && diff > 2000) {
           noReturn = true;
           newSpeed = 1000;
-        }else if (diff > 1000){
-          newSpeed = 750;
-        }else if (diff > 500){
-          newSpeed = 900;
-        }else{
-          newSpeed = 950;
+        } else if (diff > 1000) {
+          newSpeed = 400;
+        } else if (diff > 500) {
+          newSpeed = 600;
+        } else {
+          newSpeed = 800;
         }
       }
       if (realTime != newSpeed){
-        VERYHIGH_MSG("Changing playback speed from %" PRIu64 " to %" PRIu64 "(%" PRIu64 " ms LA, %" PRIu64 " ms mKA)", realTime, newSpeed, needsLookAhead, mKa);
+        VERYHIGH_MSG("Changing playback speed from %" PRIu64 " to %" PRIu64 "(%" PRIu64 " ms LA, %" PRIu64
+                     " ms mKA) - " PRETTY_PRINT_MSTIME " / " PRETTY_PRINT_MSTIME " -" PRETTY_PRINT_MSTIME
+                     " from live point",
+                     realTime, newSpeed, needsLookAhead, mKa, PRETTY_ARG_MSTIME(cTime), PRETTY_ARG_MSTIME(lMs),
+                     PRETTY_ARG_MSTIME(lMs - cTime));
         resetTiming(cTime);
         realTime = newSpeed;
       }
@@ -1657,16 +1721,12 @@ namespace Mist{
     const char* origTargetPtr = getenv("MST_ORIG_TARGET");
     if (origTargetPtr){
       origTarget = origTargetPtr;
-      if (origTarget.rfind('?') != std::string::npos){
+      if (origTarget.rfind('?') != std::string::npos) {
         std::map<std::string, std::string> tmpParams;
         HTTP::parseVars(origTarget.substr(origTarget.rfind('?') + 1), tmpParams);
         origTarget.erase(origTarget.rfind('?'));
-        if (tmpParams.count("m3u8")){
-          targetParams["m3u8"] = tmpParams["m3u8"];
-        }
-        if (tmpParams.count("segment")){
-          targetParams["segment"] = tmpParams["segment"];
-        }
+        if (tmpParams.count("m3u8")) { targetParams["m3u8"] = tmpParams["m3u8"]; }
+        if (tmpParams.count("segment")) { targetParams["segment"] = tmpParams["segment"]; }
       }
     }else if (config->hasOption("target")){
       origTarget = config->getString("target");
@@ -1957,6 +2017,9 @@ namespace Mist{
       // Always loop at least every 2s, no matter what
       if (maxWait > 2000) { maxWait = 2000; }
 
+      bool processControlledRealtimeEnded = processingControlledRealtimeSelectionEnded();
+      if (processControlledRealtimeEnded && maxWait > 50) { maxWait = 50; }
+
       size_t task = evLp.await(maxWait);
       thisBootMs = Util::bootMS();
       stats();
@@ -1972,7 +2035,8 @@ namespace Mist{
         }
       }
       //if (task == std::string::npos){} // Continue signal received; no special handling needed
-      if (parseData && (!realTime || !nTime || nTime <= targetTime())) {
+      processControlledRealtimeEnded = processingControlledRealtimeSelectionEnded();
+      if (parseData && (processControlledRealtimeEnded || !realTime || !nTime || nTime <= targetTime())) {
         if (!isInitialized){
           initialize();
           if (!isInitialized){
@@ -1980,8 +2044,16 @@ namespace Mist{
             break;
           }
         }
+        // Hold the initial seek as well as the header: seeking before the
+        // process output tracks exist would pin the recording start (and its
+        // keyframe alignment) to a track set that is still incomplete.
+        if (waitForProcessingRecordingHeader(sentHeader, keepGoing(), processingRecordingTracksReady())) {
+          suggestedWait = 100;
+          ++prepFalse;
+          continue;
+        }
         if (!sought){initialSeek();}
-        if (!sentHeader && keepGoing()){
+        if (!sentHeader && keepGoing()) {
           DONTEVEN_MSG("sendHeader");
           sendHeader();
         }
@@ -2109,6 +2181,13 @@ namespace Mist{
               }
             }
 
+            if (isRecordingToFile && Triggers::shouldTrigger("RECORDING_SEGMENT", streamName)) {
+              std::string payload = streamName + "\n" + currentTarget + "\n" +
+                JSON::Value(lastPacketTime - currentStartTime).asString() + "\n" +
+                JSON::Value(currentStartTime).asString() + "\n" + JSON::Value(lastPacketTime).asString();
+              Triggers::doTrigger("RECORDING_SEGMENT", payload, streamName);
+            }
+
             // Keep track of filenames written, so that they can be added to the playlist file
             std::string newTarget;
             if (targetParams.count("segment")){
@@ -2199,6 +2278,12 @@ namespace Mist{
     }
     if (myConn && myConn.isChunkedMode()) { myConn.SendNow(0, 0); }
 
+    if (isRecordingToFile && Triggers::shouldTrigger("RECORDING_SEGMENT", streamName)) {
+      std::string payload = streamName + "\n" + currentTarget + "\n" + JSON::Value(lastPacketTime - currentStartTime).asString() +
+        "\n" + JSON::Value(currentStartTime).asString() + "\n" + JSON::Value(lastPacketTime).asString();
+      Triggers::doTrigger("RECORDING_SEGMENT", payload, streamName);
+    }
+
     if (isPushing()) {
       // Ensure pushed tracks are unclaimed on (clean) shutdown
       for (const auto & it : userSelect) { meta.abandonTrack(it.first); }
@@ -2224,15 +2309,6 @@ namespace Mist{
       std::string payload = streamName + "\n" + getConnectedHost() + "\n" + capa["name"].asStringRef() + "\n" + reqUrl;
       Triggers::doTrigger("CONN_CLOSE", payload, streamName);
     }
-    if (isRecordingToFile){
-      recEndTrigger();
-    }
-    outputEndTrigger();
-
-    disconnect();
-    stats(true);
-    userSelect.clear();
-    trackSelectionChanged();
     if (myConn && myConn.isChunkedMode()) {
       myConn.SendNow(0, 0);
       HTTP::Parser response;
@@ -2260,6 +2336,13 @@ namespace Mist{
       if (!gotResponse) { WARN_MSG("No reply from remote server to PUT request"); }
     }
     myConn.close();
+    if (isRecordingToFile) { recEndTrigger(); }
+    outputEndTrigger();
+
+    disconnect();
+    stats(true);
+    userSelect.clear();
+    trackSelectionChanged();
     return 0;
   }
 
@@ -2389,6 +2472,10 @@ namespace Mist{
     size_t bufSize = buffer.size();
     if (!bufSize){
       thisPacket.null();
+      if (isRecordingToFile && processingControlledRealtime()) {
+        refreshProcessStreamState();
+        if (processStreamState.sourceEof && !processStreamState.processProducersFinished) { return 50; }
+      }
       INFO_MSG("Buffer completely played out");
       return 0;
     }
@@ -2444,12 +2531,34 @@ namespace Mist{
         return 2000;
       }
 
-      // Ensure we have the lookahead available
-      if (needsLookAhead && M.getLive() && M.getNowms(nxt.tid) < nxt.time + needsLookAhead){
+      bool processControlledRealtimeEnded = processingControlledRealtimeSelectionEnded();
+      uint8_t streamState = Util::getStreamStatus(streamName);
+      bool processInputTrackEnded =
+        processingInputTrackEnded(Util::Config::binaryType.load(std::memory_order_relaxed) == Util::PROCESS,
+                                  M.getLive(), processingControlledRealtime(), M.isClaimed(nxt.tid), streamState);
+      bool processTrackProducerEnded = processingTrackProducerEnded(
+        M.getLive(), processingControlledRealtime(), processStreamState.sourceEof,
+        processStreamState.processProducersFinished, M.getSourceTrack(nxt.tid) != INVALID_TRACK_ID, M.isClaimed(nxt.tid));
+      bool processControlledTrackEnded = processControlledRealtimeEnded || processInputTrackEnded || processTrackProducerEnded;
+
+      // Ensure we have the lookahead available. Once a process-controlled source has ended,
+      // no more lookahead can arrive; drain the packets already present instead.
+      if (waitForLiveLookAhead(M.getLive(), processControlledTrackEnded, needsLookAhead, M.getNowms(nxt.tid), nxt.time)) {
+        // Name the track gating the wait: a process output track that never
+        // produces data (e.g. a sick thumbnailer's JPEG track) pins a
+        // recording here invisibly otherwise. Log every 5s while stuck.
+        uint64_t stallNowMs = Util::bootMS();
+        if (lookaheadWait.shouldLog(nxt.tid, stallNowMs)) {
+          INFO_MSG("Waiting on lookahead for track %zu (%s) for %" PRIu64 "s (track nowms=%" PRIu64 ", lastms=%" PRIu64
+                   ", want %" PRIu64 "+%" PRIu64 "ms)",
+                   nxt.tid, M.getCodec(nxt.tid).c_str(), lookaheadWait.elapsedMs(stallNowMs) / 1000,
+                   M.getNowms(nxt.tid), M.getLastms(nxt.tid), nxt.time, needsLookAhead);
+        }
         int64_t waitTime = (nxt.time + needsLookAhead) - M.getNowms(nxt.tid);
         if (meta.reloadReplacedPagesIfNeeded()) { return 1; }
         return waitTime > 0 ? waitTime : 1;
       }
+      lookaheadWait.clear();
 
       if (M.hasEmbeddedFrames(nxt.tid)){
         if (nxt.ghostPacket){
@@ -2501,6 +2610,12 @@ namespace Mist{
       uint64_t nowMs = M.getNowms(nxt.tid);
       uint64_t lastMs = M.getLastms(nxt.tid);
       if (pageNotOpen || atPageEnd) {
+        if (processingTrackDrained(M.getLive(), processingControlledRealtime(), processControlledTrackEnded,
+                                   M.getLastms(nxt.tid), nxt.time)) {
+          processingDrainedTracks.insert(nxt.tid);
+          dropTrack(nxt.tid, "process-controlled realtime track drained", false);
+          return 1;
+        }
         // For non-live, we may have just reached the end of the track. That's normal and fine, drop it.
         if (!M.getLive() && nxt.time >= M.getLastms(nxt.tid)){
           dropTrack(nxt.tid, "end of VoD track reached", false);
@@ -2660,6 +2775,21 @@ namespace Mist{
       // If now-ms is higher than current, we know we can safely return this packet at least
       if (M.getNowms(nxt.tid) > nxt.time) { break; }
 
+      processControlledRealtimeEnded = processingControlledRealtimeSelectionEnded();
+      processTrackProducerEnded = processingTrackProducerEnded(
+        M.getLive(), processingControlledRealtime(), processStreamState.sourceEof,
+        processStreamState.processProducersFinished, M.getSourceTrack(nxt.tid) != INVALID_TRACK_ID, M.isClaimed(nxt.tid));
+      if (processControlledRealtimeEnded || processInputTrackEnded || processTrackProducerEnded) { break; }
+
+      if (M.getLive() && processingControlledRealtime() && !M.isClaimed(nxt.tid)) {
+        uint8_t streamState = Util::getStreamStatus(streamName);
+        if (streamState == STRMSTAT_WAIT || streamState == STRMSTAT_SHUTDOWN || streamState == STRMSTAT_OFF) {
+          processingDrainedTracks.insert(nxt.tid);
+          dropTrack(nxt.tid, "process-controlled realtime track ended", false);
+          return 1;
+        }
+      }
+
       //In non-sync mode, shuffle the just-tried packet to the end of queue and retry
       if (!buffer.getSyncMode()){
         buffer.moveFirstToEnd();
@@ -2680,15 +2810,32 @@ namespace Mist{
         return 1;
       }
       //every ~1 second, check if the stream is not offline
-      if (lastReceive + 1000 < thisBootMs && Util::getStreamStatus(streamName) == STRMSTAT_OFF){
-        if (M.getLive()){
-          Util::logExitReason(ER_CLEAN_EOF, "Live stream source shut down");
+      if (lastReceive + 1000 < thisBootMs) {
+        uint8_t s = Util::getStreamStatus(streamName);
+        if (s == STRMSTAT_OFFLINE) {
+          serveOfflineResponse();
           thisPacket.null();
           return 0;
-        }else if (!Util::startInput(streamName)){
-          Util::logExitReason(ER_UNKNOWN, "VoD stream source shut down and could not be restarted");
-          thisPacket.null();
-          return 0;
+        }
+        if (s == STRMSTAT_SHUTDOWN || s == STRMSTAT_OFF) {
+          if (M.getLive() && processingControlledRealtime()) { break; }
+          if (M.getLive()) {
+            Util::logExitReason(ER_CLEAN_EOF, "Live stream source shut down");
+            thisPacket.null();
+            return 0;
+          } else {
+            bool restartWasOffline = false;
+            if (!Util::startInput(streamName, "", true, false, {}, NULL, &restartWasOffline)) {
+              if (restartWasOffline) {
+                serveOfflineResponse();
+                thisPacket.null();
+                return 0;
+              }
+              Util::logExitReason(ER_UNKNOWN, "VoD stream source shut down and could not be restarted");
+              thisPacket.null();
+              return 0;
+            }
+          }
         }
       }
 
@@ -2826,6 +2973,7 @@ namespace Mist{
     if (Comms::sessionStreamInfoMode == SESS_HTTP_DISABLED && capa["name"].asStringRef() == "HTTP"){return;}
     if (getenv("NOSESS")) { return; } // Disable sessions and stats if NOSESS env variable is set
     if (getenv("MIST_ADMIN_HTTP")) { return; } // Disable sessions if using the admin_http feature
+    if (capa["name"].asStringRef() == "JPG") { return; }
 
     // Set the token to the pid for outputs which do not generate it in the requestHandler
     if (!tkn.size()){ tkn = JSON::Value(getpid()).asString(); }
@@ -2903,7 +3051,7 @@ namespace Mist{
     sentHeader = true;
   }
 
-  std::string Output::getExitTriggerPayload(){
+  std::string Output::getExitTriggerPayload(bool includeTrackSummary) {
     uint64_t rightNow = Util::epoch();
     std::stringstream payl;
     payl << streamName << '\n';
@@ -2922,12 +3070,82 @@ namespace Mist{
     payl << lastPacketTime << '\n';
     payl << Util::mRExitReason << '\n';
     payl << Util::exitReason << '\n';
+    if (includeTrackSummary) {
+      JSON::Value tracks;
+      std::set<size_t> selectedTracks;
+      for (const auto & it : userSelect) { selectedTracks.insert(it.first); }
+      // The summary reports the tracks this output actually consumed (its own
+      // selection = what a recording wrote), not whatever happens to still be
+      // valid in the stream buffer at exit: process tracks may already be torn
+      // down by then, and buffer tracks that appeared after the header was
+      // written are not in the file at all.
+      std::set<size_t> finalTracks = selectedTracks;
+      if (!finalTracks.size() && M) { finalTracks = M.getValidTracks(true); }
+      for (const auto & trackIdx : finalTracks) {
+        JSON::Value & T = tracks.append();
+        T["idx"] = trackIdx;
+        T["selected"] = (bool)selectedTracks.count(trackIdx);
+        // Populate per-track details whenever the metadata is still readable,
+        // not only while the valid-flag is set — a selected track invalidated
+        // during teardown was still written to the file.
+        if (M && (M.trackValid(trackIdx) || M.getCodec(trackIdx).size())) {
+          T["id"] = M.getID(trackIdx);
+          T["type"] = M.getType(trackIdx);
+          T["codec"] = M.getCodec(trackIdx);
+          T["firstms"] = M.getFirstms(trackIdx);
+          T["lastms"] = M.getLastms(trackIdx);
+          T["bps"] = M.getBps(trackIdx);
+          T["rate"] = M.getRate(trackIdx);
+          if (M.getWidth(trackIdx)) { T["width"] = M.getWidth(trackIdx); }
+          if (M.getHeight(trackIdx)) { T["height"] = M.getHeight(trackIdx); }
+          if (M.getChannels(trackIdx)) { T["channels"] = M.getChannels(trackIdx); }
+        }
+      }
+      JSON::Value trackSummary;
+      trackSummary["tracks"] = tracks;
+      // Per-job feeder speed stats from the buffer's rate controller, for
+      // process-controlled recordings. Lets RECORDING_END consumers see how
+      // fast the job actually ran and what gated it, instead of inferring
+      // from wall-clock alone.
+      if (isRecordingToFile && processingControlledRealtime()) {
+        refreshProcessStreamState();
+        if (processStreamState.ticks) {
+          JSON::Value & sp = trackSummary["speed"];
+          sp["ticks"] = processStreamState.ticks;
+          sp["min"] = processStreamState.speedMin;
+          sp["avg"] = (double)processStreamState.speedSum / (double)processStreamState.ticks;
+          sp["max"] = processStreamState.speedMax;
+          sp["hard_slow_ticks"] = processStreamState.hardSlowTicks;
+          sp["regular_slow_ticks"] = processStreamState.regularSlowTicks;
+          sp["ramp_ups"] = processStreamState.rampUps;
+          sp["lockout_ticks"] = processStreamState.lockoutTicks;
+          sp["stale_hold_ticks"] = processStreamState.staleHoldTicks;
+          sp["warmup_ticks"] = processStreamState.warmupTicks;
+          sp["source_limited_ticks"] = processStreamState.sourceLimitedTicks;
+          sp["processor_limited_ticks"] = processStreamState.processorLimitedTicks;
+          sp["node_limited_ticks"] = processStreamState.nodeLimitedTicks;
+          sp["achieved_input_avg"] = (double)processStreamState.inputSpeedSumQ16 / 65536.0 / (double)processStreamState.ticks;
+          sp["achieved_output_avg"] =
+            (double)processStreamState.outputSpeedSumQ16 / 65536.0 / (double)processStreamState.ticks;
+          if (processStreamState.capacitySamples) {
+            sp["processor_capacity_avg"] =
+              (double)processStreamState.capacitySpeedSumQ16 / 65536.0 / (double)processStreamState.capacitySamples;
+            sp["processor_capacity_samples"] = processStreamState.capacitySamples;
+          }
+        }
+        if (procSourceEndedSinceMs) {
+          trackSummary["drain_ms"] = Util::bootMS() - procSourceEndedSinceMs;
+          INFO_MSG("Recording drain tail took %" PRIu64 "ms after source end", Util::bootMS() - procSourceEndedSinceMs);
+        }
+      }
+      payl << trackSummary.toString() << '\n';
+    }
     return payl.str();
   }
-  
+
   void Output::recEndTrigger(){
     if (Util::Config::binaryType == Util::OUTPUT && config->hasOption("target") && Triggers::shouldTrigger("RECORDING_END", streamName)){
-      Triggers::doTrigger("RECORDING_END", getExitTriggerPayload(), streamName);
+      Triggers::doTrigger("RECORDING_END", getExitTriggerPayload(true), streamName);
     }
   }
 
@@ -3067,7 +3285,7 @@ namespace Mist{
       if (twoTime <= oneTime + 100) {
         disconnect();
         INFO_MSG("Waiting for stream reset before attempting push input accept (%" PRIu64 " <= %" PRIu64 "+100)", twoTime, oneTime);
-        while (streamStatus != STRMSTAT_OFF && keepGoing()){
+        while (streamStatus != STRMSTAT_OFF && streamStatus != STRMSTAT_OFFLINE && keepGoing()) {
           userSelect.clear();
           trackSelectionChanged();
           Util::wait(250);
@@ -3080,10 +3298,11 @@ namespace Mist{
       INFO_MSG("Waiting for %s buffer to be ready... (%u)", streamName.c_str(), streamStatus);
       disconnect();
       streamStatus = Util::getStreamStatus(streamName);
-      if (streamStatus == STRMSTAT_OFF || streamStatus == STRMSTAT_WAIT || streamStatus == STRMSTAT_READY){
+      if (streamStatus == STRMSTAT_OFF || streamStatus == STRMSTAT_OFFLINE || streamStatus == STRMSTAT_WAIT ||
+          streamStatus == STRMSTAT_READY) {
         INFO_MSG("Reconnecting to %s buffer... (%u)", streamName.c_str(), streamStatus);
         reconnect();
-        if (streamStatus == STRMSTAT_OFF && !M) { break; }
+        if ((streamStatus == STRMSTAT_OFF || streamStatus == STRMSTAT_OFFLINE) && !M) { break; }
         streamStatus = Util::getStreamStatus(streamName);
       }
       if (((streamStatus != STRMSTAT_WAIT && streamStatus != STRMSTAT_READY) || !meta) && keepGoing()){
@@ -3102,5 +3321,121 @@ namespace Mist{
       userSelect[*it].reload(streamName, *it);
     }
     trackSelectionChanged();
+  }
+
+  bool Output::processingControlledRealtime() const {
+    std::string strName = streamName.substr(0, streamName.find_first_of("+ "));
+    char tmpBuf[NAME_BUFFER_SIZE];
+    snprintf(tmpBuf, NAME_BUFFER_SIZE, SHM_STREAM_CONF, strName.c_str());
+    Util::DTSCShmReader rStrmConf(tmpBuf);
+    DTSC::Scan streamCfg = rStrmConf.getScan();
+    return streamCfg && streamCfg.getMember("process_controlled_realtime").asBool();
+  }
+
+  void Output::refreshProcessStreamState() {
+    if (!isRecordingToFile) { return; }
+    char stateName[NAME_BUFFER_SIZE];
+    snprintf(stateName, NAME_BUFFER_SIZE, SHM_STREAM_STATE, streamName.c_str());
+    IPC::sharedPage statePage(stateName, 0, false, false);
+    ProcessStreamState current;
+    if (!statePage || !current.read(statePage.mapped, statePage.len)) { return; }
+    processStreamState = current;
+    if (current.sourceEof) {
+      if (!procSourceEndedSinceMs) { procSourceEndedSinceMs = Util::bootMS(); }
+    } else {
+      // A resumable producer came back; measure a future EOF from the new loss.
+      procSourceEndedSinceMs = 0;
+      processingDrainedTracks.clear();
+    }
+  }
+
+  bool Output::processingControlledRealtimeSelectionEnded() {
+    if (!M || !M.getLive()) { return false; }
+
+    refreshProcessStreamState();
+    uint8_t streamState = Util::getStreamStatus(streamName);
+    const bool processControlled = processingControlledRealtime();
+    if (processingSelectionEnded(true, processControlled, streamState)) { return true; }
+    bool anySelectedTrackClaimed = false;
+    for (std::map<size_t, Comms::Users>::const_iterator it = userSelect.begin(); it != userSelect.end(); ++it) {
+      if (M.isClaimed(it->first)) {
+        anySelectedTrackClaimed = true;
+        break;
+      }
+    }
+    return processingSelectedProducersEnded(true, processControlled, processStreamState.processProducersFinished, anySelectedTrackClaimed);
+  }
+
+  bool Output::processingRecordingTracksReady() {
+    const bool hasMetadata = M;
+    const bool processControlled = hasMetadata && processingControlledRealtime();
+    // Stream is draining: no more process output is coming, so record whatever
+    // exists rather than wedging. Downstream validators own the verdict on the
+    // resulting artifact. Deliberately only SHUTDOWN — getStreamStatus returns
+    // STRMSTAT_OFF while the state page doesn't exist yet, which is exactly the
+    // boot window where a recording races the stream and the gate must hold.
+    const bool streamShuttingDown = Util::getStreamStatus(streamName) == STRMSTAT_SHUTDOWN;
+    if (!processingRecordingNeedsTrackGate(isRecordingToFile, hasMetadata, processControlled, streamShuttingDown)) {
+      return true;
+    }
+
+    char tmpBuf[NAME_BUFFER_SIZE];
+    snprintf(tmpBuf, NAME_BUFFER_SIZE, SHM_STREAM_STATE, streamName.c_str());
+    IPC::sharedPage processingState(tmpBuf, 16, false, false);
+    const bool expectationResolved =
+      processingState && processingState.len >= 16 && processingState.mapped[STRMSTATE_PROCESS_OUTPUTS_RESOLVED_OFFSET];
+    if (!expectationResolved) {
+      INFO_MSG("Waiting for processing process expectations before recording header");
+      return false;
+    }
+
+    // The expectation is a live contract owned by the input buffer: it counts
+    // the output tracks the configured processes will produce and is revised
+    // down when a process retires (unrecoverable exit, restarts disabled, or
+    // dropped from the config). Comparing against it — rather than against
+    // whatever happens to be selected right now — is what holds the recording
+    // header until late process tracks exist, without blocking on tracks that
+    // will never come.
+    uint16_t expected16 = 0;
+    memcpy(&expected16, processingState.mapped + STRMSTATE_PROCESS_OUTPUTS_EXPECTED_OFFSET, sizeof(uint16_t));
+    size_t expectedOutputTracks = expected16;
+
+    meta.reloadReplacedPagesIfNeeded();
+    selectDefaultTracks();
+
+    std::set<size_t> validTracksWithData = M.getValidTracks(true);
+    // Process output tracks are counted stream-wide, not via userSelect: at
+    // header time a narrow selection may legitimately take fewer tracks than
+    // the processes produce, but a track can only be selected at all once it
+    // exists — so the stream must be complete per the expectation first.
+    size_t readyOutputTracks = 0;
+    for (std::set<size_t>::iterator it = validTracksWithData.begin(); it != validTracksWithData.end(); ++it) {
+      if (M.getSourceTrack(*it) != INVALID_TRACK_ID) { ++readyOutputTracks; }
+    }
+
+    size_t selectedOriginalTracks = 0;
+    size_t readyOriginalTracks = 0;
+    size_t readySelectedOutputTracks = 0;
+    size_t selectedOutputTracks = 0;
+    for (std::map<size_t, Comms::Users>::iterator it = userSelect.begin(); it != userSelect.end(); ++it) {
+      bool ready = validTracksWithData.count(it->first);
+      if (M.getSourceTrack(it->first) == INVALID_TRACK_ID) {
+        ++selectedOriginalTracks;
+        if (ready) { ++readyOriginalTracks; }
+      } else {
+        ++selectedOutputTracks;
+        if (ready) { ++readySelectedOutputTracks; }
+      }
+    }
+
+    if (processingRecordingTrackCountsReady(expectationResolved, expectedOutputTracks, readyOutputTracks, selectedOriginalTracks,
+                                            readyOriginalTracks, selectedOutputTracks, readySelectedOutputTracks)) {
+      return true;
+    }
+    INFO_MSG("Waiting for processing tracks before recording header: %zu/%zu original tracks ready, %zu/%zu expected "
+             "processing outputs ready (%zu/%zu selected)",
+             readyOriginalTracks, selectedOriginalTracks, readyOutputTracks, expectedOutputTracks,
+             readySelectedOutputTracks, selectedOutputTracks);
+    return false;
   }
 }// namespace Mist

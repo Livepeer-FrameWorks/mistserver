@@ -4,6 +4,7 @@
 #include "process.hpp"
 
 #include <mist/pixels.h>
+#include <mist/proc_stats.h>
 #include <mist/procs.h>
 #include <mist/util.h>
 
@@ -1436,12 +1437,17 @@ int main(int argc, char *argv[]) {
   } else {
     // read configuration
     if (config.getString("configuration") != "-") {
-      Mist::opt.fromString(config.getString("configuration"));
+      Mist::opt = JSON::fromString(config.getString("configuration"));
     } else {
+      std::string json, line;
       INFO_MSG("Reading configuration from standard input");
-      Mist::opt.fromStream(std::cin);
+      while (std::getline(std::cin, line)) { json.append(line); }
+      Mist::opt = JSON::fromString(json.c_str());
     }
   }
+
+  ProcStateHeartbeat procState;
+  procState.publishStartup(1.0, PRC_RESOURCE_CPU);
 
   if (Mist::opt.isMember("copyaudio") && (Mist::opt["copyaudio"].asStringRef().size() || Mist::opt["copyaudio"].isInt())) {
     audioSource = Mist::opt["copyaudio"].asString();
