@@ -862,6 +862,7 @@ export const MistUtil = {
       
       var scripttag = document.createElement("script");
       scripttag.hasLoaded = false;
+      if (onevent.type) { scripttag.setAttribute("type",onevent.type); }
       scripttag.setAttribute("src",src);
       scripttag.setAttribute("crossorigin","anonymous"); //must be set to get info about errors thrown
       document.head.appendChild(scripttag);

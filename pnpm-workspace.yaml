@@ -1,3 +1,6 @@
 packages:
   - 'lsp'
   - 'embed'
+allowBuilds:
+  esbuild: true
+preferSymlinkedExecutables: true

@@ -21,7 +21,8 @@
   ],
   "scripts": {
     "build": "bash build.sh",
-    "dev": "npx esbuild src/iife.js --bundle --format=iife --outfile=dist/player.iife.js --watch"
+    "dev": "npx esbuild src/iife.js --bundle --format=iife --outfile=dist/player.iife.js --watch",
+    "test": "node --test test/*.test.js"
   },
   "license": "Unlicense",
   "repository": {
