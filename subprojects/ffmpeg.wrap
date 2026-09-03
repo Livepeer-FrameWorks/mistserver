@@ -1,0 +1,15 @@
+[wrap-git]
+directory=ffmpeg
+url=https://gitlab.freedesktop.org/gstreamer/meson-ports/ffmpeg.git
+push-url=git@gitlab.freedesktop.org:gstreamer/meson-ports/ffmpeg.git
+revision=meson-7.1
+depth=1
+diff_files = ffmpeg_static_component_libraries.diff
+
+[provide]
+libavcodec = libavcodec_dep
+libavfilter = libavfilter_dep
+libavformat = libavformat_dep
+libavutil = libavutil_dep
+libswresample = libswresample_dep
+libswscale = libswscale_dep

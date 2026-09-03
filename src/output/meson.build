@@ -25,6 +25,7 @@ outputs = [
     {'name' : 'HTTP',              'format' : 'http_internal',      'extra': ['http','embed']},
     {'name' : 'JSONLine',          'format' : 'jsonline'},
     {'name' : 'JPG',               'format' : 'jpg',                'extra': ['http']},
+    {'name' : 'ThumbVTT',          'format' : 'thumbvtt',           'extra': ['http']},
 ]
 
 if usessl 
@@ -40,6 +41,10 @@ endif
 
 if have_srt
   outputs += {'name' : 'TSSRT', 'format' : 'tssrt', 'extra': ['ts', 'with_srt']}
+endif
+
+if get_option('WITH_AV')
+  outputs += {'name' : 'JPEGReceiver', 'format' : 'jpegreceiver', 'extra': ['http', 'avlibs']}
 endif
 
 if get_option('WITH_SANITY')
@@ -68,6 +73,10 @@ foreach output : outputs
     'output_'+output.get('format')+'.cpp'),
     io_cpp
   ]
+
+  if output.get('format') == 'jpegreceiver'
+    sources += files('jpeg_framing.cpp')
+  endif
 
   if output.has_key('extra')
     extra = output.get('extra')
@@ -125,4 +134,3 @@ foreach output : outputs
     ]
   }
 endforeach
-

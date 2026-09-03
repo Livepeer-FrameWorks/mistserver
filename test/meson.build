@@ -16,6 +16,319 @@ downloadertest = executable('downloadertest', 'downloader.cpp', header_tgts, dep
 test('event-looped non-blocking', downloadertest, args: ['AUTO'], env: {'EVENTLOOP':'1'}, suite: 'Downloader')
 test('blocking', downloadertest, args: ['AUTO'], suite: 'Downloader')
 
+downloaderregressiontest = executable('downloaderregressiontest', 'downloader_regression.cpp', header_tgts,
+                                      dependencies: libmist_dep)
+test('connection reuse and POST phase classification', downloaderregressiontest, suite: 'Downloader')
+
+urireaderregressiontest = executable('urireaderregressiontest', 'urireader_regression.cpp', header_tgts,
+                                     dependencies: libmist_dep)
+test('terminal ranged response can be reopened', urireaderregressiontest, suite: 'URIReader')
+
+externalwritertest = executable('externalwritertest', 'external_writer_unit.cpp', header_tgts,
+                                dependencies: libmist_dep)
+test('External DTSC writers finish uploads before closing', externalwritertest, suite: 'Writers')
+
+livepeerrequesttest = executable('livepeerrequesttest', 'livepeer_request_unit.cpp', header_tgts,
+                                 dependencies: libmist_dep)
+test('Livepeer transcode request and retry policy', livepeerrequesttest, suite: 'Livepeer')
+
+livepeerordertest = executable('livepeerordertest', 'livepeer_order_unit.cpp')
+test('Livepeer responses cannot complete out of segment order', livepeerordertest, suite: 'Livepeer')
+
+livepeerprocstateprobe = executable('livepeerprocstateprobe', 'livepeer_proc_state_probe.cpp', header_tgts,
+                                    dependencies: libmist_dep)
+
+configsignaltest = executable('configsignaltest', 'config_signal_unit.cpp', header_tgts,
+                              dependencies: libmist_dep)
+test('Config activation preserves diagnostic signal contracts', configsignaltest, suite: 'Runtime')
+
+controllerlogthreadtest = executable('controllerlogthreadtest', 'controller_log_thread_unit.cpp',
+                                     header_tgts, dependencies: libmist_dep)
+test('Controller log thread joins on every scope exit', controllerlogthreadtest, suite: 'Controller')
+
+pushcontrolrequesttest = executable('pushcontrolrequesttest', 'push_control_request_unit.cpp',
+                                    header_tgts, dependencies: libmist_dep)
+test('Controller routes push kill and reinitialize requests', pushcontrolrequesttest, suite: 'Controller')
+
+foghornunittest = executable('foghornunittest', 'foghorn_unit.cpp', header_tgts, dependencies: libmist_dep)
+test('Foghorn packets and relay announcements', foghornunittest, suite: 'Foghorn')
+test('Foghorn local relay traversal', foghornunittest, args: ['relay', exec_tgts.get('MistUtilFoghorn')],
+     suite: 'Foghorn', timeout: 30)
+
+if have_srt
+  srtrendezvoustest = executable('srtrendezvoustest', 'srt_rendezvous_unit.cpp', header_tgts,
+                                 dependencies: [libmist_srt_dep, libmist_dep, libsrt])
+  if host_machine.system() == 'linux'
+    test('SRT adopts punched UDP sockets for rendezvous', srtrendezvoustest, suite: 'Foghorn', timeout: 15)
+  endif
+endif
+
+tspackettest = executable('tspackettest', 'ts_packet_unit.cpp', header_tgts, dependencies: libmist_dep)
+test('Opus MPEG-TS descriptor payload', tspackettest, suite: 'MPEG-TS')
+
+embeddedframetest = executable('embeddedframetest', 'dtsc_embedded_frames_unit.cpp', header_tgts,
+                               dependencies: libmist_dep)
+test('Embedded frame storage fills and wraps safely', embeddedframetest, suite: 'DTSC')
+
+inputtstest = executable('inputtstest', ['input_ts_unit.cpp', '../src/input/input.cpp',
+                                        '../src/input/input_ts.cpp', io_cpp],
+                         header_tgts, dependencies: libmist_dep)
+test('Short MPEG-TS input flushes its final PES', inputtstest, suite: 'MPEG-TS')
+
+inputebmltest = executable('inputebmltest', ['input_ebml_unit.cpp', '../src/input/input.cpp',
+                                            '../src/input/input_ebml.cpp', io_cpp],
+                           header_tgts, dependencies: libmist_dep)
+test('Live EBML timestamps follow the server clock', inputebmltest, suite: 'EBML')
+
+inputhlstest = executable('inputhlstest', ['input_hls_unit.cpp', '../src/input/input.cpp',
+                                          '../src/input/input_hls.cpp', io_cpp],
+                          header_tgts, dependencies: libmist_dep)
+test('Live HLS segment snapshots survive playlist rotation', inputhlstest, suite: 'HLS')
+
+sdpanswertest = executable('sdpanswertest', 'sdp_answer_unit.cpp', header_tgts, dependencies: libmist_dep)
+test('WebRTC SDP answer media and BUNDLE selection', sdpanswertest, suite: 'WebRTC')
+
+webrtcoutputpolicytest = executable('webrtcoutputpolicytest', 'webrtc_output_policy_unit.cpp', header_tgts,
+                                    dependencies: libmist_dep)
+test('WebRTC output track and playhead policy', webrtcoutputpolicytest, suite: 'WebRTC')
+
+trackselectiontest = executable('trackselectiontest', 'track_selection_unit.cpp', header_tgts,
+                                dependencies: libmist_dep)
+test('Track comparators keep image tracks separate from video renditions', trackselectiontest, suite: 'Streams')
+
+thumbnailartifactstest = executable('thumbnailartifactstest',
+                                    files('thumbnail_artifacts_unit.cpp',
+                                          '../src/process/thumbnail_artifacts.cpp'),
+                                    header_tgts, dependencies: libmist_dep)
+test('Thumbnail artifacts stage before atomic replacement', thumbnailartifactstest, suite: 'Processing')
+
+jpegframingtest = executable('jpegframingtest',
+                             files('jpeg_framing_unit.cpp', '../src/output/jpeg_framing.cpp'))
+test('JPEGReceiver frames fragmented and concatenated JPEG streams', jpegframingtest,
+     suite: 'JPEGReceiver')
+
+mp4trackheadertest = executable('mp4trackheadertest', 'mp4_track_header_unit.cpp', header_tgts,
+                                dependencies: libmist_dep)
+test('MP4 track timing validation and composition rebase', mp4trackheadertest, suite: 'MP4')
+
+inputmp4retrytest = executable('inputmp4retrytest',
+                               files('input_mp4_retry_unit.cpp', '../src/input/input.cpp',
+                                     '../src/input/input_mp4.cpp', '../src/io.cpp'),
+                               header_tgts,
+                               dependencies: libmist_dep)
+test('MP4 input retries incomplete ranged reads', inputmp4retrytest, suite: 'MP4')
+
+ffmpeg_program = find_program('ffmpeg', required: false)
+ffprobe_program = find_program('ffprobe', required: false)
+startup_timeout_program = find_program('timeout', 'gtimeout', required: false)
+if get_option('b_sanitize') == 'none' and startup_timeout_program.found()
+  inputstartfailuretest = find_program('input_start_failure_integration.sh')
+  test('Input startup failures publish specific exit reasons', inputstartfailuretest,
+       args: [exec_tgts.get('MistController'), exec_tgts.get('MistInBuffer'),
+              exec_tgts.get('MistInRawGenerator'), startup_timeout_program],
+       suite: 'Inputs', timeout: 30, is_parallel: false)
+endif
+if get_option('b_sanitize') == 'none' and ffmpeg_program.found() and ffprobe_program.found()
+  bframecliptest = find_program('bframe_clip_integration.sh')
+  test('B-frame MP4 clips preserve their presentation interval', bframecliptest,
+       args: [ffmpeg_program, ffprobe_program, exec_tgts.get('MistController'),
+              exec_tgts.get('MistInMP4'), exec_tgts.get('MistOutMP4'),
+              exec_tgts.get('MistSession'), exec_tgts.get('MistUtilLog'),
+              exec_tgts.get('MistUtilNuke')],
+       suite: 'MP4', timeout: 90, is_parallel: false)
+  liveebmlrecordingtest = find_program('live_ebml_recording_integration.sh')
+  test('Live EBML recordings finalize complete clusters', liveebmlrecordingtest,
+       args: [ffmpeg_program, ffprobe_program, exec_tgts.get('MistController'),
+              exec_tgts.get('MistInEBML'), exec_tgts.get('MistInBuffer'),
+              exec_tgts.get('MistOutEBML'), exec_tgts.get('MistSession'),
+              exec_tgts.get('MistUtilLog'), exec_tgts.get('MistUtilNuke')],
+       suite: 'EBML', timeout: 90, is_parallel: false)
+  timeout_program = find_program('timeout', 'gtimeout', required: false)
+  if timeout_program.found()
+    staledtshtest = find_program('stale_dtsh_integration.sh')
+    test('MP4 input regenerates stale DTSH sidecars', staledtshtest,
+         args: [ffmpeg_program, ffprobe_program, exec_tgts.get('MistController'),
+                exec_tgts.get('MistInMP4'), exec_tgts.get('MistOutMP4'),
+                exec_tgts.get('MistSession'), exec_tgts.get('MistUtilLog'),
+                exec_tgts.get('MistUtilNuke'), timeout_program],
+         suite: 'MP4', timeout: 120, is_parallel: false)
+    livepeerstub = executable('livepeerbroadcasterstub', 'livepeer_broadcaster_stub.cpp')
+    livepeervodtest = find_program('livepeer_vod_integration.sh')
+    test('Livepeer VOD processing drains its recorded tail', livepeervodtest,
+         args: [ffmpeg_program, ffprobe_program, exec_tgts.get('MistController'),
+                exec_tgts.get('MistInEBML'), exec_tgts.get('MistInBuffer'),
+                exec_tgts.get('MistProcLivepeer'), exec_tgts.get('MistOutEBML'),
+                exec_tgts.get('MistSession'), exec_tgts.get('MistUtilLog'),
+                exec_tgts.get('MistUtilNuke'), livepeerstub, timeout_program,
+                livepeerprocstateprobe],
+         suite: 'Processing', timeout: 120, is_parallel: false)
+  endif
+  if get_option('WITH_AV') and timeout_program.found()
+    processrecordingtest = find_program('process_recording_integration.sh')
+    test('Process-controlled recordings wait for late output tracks', processrecordingtest,
+         args: [ffmpeg_program, ffprobe_program, exec_tgts.get('MistController'),
+                exec_tgts.get('MistInMP4'), exec_tgts.get('MistInBuffer'),
+                exec_tgts.get('MistProcAV'), exec_tgts.get('MistOutEBML'),
+                exec_tgts.get('MistSession'), exec_tgts.get('MistUtilLog'),
+                exec_tgts.get('MistUtilNuke'), timeout_program],
+         suite: 'Processing', timeout: 120, is_parallel: false)
+    test('ProcAV drains its encoded VOD tail on source EOF', processrecordingtest,
+         args: [ffmpeg_program, ffprobe_program, exec_tgts.get('MistController'),
+                exec_tgts.get('MistInMP4'), exec_tgts.get('MistInBuffer'),
+                exec_tgts.get('MistProcAV'), exec_tgts.get('MistOutEBML'),
+                exec_tgts.get('MistSession'), exec_tgts.get('MistUtilLog'),
+                exec_tgts.get('MistUtilNuke'), timeout_program],
+         env: {'MIST_PROCESS_EXPECT_EOF': '1', 'MIST_PROCESS_SOURCE_DURATION': '8',
+               'MIST_PROCESS_SOURCE_BFRAMES': '2'},
+         suite: 'Processing', timeout: 120, is_parallel: false)
+    thumbnailvodtest = find_program('thumbnail_vod_integration.sh')
+    test('Thumbnail VOD publishes JPEG, VTT, trigger, and HTTP artifacts', thumbnailvodtest,
+         args: [ffmpeg_program, ffprobe_program, exec_tgts.get('MistController'),
+                exec_tgts.get('MistInMP4'), exec_tgts.get('MistInEBML'), exec_tgts.get('MistInBuffer'), exec_tgts.get('MistProcThumbs'),
+                exec_tgts.get('MistOutThumbVTT'), exec_tgts.get('MistUtilNuke'),
+                timeout_program, files('capture_trigger.sh')],
+         suite: 'Processing', timeout: 45, is_parallel: false)
+    test('Thumbnail AV1 VOD publishes complete artifacts', thumbnailvodtest,
+         args: [ffmpeg_program, ffprobe_program, exec_tgts.get('MistController'),
+                exec_tgts.get('MistInMP4'), exec_tgts.get('MistInEBML'), exec_tgts.get('MistInBuffer'), exec_tgts.get('MistProcThumbs'),
+                exec_tgts.get('MistOutThumbVTT'), exec_tgts.get('MistUtilNuke'),
+                timeout_program, files('capture_trigger.sh')],
+         env: {'MIST_THUMBNAIL_SOURCE_CODEC': 'AV1'},
+         suite: 'Processing', timeout: 45, is_parallel: false)
+    test('Thumbnail JPEG VOD publishes complete artifacts', thumbnailvodtest,
+         args: [ffmpeg_program, ffprobe_program, exec_tgts.get('MistController'),
+                exec_tgts.get('MistInMP4'), exec_tgts.get('MistInEBML'), exec_tgts.get('MistInBuffer'), exec_tgts.get('MistProcThumbs'),
+                exec_tgts.get('MistOutThumbVTT'), exec_tgts.get('MistUtilNuke'),
+                timeout_program, files('capture_trigger.sh')],
+         env: {'MIST_THUMBNAIL_SOURCE_CODEC': 'JPEG'},
+         suite: 'Processing', timeout: 45, is_parallel: false)
+    jpegreceivertest = find_program('jpeg_receiver_integration.sh')
+    test('JPEGReceiver transcodes complete real-time frame sequences', jpegreceivertest,
+         args: [ffmpeg_program, ffprobe_program, exec_tgts.get('MistController'),
+                exec_tgts.get('MistOutJPEGReceiver'), exec_tgts.get('MistOutEBML'),
+                exec_tgts.get('MistUtilNuke'), timeout_program],
+         suite: 'JPEGReceiver', timeout: 45, is_parallel: false)
+    test('JPEGReceiver accepts 422 JPEG camera frames', jpegreceivertest,
+         args: [ffmpeg_program, ffprobe_program, exec_tgts.get('MistController'),
+                exec_tgts.get('MistOutJPEGReceiver'), exec_tgts.get('MistOutEBML'),
+                exec_tgts.get('MistUtilNuke'), timeout_program],
+         env: {'MIST_JPEG_PIXEL_FORMAT': 'yuvj422p'},
+         suite: 'JPEGReceiver', timeout: 45, is_parallel: false)
+    rawgeneratortest = find_program('raw_generator_integration.sh')
+    test('RawGenerator publishes its advertised raw video stream', rawgeneratortest,
+         args: [ffmpeg_program, ffprobe_program, exec_tgts.get('MistController'),
+                exec_tgts.get('MistInRawGenerator'), exec_tgts.get('MistOutEBML'),
+                exec_tgts.get('MistSession'), exec_tgts.get('MistUtilLog')],
+         suite: 'RawGenerator', timeout: 45, is_parallel: false)
+    if have_onnx
+      procstateprobe = executable('procstateprobe', 'proc_state_probe.cpp', header_tgts,
+                                  dependencies: libmist_dep)
+      onnxrecordingtest = find_program('onnx_vod_recording_integration.sh')
+      test('ONNX VOD processing drains its recorded output', onnxrecordingtest,
+           args: [ffmpeg_program, ffprobe_program, exec_tgts.get('MistController'),
+                  exec_tgts.get('MistInEBML'), exec_tgts.get('MistInBuffer'),
+                  exec_tgts.get('MistProcAV'), exec_tgts.get('MistProcONNX'),
+                  exec_tgts.get('MistOutEBML'), exec_tgts.get('MistSession'),
+                  exec_tgts.get('MistUtilLog'), exec_tgts.get('MistUtilNuke'),
+                  exec_tgts.get('MistAnalyserEBML'), procstateprobe],
+           suite: 'Processing', timeout: 180, is_parallel: false)
+    endif
+  endif
+endif
+
+trustedproxytest = executable('trustedproxytest', 'trusted_proxy_unit.cpp', header_tgts,
+                              dependencies: libmist_dep)
+test('Trusted proxy shared-memory replacement', trustedproxytest, suite: 'HTTP')
+
+h264annexbtest = executable('h264annexbtest', 'h264_annexb_unit.cpp', header_tgts, dependencies: libmist_dep)
+test('Annex B initialization conversion', h264annexbtest, suite: 'H264')
+
+triggerstest = executable('triggerstest', 'triggers_unit.cpp', header_tgts, dependencies: libmist_dep)
+test('Typed trigger actions and empty stream names', triggerstest, suite: 'Triggers')
+
+triggerhttpintegrationtest = executable('triggerhttpintegrationtest', 'trigger_http_integration.cpp', header_tgts,
+                                        dependencies: libmist_dep)
+test('HTTP triggers preserve typed actions and failure policy', triggerhttpintegrationtest,
+     suite: 'Triggers', timeout: 30)
+
+triggerconfigpolicytest = executable('triggerconfigpolicytest', 'trigger_config_policy_unit.cpp', header_tgts,
+                                     dependencies: libmist_dep)
+test('Controller validates typed trigger failure policy', triggerconfigpolicytest, suite: 'Triggers')
+
+forktriggercapabilitiestest = executable('forktriggercapabilitiestest', 'fork_trigger_capabilities_unit.cpp',
+                                         header_tgts, dependencies: libmist_dep)
+test('Fork trigger capabilities match runtime contracts', forktriggercapabilitiestest, suite: 'Triggers')
+
+uuidtest = executable('uuidtest', 'uuid_unit.cpp', header_tgts, dependencies: libmist_dep)
+test('UUID generation format and entropy bounds', uuidtest, suite: 'Util')
+
+procstatstest = executable('procstatstest', 'proc_stats_unit.cpp', header_tgts, dependencies: libmist_dep)
+test('ProcState contract snapshots and node pressure verdicts', procstatstest, suite: 'Processing')
+
+runtimestatstest = executable('runtimestatstest', 'runtime_stats_unit.cpp')
+test('Platform load and Linux PSI accounting', runtimestatstest, suite: 'Processing')
+
+processstreamstatetest = executable('processstreamstatetest', 'process_stream_state_unit.cpp', header_tgts,
+                                   dependencies: libmist_dep)
+test('Process stream-state diagnostics layout', processstreamstatetest, suite: 'Processing')
+
+onnxprocstatetest = executable('onnxprocstatetest', 'onnx_proc_state_unit.cpp', header_tgts,
+                               dependencies: libmist_dep)
+test('ONNX processing pressure and capacity contract', onnxprocstatetest, suite: 'Processing')
+
+onnxlifecycletest = executable('onnxlifecycletest', 'onnx_lifecycle_unit.cpp', header_tgts,
+                               dependencies: libmist_dep)
+test('ONNX processing output drain lifecycle', onnxlifecycletest, suite: 'Processing')
+
+processinglifecycletest = executable('processinglifecycletest', 'processing_lifecycle_unit.cpp', header_tgts,
+                                     dependencies: libmist_dep)
+test('Process-controlled producer EOF and output drain policy', processinglifecycletest, suite: 'Processing')
+
+processsupervisortest = executable('processsupervisortest', 'process_supervisor_unit.cpp', header_tgts,
+                                   dependencies: libmist_dep)
+test('Process supervisor exit and restart contract', processsupervisortest, suite: 'Processing')
+
+dropdiagnosticstest = executable('dropdiagnosticstest', 'drop_diagnostics_unit.cpp')
+test('Packet and segment drop diagnostic policy', dropdiagnosticstest, suite: 'Processing')
+
+lookaheadwaitdiagnosticstest = executable('lookaheadwaitdiagnosticstest', 'lookahead_wait_diagnostics_unit.cpp')
+test('Output lookahead wait diagnostic policy', lookaheadwaitdiagnosticstest, suite: 'Processing')
+
+offlinestreamstatetest = executable('offlinestreamstatetest', 'offline_stream_state_unit.cpp', header_tgts,
+                                    dependencies: libmist_dep)
+test('Offline stream state preserves the diagnostics ABI', offlinestreamstatetest, suite: 'Streams')
+
+outputstartpolicytest = executable('outputstartpolicytest', 'output_start_policy_unit.cpp', header_tgts,
+                                   dependencies: libmist_dep)
+test('Output startup routes offline and rewrite states once', outputstartpolicytest, suite: 'Streams')
+
+offlineattempttest = executable('offlineattempttest', 'offline_attempt_unit.cpp', header_tgts,
+                                dependencies: libmist_dep)
+test('Offline input attempts isolate nested result channels', offlineattempttest, suite: 'Streams')
+
+controllerstatisticspolicytest = executable('controllerstatisticspolicytest',
+                                            'controller_statistics_policy_unit.cpp', header_tgts,
+                                            dependencies: libmist_dep)
+test('Controller statistics preserve collection semantics', controllerstatisticspolicytest,
+     suite: 'Controller')
+
+inputbalancerpolicytest = executable('inputbalancerpolicytest', 'input_balancer_policy_unit.cpp', header_tgts,
+                                     dependencies: libmist_dep)
+test('Balancer distinguishes offline sources from fallback failures', inputbalancerpolicytest,
+     suite: 'Inputs')
+
+inputbufferlifecycletest = executable('inputbufferlifecycletest',
+                                      files('input_buffer_lifecycle_unit.cpp', '../src/input/input.cpp',
+                                            '../src/input/input_buffer.cpp', '../src/io.cpp'),
+                                      header_tgts,
+                                      dependencies: libmist_dep)
+test('Input buffer producer EOF lifecycle', inputbufferlifecycletest, suite: 'Processing')
+
+if get_option('WITH_AV')
+  avcodecregistrytest = executable('avcodecregistrytest', 'av_codec_registry.cpp', header_tgts, dependencies: av_libs)
+  test('Pinned FFmpeg codec registry contract', avcodecregistrytest, suite: 'AV')
+endif
+
 
 # The only argument is simply the 'alg' parameter value as defined in the JWA spec (RFC7518)
 jwttest = executable('jwttest', 'jwt.cpp', header_tgts, dependencies: libmist_dep)
@@ -38,6 +351,16 @@ sockbuftest = executable('sockbuftest', 'socketbuffer.cpp', header_tgts, depende
 test('Socket buffer test 8KiB', sockbuftest, args: ['1024'])
 test('Socket buffer test 64KiB', sockbuftest, args: ['8192'])
 test('Socket buffer test 8MiB', sockbuftest, args: ['1048576'])
+
+socketaddresstest = executable('socketaddresstest', 'socket_address_unit.cpp', header_tgts,
+                               dependencies: libmist_dep)
+test('Unknown socket address is not an operational failure', socketaddresstest, suite: 'Sockets')
+
+if usessl
+  tlssetuptest = executable('tlssetuptest', 'tls_setup_unit.cpp', header_tgts,
+                            dependencies: libmist_dep)
+  test('TLS key logging follows the active setup context', tlssetuptest, suite: 'Sockets')
+endif
 
 proctest = executable('proctest', 'procs.cpp', header_tgts, dependencies: libmist_dep)
 test('Retrieve stdout from child', proctest, suite: 'Procs', args: ['output_capture'])
@@ -252,6 +575,12 @@ test('RTSP', urltest, suite: 'URL parser',
 test('RTSP linking', urltest, suite: 'URL parser',
       env : urltest_v + {'T_PROTO':'rtsp', 'T_HOST':'2001:db8::1', 'T_PORT':'554', 'T_NORM':'rtsp://[2001:db8::1]/test', 'T_PATH':'test'},
       args : ['rtsp://[2001:db8::1]/', 'test'])
+test('SRT default port and resource path', urltest, suite: 'URL parser',
+      env : urltest_v + {'T_PROTO':'srt', 'T_HOST':'relay.example', 'T_PORT':'8889', 'T_PATH':'live/camera', 'T_NORM':'srt://relay.example/live/camera'},
+      args : ['srt://relay.example:8889/live/camera'])
+test('SRT non-default port and resource path', urltest, suite: 'URL parser',
+      env : urltest_v + {'T_PROTO':'srt', 'T_HOST':'relay.example', 'T_PORT':'9000', 'T_PATH':'live/camera', 'T_NORM':'srt://relay.example:9000/live/camera'},
+      args : ['srt://relay.example:9000/live/camera'])
 
 
 
