@@ -1,5 +1,7 @@
 #include "output_webrtc.h"
 
+#include "webrtc_output_policy.h"
+
 #include <mist/downloader.h>
 #include <mist/procs.h>
 #include <mist/sdp.h>
@@ -992,9 +994,18 @@ namespace Mist{
             ctrlprefix = "/webrtc/"+ctrlKey;
           }
           H.SetHeader("Location", ctrlprefix);
-          if (req.GetVar("constant").size()){
-            INFO_MSG("Disabling automatic playback rate control");
-            maxSkipAhead = 1;//disable automatic rate control
+
+          if (!isPushing() && M) {
+            if (req.GetVar("constant").size()) {
+              INFO_MSG("Disabling automatic playback rate control");
+              maxSkipAhead = 1; // disable automatic rate control
+            }
+            initialSeek();
+            const WebRTCPlayheadPosition playhead =
+              webRTCPlayheadPosition(false, true, M.getLive(), currentTime(), M.getUTCOffset(), M.getBootMsOffset(),
+                                     Util::getGlobalConfig("systemBoot").asInt());
+            H.SetHeader("Playhead-millis", playhead.millis);
+            if (playhead.exposeUTC) { H.SetHeader("Playhead-UTC", Util::getUTCStringMillis(playhead.unixMillis)); }
           }
           H.StartResponse("201", "Created", req, myConn);
           H.Chunkify(sdpAnswer.toString(), myConn);
@@ -1219,22 +1230,25 @@ namespace Mist{
     capa["codecs"][0u][0u].null();
     capa["codecs"][0u][1u].null();
 
-    for (std::map<size_t, Comms::Users>::iterator it = userSelect.begin(); it != userSelect.end(); it++){
-      if (M.getType(it->first) == "video"){
-        vidTrack = it->first;
-        videoCodec = M.getCodec(it->first);
-        capa["codecs"][0u][0u].append(videoCodec);
-      }
-      if (M.getType(it->first) == "audio"){
-        audTrack = it->first;
-        audioCodec = M.getCodec(it->first);
-        capa["codecs"][0u][1u].append(audioCodec);
-      }
-      if (M.getType(it->first) == "meta"){
-        metaTrack = it->first;
-        metaCodec = M.getCodec(it->first);
-        capa["codecs"][0u][2u].append(std::string("+") + metaCodec);
-      }
+    std::vector<WebRTCOutputTrackCandidate> candidates;
+    for (std::map<size_t, Comms::Users>::iterator it = userSelect.begin(); it != userSelect.end(); ++it) {
+      candidates.push_back(WebRTCOutputTrackCandidate{it->first, M.getType(it->first), M.getCodec(it->first)});
+    }
+    const WebRTCOutputTrackSelection selection = selectWebRTCOutputTracks(candidates);
+    if (selection.hasVideo) {
+      vidTrack = selection.videoTrack;
+      videoCodec = selection.videoCodec;
+      capa["codecs"][0u][0u].append(videoCodec);
+    }
+    if (selection.hasAudio) {
+      audTrack = selection.audioTrack;
+      audioCodec = selection.audioCodec;
+      capa["codecs"][0u][1u].append(audioCodec);
+    }
+    if (selection.hasMeta) {
+      metaTrack = selection.metaTrack;
+      metaCodec = selection.metaCodec;
+      capa["codecs"][0u][2u].append(std::string("+") + metaCodec);
     }
 
     sdpAnswer.setDirection("sendonly");
@@ -1242,9 +1256,13 @@ namespace Mist{
     std::string localIceUfrag = Util::getRandomAlphanumeric(16);
     std::string localIcePwd = Util::getRandomAlphanumeric(32);
 
+    bool videoEnabled = false;
+    bool audioEnabled = false;
+
     // setup video WebRTC Track.
     if (vidTrack != INVALID_TRACK_ID){
       if (sdpAnswer.enableMedia("video", videoCodec, localIceUfrag, localIcePwd)) {
+        videoEnabled = true;
         WebRTCTrack & trk = webrtcTracks[vidTrack];
 
         trk.payloadType = sdpAnswer.answerVideoFormat.getPayloadType();
@@ -1268,6 +1286,7 @@ namespace Mist{
     // setup audio WebRTC Track
     if (audTrack != INVALID_TRACK_ID){
       if (sdpAnswer.enableMedia("audio", audioCodec, localIceUfrag, localIcePwd)) {
+        audioEnabled = true;
         WebRTCTrack & trk = webrtcTracks[audTrack];
 
         trk.payloadType = sdpAnswer.answerAudioFormat.getPayloadType();
@@ -1284,14 +1303,21 @@ namespace Mist{
 
     // setup meta WebRTC Track
     if (metaTrack != INVALID_TRACK_ID || sdpSession.getMediaForType("meta")){
+      if (!metaCodec.size()) { metaCodec = "JSON"; }
       if (sdpAnswer.enableMedia("meta", metaCodec, localIceUfrag, localIcePwd)) {
-        WebRTCTrack & trk = webrtcTracks[metaTrack];
-        trk.payloadType = sdpAnswer.answerMetaFormat.getPayloadType();
-        trk.localIcePwd = localIcePwd;
-        trk.localIceUFrag = localIceUfrag;
-        trk.remoteIcePwd = sdpSession.icePwd;
-        trk.remoteIceUFrag = sdpSession.iceUFrag;
+        if (metaTrack != INVALID_TRACK_ID) {
+          WebRTCTrack & trk = webrtcTracks[metaTrack];
+          trk.payloadType = sdpAnswer.answerMetaFormat.getPayloadType();
+          trk.localIcePwd = localIcePwd;
+          trk.localIceUFrag = localIceUfrag;
+          trk.remoteIcePwd = sdpSession.icePwd;
+          trk.remoteIceUFrag = sdpSession.iceUFrag;
+        }
       }
+    }
+    if (!webRTCOutputHasPrimaryMedia(videoEnabled, audioEnabled)) {
+      FAIL_MSG("Could not negotiate any WHEP output media");
+      return false;
     }
     return true;
   }
@@ -2398,9 +2424,7 @@ namespace Mist{
             if (offset+2+len <= p.size()){
               std::string val(offset+2, len);
               // Ignore blank SDES messages
-              if (len){
-                INFO_MSG("SDES for %" PRIu32 ": type %" PRIu8 " = %s", ssrc, type, val.c_str());
-              }
+              if (len) { INFO_MSG("SDES for %" PRIu32 ": type %" PRIu8 " = %s", ssrc, type, val.c_str()); }
             }
             offset += len +2;
           }
@@ -2714,7 +2738,13 @@ namespace Mist{
 
     WebRTCTrack *trackPointer = 0;
 
-    // If we see this is audio or video, use the webrtc track we negotiated
+    // If we see the negotiated audio or video track, use the WebRTC track we negotiated.
+    WebRTCOutputTrackSelection selection;
+    selection.hasVideo = vidTrack != INVALID_TRACK_ID;
+    selection.hasAudio = audTrack != INVALID_TRACK_ID;
+    selection.videoTrack = vidTrack;
+    selection.audioTrack = audTrack;
+    if (!webRTCOutputPacketMatchesSelection(M.getType(tid), tid, selection)) { return; }
     if (M.getType(tid) == "video" && webrtcTracks.count(vidTrack)){
       trackPointer = &webrtcTracks[vidTrack];
 
@@ -2723,8 +2753,6 @@ namespace Mist{
         jitterLog << (newMs - lastPackMs) << std::endl;
         lastPackMs = newMs;
       }
-
-
     }
     if (M.getType(tid) == "audio" && webrtcTracks.count(audTrack)){
       trackPointer = &webrtcTracks[audTrack];
