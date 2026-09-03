@@ -7,11 +7,16 @@
 #include <mist/h264.h>
 #include <mist/mp4_generic.h>
 #include <mist/nal.h>
+#include <mist/proc_stats.h>
 #include <mist/procs.h>
+#include <mist/shared_memory.h>
+#include <mist/triggers.h>
 #include <mist/util.h>
 
+#include <algorithm>
 #include <condition_variable>
 #include <cstdarg> //for libav log handling
+#include <cstring>
 #include <mutex>
 #include <ostream>
 #include <sys/stat.h> //for stat
@@ -77,19 +82,69 @@ uint64_t outAudioChannels = 0;                    ///< Audio channel count to se
 uint64_t outAudioDepth = 0;                       ///< Audio bit depth to set to the output
 std::string codecIn, codecOut;                    ///< If not raw pixels: names of encoding/decoding codecs
 bool isVideo = true;                              ///< Transcoding in video or audio mode
+bool hwEncodeActive = false; ///< True when video encode negotiated to a HW backend
 uint64_t totalDecode = 0;
 uint64_t totalSinkSleep = 0;
 uint64_t totalTransform = 0;
 uint64_t totalEncode = 0;
 uint64_t totalSourceSleep = 0;
+IPC::sharedPage procStatsPage;
+ProcExitState procExit;
 
 uint8_t sinkCommState = COMM_STATUS_ACTSOURCEDNT;
+
+// Virtual segment trigger timing
+uint64_t lastTriggerTime = 0;
+uint64_t processStartTime = 0;
+
+// Byte tracking for trigger
+uint64_t totalInputBytes = 0;
+uint64_t totalOutputBytes = 0;
+
+// Previous values for delta calculation
+uint64_t prevInputFrameCount = 0;
+uint64_t prevOutputFrameCount = 0;
+uint64_t prevInputBytes = 0;
+uint64_t prevOutputBytes = 0;
+uint64_t prevSourceMs = 0;
+uint64_t prevSinkMs = 0;
 
 char *inputFrameCount = 0;                        ///< Stats: frames/samples ingested
 char *outputFrameCount = 0;                       ///< Stats: frames/samples outputted
 Util::ResizeablePointer ptr;                      ///< Buffer for raw pixels / audio samples
 
+// Forward declaration for virtual segment trigger
+void fireVirtualSegmentTrigger(bool isFinal);
+
 namespace Mist{
+
+  static uint64_t evenDimension(uint64_t value) {
+    if (value > 2 && (value % 2)) { --value; }
+    return value;
+  }
+
+  static void applyRequestedResolution(uint64_t srcWidth, uint64_t srcHeight, uint64_t & reqWidth, uint64_t & reqHeight) {
+    if (!opt.isMember("resolution") || !opt["resolution"]) { return; }
+    std::string res = opt["resolution"].asString();
+    size_t xPos = res.find("x");
+    if (xPos == std::string::npos) { return; }
+    uint64_t parsedWidth = strtoull(res.substr(0, xPos).c_str(), NULL, 0);
+    uint64_t parsedHeight = strtoull(res.substr(xPos + 1).c_str(), NULL, 0);
+    if (!parsedWidth && !parsedHeight) { return; }
+    if (!parsedWidth && parsedHeight && srcWidth && srcHeight) {
+      if (srcWidth < srcHeight) {
+        parsedWidth = parsedHeight;
+        parsedHeight = srcHeight * parsedWidth / srcWidth;
+      } else {
+        parsedWidth = srcWidth * parsedHeight / srcHeight;
+      }
+    }
+    if (parsedWidth && !parsedHeight && srcWidth && srcHeight) { parsedHeight = srcHeight * parsedWidth / srcWidth; }
+    if (parsedWidth && parsedHeight) {
+      reqWidth = evenDimension(parsedWidth);
+      reqHeight = evenDimension(parsedHeight);
+    }
+  }
 
   class ProcessSink : public Input{
   private:
@@ -185,9 +240,9 @@ namespace Mist{
       if (codec_out){
         bool isKey = packet_out->flags & AV_PKT_FLAG_KEY;
         if (isKey){
-          MEDIUM_MSG("Buffering %iB keyframe @%zums", packet_out->size, thisTime);
+          MEDIUM_MSG("Buffering %iB keyframe @%" PRIu64 "ms", packet_out->size, thisTime);
         }else{
-          VERYHIGH_MSG("Buffering %iB packet @%zums", packet_out->size, thisTime);
+          VERYHIGH_MSG("Buffering %iB packet @%" PRIu64 "ms", packet_out->size, thisTime);
         }
 
         if (codecOut == "AV1"){
@@ -202,9 +257,10 @@ namespace Mist{
         // Now that we have SPS and PPS info, init the video track
         setVideoInit();
         if (trkIdx == INVALID_TRACK_ID){return;}
-        if (thisTime <= resumeFrom) { return; }
+        if (resumeFrom && thisTime <= resumeFrom) { return; }
         thisIdx = trkIdx;
         bufferLivePacket(thisPacket);
+        totalOutputBytes += packet_out->size;
       }else{
         // Read from raw buffers if we have no target codec
         if (ptr.size()){
@@ -212,9 +268,10 @@ namespace Mist{
           // Init video track
           setVideoInit();
           if (trkIdx == INVALID_TRACK_ID){return;}
-          if (thisTime <= resumeFrom) { return; }
+          if (resumeFrom && thisTime <= resumeFrom) { return; }
           thisIdx = trkIdx;
           bufferLivePacket(thisTime, 0, thisIdx, ptr, ptr.size(), 0, true);
+          totalOutputBytes += ptr.size();
         }
       }
       if (autoUpdateFps) {
@@ -226,7 +283,7 @@ namespace Mist{
     void bufferAudio(){
       // Init audio track
       setAudioInit();
-      VERYHIGH_MSG("Buffering %iB audio packet @%zums", packet_out->size, thisTime);
+      VERYHIGH_MSG("Buffering %iB audio packet @%" PRIu64 "ms", packet_out->size, thisTime);
       // Set init data
       if (context_out->extradata_size && !M.getInit(thisIdx).size()){
         meta.setInit(thisIdx, (char*)context_out->extradata, context_out->extradata_size);
@@ -236,9 +293,10 @@ namespace Mist{
       uint64_t ptrSize = packet_out->size;
       // Buffer packet
       if (trkIdx == INVALID_TRACK_ID){return;}
-      if (thisTime <= resumeFrom) { return; }
+      if (resumeFrom && thisTime <= resumeFrom) { return; }
       thisIdx = trkIdx;
       bufferLivePacket(thisTime, 0, thisIdx, ptr, ptrSize, 0, true);
+      totalOutputBytes += ptrSize;
     }
 
     void streamMainLoop(){
@@ -253,7 +311,10 @@ namespace Mist{
           std::unique_lock<std::mutex> lk(avMutex);
           avCV.wait(lk,[](){return frameReady || !config->is_active;});
           totalSinkSleep += Util::getMicros(sleepTime);
-          if (!config->is_active){return;}
+          if (!config->is_active) {
+            Util::logExitReason(ER_CLEAN_EOF, "source thread finished");
+            return;
+          }
           thisTime = frameTimes.front();
           frameTimes.pop_front();
           if (thisTime >= statSinkMs){statSinkMs = thisTime;}
@@ -440,6 +501,10 @@ namespace Mist{
     AVPixelFormat hw_decode_fmt;
     AVPixelFormat hw_decode_sw_fmt;
     uint64_t skippedFrames; //< Amount of frames since last JPEG image
+    uint64_t lastSendNextEnd; //< End timestamp of the previous source-side processing call
+    bool decodedFrameTimestamped; //< The decoder supplied a presentation timestamp for the current frame
+    bool decodedFrameTimeOriginSet; //< Whether the decoded presentation clock has been anchored to the Mist timeline
+    int64_t decodedFrameTimeOrigin; //< First decoded presentation timestamp in decoder time-base units
 
     // Filter vars
 //    AVFilterContext *buffersink_ctx;
@@ -478,6 +543,10 @@ namespace Mist{
       softDecodeFormat = AV_PIX_FMT_NONE;
       hw_decode_ctx = 0;
       skippedFrames = 99999; //< Init high so that it does not skip the first keyframe
+      lastSendNextEnd = 0;
+      decodedFrameTimestamped = false;
+      decodedFrameTimeOriginSet = false;
+      decodedFrameTimeOrigin = 0;
     }
 
     ~ProcessSource(){
@@ -589,10 +658,7 @@ namespace Mist{
       }
       uint64_t reqWidth = M.getWidth(getMainSelectedTrack());
       uint64_t reqHeight = M.getHeight(getMainSelectedTrack());
-      if (opt.isMember("resolution") && opt["resolution"]){
-        reqWidth = strtol(opt["resolution"].asString().substr(0, opt["resolution"].asString().find("x")).c_str(), NULL, 0);
-        reqHeight = strtol(opt["resolution"].asString().substr(opt["resolution"].asString().find("x") + 1).c_str(), NULL, 0);
-      }
+      applyRequestedResolution(reqWidth, reqHeight, reqWidth, reqHeight);
       tmpCtx->bit_rate = Mist::opt["bitrate"].asInt();
       tmpCtx->rc_max_rate = Mist::opt["bitrate"].asInt();
       tmpCtx->rc_min_rate = 0;
@@ -743,6 +809,9 @@ namespace Mist{
         return false;
       }
       context_out = tmpCtx;
+      // Record whether the encode negotiated to HW; the ProcState publisher
+      // switches its primary resource and measured feed contract accordingly.
+      hwEncodeActive = (hwDev != AV_HWDEVICE_TYPE_NONE);
 
       av_logLevel = AV_LOG_WARNING;
       return true;
@@ -887,10 +956,10 @@ namespace Mist{
           tmpCtx->sample_fmt = AV_SAMPLE_FMT_S16;
           tmpCtx->sample_rate = 48000;
           if (tmpCtx->bit_rate < 500){
-            WARN_MSG("Opus does not support a bitrate of %lu, clipping to 500", tmpCtx->bit_rate);
+            WARN_MSG("Opus does not support a bitrate of %" PRId64 ", clipping to 500", tmpCtx->bit_rate);
             tmpCtx->bit_rate = 500;
           } else if (tmpCtx->bit_rate > 256000) {
-            WARN_MSG("Opus does not support a bitrate of %lu, clipping to 128000", tmpCtx->bit_rate);
+            WARN_MSG("Opus does not support a bitrate of %" PRId64 ", clipping to 128000", tmpCtx->bit_rate);
             tmpCtx->bit_rate = 128000;
           }
           depth = 16;
@@ -956,6 +1025,7 @@ namespace Mist{
       tmpCtx->pix_fmt = pixFmt;
       tmpCtx->height = h;
       tmpCtx->width = w;
+      tmpCtx->pkt_timebase = (AVRational){1, 1000};
 
       if (hwDev != AV_HWDEVICE_TYPE_NONE){
         tmpCtx->refs = 0;
@@ -1186,23 +1256,17 @@ namespace Mist{
       return true;
     }
 
-    /// \brief Decode frame using the configured decoding context
-    bool decodeFrame(char *dataPointer, size_t dataLen){
-      // Allocate packet
-      AVPacket *packet_in = av_packet_alloc();
-      av_new_packet(packet_in, dataLen);
-      // Copy buffer to packet
-      memcpy(packet_in->data, dataPointer, dataLen);
-      // Send packet to decoding context
-      int ret = avcodec_send_packet(context_in, packet_in);
-      av_packet_free(&packet_in);
-      if (ret < 0) {
-        printError("Error sending a packet for decoding", ret);
-        return false;
-      }
-      // Retrieve RAW packet from decoding context
+    bool receiveDecodedFrame() {
+      int ret;
+      decodedFrameTimestamped = false;
+      AVFrame *decodedFrame = frame_RAW;
       if (frameDecodeHW){
         ret = avcodec_receive_frame(context_in, frameDecodeHW);
+        if (ret == AVERROR(EAGAIN) || ret == AVERROR_EOF) { return false; }
+        if (ret < 0) {
+          printError("Error during decoding", ret);
+          return false;
+        }
         if (!frameDecodeHW->width || !frameDecodeHW->height) {
           INFO_MSG("Ignoring invalid frame");
           return false;
@@ -1213,6 +1277,7 @@ namespace Mist{
         }else{
           pixelFormat = softDecodeFormat;
         }
+        decodedFrame = frameDecodeHW;
         // Allocate RAW frame
         if (!frame_RAW){
           if (!(frame_RAW = av_frame_alloc())){
@@ -1242,14 +1307,49 @@ namespace Mist{
           }
         }
         ret = avcodec_receive_frame(context_in, frame_RAW);
+        if (ret == AVERROR(EAGAIN) || ret == AVERROR_EOF) { return false; }
+        if (ret < 0) {
+          printError("Error during decoding", ret);
+          return false;
+        }
         // Set the pixel format to whatever the decoder detected
         pixelFormat = (AVPixelFormat)frame_RAW->format;
+        decodedFrame = frame_RAW;
       }
-      if (ret < 0) {
-        printError("Error during decoding", ret);
-        return false;
+      if (isVideo && decodedFrame) {
+        int64_t decodedTime = decodedFrame->best_effort_timestamp;
+        if (decodedTime == AV_NOPTS_VALUE) { decodedTime = decodedFrame->pts; }
+        if (decodedTime != AV_NOPTS_VALUE && decodedTime >= 0) {
+          if (!decodedFrameTimeOriginSet) {
+            decodedFrameTimeOrigin = decodedTime;
+            decodedFrameTimeOriginSet = true;
+          }
+          thisTime = sendPacketTime;
+          if (decodedTime > decodedFrameTimeOrigin) { thisTime += (uint64_t)(decodedTime - decodedFrameTimeOrigin); }
+          decodedFrameTimestamped = true;
+        }
       }
       return true;
+    }
+
+    /// \brief Decode frame using the configured decoding context
+    bool decodeFrame(char *dataPointer, size_t dataLen) {
+      // Allocate packet
+      AVPacket *packet_in = av_packet_alloc();
+      av_new_packet(packet_in, dataLen);
+      // Copy buffer to packet
+      memcpy(packet_in->data, dataPointer, dataLen);
+      packet_in->dts = (int64_t)thisTime;
+      packet_in->pts = (int64_t)(thisTime + thisPacket.getInt("offset"));
+      // Send packet to decoding context
+      int ret = avcodec_send_packet(context_in, packet_in);
+      av_packet_free(&packet_in);
+      if (ret < 0) {
+        printError("Error sending a packet for decoding", ret);
+        return false;
+      }
+      // Retrieve RAW packet from decoding context
+      return receiveDecodedFrame();
     }
 
     /// \brief Decode video frame, given packet data
@@ -1456,10 +1556,7 @@ namespace Mist{
           INFO_MSG("Allocating scaling context for %s -> %s...", av_get_pix_fmt_name((enum AVPixelFormat)frame_RAW->format), av_get_pix_fmt_name(convertToPixFmt));
           uint64_t reqWidth = frame_RAW->width;
           uint64_t reqHeight = frame_RAW->height;
-          if (opt.isMember("resolution") && opt["resolution"]){
-            reqWidth = strtol(opt["resolution"].asString().substr(0, opt["resolution"].asString().find("x")).c_str(), NULL, 0);
-            reqHeight = strtol(opt["resolution"].asString().substr(opt["resolution"].asString().find("x") + 1).c_str(), NULL, 0);\
-          }
+          applyRequestedResolution(frame_RAW->width, frame_RAW->height, reqWidth, reqHeight);
           convertCtx = sws_getContext(frame_RAW->width, frame_RAW->height, (enum AVPixelFormat)frame_RAW->format, reqWidth, reqHeight, convertToPixFmt, SWS_FAST_BILINEAR | SWS_FULL_CHR_H_INT | SWS_ACCURATE_RND, NULL, NULL, NULL);
           if (!convertCtx) {
             FAIL_MSG("Could not allocate scaling context");
@@ -1478,10 +1575,7 @@ namespace Mist{
           }
           uint64_t reqWidth = frame_RAW->width;
           uint64_t reqHeight = frame_RAW->height;
-          if (opt.isMember("resolution") && opt["resolution"]){
-            reqWidth = strtol(opt["resolution"].asString().substr(0, opt["resolution"].asString().find("x")).c_str(), NULL, 0);
-            reqHeight = strtol(opt["resolution"].asString().substr(opt["resolution"].asString().find("x") + 1).c_str(), NULL, 0);
-          }
+          applyRequestedResolution(frame_RAW->width, frame_RAW->height, reqWidth, reqHeight);
           frameConverted->format = convertToPixFmt;
           frameConverted->width  = reqWidth;
           frameConverted->height = reqHeight;
@@ -1567,6 +1661,13 @@ namespace Mist{
           frameConverted->nb_samples = context_out->frame_size;
         }
         resampledSampleCount = swr_get_out_samples(resampleContext, frame_RAW->nb_samples) * 3 + frame_RAW->nb_samples;
+        int reqSize = 0;
+        if (context_out->frame_size) {
+          reqSize = context_out->frame_size;
+        } else {
+          reqSize = context_out->time_base.den / 50;
+        }
+        if (reqSize > resampledSampleCount) { resampledSampleCount = reqSize; }
         frameConverted->nb_samples = resampledSampleCount;
 
         // Allocate buffers
@@ -1629,6 +1730,252 @@ namespace Mist{
     }
 
     /// @brief Takes raw video buffer and encode it to create an output packet
+    bool waitForSinkPacketSlot() {
+      uint64_t sleepTime = Util::getMicros();
+      std::unique_lock<std::mutex> lk(avMutex);
+      avCV.wait(lk, []() { return !frameReady || !conf.is_active || !co.is_active; });
+      totalSourceSleep += Util::getMicros(sleepTime);
+      return conf.is_active && co.is_active;
+    }
+
+    void queueFrameTime(uint64_t frameTime) {
+      std::lock_guard<std::mutex> lk(avMutex);
+      frameTimes.push_back(frameTime);
+    }
+
+    int audioOutputChannels() {
+      if (!context_out) { return 0; }
+#if (LIBAVUTIL_VERSION_MAJOR < 57 || (LIBAVUTIL_VERSION_MAJOR == 57 && LIBAVUTIL_VERSION_MINOR < 24))
+      return context_out->channels;
+#else
+        return context_out->ch_layout.nb_channels;
+#endif
+    }
+
+    int audioEncoderFrameSize() {
+      if (!context_out) { return 0; }
+      if (context_out->frame_size) { return context_out->frame_size; }
+      return context_out->time_base.den / 50;
+    }
+
+    bool audioEncoderAcceptsPartialFrame() {
+      if (!codec_out) { return false; }
+      uint32_t caps = codec_out->capabilities;
+#ifdef AV_CODEC_CAP_VARIABLE_FRAME_SIZE
+      if (caps & AV_CODEC_CAP_VARIABLE_FRAME_SIZE) { return true; }
+#endif
+#ifdef AV_CODEC_CAP_SMALL_LAST_FRAME
+      if (caps & AV_CODEC_CAP_SMALL_LAST_FRAME) { return true; }
+#endif
+      return false;
+    }
+
+    void queueEncodedAudioPacket() {
+      uint64_t outputTime = sendPacketTime;
+      if (packet_out->pts != AV_NOPTS_VALUE) {
+        int64_t offsetMs = (packet_out->pts * 1000 * context_out->time_base.num) / context_out->time_base.den;
+        if (offsetMs < 0) {
+          uint64_t negOffset = (uint64_t)(-offsetMs);
+          outputTime = negOffset > sendPacketTime ? 0 : sendPacketTime - negOffset;
+        } else {
+          outputTime = sendPacketTime + (uint64_t)offsetMs;
+        }
+      }
+      {
+        std::lock_guard<std::mutex> lk(avMutex);
+        frameTimes.push_back(outputTime);
+        outputFrameCount = (char *)packet_out->pts;
+        frameReady = true;
+      }
+      avCV.notify_all();
+    }
+
+    bool receiveEncodedAudioPackets() {
+      while (conf.is_active && co.is_active) {
+        if (!waitForSinkPacketSlot()) { return false; }
+        int ret = avcodec_receive_packet(context_out, packet_out);
+        if (ret == AVERROR(EAGAIN) || ret == AVERROR_EOF) { return true; }
+        if (ret < 0) {
+          printError("Unable to receive encoded audio packet", ret);
+          return false;
+        }
+        queueEncodedAudioPacket();
+      }
+      return false;
+    }
+
+    bool sendAudioFrameFromFifo(int samplesToRead, int frameSamples) {
+      if (!audioBuffer || !frameConverted || !context_out || samplesToRead <= 0 || frameSamples <= 0) { return false; }
+      int channels = audioOutputChannels();
+      if (!channels) { return false; }
+      int ret = av_frame_make_writable(frameConverted);
+      if (ret < 0) {
+        printError("Could not make audio frame writable", ret);
+        return false;
+      }
+      frameConverted->nb_samples = frameSamples;
+      if (av_audio_fifo_read(audioBuffer, (void **)frameConverted->data, samplesToRead) < samplesToRead) {
+        FAIL_MSG("Could not read data from audio buffer");
+        return false;
+      }
+      if (frameSamples > samplesToRead) {
+        ret = av_samples_set_silence(frameConverted->data, samplesToRead, frameSamples - samplesToRead, channels,
+                                     context_out->sample_fmt);
+        if (ret < 0) {
+          printError("Could not pad final audio frame", ret);
+          return false;
+        }
+      }
+      frameConverted->pts = pts;
+      pts += samplesToRead;
+      ret = avcodec_send_frame(context_out, frameConverted);
+      if (ret < 0) {
+        printError("Unable to send frame to the encoder", ret);
+        return false;
+      }
+      return receiveEncodedAudioPackets();
+    }
+
+    bool receiveEncodedVideoPackets() {
+      while (conf.is_active && co.is_active) {
+        if (!waitForSinkPacketSlot()) { return false; }
+        int ret = avcodec_receive_packet(context_out, packet_out);
+        if (ret == AVERROR(EAGAIN) || ret == AVERROR_EOF) { return true; }
+        if (ret < 0) {
+          printError("Unable to receive encoded video packet", ret);
+          return false;
+        }
+        {
+          std::lock_guard<std::mutex> lk(avMutex);
+          if (frameTimes.empty()) {
+            uint64_t frameDuration = inFpks ? (1000000 / inFpks) : 0;
+            frameTimes.push_back(statSinkMs + frameDuration);
+          }
+          ++outputFrameCount;
+          frameReady = true;
+        }
+        avCV.notify_all();
+      }
+      return false;
+    }
+
+    void flushVideoEncoder() {
+      if (!isVideo || !context_out || !codec_out) { return; }
+      INFO_MSG("Flushing %s encoder", codecOut.c_str());
+      int ret = avcodec_send_frame(context_out, NULL);
+      if (ret == AVERROR_EOF) { return; }
+      if (ret < 0 && ret != AVERROR(EAGAIN)) {
+        printError("Unable to flush video encoder", ret);
+        return;
+      }
+      receiveEncodedVideoPackets();
+    }
+
+    void flushVideoDecoder() {
+      if (!isVideo || !context_in) { return; }
+      INFO_MSG("Flushing %s decoder", codecIn.c_str());
+      int ret = avcodec_send_packet(context_in, NULL);
+      if (ret == AVERROR_EOF) { return; }
+      if (ret < 0 && ret != AVERROR(EAGAIN)) {
+        printError("Unable to flush video decoder", ret);
+        return;
+      }
+
+      uint64_t frameDuration = inFpks ? (1000000 / inFpks) : 0;
+      uint64_t flushTime = statSinkMs ? statSinkMs : statSourceMs;
+      while (conf.is_active && co.is_active) {
+        uint64_t decodeStart = Util::getMicros();
+        if (!receiveDecodedFrame()) { break; }
+        uint64_t transformStart = Util::getMicros();
+        if (decodedFrameTimestamped) {
+          flushTime = thisTime;
+        } else {
+          if (frameDuration) { flushTime += frameDuration; }
+          thisTime = flushTime;
+        }
+        if (!transformVideoFrame()) { break; }
+        uint64_t encodeStart = Util::getMicros();
+        encodeVideo();
+        totalDecode += transformStart - decodeStart;
+        totalTransform += encodeStart - transformStart;
+        totalEncode += Util::getMicros(encodeStart);
+      }
+    }
+
+    void flushAudioResampler() {
+      if (isVideo || !resampleContext || !audioBuffer || !frameConverted || !context_out) { return; }
+      INFO_MSG("Flushing audio resampler");
+      while (conf.is_active && co.is_active) {
+        int samplesConverted = swr_convert(resampleContext, frameConverted->data, resampledSampleCount, NULL, 0);
+        if (samplesConverted == 0) { return; }
+        if (samplesConverted < 0) {
+          printError("Could not flush audio resampler", samplesConverted);
+          return;
+        }
+        if (av_audio_fifo_write(audioBuffer, (void **)frameConverted->data, samplesConverted) < samplesConverted) {
+          FAIL_MSG("Could not write resampler tail to audio buffer");
+          return;
+        }
+        encodeAudio();
+      }
+    }
+
+    void flushAudioEncoder() {
+      if (isVideo || !context_out || !codec_out || !audioBuffer || !frameConverted) { return; }
+      int reqSize = audioEncoderFrameSize();
+      if (reqSize <= 0) { return; }
+
+      while (av_audio_fifo_size(audioBuffer) >= reqSize) {
+        if (!sendAudioFrameFromFifo(reqSize, reqSize)) { return; }
+      }
+
+      int remaining = av_audio_fifo_size(audioBuffer);
+      if (remaining > 0) {
+        int frameSamples = remaining;
+        if (!audioEncoderAcceptsPartialFrame() && remaining < reqSize) { frameSamples = reqSize; }
+        if (!sendAudioFrameFromFifo(remaining, frameSamples)) { return; }
+      }
+
+      INFO_MSG("Flushing %s encoder", codecOut.c_str());
+      int ret = avcodec_send_frame(context_out, NULL);
+      if (ret == AVERROR_EOF) { return; }
+      if (ret < 0 && ret != AVERROR(EAGAIN)) {
+        printError("Unable to flush audio encoder", ret);
+        return;
+      }
+      receiveEncodedAudioPackets();
+    }
+
+    void flushAudioDecoder() {
+      if (isVideo || !context_in) { return; }
+      INFO_MSG("Flushing %s decoder", codecIn.c_str());
+      int ret = avcodec_send_packet(context_in, NULL);
+      if (ret == AVERROR_EOF) { return; }
+      if (ret < 0 && ret != AVERROR(EAGAIN)) {
+        printError("Unable to flush audio decoder", ret);
+        return;
+      }
+
+      while (conf.is_active && co.is_active) {
+        uint64_t decodeStart = Util::getMicros();
+        if (!receiveDecodedFrame()) { break; }
+        inputFrameCount += frame_RAW->nb_samples;
+        if (sourceTrackIdx != INVALID_TRACK_ID && M.getRate(sourceTrackIdx) &&
+            sendPacketTime + (((size_t)inputFrameCount) * 1000) / M.getRate(sourceTrackIdx) < statSourceMs) {
+          sendPacketTime += statSourceMs - (sendPacketTime + (((size_t)inputFrameCount) * 1000) / M.getRate(sourceTrackIdx));
+        }
+        uint64_t transformStart = Util::getMicros();
+        allocateAudioEncoder();
+        if (!transformAudioFrame()) { break; }
+        uint64_t encodeStart = Util::getMicros();
+        encodeAudio();
+        totalDecode += transformStart - decodeStart;
+        totalTransform += encodeStart - transformStart;
+        totalEncode += Util::getMicros(encodeStart);
+      }
+      flushAudioResampler();
+    }
+
     void encodeVideo(){
       // Encode to target codec. Force P frame to prevent keyframe-only outputs from appearing
       int ret;
@@ -1675,77 +2022,21 @@ namespace Mist{
         }
       }
 
-      {
-        uint64_t sleepTime = Util::getMicros();
-        std::unique_lock<std::mutex> lk(avMutex);
-        avCV.wait(lk, [this]() { return !frameReady || !config->is_active; });
-        totalSourceSleep += Util::getMicros(sleepTime);
-        frameTimes.push_back(thisTime);
-        ++outputFrameCount;
-        // Retrieve encoded packet
-        ret = avcodec_receive_packet(context_out, packet_out);
-        if (ret < 0){
-          return;
-        }
-        frameReady = true;
-      }
-      avCV.notify_all();
+      queueFrameTime(thisTime);
+      receiveEncodedVideoPackets();
     }
 
     /// @brief Takes raw audio buffer and encode it to create an output packet
     void encodeAudio(){
-      int ret;
-      int reqSize = 0;
-      if (context_out->frame_size){
-        reqSize = context_out->frame_size;
-      }else{
-        reqSize = context_out->time_base.den / 50;
-      }
-      frameConverted->nb_samples = reqSize;
+      int reqSize = audioEncoderFrameSize();
+      if (reqSize <= 0) { return; }
       // Check if we have enough samples to fill a frame
       if (av_audio_fifo_size(audioBuffer) < reqSize){
         HIGH_MSG("Encoder requires more audio samples...");
         return;
       }
       while (av_audio_fifo_size(audioBuffer) >= reqSize){
-        // Buffer audio samples into frame
-        if (av_audio_fifo_read(audioBuffer, (void **)frameConverted->data, reqSize) < reqSize) {
-          FAIL_MSG("Could not read data from audio buffer");
-          return;
-        }
-        // Update PTS
-        frameConverted->pts = pts;
-        pts += reqSize;
-        // Encode frame
-        ret = avcodec_send_frame(context_out, frameConverted);
-        if (!ret){
-        }
-        if (ret < 0) {
-          printError("Unable to send frame to the encoder", ret);
-          return;
-        }
-        {
-          uint64_t sleepTime = Util::getMicros();
-          std::unique_lock<std::mutex> lk(avMutex);
-          avCV.wait(lk, [this]() { return !frameReady || !config->is_active; });
-          totalSourceSleep += Util::getMicros(sleepTime);
-
-          // Retrieve encoded packet
-          ret = avcodec_receive_packet(context_out, packet_out);
-          if (ret == AVERROR(EAGAIN) || ret == AVERROR_EOF){
-            HIGH_MSG("Encoder requires more input samples...");
-            return;
-          }else if (ret < 0) {
-            printError("Unable to encode", ret);
-            return;
-          }
-
-          frameTimes.push_back(sendPacketTime + (packet_out->pts * 1000 * context_out->time_base.num) / context_out->time_base.den);
-          outputFrameCount = (char*)packet_out->pts;
-          
-          frameReady = true;
-        }
-        avCV.notify_all();
+        if (!sendAudioFrameFromFifo(reqSize, reqSize)) { return; }
       }
     }
 
@@ -1776,6 +2067,8 @@ namespace Mist{
     void sendNext(){
       // Wait for the other side to process the last frame that was ready for buffering
       if (!config->is_active){return;}
+      uint64_t callStart = Util::getMicros();
+      if (lastSendNextEnd) { totalSourceSleep += callStart - lastSendNextEnd; }
 
       {
         std::lock_guard<std::mutex> guard(statsMutex);
@@ -1806,6 +2099,7 @@ namespace Mist{
             frameReady = true;
           }
           avCV.notify_all();
+          lastSendNextEnd = Util::getMicros();
           return;
         }
         skippedFrames = 0;
@@ -1822,14 +2116,29 @@ namespace Mist{
       // bootMsOffset may change; we should pull in those changes, too
       bootMsOffset = M.getBootMsOffset();
 
+      // Retrieve packet buffer pointers
+      size_t dataLen = 0;
+      char *dataPointer = 0;
+      thisPacket.getString("data", dataPointer, dataLen);
+      totalInputBytes += dataLen;
+
       // Allocate encoding/decoding contexts and decode the input if not RAW
       if (isVideo) {
         allocateVideoEncoder();
-        if (!configVideoDecoder()){ return; }
+        if (!configVideoDecoder()) {
+          lastSendNextEnd = Util::getMicros();
+          return;
+        }
         uint64_t startTime = Util::getMicros();
-        if (!decodeVideoFrame(thisData, thisDataLen)) { return; }
+        if (!decodeVideoFrame(thisData, thisDataLen)) {
+          lastSendNextEnd = Util::getMicros();
+          return;
+        }
         uint64_t decodeTime = Util::getMicros();
-        if(!transformVideoFrame()){ return; }
+        if (!transformVideoFrame()) {
+          lastSendNextEnd = Util::getMicros();
+          return;
+        }
         uint64_t transformTime = Util::getMicros();
         totalDecode += decodeTime - startTime;
         totalTransform += transformTime - decodeTime;
@@ -1837,20 +2146,30 @@ namespace Mist{
         inFpks = M.getFpks(thisIdx);
         if (!inFpks) { inFpks = M.getEfpks(thisIdx); }
       } else {
-        if (!configAudioDecoder()){ return; }
+        if (!configAudioDecoder()) {
+          lastSendNextEnd = Util::getMicros();
+          return;
+        }
         // Since PCM has a 'codec' in LibAV, handle all decoding using the generic function
-        if (!decodeFrame(thisData, thisDataLen)) { return; }
+        if (!decodeFrame(thisData, thisDataLen)) {
+          lastSendNextEnd = Util::getMicros();
+          return;
+        }
         inputFrameCount += frame_RAW->nb_samples;
         if (sendPacketTime + (((size_t)inputFrameCount)*1000)/M.getRate(thisIdx) < thisTime){
           sendPacketTime += thisTime - (sendPacketTime + (((size_t)inputFrameCount)*1000)/M.getRate(thisIdx));
         }
         allocateAudioEncoder();
-        if(!transformAudioFrame()){ return; }
+        if (!transformAudioFrame()) {
+          lastSendNextEnd = Util::getMicros();
+          return;
+        }
       }
 
       // If the output is RAW, immediately send it to the output using `ptr` rather than going through LibAV's contexts
       if (!context_out && isVideo){
         sendRawVideo();
+        lastSendNextEnd = Util::getMicros();
         return;
       }
 
@@ -1862,6 +2181,7 @@ namespace Mist{
       }else{
         encodeAudio();
       }
+      lastSendNextEnd = Util::getMicros();
     }
   };
 
@@ -1888,11 +2208,17 @@ namespace Mist{
       pStat["proc_status_update"]["proc"] = "AV";
     }
     uint64_t startTime = Util::bootSecs();
+    processStartTime = startTime;
     uint64_t encPrevTime = 0;
     uint64_t encPrevCount = 0;
+    // Previous-window snapshots for pressure derivation
+    uint64_t prevWork = 0, prevSrcWait = 0;
+    uint64_t prevSourceMsForRate = 0, prevSinkMsForRate = 0;
+    uint64_t prevUpdateBootMs = Util::bootMS();
+    uint32_t capacitySamples = 0;
     while (conf.is_active && co.is_active){
       Util::sleep(200);
-      if (lastProcUpdate + 5 <= Util::bootSecs()){
+      if (lastProcUpdate + 1 <= Util::bootSecs()) {
         std::lock_guard<std::mutex> guard(statsMutex);
         pData["active_seconds"] = (Util::bootSecs() - startTime);
         pData["ainfo"]["sourceTime"] = statSourceMs;
@@ -1922,11 +2248,199 @@ namespace Mist{
         }
         pData["ainfo"]["scaler"] = scaler;
         Util::sendUDPApi(pStat);
+        // Write timing stats + normalized pressure to shm for InputBuffer rate control
+        if (procStatsPage.mapped && ProcState::isValid(procStatsPage)) {
+          ProcState *s = (ProcState *)procStatsPage.mapped;
+          uint64_t curWork = totalDecode + totalEncode + totalTransform;
+          uint64_t curSrcWait = totalSourceSleep;
+          uint64_t curSnkWait = totalSinkSleep;
+          uint64_t nowBootMs = Util::bootMS();
+
+          // Pressure: derived from processor work versus source-side waiting.
+          // totalSinkSleep is the sink thread waiting for the encoder to hand
+          // it a frame: that is idle time, not output backpressure, and must
+          // not reduce the estimated processing capacity.
+          uint8_t reason = PRC_REASON_UNKNOWN;
+          uint16_t pressureQ = 0;
+          uint64_t dWork = curWork - prevWork;
+          uint64_t dSrc = curSrcWait - prevSrcWait;
+          uint64_t dTotal = dWork + dSrc;
+          if (dTotal > 0) {
+            double srcRatio = (double)dSrc / (double)dTotal;
+            double workRatio = (double)dWork / (double)dTotal;
+            auto mapPressure = [](double ratio) -> double {
+              if (ratio <= 0.5) return 0.0;
+              double p = (ratio - 0.5) * 2.0; // linear: 0.5 -> 0, 1.0 -> 1.0
+              if (p < 0.0) p = 0.0;
+              if (p > 1.0) p = 1.0;
+              return p;
+            };
+            // Pick the dominant bottleneck signal.
+            if (workRatio > 0.5) {
+              reason = PRC_REASON_CPU;
+              pressureQ = (uint16_t)(mapPressure(workRatio) * 65535.0);
+            } else if (srcRatio > 0.5) {
+              reason = PRC_REASON_SOURCE_WAIT;
+              pressureQ = 0;
+            }
+          }
+
+          // Keep achieved input/output separate from capacity. Capacity uses
+          // active processor work only and deliberately excludes both source
+          // starvation and the sink thread's idle wait.
+          uint32_t inputSpeedQ = 0, outputSpeedQ = 0, capacitySpeedQ = 0;
+          uint64_t wallDeltaMs = (nowBootMs > prevUpdateBootMs) ? (nowBootMs - prevUpdateBootMs) : 0;
+          if (wallDeltaMs > 0 && statSourceMs > prevSourceMsForRate) {
+            inputSpeedQ = ProcState::speedToQ16((double)(statSourceMs - prevSourceMsForRate) / (double)wallDeltaMs);
+          }
+          if (wallDeltaMs > 0 && statSinkMs > prevSinkMsForRate) {
+            outputSpeedQ = ProcState::speedToQ16((double)(statSinkMs - prevSinkMsForRate) / (double)wallDeltaMs);
+            uint64_t activeUs = dWork;
+            if (activeUs) {
+              double capacity = (double)(statSinkMs - prevSinkMsForRate) * 1000.0 / (double)activeUs;
+              capacitySpeedQ = ProcState::speedToQ16(capacity);
+            }
+          }
+
+          s->beginPublish();
+          s->totalWork = curWork;
+          s->totalSourceWait = curSrcWait;
+          s->totalSinkWait = curSnkWait;
+          s->totalExternalWait = 0;
+          s->frameCount = (uint64_t)outputFrameCount;
+          s->lastUpdateMs = nowBootMs;
+          s->observedSpeedQ16_16 = outputSpeedQ;
+          s->inputSpeedQ16_16 = inputSpeedQ;
+          s->outputSpeedQ16_16 = outputSpeedQ;
+          if (capacitySpeedQ) {
+            ++capacitySamples;
+            s->capacitySpeedQ16_16 = capacitySpeedQ;
+            double capacity = (double)capacitySpeedQ / 65536.0;
+            s->recommendedFeedQ16_16 = ProcState::speedToQ16(std::max(1.0, capacity * 0.85));
+            s->flags |= PRC_FLAG_CAPACITY_VALID;
+          }
+          bool sourceLimited = (dTotal && dSrc * 2 > dTotal);
+          bool processorLimited = pressureQ > (uint16_t)(0.7 * 65535.0);
+          s->flags &= ~(PRC_FLAG_SOURCE_LIMITED | PRC_FLAG_PROCESSOR_LIMITED);
+          if (sourceLimited) { s->flags |= PRC_FLAG_SOURCE_LIMITED; }
+          if (processorLimited) { s->flags |= PRC_FLAG_PROCESSOR_LIMITED; }
+          s->phase = capacitySamples >= 3 ? PRC_PHASE_READY : PRC_PHASE_MEASURING;
+          s->confidenceQ0_16 = (uint16_t)std::min((uint32_t)65535, capacitySamples * 65535 / 3);
+          s->pressureQ0_16 = pressureQ;
+          s->canAcceptMore = 1;
+          s->reasonCode = reason;
+          s->queueDepth = 0;
+          s->inflight = 0;
+          s->retryCount = 0;
+          s->primaryResource = isVideo && hwEncodeActive ? PRC_RESOURCE_GPU : PRC_RESOURCE_CPU;
+          s->endPublish();
+
+          prevWork = curWork;
+          prevSrcWait = curSrcWait;
+          prevSourceMsForRate = statSourceMs;
+          prevSinkMsForRate = statSinkMs;
+          prevUpdateBootMs = nowBootMs;
+        }
         lastProcUpdate = Util::bootSecs();
+        fireVirtualSegmentTrigger(false);
       }
     }
   }
 }// namespace Mist
+
+/// Fires PROCESS_AV_VIRTUAL_SEGMENT_COMPLETE trigger
+void fireVirtualSegmentTrigger(bool isFinal) {
+  std::string sinkName = pStat["proc_status_update"]["sink"].asString();
+  if (!Triggers::shouldTrigger("PROCESS_AV_VIRTUAL_SEGMENT_COMPLETE", sinkName)) { return; }
+
+  uint64_t deltaSecs = lastTriggerTime ? (Util::bootSecs() - lastTriggerTime) : (Util::bootSecs() - processStartTime);
+  uint64_t decodeAvg = (uint64_t)inputFrameCount ? (totalDecode / (uint64_t)inputFrameCount) : 0;
+  uint64_t transformAvg = (uint64_t)inputFrameCount ? (totalTransform / (uint64_t)inputFrameCount) : 0;
+  uint64_t encodeAvg = (uint64_t)outputFrameCount ? (totalEncode / (uint64_t)outputFrameCount) : 0;
+
+  // Calculate deltas for this trigger window
+  uint64_t inFramesDelta = (uint64_t)inputFrameCount - prevInputFrameCount;
+  uint64_t outFramesDelta = (uint64_t)outputFrameCount - prevOutputFrameCount;
+  uint64_t inBytesDelta = totalInputBytes - prevInputBytes;
+  uint64_t outBytesDelta = totalOutputBytes - prevOutputBytes;
+  uint64_t sourceAdvancedMs = statSourceMs - prevSourceMs;
+  uint64_t sinkAdvancedMs = statSinkMs - prevSinkMs;
+
+  // Real-time factors (1.0 = real-time, 2.0 = 2x faster than real-time)
+  double rtfIn = deltaSecs > 0 ? (double)sourceAdvancedMs / (deltaSecs * 1000.0) : 0;
+  double rtfOut = deltaSecs > 0 ? (double)sinkAdvancedMs / (deltaSecs * 1000.0) : 0;
+  int64_t pipelineLagMs = (int64_t)statSourceMs - (int64_t)statSinkMs;
+
+  // Determine track type (audio vs video)
+  bool audioTrack = context_out && context_out->sample_rate > 0;
+  const char *trackType = audioTrack ? "audio" : "video";
+
+  // Resolution (0 if not applicable)
+  int inWidth = context_in ? context_in->width : 0;
+  int inHeight = context_in ? context_in->height : 0;
+  int outWidth = context_out ? context_out->width : 0;
+  int outHeight = context_out ? context_out->height : 0;
+
+  // FPS
+  double outFpsMeasured = (deltaSecs > 0 && outFramesDelta > 0) ? (double)outFramesDelta / deltaSecs : 0;
+
+  // Audio info (0 if not audio)
+  int sampleRate = (context_out && context_out->sample_rate > 0) ? context_out->sample_rate : 0;
+  int channels = 0;
+  if (context_out && context_out->sample_rate > 0) {
+#if (LIBAVUTIL_VERSION_MAJOR < 57 || (LIBAVUTIL_VERSION_MAJOR == 57 && LIBAVUTIL_VERSION_MINOR < 24))
+    channels = context_out->channels;
+#else
+    channels = context_out->ch_layout.nb_channels;
+#endif
+  }
+
+  // Measured output bitrate
+  uint64_t outBitrateBps = deltaSecs > 0 ? (outBytesDelta * 8) / deltaSecs : 0;
+
+  std::string payload = sinkName + "\n" + // 1. stream name
+    std::string(trackType) + "\n" + // 2. track type (audio/video)
+    JSON::Value(deltaSecs).asString() + "\n" + // 3. seconds since last trigger
+    JSON::Value((uint64_t)inputFrameCount).asString() + "\n" + // 4. input frame count (cumulative)
+    JSON::Value((uint64_t)outputFrameCount).asString() + "\n" + // 5. output frame count (cumulative)
+    JSON::Value(inFramesDelta).asString() + "\n" + // 6. input frames this window
+    JSON::Value(outFramesDelta).asString() + "\n" + // 7. output frames this window
+    JSON::Value(inBytesDelta).asString() + "\n" + // 8. input bytes this window
+    JSON::Value(outBytesDelta).asString() + "\n" + // 9. output bytes this window
+    JSON::Value(decodeAvg).asString() + "\n" + // 10. decode µs/frame
+    JSON::Value(transformAvg).asString() + "\n" + // 11. transform µs/frame
+    JSON::Value(encodeAvg).asString() + "\n" + // 12. encode µs/frame
+    std::string(codec_in ? codec_in->name : "none") + "\n" + // 13. input codec (short)
+    std::string(codec_out ? codec_out->name : "none") + "\n" + // 14. output codec (short)
+    JSON::Value(inWidth).asString() + "\n" + // 15. input width
+    JSON::Value(inHeight).asString() + "\n" + // 16. input height
+    JSON::Value(outWidth).asString() + "\n" + // 17. output width
+    JSON::Value(outHeight).asString() + "\n" + // 18. output height
+    JSON::Value(inFpks).asString() + "\n" + // 19. input fpks (frames per 1000s)
+    JSON::Value(outFpsMeasured).asString() + "\n" + // 20. output fps measured
+    JSON::Value(sampleRate).asString() + "\n" + // 21. sample rate (audio)
+    JSON::Value(channels).asString() + "\n" + // 22. channels (audio)
+    JSON::Value(statSourceMs).asString() + "\n" + // 23. source timestamp ms
+    JSON::Value(statSinkMs).asString() + "\n" + // 24. sink timestamp ms
+    JSON::Value(sourceAdvancedMs).asString() + "\n" + // 25. source advanced ms
+    JSON::Value(sinkAdvancedMs).asString() + "\n" + // 26. sink advanced ms
+    JSON::Value(rtfIn).asString() + "\n" + // 27. real-time factor in
+    JSON::Value(rtfOut).asString() + "\n" + // 28. real-time factor out
+    JSON::Value(pipelineLagMs).asString() + "\n" + // 29. pipeline lag ms
+    JSON::Value(outBitrateBps).asString() + "\n" + // 30. output bitrate bps
+    (isFinal ? "1" : "0"); // 31. is_final
+
+  Triggers::doTrigger("PROCESS_AV_VIRTUAL_SEGMENT_COMPLETE", payload, sinkName);
+
+  // Store current values for next delta calculation
+  prevInputFrameCount = (uint64_t)inputFrameCount;
+  prevOutputFrameCount = (uint64_t)outputFrameCount;
+  prevInputBytes = totalInputBytes;
+  prevOutputBytes = totalOutputBytes;
+  prevSourceMs = statSourceMs;
+  prevSinkMs = statSinkMs;
+  lastTriggerTime = Util::bootSecs();
+}
 
 void sinkThread(){
   Util::nameThread("sinkThread");
@@ -1934,8 +2448,14 @@ void sinkThread(){
   Mist::sinkClass = &in;
   co.getOption("output", true).append("-");
   MEDIUM_MSG("Running sink thread...");
-  in.run();
-  INFO_MSG("Stop sink thread...");
+  int rc = in.run();
+  if (rc == 0) {
+    procExit.log(ER_CLEAN_EOF, 0, "Sink thread finished");
+  } else {
+    procExit.log(Util::mRExitReason ? Util::mRExitReason : ER_UNKNOWN, rc, "%s",
+                 Util::exitReason[0] ? Util::exitReason : "Sink thread failed");
+  }
+  INFO_MSG("Stop sink thread");
   conf.is_active = false;
   avCV.notify_all();
 }
@@ -1957,8 +2477,18 @@ void sourceThread(){
   Socket::Connection S;
   Mist::ProcessSource out(S, conf, capa);
   MEDIUM_MSG("Running source thread...");
-  out.run();
-  INFO_MSG("Stop source thread...");
+  int rc = out.run();
+  out.flushVideoDecoder();
+  out.flushVideoEncoder();
+  out.flushAudioDecoder();
+  out.flushAudioEncoder();
+  if (rc == 0) {
+    procExit.log(ER_CLEAN_EOF, 0, "Source thread finished");
+  } else {
+    procExit.log(Util::mRExitReason ? Util::mRExitReason : ER_UNKNOWN, rc, "%s",
+                 Util::exitReason[0] ? Util::exitReason : "Source thread failed");
+  }
+  INFO_MSG("Stop source thread");
   co.is_active = false;
   avCV.notify_all();
 }
@@ -1983,6 +2513,15 @@ int main(int argc, char *argv[]){
   DTSC::trackValidMask = TRACK_VALID_INT_PROCESS;
   Util::Config config(argv[0]);
   Util::Config::binaryType = Util::PROCESS;
+
+  // Initialize SHM early so exit reasons are available even for config errors.
+  {
+    char shmName[NAME_BUFFER_SIZE];
+    snprintf(shmName, NAME_BUFFER_SIZE, SHM_PROC_STATE, getpid());
+    procStatsPage.init(shmName, sizeof(ProcState), true, false);
+    ProcState::initPage(procStatsPage);
+  }
+
   JSON::Value capa;
   context_out = NULL;
   av_log_set_callback(logcallback);
@@ -2034,7 +2573,10 @@ int main(int argc, char *argv[]){
   capa["ainfo"]["encoder"]["name"] = "Encoder";
   capa["ainfo"]["scaler"]["name"] = "Scaler";
 
-  if (!(config.parseArgs(argc, argv))){return 1;}
+  if (!(config.parseArgs(argc, argv))) {
+    procExit.log(ER_FORMAT_SPECIFIC, 2, "Failed to parse command-line arguments");
+    return procExit.flush(procStatsPage);
+  }
   if (config.getBool("json")){
 
     capa["name"] = "AV";
@@ -2334,10 +2876,13 @@ int main(int argc, char *argv[]){
 
   // read configuration
   if (config.getString("configuration") != "-"){
-    Mist::opt.fromString(config.getString("configuration"));
+    Mist::opt = JSON::fromString(config.getString("configuration"));
   } else {
     INFO_MSG("Reading configuration from standard input");
-    Mist::opt.fromStream(std::cin);
+    std::string json;
+    std::string line;
+    while (std::getline(std::cin, line)) { json.append(line); }
+    Mist::opt = JSON::fromString(json.c_str());
   }
 
   if (!Mist::opt.isMember("gopsize") || !Mist::opt["gopsize"].asInt()){
@@ -2403,14 +2948,26 @@ int main(int argc, char *argv[]){
     codec_out = avcodec_find_encoder(AV_CODEC_ID_AAC);
   }else{
     FAIL_MSG("Unknown codec: %s", Mist::opt["codec"].asStringRef().c_str());
-    return 1;
+    procExit.log(ER_FORMAT_SPECIFIC, 2, "Unknown codec: %s", Mist::opt["codec"].asStringRef().c_str());
+    return procExit.flush(procStatsPage);
+  }
+
+  // The proc owns its bootstrap recommendation. Publish it immediately after
+  // parsing configuration, before connecting to streams or initializing the
+  // encoder. Automatic video starts conservatively until HW negotiation.
+  if (isVideo) {
+    ProcState::publishStartup(procStatsPage, (!allowSW && allowHW) ? 4.0 : 1.0,
+                              (!allowSW && allowHW) ? PRC_RESOURCE_GPU : PRC_RESOURCE_CPU);
+  } else {
+    ProcState::publishStartup(procStatsPage, 6.0, PRC_RESOURCE_CPU);
   }
 
   // check config for generic options
   Mist::ProcAV Enc;
   if (!Enc.CheckConfig()){
     FAIL_MSG("Error config syntax error!");
-    return 1;
+    procExit.log(ER_FORMAT_SPECIFIC, 2, "Invalid process configuration");
+    return procExit.flush(procStatsPage);
   }
 
   // Allocate packet
@@ -2431,6 +2988,7 @@ int main(int argc, char *argv[]){
   co.is_active = false;
   conf.is_active = false;
   avCV.notify_all();
+  fireVirtualSegmentTrigger(true);
 
   source.join();
   HIGH_MSG("source thread joined");
@@ -2441,5 +2999,5 @@ int main(int argc, char *argv[]){
   if (context_out){avcodec_free_context(&context_out);}
   av_packet_free(&packet_out);
 
-  return 0;
+  return procExit.flush(procStatsPage);
 }
