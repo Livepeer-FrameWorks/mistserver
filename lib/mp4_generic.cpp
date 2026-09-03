@@ -119,7 +119,7 @@ namespace MP4{
       innerOffset += 4;
     }
     if (flags & trunsampleOffsets){
-      setInt32(newSample.sampleOffset, offset + no * sampInfoSize + innerOffset);
+      setInt32((uint32_t)newSample.sampleOffset, offset + no * sampInfoSize + innerOffset);
       innerOffset += 4;
     }
     if (getSampleInformationCount() < no + 1){setInt32(no + 1, 4);}
@@ -178,10 +178,19 @@ namespace MP4{
       WARN_MSG("Could not get sample flags from TRUN, TFHD or TREX box(es)!");
     }
     if (flags & trunsampleOffsets){
-      ret.sampleOffset = getInt32(offset + no * sampInfoSize + innerOffset);
+      const uint32_t rawOffset = getInt32(offset + no * sampInfoSize + innerOffset);
+      ret.sampleOffset = getVersion() == 1 ? (int32_t)rawOffset : (int64_t)rawOffset;
       innerOffset += 4;
     }
     return ret;
+  }
+
+  void TRUN::setVersion(uint8_t version) {
+    setInt8(version, 0);
+  }
+
+  uint8_t TRUN::getVersion() const {
+    return getInt8(0);
   }
 
   std::string TRUN::toPrettyString(uint32_t indent) const {

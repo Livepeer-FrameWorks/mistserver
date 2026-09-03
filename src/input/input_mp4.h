@@ -5,6 +5,10 @@
 #include <mist/mp4_stream.h>
 #include <mist/mp4_generic.h>
 namespace Mist{
+  inline bool mp4IncompleteReadMayRecover(size_t sourceSize, uint64_t bufferedEnd) {
+    return sourceSize == std::string::npos || sourceSize > bufferedEnd;
+  }
+
   class InputMP4 : public Input, public Util::DataCallback {
   public:
     InputMP4(Util::Config *cfg);

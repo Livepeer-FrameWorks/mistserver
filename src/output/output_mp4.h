@@ -15,6 +15,7 @@ namespace Mist{
     uint64_t time;
     uint64_t byteOffset; // Stores relative bpos for fragmented MP4
     uint64_t index;
+    size_t endIndex;
     uint64_t firstIndex;
     size_t sampleSize;
     uint16_t sampleDuration;
@@ -98,12 +99,14 @@ namespace Mist{
     void respondHTTP(const HTTP::Parser & req, bool headersOnly);
     void sendNext();
     void sendHeader();
+    virtual bool reachedPlannedStop();
     bool doesWebsockets() { return true; }
     void onWebsocketConnect();
     void onWebsocketFrame();
     virtual void dropTrack(size_t trackId, const std::string &reason, bool probablyBad = true);
   protected:
     bool isFileTarget(){return isRecording();}
+    void initializePartOrder();
     void sendWebsocketCodecData(const std::string& type);
     bool handleWebsocketSeek(JSON::Value& command);
 

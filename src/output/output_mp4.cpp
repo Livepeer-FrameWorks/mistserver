@@ -458,6 +458,13 @@ namespace Mist{
       DTSC::Parts parts(M.parts(it->first));
       DTSC::Keys keys = M.getKeys(it->first);
       size_t partCount = keys.getTotalPartCount();
+      uint64_t mediaStart = 0;
+      // Progressive MP4 starts its decode timeline before presentation when the first GOP is
+      // reordered. Skip that decode-only lead-in through the edit list, as the source MP4 does.
+      if (!fragmented && partCount) {
+        const int64_t firstOffset = parts.getOffset(keys.getFirstPart(keys.getFirstValid()));
+        if (firstOffset > 0) { mediaStart = firstOffset; }
+      }
       uint64_t tDuration = M.getLastms(it->first) - M.getFirstms(it->first);
       std::string tType = M.getType(it->first);
 
@@ -482,13 +489,13 @@ namespace Mist{
         elstBox.setMediaRateFraction(0, 0);
 
         elstBox.setSegmentDuration(1, tDuration);
-        elstBox.setMediaTime(1, 0);
+        elstBox.setMediaTime(1, mediaStart);
         elstBox.setMediaRateInteger(1, 1);
         elstBox.setMediaRateFraction(1, 0);
       }else{
         elstBox.setCount(1);
         elstBox.setSegmentDuration(0, fragmented ? 0 : tDuration);
-        elstBox.setMediaTime(0, 0);
+        elstBox.setMediaTime(0, mediaStart);
         elstBox.setMediaRateInteger(0, 1);
         elstBox.setMediaRateFraction(0, 0);
       }
@@ -773,12 +780,13 @@ namespace Mist{
       for (std::map<size_t, Comms::Users>::const_iterator subIt = userSelect.begin();
            subIt != userSelect.end(); subIt++){
         if (prevVidTrack != INVALID_TRACK_ID && subIt->first == prevVidTrack){continue;}
-        keyPart temp;
+        keyPart temp = {};
         temp.trackID = subIt->first;
 
         DTSC::Keys keys = M.getKeys(subIt->first);
         temp.time = keys.getTime(keys.getFirstValid());
         temp.index = keys.getFirstPart(keys.getFirstValid());
+        temp.endIndex = temp.index + keys.getTotalPartCount();
         temp.firstIndex = temp.index;
         sortSet.insert(temp);
       }
@@ -799,7 +807,7 @@ namespace Mist{
 
         if (M.getType(temp.trackID) == "meta"){dataSize += 2;}
         // add next keyPart to sortSet, if we have not yet reached the end time
-        if (temp.time + parts.getDuration(temp.index) < M.getLastms(temp.trackID)){
+        if (temp.index + 1 < temp.endIndex) {
           temp.time += parts.getDuration(temp.index);
           ++temp.index;
           sortSet.insert(temp);
@@ -854,7 +862,7 @@ namespace Mist{
       // otherwise, set currPos to where we are now and continue
       currPos += partSize;
 
-      if (temp.time + parts.getDuration(temp.index) < M.getLastms(temp.trackID)){// only insert when there are parts left
+      if (temp.index + 1 < temp.endIndex) { // only insert when there are parts left
         temp.time += parts.getDuration(temp.index);
         ++temp.index;
         sortSet.insert(temp);
@@ -1010,7 +1018,7 @@ namespace Mist{
         for (size_t p = firstPart; p < endPart; p++){
           // add part to trunOrder when timestamp is before endFragmentTime
           if (timeStamp >= startFragmentTime){
-            keyPart temp;
+            keyPart temp = {};
             temp.trackID = subIt->first;
             temp.time = timeStamp;
             temp.index = p;
@@ -1169,16 +1177,7 @@ namespace Mist{
     // for live we use fragmented mode
     if (M.getLive()){fragSeqNum = 0;}
 
-    sortSet.clear();
-    for (std::map<size_t, Comms::Users>::const_iterator subIt = userSelect.begin();
-         subIt != userSelect.end(); subIt++){
-      keyPart temp;
-      temp.trackID = subIt->first;
-      DTSC::Keys keys = M.getKeys(subIt->first);
-      temp.time = keys.getTime(keys.getFirstValid());
-      temp.index = keys.getFirstPart(keys.getFirstValid());
-      sortSet.insert(temp);
-    }
+    initializePartOrder();
 
     byteStart = 0;
     byteEnd = fileSize - 1;
@@ -1313,34 +1312,37 @@ namespace Mist{
         H.Chunkify(dataPointer, len, myConn);
       }
     }
-    
+
+    if (sortSet.empty()) {
+      onFail("MP4 packet order is unavailable", true);
+      return;
+    }
     keyPart firstKeyPart = *sortSet.begin();
     if (!M.trackLoaded(firstKeyPart.trackID)){
       onFail("Stream shutting down mid-playback");
       return;
     }
     DTSC::Parts parts(M.parts(firstKeyPart.trackID));
-    /*
-    if (thisIdx != firstKeyPart.trackID || thisPacket.getTime() != firstKeyPart.time ||
-        len != parts.getSize(firstKeyPart.index)){
-      if (thisPacket.getTime() > firstKeyPart.time || thisIdx > firstKeyPart.trackID){
-        if (perfect){
-          WARN_MSG("Warning: input is inconsistent. Expected %zu:%" PRIu64
-                   " (%zub) but got %zu:%" PRIu64 " (%zub) - cancelling playback",
-                   firstKeyPart.trackID, firstKeyPart.time, len, thisIdx, thisPacket.getTime(), len);
-          perfect = false;
-          onFail("Inconsistent input", true);
+    if (!M.getLive() &&
+        (thisIdx != firstKeyPart.trackID || thisPacket.getTime() != firstKeyPart.time ||
+         len != parts.getSize(firstKeyPart.index))) {
+      bool trackStillExpected = false;
+      for (std::set<keyPart>::const_iterator it = sortSet.begin(); it != sortSet.end(); ++it) {
+        if (it->trackID == thisIdx) {
+          trackStillExpected = true;
+          break;
         }
-      }else{
-        WARN_MSG("Did not receive expected %zu:%" PRIu64 " (%zub) but got %zu:%" PRIu64
-                 " (%zub) - throwing it away",
-                 firstKeyPart.trackID, firstKeyPart.time, parts.getSize(firstKeyPart.index),
-                 thisIdx, thisPacket.getTime(), len);
-        HIGH_MSG("Part %" PRIu64 " in violation", firstKeyPart.index)
       }
+      // A composition-aware limiter may finish one track before another. The generic reader can
+      // already have queued the exhausted track's next packet; it is outside this MP4's sample
+      // tables and must not be written into the remaining track's slot.
+      if (!trackStillExpected) { return; }
+      WARN_MSG("Inconsistent MP4 input. Expected %zu:%" PRIu64 " (%zub) but got %zu:%" PRIu64
+               " (%zub) - cancelling output",
+               firstKeyPart.trackID, firstKeyPart.time, parts.getSize(firstKeyPart.index), thisIdx, thisPacket.getTime(), len);
+      onFail("Inconsistent MP4 input", true);
       return;
     }
-    */
 
     // The remainder of this function handles non-live situations
     if (M.getLive()){
@@ -1379,7 +1381,7 @@ namespace Mist{
       keyPart temp = *sortSet.begin();
       sortSet.erase(sortSet.begin());
       currPos += parts.getSize(temp.index);
-      if (temp.time + parts.getDuration(temp.index) < M.getLastms(temp.trackID)){// only insert when there are parts left
+      if (temp.index + 1 < temp.endIndex) { // only insert when there are parts left
         temp.time += parts.getDuration(temp.index);
         ++temp.index;
         sortSet.insert(temp);
@@ -1392,6 +1394,33 @@ namespace Mist{
     if (M.getLive()){needsLookAhead = 250;}
     if (webSock){needsLookAhead = 0;} 
     HTTPOutput::initialSeek(dryRun);
+  }
+
+  bool OutMP4::reachedPlannedStop() {
+    // A limited progressive MP4 may contain decode-only tail samples needed to present every
+    // frame before the requested stop. The limiter and edit list define the visible endpoint;
+    // keep consuming until that limited packet set reaches EOF.
+    if (!M.getLive() && (targetParams.count("recstop") || targetParams.count("stop"))) {
+      if (sortSet.empty()) {
+        INFO_MSG("End of planned MP4 output reached after decode-tail drain");
+        return true;
+      }
+      return false;
+    }
+    return Output::reachedPlannedStop();
+  }
+
+  void OutMP4::initializePartOrder() {
+    sortSet.clear();
+    for (std::map<size_t, Comms::Users>::const_iterator subIt = userSelect.begin(); subIt != userSelect.end(); ++subIt) {
+      keyPart temp = {};
+      temp.trackID = subIt->first;
+      DTSC::Keys keys = M.getKeys(subIt->first);
+      temp.time = keys.getTime(keys.getFirstValid());
+      temp.index = keys.getFirstPart(keys.getFirstValid());
+      temp.endIndex = temp.index + keys.getTotalPartCount();
+      sortSet.insert(temp);
+    }
   }
 
   void OutMP4::sendHeader(){
@@ -1430,6 +1459,7 @@ namespace Mist{
         myConn.SendNow(headerData, headerData.size());
       }
       seekPoint = Output::startTime();
+      if (!M.getLive()) { initializePartOrder(); }
     }
 
         
@@ -1530,5 +1560,4 @@ namespace Mist{
     return Output::dropTrack(trackId, reason, probablyBad);
   }
 
-}// namespace Mist
-
+} // namespace Mist

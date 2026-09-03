@@ -62,6 +62,7 @@ namespace MP4{
     hasOffsets = false;
     hasKeys = false;
     isVideo = false;
+    isCompatible = false;
     sttsBox.clear();
     cttsBox.clear();
     stszBox.clear();
@@ -74,6 +75,38 @@ namespace MP4{
     stco64 = false;
     trafMode = false;
     trackId = 0;
+    timeScale = 0;
+    timeShift = 0;
+    offsetShift = 0;
+  }
+
+  int64_t TrackHeader::getMinCTSOffsetMs() {
+    if (!hasOffsets || !timeScale) { return 0; }
+    uint32_t eCnt = cttsBox.getEntryCount();
+    int32_t minOff = 0;
+    for (uint32_t i = 0; i < eCnt; ++i) {
+      int32_t off = cttsBox.getCTTSEntry(i).sampleOffset;
+      if (off < minOff) { minOff = off; }
+    }
+    if (minOff >= 0) { return 0; }
+    return ((int64_t)minOff * 1000) / (int64_t)timeScale;
+  }
+
+  int64_t TrackHeader::normalizeCompositionOffsets(std::deque<TrackHeader> & tracks) {
+    int64_t globalTimeOffset = 0;
+    for (std::deque<TrackHeader>::iterator it = tracks.begin(); it != tracks.end(); ++it) {
+      if (!it->compatible()) { continue; }
+      const int64_t minCTS = it->getMinCTSOffsetMs();
+      if (minCTS < 0 && -minCTS > globalTimeOffset) { globalTimeOffset = -minCTS; }
+    }
+    for (std::deque<TrackHeader>::iterator it = tracks.begin(); it != tracks.end(); ++it) {
+      if (!it->compatible()) { continue; }
+      const int64_t minCTS = it->getMinCTSOffsetMs();
+      const int64_t offsetRebase = minCTS < 0 ? -minCTS : 0;
+      it->offsetShift = offsetRebase;
+      it->timeShift = globalTimeOffset - offsetRebase;
+    }
+    return globalTimeOffset;
   }
 
   void TrackHeader::nextMoof(){
@@ -104,6 +137,9 @@ namespace MP4{
   void TrackHeader::read(TRAK &trakBox){
     vidWidth = vidHeight = audChannels = audRate = audSize = 0;
     codec.clear();
+    // Default to incompatible — codec-detection blocks below promote to true.
+    // Also ensures we stay incompatible if we early-return below.
+    isCompatible = false;
 
     MDIA mdiaBox = trakBox.getChild<MDIA>();
     timeScale = mdiaBox.getChild<MDHD>().getTimeScale();
@@ -114,6 +150,14 @@ namespace MP4{
     if (tkhd.getWidth()){
       vidWidth = tkhd.getWidth();
       vidHeight = tkhd.getHeight();
+    }
+
+    // All time/offset math in this file divides by timeScale; a zero value
+    // (MDHD missing or malformed) would crash later with SIGFPE. Reject the
+    // track up front so input_mp4's compatible() check skips it cleanly.
+    if (!timeScale) {
+      WARN_MSG("Track %zu has timeScale=0 (MDHD missing or malformed); marking track as unusable", trackId);
+      return;
     }
 
     STBL stblBox = mdiaBox.getChild<MINF>().getChild<STBL>();
@@ -149,8 +193,6 @@ namespace MP4{
     }else{
       INFO_MSG("Unsupported handler: %s", handler.c_str());
     }
-
-    isCompatible = false;
 
     if (sType == "avc1" || sType == "h264" || sType == "mp4v"){
       codec = "H264";
@@ -336,7 +378,7 @@ namespace MP4{
 
         // Inside the samples with the same delta, we may still need to increase the timestamp.
         while (timeSample < index){increaseTime(entry.sampleDelta);}
-        *time = (timeTotal * 1000) / timeScale;
+        *time = (timeTotal * 1000) / timeScale + timeShift;
       }
 
       // Look up time offset, if requested and available
@@ -358,10 +400,10 @@ namespace MP4{
             offsetSample = nextSampleIndex;
             ++offsetIndex;
           }
-          *timeOffset = (entry.sampleOffset * 1000) / timeScale;
+          *timeOffset = ((int64_t)entry.sampleOffset * 1000) / (int64_t)timeScale + offsetShift;
         }else{
           // Default to zero if there are no offsets for this track
-          *timeOffset = 0;
+          *timeOffset = offsetShift;
         }
       }
 
@@ -509,14 +551,12 @@ namespace MP4{
               trunSampleInformation i = runIt->getSampleInformation(timeSample - locSkipped, &tfhd, trexPtr);
               increaseTime(i.sampleDuration);
             }
-            *time = (timeTotal * 1000) / timeScale;
+            *time = (timeTotal * 1000) / timeScale + timeShift;
           }
           if (byteLen){
             *byteLen = si.sampleSize;
           }
-          if (timeOffset){
-            *timeOffset = (si.sampleOffset * 1000) / timeScale;
-          }
+          if (timeOffset) { *timeOffset = (si.sampleOffset * 1000) / (int64_t)timeScale + offsetShift; }
           if (keyFrame){
             *keyFrame = !(si.sampleFlags & MP4::noKeySample);
           }
@@ -527,6 +567,4 @@ namespace MP4{
 
   }
 
-
 } // namespace MP4
-

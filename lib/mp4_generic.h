@@ -90,7 +90,7 @@ namespace MP4{
     uint32_t sampleDuration;
     uint32_t sampleSize;
     uint32_t sampleFlags;
-    uint32_t sampleOffset;
+    int64_t sampleOffset;
   };
   enum trunflags{
     trundataOffset = 0x00000001,
@@ -115,6 +115,8 @@ namespace MP4{
   class TRUN : public Box{
   public:
     TRUN();
+    void setVersion(uint8_t version);
+    uint8_t getVersion() const;
     void setFlags(uint32_t newFlags);
     uint32_t getFlags() const;
     void setDataOffset(uint32_t newOffset);

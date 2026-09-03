@@ -194,6 +194,25 @@ namespace Mist{
     tNumber = 0;
     bps = 0;
 
+    // Compute a uniform PTS rebase across all compatible tracks so that any negative
+    // CTTS composition offsets are turned into non-negative offsets, while keeping
+    // multi-track sync. Each track's DTS gets shifted forward by globalTimeOffset (max
+    // negative offset across tracks) and its per-sample offset is increased by this
+    // track's own negative-offset magnitude. Net effect: PTS = origPTS + globalTimeOffset
+    // for every track, and offsets are always >= 0 — so downstream code that reads
+    // them as unsigned (e.g. TS PES encoder) stays correct.
+    const int64_t globalTimeOffset = MP4::TrackHeader::normalizeCompositionOffsets(trackHeaders);
+    for (std::deque<MP4::TrackHeader>::iterator it = trackHeaders.begin(); it != trackHeaders.end(); it++) {
+      if (!it->compatible()) { continue; }
+      int64_t minCTS = it->getMinCTSOffsetMs();
+      int64_t dtsCtsOffset = it->offsetShift;
+      if (dtsCtsOffset || globalTimeOffset) {
+        INFO_MSG("Track %" PRIu32 ": rebasing offsets by +%" PRId64 " ms, DTS by +%" PRId64
+                 " ms (min CTS offset was %" PRId64 " ms, global shift %" PRId64 " ms)",
+                 (uint32_t)it->trackId, dtsCtsOffset, it->timeShift, minCTS, globalTimeOffset);
+      }
+    }
+
     bool sawParts = false;
     bool parsedInitial = false;
     for (std::deque<MP4::TrackHeader>::iterator it = trackHeaders.begin(); it != trackHeaders.end(); it++){
@@ -514,20 +533,20 @@ namespace Mist{
       inFile.readSome((pos+len) - (readPos+readBuffer.size()), *this);
     }
     if (readPos+readBuffer.size() < pos+len){
-      if (inFile.getSize() != std::string::npos || inFile.getSize() > readPos+readBuffer.size()){
-        FAIL_MSG("Read unsuccessful at %" PRIu64 ", seeking to retry...", readPos+readBuffer.size());
-        readBuffer.truncate(0);
-        if (!inFile.seek(pos)){
-          return false;
+      if (mp4IncompleteReadMayRecover(inFile.getSize(), readPos + readBuffer.size())) {
+        for (size_t attempts = 0; attempts < 3 && keepRunning(); ++attempts) {
+          WARN_MSG("Read unsuccessful at %" PRIu64 ", seeking to retry (%zu/3)...", readPos + readBuffer.size(), attempts + 1);
+          readBuffer.truncate(0);
+          if (!inFile.seek(pos)) { return false; }
+          readPos = inFile.getPos();
+          while (readPos + readBuffer.size() < pos + len && inFile && keepRunning()) {
+            inFile.readSome((pos + len) - (readPos + readBuffer.size()), *this);
+          }
+          if (readPos + readBuffer.size() >= pos + len) { return true; }
+          Util::sleep(100);
         }
-        readPos = inFile.getPos();
-        while (readPos+readBuffer.size() < pos+len && inFile && keepRunning()){
-          inFile.readSome((pos+len) - (readPos+readBuffer.size()), *this);
-        }
-        if (readPos+readBuffer.size() < pos+len){
-          return false;
-        }
-      }else{
+        return false;
+      } else {
         WARN_MSG("Attempt to read past end of file!");
         return false;
       }
