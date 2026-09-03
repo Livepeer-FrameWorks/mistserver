@@ -1,6 +1,8 @@
 #pragma once
 #include <mist/config.h>
 #include <mist/defines.h>
+
+#include <atomic>
 #include <string>
 
 #define DETAIL_LOW(msg, ...)                                                                       \
@@ -36,5 +38,5 @@ protected:
   uint64_t mediaTime; ///< Timestamp in ms of last media packet received
   uint64_t upTime;    ///< Unix time of analyser start
   uint64_t finTime;   ///< Unix time of last packet received
-  bool *isActive;     ///< Pointer to is_active bool from config
+  std::atomic<bool> *isActive; ///< Pointer to process-wide active state from config
 };

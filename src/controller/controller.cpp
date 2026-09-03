@@ -1,7 +1,9 @@
 #include "controller_api.h"
 #include "controller_capabilities.h"
 #include "controller_connectors.h"
+#include "controller_discovery.h"
 #include "controller_external_writers.h"
+#include "controller_log_thread.h"
 #include "controller_push.h"
 #include "controller_statistics.h"
 #include "controller_storage.h"
@@ -9,7 +11,6 @@
 #include "controller_updater.h"
 #include "controller_uplink.h"
 #include "controller_variables.h"
-#include "controller_discovery.h"
 
 #include <mist/auth.h>
 #include <mist/config.h>
@@ -496,7 +497,7 @@ int main_loop(int argc, char **argv){
   }
   // Start reading log messages
   Util::Procs::socketList.insert(logInput); // Mark this FD as needing to be closed before forking
-  std::thread logThread(Controller::handleMsg, logInput);
+  Controller::LogThread logThread(std::thread(Controller::handleMsg, logInput), logInput, STDERR_FILENO);
   setenv("MIST_CONTROL", "1", 0); // Signal in the environment that the controller handles all children
 
 #ifdef __CYGWIN__
@@ -511,7 +512,7 @@ int main_loop(int argc, char **argv){
 
   Controller::readConfigFromDisk();
   Controller::writeConfig();
-  if (!Controller::conf.is_active){return 0;}
+  if (!Controller::conf.is_active) { return 0; }
   Controller::checkAvailProtocols();
   Controller::checkAvailTriggers();
   Controller::writeCapabilities();
@@ -855,7 +856,7 @@ int main_loop(int argc, char **argv){
   // give everything some time to print messages
   Util::wait(100);
   std::cout << "Killed all processes, wrote config to disk. Exiting." << std::endl;
-  if (Util::Config::is_restarting){return 42;}
+  if (Util::Config::is_restarting) { return 42; }
 
 #ifdef SSL
   if (Controller::isTLSEnabled) {
@@ -870,9 +871,7 @@ int main_loop(int argc, char **argv){
 #endif
 
   // close logInput to make the log reading thread exit, then join it
-  close(STDERR_FILENO);
-  close(logInput);
-  logThread.join();
+  logThread.stop();
 
   // Finally de-allocate storage - the log thread uses these structures
   Controller::deinitStorage(Util::Config::is_restarting);

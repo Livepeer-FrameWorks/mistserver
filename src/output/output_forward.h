@@ -14,7 +14,7 @@ namespace Mist {
       bool isFileTarget() { return false; }
 
     protected:
-      inline virtual bool keepGoing() { return Util::Config::is_active; }
+      inline virtual bool keepGoing() { return Util::Config::is_active.load(std::memory_order_relaxed); }
   };
 
 } // namespace Mist

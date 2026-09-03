@@ -38,14 +38,22 @@
 #include <mach-o/dyld.h>
 #endif
 
-bool Util::Config::is_active = false;
-bool Util::Config::is_restarting = false;
+static_assert(ATOMIC_BOOL_LOCK_FREE == 2, "Config signal state requires lock-free atomics");
+static_assert(ATOMIC_INT_LOCK_FREE == 2, "Config binary type requires lock-free atomics");
+std::atomic<bool> Util::Config::is_active{false};
+std::atomic<bool> Util::Config::is_restarting{false};
 static int serv_sock_fd = -1;
 uint32_t Util::printDebugLevel = DEBUG;
 __thread char Util::streamName[256] = {0};
 __thread char Util::exitReason[256] = {0};
 __thread char* Util::mRExitReason = (char*)ER_UNKNOWN;
-Util::binType Util::Config::binaryType = UNSET;
+std::atomic<Util::binType> Util::Config::binaryType{UNSET};
+
+Util::binType Util::Config::claimBinaryType(Util::binType requested) {
+  Util::binType expected = UNSET;
+  binaryType.compare_exchange_strong(expected, requested, std::memory_order_relaxed);
+  return binaryType.load(std::memory_order_relaxed);
+}
 
 void Util::setStreamName(const std::string & sn){
   strncpy(Util::streamName, sn.c_str(), 256);
@@ -203,7 +211,7 @@ void Util::Config::wipeShm(){
   if (deleted){WARN_MSG("Wiped %" PRIu64 " shared memory file(s)", deleted);}
 }
 
-Util::Config::Config(){
+Util::Config::Config() {
   // global options here
   vals["debug"]["long"] = "debug";
   vals["debug"]["short"] = "g";
@@ -625,6 +633,14 @@ void Util::Config::activate(){
   if (cur_action.sa_handler == SIG_DFL || cur_action.sa_handler == SIG_IGN){
     new_action.sa_handler = SIG_IGN;
     sigaction(SIGCHLD, &new_action, NULL);
+  }
+  // InputBuffer uses SIGUSR2 for diagnostics. Ignore it by default so binaries without their own
+  // diagnostic handler are not terminated when process diagnostics are requested.
+  sigaction(SIGUSR2, 0, &cur_action);
+  if (cur_action.sa_handler == SIG_DFL) {
+    new_action.sa_flags = 0;
+    new_action.sa_handler = SIG_IGN;
+    sigaction(SIGUSR2, &new_action, NULL);
   }
   is_active = true;
 }

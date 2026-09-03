@@ -142,7 +142,7 @@ namespace Controller {
     updaterDl.dataTimeout = 50; // only timeout if no data received for 50 seconds
     updaterDl.progressCallback = []() {
       updatePerc = updaterDl.getHTTP().getPercentage();
-      return Util::Config::is_active;
+      return Util::Config::is_active.load(std::memory_order_relaxed);
     };
     updaterDl.getEventLooped(Controller::E, url, 6, []() {
       LOG_MSG("UPDR", "Downloaded %zuKiB of update data; Installing...", updaterDl.data().size() / 1024);

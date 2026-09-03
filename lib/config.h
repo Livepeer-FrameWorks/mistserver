@@ -3,6 +3,7 @@
 
 #pragma once
 
+#include <atomic>
 #ifndef PACKAGE_VERSION
 #define PACKAGE_VERSION "unknown"
 #endif
@@ -42,9 +43,10 @@ namespace Util{
     static void wipeShm();
     static void setServerFD(int fd);
     // variables
-    static bool is_active;     ///< Set to true by activate(), set to false by the signal handler.
-    static bool is_restarting; ///< Set to true when restarting, set to false on boot.
-    static binType binaryType;
+    static std::atomic<bool> is_active; ///< Set to true by activate(), set to false by the signal handler.
+    static std::atomic<bool> is_restarting; ///< Set to true when restarting, set to false on boot.
+    static std::atomic<binType> binaryType;
+    static binType claimBinaryType(binType requested);
     // functions
     Config();
     Config(std::string cmd);
