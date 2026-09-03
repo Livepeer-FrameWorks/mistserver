@@ -12,6 +12,9 @@ namespace Controller{
   void stopPush(const std::string & stream);
   void stopPushGraceful(unsigned int ID);
   void stopPushGraceful(const std::string & stream);
+  void killPush(unsigned int ID);
+  void jigglePush(const std::string & stream, const std::string & target);
+  void jigglePush(unsigned int ID);
   void listPush(JSON::Value &output);
   void pushLogMessage(uint64_t id, const JSON::Value & msg);
   void setPushStatus(const JSON::Value & status);

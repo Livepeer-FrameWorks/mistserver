@@ -3,21 +3,9 @@
 #include <mist/procs.h>
 #include <mist/shared_memory.h>
 #include <mist/stream.h>
+#include <mist/stream_status.h>
 #include <mist/timing.h>
 #include <mist/util.h>
-
-const char * getStateString(uint8_t state){
-  switch (state){
-  case STRMSTAT_OFF: return "Stream is offline";
-  case STRMSTAT_INIT: return "Stream is initializing";
-  case STRMSTAT_BOOT: return "Stream is booting";
-  case STRMSTAT_WAIT: return "Stream is waiting for data";
-  case STRMSTAT_READY: return "Stream is online";
-  case STRMSTAT_SHUTDOWN: return "Stream is shutting down";
-  case STRMSTAT_INVALID: return "Stream status is invalid?!";
-  default: return "Stream status is unknown?!";
-  }
-}
 
 /// Gets a PID from a shared memory page, if it exists
 uint64_t getPidFromPage(const char * pagePattern){
@@ -110,10 +98,10 @@ int main(int argc, char **argv){
   tryLock();
 
   uint8_t state = Util::getStreamStatus(Util::streamName);
-  INFO_MSG("Current stream status: %s", getStateString(state));
+  INFO_MSG("Current stream status: %s", Util::streamStatusDescription(state));
   uint64_t startTime = Util::bootMS();
-  if (state != STRMSTAT_OFF){INFO_MSG("Attempting clean shutdown...");}
-  while (state != STRMSTAT_OFF && Util::bootMS() < startTime + 5000) {
+  if (!Util::streamStatusIsTerminal(state)) { INFO_MSG("Attempting clean shutdown..."); }
+  while (!Util::streamStatusIsTerminal(state) && Util::bootMS() < startTime + 5000) {
     uint64_t pid;
     pid = getPidFromPage(SHM_STREAM_IPID);
     if (pid > 1) {
@@ -134,9 +122,7 @@ int main(int argc, char **argv){
     }
     uint8_t prevState = state;
     state = Util::getStreamStatus(Util::streamName);
-    if (prevState != state){
-      INFO_MSG("Current stream status: %s", getStateString(state));
-    }
+    if (prevState != state) { INFO_MSG("Current stream status: %s", Util::streamStatusDescription(state)); }
     Util::wait(10);
     tryLock();
   }
@@ -269,4 +255,3 @@ int main(int argc, char **argv){
   INFO_MSG("Completed cleanup");
   return 0;
 }
-

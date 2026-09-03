@@ -11,24 +11,28 @@
 #include "controller_streams.h"
 #include "controller_updater.h"
 #include "controller_variables.h"
+#include "push_control_request.h"
+#include "translations.vfs.h"
+#include "trigger_config_policy.h"
 
 #include <mist/auth.h>
 #include <mist/bitfields.h>
 #include <mist/config.h>
 #include <mist/defines.h>
+#include <mist/embedded_fs.h>
 #include <mist/http_parser.h>
 #include <mist/jwt.h>
 #include <mist/procs.h>
 #include <mist/stream.h>
+#include <mist/stream_status.h>
 #include <mist/timing.h>
+#include <mist/triggers.h>
 #include <mist/url.h>
 
 #include <dirent.h>
 #include <fstream>
 #include <signal.h>
 #include <sstream>
-#include <mist/embedded_fs.h>
-#include "translations.vfs.h"
 #include <sys/stat.h> //for browse API call
 
 std::set<APIConn *> reggedLoggers;
@@ -103,15 +107,7 @@ void Controller::callStreamMeta(const std::string & stream, const DTSC::Meta & M
     uint8_t streamStatus = Util::getStreamStatus(stream);
     uint8_t streamStatusPerc = Util::getStreamStatusPercentage(stream);
     if (streamStatus != STRMSTAT_READY) {
-      switch (streamStatus) {
-        case STRMSTAT_OFF: J["error"] = "Stream is offline"; break;
-        case STRMSTAT_INIT: J["error"] = "Stream is initializing"; break;
-        case STRMSTAT_BOOT: J["error"] = "Stream is booting"; break;
-        case STRMSTAT_WAIT: J["error"] = "Stream is waiting for data"; break;
-        case STRMSTAT_SHUTDOWN: J["error"] = "Stream is shutting down"; break;
-        case STRMSTAT_INVALID: J["error"] = "Stream status is invalid?!"; break;
-        default: J["error"] = "Stream status is unknown?!"; break;
-      }
+      J["error"] = Util::streamStatusDescription(streamStatus);
       if (streamStatusPerc) { J["perc"] = ((double)streamStatusPerc) / 2.55; }
     }
     if (M) {
@@ -1046,14 +1042,20 @@ void Controller::handleAPICommands(JSON::Value &Request, JSON::Value &Response){
     }
     if (in.isMember("controller")){out["controller"] = in["controller"];}
     if (in.isMember("serverid")){out["serverid"] = in["serverid"];}
-    if (in.isMember("triggers")){
-      out["triggers"] = in["triggers"];
-      if (!out["triggers"].isObject()){
-        out.removeMember("triggers");
-      }else{
-        jsonForEach(out["triggers"], it){
-          if (it->isArray()){
-            jsonForEach((*it), jt){jt->removeNullMembers();}
+    if (in.isMember("triggers")) {
+      std::string triggerError;
+      if (!Controller::validateTriggerOnFailConfig(in["triggers"], triggerError)) {
+        ERROR_MSG("%s", triggerError.c_str());
+        Response["error"] = triggerError;
+      } else {
+        out["triggers"] = in["triggers"];
+        if (!out["triggers"].isObject()) {
+          out.removeMember("triggers");
+        } else {
+          jsonForEach (out["triggers"], it) {
+            if (it->isArray()) {
+              jsonForEach (*it, jt) { jt->removeNullMembers(); }
+            }
           }
         }
       }
@@ -1628,7 +1630,7 @@ void Controller::handleAPICommands(JSON::Value &Request, JSON::Value &Response){
           }
         }
       }
-    }else{
+    } else {
       Controller::checkCapable(capabilities);
       Response["capabilities"] = capabilities;
     }
@@ -2157,6 +2159,16 @@ void Controller::handleAPICommands(JSON::Value &Request, JSON::Value &Response){
     } else {
       Controller::stopPushGraceful(Request["push_stop_graceful"].asInt());
     }
+  }
+
+  const Controller::PushControlRequest pushControl = Controller::parsePushControlRequest(Request);
+  for (uint32_t id : pushControl.killIds) { Controller::killPush(id); }
+  for (uint32_t id : pushControl.reinitializeIds) { Controller::jigglePush(id); }
+  for (const std::pair<std::string, std::string> & target : pushControl.reinitializeTargets) {
+    Controller::jigglePush(target.first, target.second);
+  }
+  for (size_t i = 0; i < pushControl.invalidReinitializeRequests; ++i) {
+    WARN_MSG("Unable to execute 'push_reinit' call. Provide a push PID or an object containing streamname and target.");
   }
 
   if (Request.isMember("push_auto_add")){Controller::addPush(Request["push_auto_add"], Response);}

@@ -228,6 +228,36 @@ namespace Controller{
     }
   }
 
+  /// Immediately kills (SIGKILL) a push with the given ID
+  void killPush(unsigned int ID) {
+    std::lock_guard<std::recursive_mutex> actGuard(actPushMut);
+    if (ID > 1 && activePushes.count(ID)) { Util::Procs::Murder(ID); }
+  }
+
+  /// Soft-restarts the push matching the given stream and target
+  void jigglePush(const std::string & stream, const std::string & target) {
+    std::lock_guard<std::recursive_mutex> actGuard(actPushMut);
+    for (std::map<pid_t, JSON::Value>::iterator it = activePushes.begin(); it != activePushes.end(); ++it) {
+      if (it->second[1].asStringRef() == stream && it->second[3].asStringRef() == target && Util::Procs::isActive(it->first)) {
+        INFO_MSG("Sending SIGHUP command to stream '%s' target '%s' to force a soft restart", stream.c_str(), target.c_str());
+        kill(it->first, SIGHUP);
+        return;
+      }
+    }
+    WARN_MSG("Unable to find an active push for stream '%s' to target '%s'", stream.c_str(), target.c_str());
+  }
+
+  /// Soft-restarts the push with the given ID
+  void jigglePush(unsigned int ID) {
+    std::lock_guard<std::recursive_mutex> actGuard(actPushMut);
+    if (ID > 1 && activePushes.count(ID)) {
+      INFO_MSG("Sending SIGHUP command to push with ID '%i'", ID);
+      kill(ID, SIGHUP);
+      return;
+    }
+    WARN_MSG("Unable to find an active push for ID '%i'", ID);
+  }
+
   /// Compactly writes the list of pushes to a pointer, assumed to be 8MiB in size
   static void writePushList(char *pwo){
     std::lock_guard<std::recursive_mutex> actGuard(actPushMut);
