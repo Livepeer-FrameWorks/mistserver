@@ -1,0 +1,59 @@
+name: Set up ONNX dependencies
+description: Restore or build the locked ONNX Runtime and OpenCV profile for MistProcONNX
+
+inputs:
+  profile:
+    description: ONNX execution-provider profile
+    required: true
+  prefix:
+    description: Absolute installation prefix
+    required: true
+  work-dir:
+    description: Absolute dependency source/build directory
+    required: true
+  jobs:
+    description: Parallel dependency build jobs
+    required: false
+    default: '4'
+  runtime-distribution:
+    description: Locked binary ONNX Runtime distribution, or source
+    required: false
+    default: source
+  nvcc-threads:
+    description: Threads used internally by each NVCC compilation
+    required: false
+    default: '1'
+
+runs:
+  using: composite
+  steps:
+    - name: Restore locked ONNX dependency profile
+      id: cache
+      uses: actions/cache@v4
+      with:
+        path: ${{ inputs.prefix }}
+        key: onnx-deps-${{ runner.os }}-${{ runner.arch }}-${{ inputs.profile }}-${{ inputs.runtime-distribution }}-${{ hashFiles('scripts/ONNX/dependencies.lock.tsv', 'scripts/ONNX/build_dependencies.sh') }}
+
+    - name: Build locked ONNX dependency profile
+      if: steps.cache.outputs.cache-hit != 'true'
+      shell: bash
+      run: >-
+        scripts/ONNX/build_dependencies.sh
+        --prefix '${{ inputs.prefix }}'
+        --work-dir '${{ inputs.work-dir }}'
+        --profile '${{ inputs.profile }}'
+        --jobs '${{ inputs.jobs }}'
+        --runtime-distribution '${{ inputs.runtime-distribution }}'
+        --nvcc-threads '${{ inputs.nvcc-threads }}'
+
+    - name: Verify dependency profile
+      shell: bash
+      run: |
+        test -f '${{ inputs.prefix }}/.mist-onnx-dependencies'
+        test -d '${{ inputs.prefix }}/include/onnxruntime'
+        test -f '${{ inputs.prefix }}/lib/pkgconfig/libonnxruntime.pc'
+        test -f '${{ inputs.prefix }}/lib/pkgconfig/opencv5.pc'
+        test -f '${{ inputs.prefix }}/share/licenses/onnxruntime/ThirdPartyNotices.txt'
+        test -d '${{ inputs.prefix }}/share/licenses/opencv5'
+        grep -F '/${{ inputs.profile }}/onnxruntime-' \
+          '${{ inputs.prefix }}/.mist-onnx-dependencies'

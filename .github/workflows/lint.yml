@@ -15,51 +15,9 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           fetch-depth: 0
-
-      - name: Install dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            clang-tidy \
-            build-essential \
-            python3 python3-pip \
-            ninja-build \
-            libmbedtls-dev \
-            libxml2-dev \
-            libavcodec-dev \
-            libavfilter-dev \
-            libavformat-dev \
-            libavutil-dev \
-            libswscale-dev \
-            libswresample-dev \
-            libsrtp2-dev \
-            libusrsctp-dev \
-            libssl-dev \
-            libsrt-openssl-dev \
-            zlib1g-dev
-          python3 -m pip install --break-system-packages 'meson>=1.6.0'
-
-      - name: Generate compile_commands.json
-        run: |
-          meson setup builddir \
-            --wrap-mode=default \
-            --force-fallback-for=mbedtls,usrsctp \
-            -DWITH_AV=true \
-            -DNORIST=true
-          cp lib/*.h builddir/mist/
-          if compgen -G "lib/ffmpeg/*.h" > /dev/null; then
-            mkdir -p builddir/mist/ffmpeg/
-            cp lib/ffmpeg/*.h builddir/mist/ffmpeg/
-          fi
-          mapfile -t GENERATED_HEADERS < <(
-            ninja -C builddir -t targets all | sed -n -E 's#^(generated/.*\.h): CUSTOM_COMMAND$#\1#p'
-          )
-          if [ "${#GENERATED_HEADERS[@]}" -gt 0 ]; then
-            ninja -C builddir "${GENERATED_HEADERS[@]}"
-          fi
 
       - name: Get changed files
         id: changed
@@ -87,12 +45,86 @@ jobs:
           if [ -z "$FILES" ]; then
             echo "No C++ files changed"
             echo "files=" >> "$GITHUB_OUTPUT"
+            echo "onnx=false" >> "$GITHUB_OUTPUT"
           else
             {
               echo 'files<<EOF'
               echo "$FILES"
               echo 'EOF'
             } >> "$GITHUB_OUTPUT"
+            if grep -qE '^(lib/onnx\.(cpp|h)|src/process/(process_onnx.*|onnx_.*\.h)|test/onnx_.*\.cpp)$' <<< "$FILES"; then
+              echo "onnx=true" >> "$GITHUB_OUTPUT"
+            else
+              echo "onnx=false" >> "$GITHUB_OUTPUT"
+            fi
+          fi
+
+      - name: Install dependencies
+        if: steps.changed.outputs.files != ''
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            clang-tidy \
+            build-essential \
+            python3 python3-pip \
+            ninja-build \
+            pkg-config \
+            cmake \
+            libmbedtls-dev \
+            libxml2-dev \
+            libavcodec-dev \
+            libavfilter-dev \
+            libavformat-dev \
+            libavutil-dev \
+            libswscale-dev \
+            libswresample-dev \
+            libsrtp2-dev \
+            libusrsctp-dev \
+            libssl-dev \
+            libsrt-openssl-dev \
+            libjpeg-dev \
+            libpng-dev \
+            zlib1g-dev
+          python3 -m pip install --break-system-packages 'meson>=1.6.0'
+
+      - name: Restore ONNX dependencies for ONNX lint targets
+        uses: ./.github/actions/setup-onnx-dependencies
+        if: steps.changed.outputs.onnx == 'true'
+        with:
+          profile: cpu
+          prefix: ${{ github.workspace }}/.deps/onnx/cpu
+          work-dir: ${{ runner.temp }}/onnx-build/cpu
+
+      - name: Generate compile_commands.json
+        if: steps.changed.outputs.files != ''
+        env:
+          PKG_CONFIG_PATH: ${{ github.workspace }}/.deps/onnx/cpu/lib/pkgconfig
+          CMAKE_PREFIX_PATH: ${{ github.workspace }}/.deps/onnx/cpu
+          LINT_ONNX: ${{ steps.changed.outputs.onnx }}
+        run: |
+          ONNX_ARGS=(-DONNX=disabled)
+          if [ "$LINT_ONNX" = "true" ]; then
+            ONNX_ARGS=(-DONNX=enabled -DONNX_STATIC=true -DONNX_PROFILE=cpu)
+          fi
+          meson setup builddir \
+            --wrap-mode=default \
+            --force-fallback-for=mbedtls,usrsctp \
+            -DWITH_AV=true \
+            "${ONNX_ARGS[@]}" \
+            -DNORIST=true
+          if [ "$LINT_ONNX" = "true" ]; then
+            grep -qE 'ONNX AI processing:[[:space:]]+YES \(profile=cpu\)' builddir/meson-logs/meson-log.txt || { echo "::error::ONNX CPU support was not built"; exit 1; }
+          fi
+          cp lib/*.h builddir/mist/
+          if compgen -G "lib/ffmpeg/*.h" > /dev/null; then
+            mkdir -p builddir/mist/ffmpeg/
+            cp lib/ffmpeg/*.h builddir/mist/ffmpeg/
+          fi
+          mapfile -t GENERATED_HEADERS < <(
+            ninja -C builddir -t targets all | sed -n -E 's#^(generated/.*\.h): CUSTOM_COMMAND$#\1#p'
+          )
+          if [ "${#GENERATED_HEADERS[@]}" -gt 0 ]; then
+            ninja -C builddir "${GENERATED_HEADERS[@]}"
           fi
 
       - name: Run clang-tidy on changed files
@@ -129,7 +161,7 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           fetch-depth: 0
 

@@ -6,6 +6,17 @@ on:
       - 'v*'
       - 'frameworks-*'
   workflow_dispatch:
+    inputs:
+      publish:
+        description: Push Docker images and manifests
+        required: true
+        type: boolean
+        default: false
+      sign_macos:
+        description: Sign and notarize the macOS artifact
+        required: true
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -17,6 +28,21 @@ env:
   SVT_AV1_REF: v3.1.2
 
 jobs:
+  # Linux accelerator images are built on ordinary GitHub-hosted CPU runners. The
+  # vendor SDK images provide compilers and userspace runtimes; physical hardware is
+  # only needed by the separately opt-in execution tests.
+  build-onnx-accelerators:
+    name: Build Linux ONNX accelerator images and native bundles
+    uses: ./.github/workflows/onnx-accelerators.yml
+    with:
+      profile: all
+      publish: ${{ github.event_name != 'workflow_dispatch' || inputs.publish }}
+      run_hardware_tests: false
+    secrets: inherit
+    permissions:
+      contents: read
+      packages: write
+
   # ---------------------------------------------------------------------------
   # Docker image — linux/amd64 on ubuntu
   # ---------------------------------------------------------------------------
@@ -44,9 +70,10 @@ jobs:
           fi
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@v4
 
       - name: Log in to GHCR
+        if: github.event_name != 'workflow_dispatch' || inputs.publish
         uses: docker/login-action@v4
         with:
           registry: ghcr.io
@@ -54,6 +81,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Log in to DockerHub
+        if: github.event_name != 'workflow_dispatch' || inputs.publish
         uses: docker/login-action@v4
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
@@ -61,14 +89,21 @@ jobs:
 
       - name: Build and push (amd64)
         id: build
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
-          file: Dockerfile.mistserver
+          file: Dockerfile.mistserver-onnx
           platforms: linux/amd64
-          push: true
-          provenance: true
-          sbom: true
+          push: ${{ github.event_name != 'workflow_dispatch' || inputs.publish }}
+          load: ${{ github.event_name == 'workflow_dispatch' && !inputs.publish }}
+          # The local Docker exporter used by non-publishing validation cannot
+          # load the attested manifest list that provenance/SBOM generation creates.
+          provenance: ${{ github.event_name != 'workflow_dispatch' || inputs.publish }}
+          sbom: ${{ github.event_name != 'workflow_dispatch' || inputs.publish }}
+          build-args: |
+            ONNX_PROFILE=cpu
+            ONNX_STATIC=false
+            ONNX_RUNTIME_DISTRIBUTION=onnxruntime-linux-x64
           tags: |
             ${{ env.REGISTRY_GHCR }}/mistserver:${{ steps.version.outputs.tag }}-amd64
             ${{ env.REGISTRY_DOCKERHUB }}/mistserver:${{ steps.version.outputs.tag }}-amd64
@@ -76,6 +111,17 @@ jobs:
             type=gha,scope=mistserver-amd64
             type=registry,ref=${{ env.REGISTRY_GHCR }}/mistserver:latest
           cache-to: type=gha,mode=max,ignore-error=true,scope=mistserver-amd64
+
+      - name: Pull published image for verification
+        if: github.event_name != 'workflow_dispatch' || inputs.publish
+        run: docker pull '${{ env.REGISTRY_GHCR }}/mistserver:${{ steps.version.outputs.tag }}-amd64'
+
+      - name: Verify ONNX capability in image
+        env:
+          IMAGE: ${{ env.REGISTRY_GHCR }}/mistserver:${{ steps.version.outputs.tag }}-amd64
+        run: |
+          capability=$(docker run --rm --entrypoint MistProcONNX "$IMAGE" -j 2>/dev/null || true)
+          printf '%s' "$capability" | grep -F "This binary packages the 'cpu' profile"
 
       - name: Save digest
         run: |
@@ -116,9 +162,10 @@ jobs:
           fi
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@v4
 
       - name: Log in to GHCR
+        if: github.event_name != 'workflow_dispatch' || inputs.publish
         uses: docker/login-action@v4
         with:
           registry: ghcr.io
@@ -126,6 +173,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Log in to DockerHub
+        if: github.event_name != 'workflow_dispatch' || inputs.publish
         uses: docker/login-action@v4
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
@@ -133,20 +181,36 @@ jobs:
 
       - name: Build and push (arm64)
         id: build
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
-          file: Dockerfile.mistserver
+          file: Dockerfile.mistserver-onnx
           platforms: linux/arm64
-          push: true
-          provenance: true
-          sbom: true
+          push: ${{ github.event_name != 'workflow_dispatch' || inputs.publish }}
+          load: ${{ github.event_name == 'workflow_dispatch' && !inputs.publish }}
+          provenance: ${{ github.event_name != 'workflow_dispatch' || inputs.publish }}
+          sbom: ${{ github.event_name != 'workflow_dispatch' || inputs.publish }}
+          build-args: |
+            ONNX_PROFILE=cpu
+            ONNX_STATIC=false
+            ONNX_RUNTIME_DISTRIBUTION=onnxruntime-linux-aarch64
           tags: |
             ${{ env.REGISTRY_GHCR }}/mistserver:${{ steps.version.outputs.tag }}-arm64
             ${{ env.REGISTRY_DOCKERHUB }}/mistserver:${{ steps.version.outputs.tag }}-arm64
           cache-from: |
             type=gha,scope=mistserver-arm64
           cache-to: type=gha,mode=max,ignore-error=true,scope=mistserver-arm64
+
+      - name: Pull published image for verification
+        if: github.event_name != 'workflow_dispatch' || inputs.publish
+        run: docker pull '${{ env.REGISTRY_GHCR }}/mistserver:${{ steps.version.outputs.tag }}-arm64'
+
+      - name: Verify ONNX capability in image
+        env:
+          IMAGE: ${{ env.REGISTRY_GHCR }}/mistserver:${{ steps.version.outputs.tag }}-arm64
+        run: |
+          capability=$(docker run --rm --entrypoint MistProcONNX "$IMAGE" -j 2>/dev/null || true)
+          printf '%s' "$capability" | grep -F "This binary packages the 'cpu' profile"
 
       - name: Save digest
         run: |
@@ -165,6 +229,7 @@ jobs:
   create-manifest:
     name: Create Multi-arch Docker Manifest
     needs: [build-image-amd64, build-image-arm64]
+    if: github.event_name != 'workflow_dispatch' || inputs.publish
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -197,7 +262,7 @@ jobs:
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@v4
 
       - name: Create and push multi-arch manifests
         run: |
@@ -273,8 +338,16 @@ jobs:
           sudo apt-get install -y \
             build-essential git python3 python3-pip ninja-build pkg-config nasm yasm cmake \
             libmbedtls-dev libcjson-dev zlib1g-dev liblzma-dev libxml2-dev libmp3lame-dev \
-            libopus-dev libvpx-dev libx265-dev libnuma-dev libaom-dev
-          python3 -m pip install --break-system-packages 'meson>=1.6.0'
+            libopus-dev libvpx-dev libx265-dev libnuma-dev libaom-dev \
+            libjpeg-dev libpng-dev ffmpeg
+          python3 -m pip install --break-system-packages 'meson>=1.6.0' 'cmake>=3.28'
+
+      - uses: ./.github/actions/setup-onnx-dependencies
+        with:
+          profile: cpu
+          prefix: ${{ github.workspace }}/.deps/onnx/cpu
+          work-dir: ${{ runner.temp }}/onnx-build/cpu
+          runtime-distribution: onnxruntime-linux-x64
 
       - name: Build static dav1d
         run: |
@@ -308,14 +381,20 @@ jobs:
 
       - name: Build MistServer
         env:
-          PKG_CONFIG_PATH: /tmp/dav1d-static/lib/pkgconfig:/tmp/dav1d-static/lib64/pkgconfig:/tmp/svt-av1-static/lib/pkgconfig:/tmp/svt-av1-static/lib64/pkgconfig
+          PKG_CONFIG_PATH: ${{ github.workspace }}/.deps/onnx/cpu/lib/pkgconfig:/tmp/dav1d-static/lib/pkgconfig:/tmp/dav1d-static/lib64/pkgconfig:/tmp/svt-av1-static/lib/pkgconfig:/tmp/svt-av1-static/lib64/pkgconfig
+          CMAKE_PREFIX_PATH: ${{ github.workspace }}/.deps/onnx/cpu
         run: |
+          # MbedTLS is intentionally not forced: the top-level find_library and
+          # nested libsrtp dependency must resolve the same implementation.
           meson setup build \
             --default-library=static \
             --wrap-mode=default \
             --prefer-static \
-            --force-fallback-for=mbedtls,usrsctp,libavcodec,libavfilter,libavformat,libavutil,libswscale,libswresample,x264 \
+            --force-fallback-for=usrsctp,libavcodec,libavfilter,libavformat,libavutil,libswscale,libswresample,x264 \
             -DWITH_AV=true \
+            -DONNX=enabled \
+            -DONNX_STATIC=false \
+            -DONNX_PROFILE=cpu \
             -DDEBUG=3 \
             -DNORIST=true \
             -DRELEASE=Generic_x86_64 \
@@ -323,9 +402,24 @@ jobs:
           # Assert NDI/ONVIF support compiled in (static libxml2 present in this env).
           grep -qE 'NDI:[[:space:]]+COMPILED' build/meson-logs/meson-log.txt || { echo "::error::NDI support was not compiled"; exit 1; }
           grep -qE 'ONVIF camera discovery:[[:space:]]+YES' build/meson-logs/meson-log.txt || { echo "::error::ONVIF support was not built"; exit 1; }
+          grep -qE 'ONNX AI processing:[[:space:]]+YES \(profile=cpu\)' build/meson-logs/meson-log.txt || { echo "::error::ONNX CPU support was not built"; exit 1; }
           ninja -C build
           meson test -C build "Pinned FFmpeg codec registry contract" --print-errorlogs
+          scripts/ONNX/prepare_models.sh --dir "$RUNNER_TEMP/onnx-models" yolo26n
+          ffmpeg -hide_banner -loglevel error -y -f lavfi -i testsrc2=size=640x640 -frames:v 1 "$RUNNER_TEMP/onnx-test.jpg"
+          scripts/ONNX/verify_release.sh --build-dir build --allow-shared \
+            --expected-profile cpu --provider cpu \
+            --model "$RUNNER_TEMP/onnx-models/yolo26n.onnx" \
+            --image "$RUNNER_TEMP/onnx-test.jpg"
           ninja -C build install
+          cp -a '${{ github.workspace }}/.deps/onnx/cpu/lib/'*.so* \
+            /tmp/mistserver-install/lib/
+          patchelf --set-rpath '$ORIGIN/../lib:$ORIGIN/../lib/x86_64-linux-gnu' \
+            /tmp/mistserver-install/bin/MistProcONNX
+          find /tmp/mistserver-install/lib -type f -name '*.so*' -exec \
+            patchelf --set-rpath '$ORIGIN:$ORIGIN/..' {} \;
+          capability=$(/tmp/mistserver-install/bin/MistProcONNX -j 2>/dev/null || true)
+          printf '%s' "$capability" | grep -F "This binary packages the 'cpu' profile"
 
       - name: Verify native runtime dependencies
         run: |
@@ -338,10 +432,21 @@ jobs:
             echo "::group::runtime deps ${name}"
             objdump -p "$bin" | awk '/NEEDED/ {print $2}' | tee "$log"
             echo "::endgroup::"
-            if grep -Ev '^(ld-linux(-x86-64|-aarch64)?\.so\.[0-9]+|libc\.so\.6|libm\.so\.6|libgcc_s\.so\.1|libstdc\+\+\.so\.6)$' "$log"; then
-              echo "Unexpected runtime dependency in ${name}" >&2
+            if ldd "$bin" | grep -F 'not found'; then
+              echo "Unresolved runtime dependency in ${name}" >&2
               failed=1
             fi
+            while IFS= read -r dependency; do
+              case "$dependency" in
+                ld-linux-x86-64.so.*|libc.so.6|libm.so.6|libgcc_s.so.1|libstdc++.so.6) ;;
+                *)
+                  if ! find /tmp/mistserver-install/lib -name "$dependency" -print -quit | grep -q .; then
+                    echo "Unpackaged runtime dependency in ${name}: ${dependency}" >&2
+                    failed=1
+                  fi
+                  ;;
+              esac
+            done < "$log"
           done
           if [ "$failed" -ne 0 ]; then
             echo "Native artifact has non-system runtime dependencies" >&2
@@ -363,7 +468,15 @@ jobs:
       - name: Package binaries
         run: |
           cd /tmp/mistserver-install
-          tar czf ${{ github.workspace }}/mistserver-linux-amd64-${{ steps.version.outputs.tag }}.tar.gz bin/ lib/
+          mkdir -p share/mistserver/onnx share/licenses
+          cp -a '${{ github.workspace }}/.deps/onnx/cpu/share/licenses/.' share/licenses/
+          cp '${{ github.workspace }}/scripts/ONNX/prepare_models.sh' \
+             '${{ github.workspace }}/scripts/ONNX/models.manifest.tsv' \
+             '${{ github.workspace }}/scripts/ONNX/dependencies.lock.tsv' \
+             '${{ github.workspace }}/scripts/ONNX/accelerator-images.json' \
+             '${{ github.workspace }}/scripts/ONNX/RELEASE_CHECKLIST.md' \
+             share/mistserver/onnx/
+          tar czf ${{ github.workspace }}/mistserver-linux-amd64-${{ steps.version.outputs.tag }}.tar.gz bin/ lib/ share/
 
       - name: Package debug symbols
         run: |
@@ -415,8 +528,16 @@ jobs:
           sudo apt-get install -y \
             build-essential git python3 python3-pip ninja-build pkg-config nasm yasm cmake \
             libmbedtls-dev libcjson-dev zlib1g-dev liblzma-dev libxml2-dev libmp3lame-dev \
-            libopus-dev libvpx-dev libx265-dev libnuma-dev libaom-dev
-          python3 -m pip install --break-system-packages 'meson>=1.6.0'
+            libopus-dev libvpx-dev libx265-dev libnuma-dev libaom-dev \
+            libjpeg-dev libpng-dev ffmpeg patchelf
+          python3 -m pip install --break-system-packages 'meson>=1.6.0' 'cmake>=3.28'
+
+      - uses: ./.github/actions/setup-onnx-dependencies
+        with:
+          profile: cpu
+          prefix: ${{ github.workspace }}/.deps/onnx/cpu
+          work-dir: ${{ runner.temp }}/onnx-build/cpu
+          runtime-distribution: onnxruntime-linux-aarch64
 
       - name: Build static dav1d
         run: |
@@ -450,14 +571,20 @@ jobs:
 
       - name: Build MistServer
         env:
-          PKG_CONFIG_PATH: /tmp/dav1d-static/lib/pkgconfig:/tmp/dav1d-static/lib64/pkgconfig:/tmp/svt-av1-static/lib/pkgconfig:/tmp/svt-av1-static/lib64/pkgconfig
+          PKG_CONFIG_PATH: ${{ github.workspace }}/.deps/onnx/cpu/lib/pkgconfig:/tmp/dav1d-static/lib/pkgconfig:/tmp/dav1d-static/lib64/pkgconfig:/tmp/svt-av1-static/lib/pkgconfig:/tmp/svt-av1-static/lib64/pkgconfig
+          CMAKE_PREFIX_PATH: ${{ github.workspace }}/.deps/onnx/cpu
         run: |
+          # MbedTLS is intentionally not forced: the top-level find_library and
+          # nested libsrtp dependency must resolve the same implementation.
           meson setup build \
             --default-library=static \
             --wrap-mode=default \
             --prefer-static \
-            --force-fallback-for=mbedtls,usrsctp,libavcodec,libavfilter,libavformat,libavutil,libswscale,libswresample,x264 \
+            --force-fallback-for=usrsctp,libavcodec,libavfilter,libavformat,libavutil,libswscale,libswresample,x264 \
             -DWITH_AV=true \
+            -DONNX=enabled \
+            -DONNX_STATIC=false \
+            -DONNX_PROFILE=cpu \
             -DDEBUG=3 \
             -DNORIST=true \
             -DRELEASE=Generic_aarch64 \
@@ -465,9 +592,24 @@ jobs:
           # Assert NDI/ONVIF support compiled in (static libxml2 present in this env).
           grep -qE 'NDI:[[:space:]]+COMPILED' build/meson-logs/meson-log.txt || { echo "::error::NDI support was not compiled"; exit 1; }
           grep -qE 'ONVIF camera discovery:[[:space:]]+YES' build/meson-logs/meson-log.txt || { echo "::error::ONVIF support was not built"; exit 1; }
+          grep -qE 'ONNX AI processing:[[:space:]]+YES \(profile=cpu\)' build/meson-logs/meson-log.txt || { echo "::error::ONNX CPU support was not built"; exit 1; }
           ninja -C build
           meson test -C build "Pinned FFmpeg codec registry contract" --print-errorlogs
+          scripts/ONNX/prepare_models.sh --dir "$RUNNER_TEMP/onnx-models" yolo26n
+          ffmpeg -hide_banner -loglevel error -y -f lavfi -i testsrc2=size=640x640 -frames:v 1 "$RUNNER_TEMP/onnx-test.jpg"
+          scripts/ONNX/verify_release.sh --build-dir build --allow-shared \
+            --expected-profile cpu --provider cpu \
+            --model "$RUNNER_TEMP/onnx-models/yolo26n.onnx" \
+            --image "$RUNNER_TEMP/onnx-test.jpg"
           ninja -C build install
+          cp -a '${{ github.workspace }}/.deps/onnx/cpu/lib/'*.so* \
+            /tmp/mistserver-install/lib/
+          patchelf --set-rpath '$ORIGIN/../lib:$ORIGIN/../lib/aarch64-linux-gnu' \
+            /tmp/mistserver-install/bin/MistProcONNX
+          find /tmp/mistserver-install/lib -type f -name '*.so*' -exec \
+            patchelf --set-rpath '$ORIGIN:$ORIGIN/..' {} \;
+          capability=$(/tmp/mistserver-install/bin/MistProcONNX -j 2>/dev/null || true)
+          printf '%s' "$capability" | grep -F "This binary packages the 'cpu' profile"
 
       - name: Verify native runtime dependencies
         run: |
@@ -479,11 +621,22 @@ jobs:
             log="/tmp/needed-${name}.txt"
             echo "::group::runtime deps ${name}"
             objdump -p "$bin" | awk '/NEEDED/ {print $2}' | tee "$log"
-            echo "::endgroup::"
-            if grep -Ev '^(ld-linux(-x86-64|-aarch64)?\.so\.[0-9]+|libc\.so\.6|libm\.so\.6|libgcc_s\.so\.1|libstdc\+\+\.so\.6)$' "$log"; then
-              echo "Unexpected runtime dependency in ${name}" >&2
+            if ldd "$bin" | grep -F 'not found'; then
+              echo "Unresolved runtime dependency in ${name}" >&2
               failed=1
             fi
+            echo "::endgroup::"
+            while IFS= read -r dependency; do
+              case "$dependency" in
+                ld-linux-aarch64.so.*|libc.so.6|libm.so.6|libgcc_s.so.1|libstdc++.so.6) ;;
+                *)
+                  if ! find /tmp/mistserver-install/lib -name "$dependency" -print -quit | grep -q .; then
+                    echo "Unpackaged runtime dependency in ${name}: ${dependency}" >&2
+                    failed=1
+                  fi
+                  ;;
+              esac
+            done < "$log"
           done
           if [ "$failed" -ne 0 ]; then
             echo "Native artifact has non-system runtime dependencies" >&2
@@ -505,7 +658,15 @@ jobs:
       - name: Package binaries
         run: |
           cd /tmp/mistserver-install
-          tar czf ${{ github.workspace }}/mistserver-linux-arm64-${{ steps.version.outputs.tag }}.tar.gz bin/ lib/
+          mkdir -p share/mistserver/onnx share/licenses
+          cp -a '${{ github.workspace }}/.deps/onnx/cpu/share/licenses/.' share/licenses/
+          cp '${{ github.workspace }}/scripts/ONNX/prepare_models.sh' \
+             '${{ github.workspace }}/scripts/ONNX/models.manifest.tsv' \
+             '${{ github.workspace }}/scripts/ONNX/dependencies.lock.tsv' \
+             '${{ github.workspace }}/scripts/ONNX/accelerator-images.json' \
+             '${{ github.workspace }}/scripts/ONNX/RELEASE_CHECKLIST.md' \
+             share/mistserver/onnx/
+          tar czf ${{ github.workspace }}/mistserver-linux-arm64-${{ steps.version.outputs.tag }}.tar.gz bin/ lib/ share/
 
       - name: Package debug symbols
         run: |
@@ -527,10 +688,10 @@ jobs:
           compression-level: 0
 
   # ---------------------------------------------------------------------------
-  # Native binary — darwin/arm64 on self-hosted Mac
+  # Native CoreML binary — darwin/arm64 on self-hosted Mac
   # ---------------------------------------------------------------------------
   build-binaries-darwin:
-    name: Build Native Binaries (darwin/arm64)
+    name: Build Native CoreML Binaries (darwin/arm64)
     runs-on: macos-arm64-self-hosted
     permissions:
       contents: read
@@ -555,18 +716,32 @@ jobs:
           fi
 
       - name: Install macOS build dependencies
-        run: brew install meson ninja pkg-config ffmpeg srt srtp cmake libxml2
+        run: brew install meson ninja pkg-config ffmpeg srt srtp cmake libxml2 jq
+
+      - name: Restore locked CoreML dependencies
+        uses: ./.github/actions/setup-onnx-dependencies
+        with:
+          profile: coreml
+          prefix: ${{ github.workspace }}/.deps/onnx/coreml
+          work-dir: ${{ runner.temp }}/onnx-build/coreml
+          runtime-distribution: onnxruntime-osx-arm64
 
       - name: Build darwin/arm64
+        env:
+          ONNX_DEP_PREFIX: ${{ github.workspace }}/.deps/onnx/coreml
         run: |
           # Homebrew libxml2 is keg-only; expose its pkg-config so ONVIF is detected deterministically.
           LIBXML2_PREFIX="$(brew --prefix libxml2)"
-          export PKG_CONFIG_PATH="${LIBXML2_PREFIX}/lib/pkgconfig:${PKG_CONFIG_PATH:-}"
+          export PKG_CONFIG_PATH="${ONNX_DEP_PREFIX}/lib/pkgconfig:${LIBXML2_PREFIX}/lib/pkgconfig:${PKG_CONFIG_PATH:-}"
+          export CMAKE_PREFIX_PATH="${ONNX_DEP_PREFIX}:${CMAKE_PREFIX_PATH:-}"
           meson setup build-darwin-arm64 \
             --default-library=static \
             --wrap-mode=default \
             --force-fallback-for=mbedtls,usrsctp \
             -DWITH_AV=true \
+            -DONNX=enabled \
+            -DONNX_STATIC=false \
+            -DONNX_PROFILE=coreml \
             -DDEBUG=3 \
             -DNORIST=true \
             -DRELEASE=macOS_aarch64 \
@@ -574,12 +749,74 @@ jobs:
           # Fail loudly if NDI/ONVIF support was not compiled in.
           grep -qE 'NDI:[[:space:]]+COMPILED' build-darwin-arm64/meson-logs/meson-log.txt || { echo "::error::NDI support was not compiled"; exit 1; }
           grep -qE 'ONVIF camera discovery:[[:space:]]+YES' build-darwin-arm64/meson-logs/meson-log.txt || { echo "::error::ONVIF support was not built"; exit 1; }
+          grep -qE 'ONNX AI processing:[[:space:]]+YES \(profile=coreml\)' build-darwin-arm64/meson-logs/meson-log.txt || { echo "::error::ONNX CoreML support was not built"; exit 1; }
           ninja -C build-darwin-arm64 install
+          scripts/ONNX/prepare_models.sh --dir "$RUNNER_TEMP/onnx-models" yolo26n
+          ffmpeg -hide_banner -loglevel error -y -f lavfi -i testsrc2=size=640x640 -frames:v 1 "$RUNNER_TEMP/onnx-test.jpg"
+          scripts/ONNX/verify_release.sh --build-dir build-darwin-arm64 --allow-shared \
+            --expected-profile coreml --provider coreml \
+            --model "$RUNNER_TEMP/onnx-models/yolo26n.onnx" \
+            --image "$RUNNER_TEMP/onnx-test.jpg"
+          test -x "$RUNNER_TEMP/darwin-arm64/mistserver-install/bin/MistProcONNX"
+          cp -a "$ONNX_DEP_PREFIX/lib/"*.dylib \
+            "$RUNNER_TEMP/darwin-arm64/mistserver-install/lib/"
+          # The official archive's unversioned linker file duplicates the 43 MiB runtime.
+          # The executable loads the versioned install name, so do not ship the development copy.
+          rm "$RUNNER_TEMP/darwin-arm64/mistserver-install/lib/libonnxruntime.dylib"
+          install_name_tool -add_rpath '@executable_path/../lib' \
+            "$RUNNER_TEMP/darwin-arm64/mistserver-install/bin/MistProcONNX"
+          test -f "$RUNNER_TEMP/darwin-arm64/mistserver-install/lib/libonnxruntime.1.dylib"
+          test -f "$RUNNER_TEMP/darwin-arm64/mistserver-install/lib/libopencv_core.dylib"
+          capability=$("$RUNNER_TEMP/darwin-arm64/mistserver-install/bin/MistProcONNX" \
+            -j 2>/dev/null || true)
+          printf '%s' "$capability" | grep -F "This binary packages the 'coreml' profile"
 
       - name: Package darwin/arm64
         run: |
           cd "$RUNNER_TEMP/darwin-arm64/mistserver-install"
-          tar czf "${{ github.workspace }}/mistserver-darwin-arm64-${{ steps.version.outputs.tag }}.tar.gz" bin/ lib/
+          mkdir -p share/mistserver/onnx share/licenses
+          cp -a '${{ github.workspace }}/.deps/onnx/coreml/share/licenses/.' share/licenses/
+          cp '${{ github.workspace }}/scripts/ONNX/prepare_models.sh' \
+             '${{ github.workspace }}/scripts/ONNX/models.manifest.tsv' \
+             '${{ github.workspace }}/scripts/ONNX/dependencies.lock.tsv' \
+             '${{ github.workspace }}/scripts/ONNX/accelerator-images.json' \
+             '${{ github.workspace }}/scripts/ONNX/RELEASE_CHECKLIST.md' \
+             share/mistserver/onnx/
+          jq \
+            --arg version '${{ steps.version.outputs.tag }}' \
+            --arg source_revision '${{ github.sha }}' \
+            '.native_deployment as $deployment
+             | first($deployment.targets[]
+                 | select(.profile == "coreml" and .platform == "darwin/arm64")) as $target
+             | if $target == null then error("CoreML target missing from deployment matrix")
+               else {
+                 schema: $deployment.schema,
+                 artifact_kind: "mistserver-native-accelerator",
+                 version: $version,
+                 source_revision: $source_revision,
+                 profile: $target.profile,
+                 platform: $target.platform,
+                 host: $deployment.platforms[$target.platform],
+                 provider_runtime: $deployment.profiles[$target.profile],
+                 install: {
+                   requires_root: true,
+                   copy: [
+                     {source: "bin", destination: "/usr/local/bin"},
+                     {source: "lib", destination: "/usr/local/lib"},
+                     {source: "share", destination: "/usr/local/share"}
+                   ],
+                   loader_paths: $deployment.platforms[$target.platform].loader_paths
+                 }
+               }
+             end' '${{ github.workspace }}/scripts/ONNX/accelerator-images.json' \
+            > share/mistserver/onnx/deployment-contract.json
+          for file in bin/Mist* lib/*.dylib \
+                      lib/*/libmistonnx.dylib; do
+            [ -e "$file" ] || continue
+            printf '[%s]\n' "$file"
+            otool -L "$file"
+          done > share/mistserver/onnx/runtime-linkage.txt
+          tar czf "${{ github.workspace }}/mistserver-darwin-arm64-${{ steps.version.outputs.tag }}.tar.gz" bin/ lib/ share/
 
       - name: Upload darwin/arm64 artifact
         uses: actions/upload-artifact@v7
@@ -594,6 +831,7 @@ jobs:
   sign-darwin:
     name: Sign and Notarize darwin Binaries
     needs: [build-binaries-darwin]
+    if: startsWith(github.ref, 'refs/tags/') || inputs.sign_macos
     runs-on: macos-arm64-self-hosted
     steps:
       - name: Checkout repository
@@ -623,6 +861,11 @@ jobs:
 
       - name: Sign darwin binaries
         run: |
+          find sign/darwin-arm64/lib -type f -name '*.dylib' -print0 | while IFS= read -r -d '' lib; do
+            codesign --sign "${{ secrets.APPLE_DEVELOPER_ID }}" \
+              --timestamp --options runtime --force "$lib"
+            echo "Signed: $lib"
+          done
           for bin in sign/darwin-arm64/bin/Mist*; do
             [ -f "$bin" ] || continue
             codesign --sign "${{ secrets.APPLE_DEVELOPER_ID }}" \
@@ -632,6 +875,9 @@ jobs:
 
       - name: Verify signatures
         run: |
+          find sign/darwin-arm64/lib -type f -name '*.dylib' -print0 | while IFS= read -r -d '' lib; do
+            codesign --verify --verbose=2 "$lib"
+          done
           for bin in sign/darwin-arm64/bin/Mist*; do
               [ -f "$bin" ] || continue
               codesign --verify --verbose=2 "$bin"
@@ -640,7 +886,7 @@ jobs:
       - name: Notarize darwin/arm64
         run: |
           cd sign/darwin-arm64
-          zip -r ../../notarize-darwin-arm64.zip bin/
+          zip -r ../../notarize-darwin-arm64.zip bin/ lib/ share/
           xcrun notarytool submit ../../notarize-darwin-arm64.zip \
             --apple-id "${{ secrets.APPLE_ID }}" \
             --team-id "${{ secrets.APPLE_TEAM_ID }}" \
@@ -661,7 +907,7 @@ jobs:
         run: |
           TAG="${{ steps.version.outputs.tag }}"
           cd sign/darwin-arm64
-          tar czf "${{ github.workspace }}/mistserver-darwin-arm64-${TAG}.tar.gz" bin/ lib/
+          tar czf "${{ github.workspace }}/mistserver-darwin-arm64-${TAG}.tar.gz" bin/ lib/ share/
 
       - name: Upload signed darwin/arm64
         uses: actions/upload-artifact@v7
@@ -679,7 +925,7 @@ jobs:
   # ---------------------------------------------------------------------------
   create-release:
     name: Create GitHub Release
-    needs: [create-manifest, build-binaries-amd64, build-binaries-arm64, build-binaries-darwin, sign-darwin]
+    needs: [build-onnx-accelerators, create-manifest, build-binaries-amd64, build-binaries-arm64, build-binaries-darwin, sign-darwin]
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/')
     permissions:
@@ -723,6 +969,13 @@ jobs:
         with:
           name: docker-metadata
           path: dist/
+
+      - name: Download ONNX accelerator image metadata
+        uses: actions/download-artifact@v8
+        with:
+          pattern: onnx-accelerator-metadata-*
+          path: dist/
+          merge-multiple: true
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2

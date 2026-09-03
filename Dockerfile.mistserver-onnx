@@ -1,0 +1,134 @@
+# syntax=docker/dockerfile:1.7
+
+ARG BUILD_BASE=ubuntu:24.04
+ARG RUNTIME_BASE=ubuntu:24.04
+
+FROM ${BUILD_BASE} AS mist_build
+
+USER root
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      build-essential ca-certificates curl git patch \
+      python3 python3-pip ninja-build pkg-config cmake ffmpeg \
+      libcjson-dev libmbedtls-dev libxml2-dev zlib1g-dev liblzma-dev \
+      libavcodec-dev libavfilter-dev libavformat-dev libavutil-dev \
+      libswscale-dev libswresample-dev \
+      librist-dev libsrt-openssl-dev libsrtp2-dev libusrsctp-dev libssl-dev \
+    && python3 -m pip install --break-system-packages 'meson>=1.6.0' 'cmake>=3.28' \
+    && rm -rf /var/lib/apt/lists/*
+
+ARG ONNX_PROFILE=cpu
+ARG ONNX_STATIC=true
+ARG ONNX_DEP_JOBS=4
+ARG ONNX_RUNTIME_DISTRIBUTION=source
+ARG ONNX_NVCC_THREADS=1
+ARG CUDA_HOME
+ARG CUDNN_HOME
+ARG TENSORRT_HOME
+ARG ONNX_CUDA_ARCHITECTURES
+ARG OpenVINO_DIR
+ARG ONNX_OPENVINO_DEVICE=AUTO:GPU,CPU
+ARG ONNX_RUN_PROVIDER_TEST=true
+ARG ONNX_INSTALL_TEST_PROBE=false
+ARG MIST_OPTS
+ARG DEBUG=3
+ARG VERSION=Unknown
+ARG TARGETPLATFORM
+ARG RELEASE=Docker_${TARGETPLATFORM}
+
+# CUDA/TensorRT profiles require CUDA_HOME/CUDNN_HOME/TENSORRT_HOME in BUILD_BASE or
+# as build arguments. OpenVINO requires OpenVINO_DIR in an SDK-equipped BUILD_BASE.
+# Those profiles use shared ONNX/OpenCV dependencies, must set ONNX_STATIC=false, and
+# require a matching SDK-equipped RUNTIME_BASE. CPU is static on Linux amd64; Linux arm64
+# uses Microsoft's checksum-pinned shared CPU runtime to avoid rebuilding ORT from source.
+COPY scripts/ONNX/build_dependencies.sh scripts/ONNX/dependencies.lock.tsv /src/scripts/ONNX/
+RUN /src/scripts/ONNX/build_dependencies.sh \
+      --prefix /opt/mist-onnx \
+      --work-dir /deps/onnx/${ONNX_PROFILE} \
+      --profile ${ONNX_PROFILE} \
+      --jobs ${ONNX_DEP_JOBS} \
+      --runtime-distribution ${ONNX_RUNTIME_DISTRIBUTION} \
+      --nvcc-threads ${ONNX_NVCC_THREADS}
+
+COPY . /src
+RUN mkdir -p /opt/mist-onnx/share/mistserver/onnx \
+    && cp /src/scripts/ONNX/prepare_models.sh \
+          /src/scripts/ONNX/models.manifest.tsv \
+          /src/scripts/ONNX/dependencies.lock.tsv \
+          /src/scripts/ONNX/accelerator-images.json \
+          /src/scripts/ONNX/RELEASE_CHECKLIST.md \
+          /opt/mist-onnx/share/mistserver/onnx/
+
+ENV PKG_CONFIG_PATH=/opt/mist-onnx/lib/pkgconfig
+ENV CMAKE_PREFIX_PATH=/opt/mist-onnx
+RUN export LD_LIBRARY_PATH="/opt/mist-onnx/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
+    && meson setup /build /src \
+      -DDOCKERRUN=true \
+      -DNOUPDATE=true \
+      -DDEBUG=${DEBUG} \
+      -DVERSION=${VERSION} \
+      -DRELEASE=${RELEASE} \
+      -DWITH_AV=true \
+      -DONNX=enabled \
+      -DONNX_STATIC=${ONNX_STATIC} \
+      -DONNX_PROFILE=${ONNX_PROFILE} \
+      -Dstrip=true \
+      ${MIST_OPTS} \
+    && grep -qE "ONNX AI processing:[[:space:]]+YES \(profile=${ONNX_PROFILE}\)" /build/meson-logs/meson-log.txt \
+    && grep -qE 'NDI:[[:space:]]+COMPILED' /build/meson-logs/meson-log.txt \
+    && grep -qE 'ONVIF camera discovery:[[:space:]]+YES' /build/meson-logs/meson-log.txt \
+    && ninja -C /build \
+    && if [ "${ONNX_RUN_PROVIDER_TEST}" = true ]; then \
+         /src/scripts/ONNX/prepare_models.sh --dir /tmp/onnx-models yolo26n; \
+         ffmpeg -hide_banner -loglevel error -y -f lavfi \
+           -i testsrc2=size=640x640 -frames:v 1 /tmp/onnx-test.jpg; \
+         if [ "${ONNX_STATIC}" = true ]; then \
+           /src/scripts/ONNX/verify_release.sh --build-dir /build \
+             --expected-profile ${ONNX_PROFILE} --provider ${ONNX_PROFILE} \
+             --model /tmp/onnx-models/yolo26n.onnx --image /tmp/onnx-test.jpg; \
+         else \
+           /src/scripts/ONNX/verify_release.sh --build-dir /build --allow-shared \
+             --expected-profile ${ONNX_PROFILE} --provider ${ONNX_PROFILE} \
+             --model /tmp/onnx-models/yolo26n.onnx --image /tmp/onnx-test.jpg; \
+         fi; \
+       else \
+         /src/scripts/ONNX/verify_release.sh --build-dir /build --allow-shared \
+           --expected-profile ${ONNX_PROFILE} --provider ${ONNX_PROFILE}; \
+       fi \
+    && if [ "${ONNX_INSTALL_TEST_PROBE}" = true ]; then \
+         install -D -m 0755 /build/test/onnxmodelprobe \
+           /opt/mist-onnx/libexec/onnxmodelprobe; \
+       fi \
+    && ninja -C /build install \
+    && test -x /usr/local/bin/MistProcONNX
+
+ARG OUTPUT_DBG
+RUN if [ -n "${OUTPUT_DBG+x}" ]; then \
+      tar cf - /build /src /deps | gzip -6 | curl --upload-file - "${OUTPUT_DBG}"; \
+    fi
+
+# A static profile has already absorbed ONNX Runtime and OpenCV into libmistonnx. Keep only
+# their notices in the runtime layer; shared accelerator profiles retain the provider libs.
+RUN if [ "${ONNX_STATIC}" = true ]; then \
+      rm -rf /opt/mist-onnx/include /opt/mist-onnx/lib; \
+    fi
+
+FROM ${RUNTIME_BASE}
+
+USER root
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      ca-certificates curl ffmpeg \
+      libcjson1 libmbedtls14t64 libmbedx509-1t64 libmbedcrypto7t64 \
+      libxml2 librist4 libsrt1.5-openssl libsrtp2-1 libusrsctp2 \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY --from=mist_build /usr/local/ /usr/local/
+COPY --from=mist_build /opt/mist-onnx/ /opt/mist-onnx/
+RUN echo '/opt/mist-onnx/lib' > /etc/ld.so.conf.d/mist-onnx.conf \
+    && ldconfig
+
+LABEL org.opencontainers.image.authors="Livepeer FrameWorks"
+EXPOSE 4242 8080 1935 5554 8889/udp 18203/udp
+ENTRYPOINT ["MistController"]
+HEALTHCHECK CMD ["MistUtilHealth"]

@@ -7,8 +7,29 @@ on:
     branches: [master, main]
 
 jobs:
+  onnx-dependencies:
+    name: Locked ONNX dependencies
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install dependency build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential git ca-certificates curl python3-pip ninja-build pkg-config cmake
+          python3 -m pip install --break-system-packages 'cmake>=3.28'
+
+      - name: Build or restore locked ONNX dependency cache
+        uses: ./.github/actions/setup-onnx-dependencies
+        with:
+          profile: cpu
+          prefix: ${{ github.workspace }}/.deps/onnx/cpu
+          work-dir: ${{ runner.temp }}/onnx-build/cpu
+
   test:
     name: Test & Coverage
+    needs: onnx-dependencies
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v6
@@ -18,8 +39,13 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y \
             build-essential \
+            git \
+            ca-certificates \
+            curl \
             python3-pip \
             ninja-build \
+            pkg-config \
+            cmake \
             libmbedtls-dev \
             libxml2-dev \
             gcovr \
@@ -33,19 +59,42 @@ jobs:
             libsrtp2-dev \
             libusrsctp-dev \
             libssl-dev \
-            libsrt-openssl-dev
+            libsrt-openssl-dev \
+            libjpeg-dev \
+            libpng-dev \
+            zlib1g-dev
           python3 -m pip install --break-system-packages 'meson>=1.6.0'
 
+      - name: Restore and verify locked ONNX dependencies
+        uses: ./.github/actions/setup-onnx-dependencies
+        with:
+          profile: cpu
+          prefix: ${{ github.workspace }}/.deps/onnx/cpu
+          work-dir: ${{ runner.temp }}/onnx-build/cpu
+
       - name: Build with coverage
+        env:
+          PKG_CONFIG_PATH: ${{ github.workspace }}/.deps/onnx/cpu/lib/pkgconfig
+          CMAKE_PREFIX_PATH: ${{ github.workspace }}/.deps/onnx/cpu
         run: |
           meson setup build \
             -Db_coverage=true \
             -DWITH_AV=true \
+            -DONNX=enabled \
+            -DONNX_STATIC=true \
+            -DONNX_PROFILE=cpu \
             -DDEBUG=4
           # Assert NDI/ONVIF support was actually compiled in (libs are present in this env).
           grep -qE 'NDI:[[:space:]]+COMPILED' build/meson-logs/meson-log.txt || { echo "::error::NDI support was not compiled"; exit 1; }
           grep -qE 'ONVIF camera discovery:[[:space:]]+YES' build/meson-logs/meson-log.txt || { echo "::error::ONVIF support was not built"; exit 1; }
+          grep -qE 'ONNX AI processing:[[:space:]]+YES \(profile=cpu\)' build/meson-logs/meson-log.txt || { echo "::error::ONNX CPU support was not built"; exit 1; }
           ninja -C build
+          test -x build/MistProcONNX
+
+      - name: Provision pinned ONNX integration model
+        run: |
+          scripts/ONNX/prepare_models.sh --dir "$RUNNER_TEMP/onnx-models" yolo26n
+          echo "MIST_ONNX_TEST_MODEL=$RUNNER_TEMP/onnx-models/yolo26n.onnx" >> "$GITHUB_ENV"
 
       - name: Run tests
         run: MIST_RUN_MEDIA_TESTS=1 meson test -C build --print-errorlogs --verbose
@@ -64,6 +113,7 @@ jobs:
 
   asan:
     name: AddressSanitizer
+    needs: onnx-dependencies
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v6
@@ -73,8 +123,13 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y \
             build-essential \
+            git \
+            ca-certificates \
+            curl \
             python3-pip \
             ninja-build \
+            pkg-config \
+            cmake \
             libmbedtls-dev \
             libxml2-dev \
             clang \
@@ -87,18 +142,36 @@ jobs:
             libsrtp2-dev \
             libusrsctp-dev \
             libssl-dev \
-            libsrt-openssl-dev
+            libsrt-openssl-dev \
+            libjpeg-dev \
+            libpng-dev \
+            zlib1g-dev
           python3 -m pip install --break-system-packages 'meson>=1.6.0'
 
+      - name: Restore and verify locked ONNX dependencies
+        uses: ./.github/actions/setup-onnx-dependencies
+        with:
+          profile: cpu
+          prefix: ${{ github.workspace }}/.deps/onnx/cpu
+          work-dir: ${{ runner.temp }}/onnx-build/cpu
+
       - name: Build with ASan
+        env:
+          PKG_CONFIG_PATH: ${{ github.workspace }}/.deps/onnx/cpu/lib/pkgconfig
+          CMAKE_PREFIX_PATH: ${{ github.workspace }}/.deps/onnx/cpu
         run: |
           CC=clang CXX=clang++ meson setup build-asan \
             -Db_sanitize=address \
             -Db_lundef=false \
-            -DWITH_AV=true
+            -DWITH_AV=true \
+            -DONNX=enabled \
+            -DONNX_STATIC=true \
+            -DONNX_PROFILE=cpu
           grep -qE 'NDI:[[:space:]]+COMPILED' build-asan/meson-logs/meson-log.txt || { echo "::error::NDI support was not compiled"; exit 1; }
           grep -qE 'ONVIF camera discovery:[[:space:]]+YES' build-asan/meson-logs/meson-log.txt || { echo "::error::ONVIF support was not built"; exit 1; }
+          grep -qE 'ONNX AI processing:[[:space:]]+YES \(profile=cpu\)' build-asan/meson-logs/meson-log.txt || { echo "::error::ONNX CPU support was not built"; exit 1; }
           ninja -C build-asan
+          test -x build-asan/MistProcONNX
 
       - name: Run tests with ASan
         run: |

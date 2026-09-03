@@ -1,0 +1,481 @@
+name: Build Linux ONNX accelerator artifacts
+
+on:
+  workflow_call:
+    inputs:
+      profile:
+        description: Accelerator profile to build
+        required: false
+        type: string
+        default: all
+      architecture:
+        description: Target architecture to build
+        required: false
+        type: string
+        default: all
+      publish:
+        description: Push platform images to GHCR and Docker Hub
+        required: false
+        type: boolean
+        default: true
+      run_hardware_tests:
+        description: Exercise the published x64 images on labelled hardware runners
+        required: false
+        type: boolean
+        default: false
+  workflow_dispatch:
+    inputs:
+      profile:
+        description: Accelerator profile to build
+        required: true
+        type: choice
+        default: all
+        options:
+          - all
+          - cuda
+          - tensorrt
+          - openvino
+      architecture:
+        description: Target architecture to build (partial runs cannot publish manifests)
+        required: true
+        type: choice
+        default: all
+        options:
+          - all
+          - amd64
+      publish:
+        description: Push platform images to GHCR and Docker Hub
+        required: true
+        type: boolean
+        default: false
+      run_hardware_tests:
+        description: Also use labelled self-hosted hardware runners
+        required: true
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  REGISTRY_GHCR: ghcr.io/livepeer-frameworks
+  REGISTRY_DOCKERHUB: livepeerframeworks
+
+jobs:
+  select:
+    name: Select accelerator targets
+    runs-on: ubuntu-latest
+    outputs:
+      build_matrix: ${{ steps.matrix.outputs.build_matrix }}
+      hardware_matrix: ${{ steps.matrix.outputs.hardware_matrix }}
+      manifest_matrix: ${{ steps.matrix.outputs.manifest_matrix }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Select requested profile and platforms
+        id: matrix
+        env:
+          PROFILE: ${{ inputs.profile }}
+          ARCHITECTURE: ${{ inputs.architecture }}
+          PUBLISH: ${{ inputs.publish }}
+        shell: bash
+        run: |
+          jq -e '
+            .native_deployment as $deployment
+            | ($deployment.schema == "mist.onnx.native-deployment/v1")
+              and all(.include[];
+                (.dependency_jobs | type == "number" and . > 0)
+                and (.runtime_distribution | type == "string" and length > 0)
+                and (.nvcc_threads | type == "number" and . > 0)
+                and (.swap_gb | type == "number" and . >= 0))
+              and any($deployment.targets[];
+                .profile == "coreml" and .platform == "darwin/arm64")
+              and all(.include[];
+                .platform == "linux/amd64" and .arch == "amd64")
+              and all(.include[];
+                .profile as $profile
+                | .platform as $platform
+                | any($deployment.targets[];
+                    .profile == $profile and .platform == $platform))
+          ' scripts/ONNX/accelerator-images.json >/dev/null
+          while IFS= read -r distribution; do
+            awk -F '\t' -v dependency="$distribution" '
+              $1 == dependency && $3 ~ /^[0-9a-f]{64}$/ { matches++ }
+              END { exit matches != 1 }
+            ' scripts/ONNX/dependencies.lock.tsv || {
+              echo "Matrix runtime distribution is not checksum-locked: $distribution" >&2
+              exit 1
+            }
+          done < <(jq -r '.include[].runtime_distribution | select(. != "source")' \
+            scripts/ONNX/accelerator-images.json | sort -u)
+          if [ "$PUBLISH" = true ] && [ "$ARCHITECTURE" != all ]; then
+            echo "Partial architecture runs cannot publish incomplete platform manifests" >&2
+            exit 1
+          fi
+          build_matrix=$(jq -c --arg profile "$PROFILE" --arg arch "$ARCHITECTURE" \
+            '{include: [.include[]
+              | select($profile == "all" or .profile == $profile)
+              | select($arch == "all" or .arch == $arch)]}' \
+            scripts/ONNX/accelerator-images.json)
+          hardware_matrix=$(jq -c --arg profile "$PROFILE" --arg arch "$ARCHITECTURE" \
+            '{include: [.include[] | select(.arch == "amd64")
+              | select($profile == "all" or .profile == $profile)
+              | select($arch == "all" or .arch == $arch)
+              | {profile, docker_args}]}' \
+            scripts/ONNX/accelerator-images.json)
+          manifest_matrix=$(jq -c --arg profile "$PROFILE" \
+            '[.include[] | select($profile == "all" or .profile == $profile) | {profile, arch}]
+             | group_by(.profile)
+             | {include: map({profile: .[0].profile, arches: (map(.arch) | unique | join(" "))})}' \
+            scripts/ONNX/accelerator-images.json)
+          test "$(printf '%s' "$build_matrix" | jq '.include | length')" -gt 0
+          {
+            echo "build_matrix=${build_matrix}"
+            echo "hardware_matrix=${hardware_matrix}"
+            echo "manifest_matrix=${manifest_matrix}"
+          } >> "$GITHUB_OUTPUT"
+
+  build:
+    name: Build ${{ matrix.profile }} / ${{ matrix.platform }}
+    needs: select
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.select.outputs.build_matrix) }}
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Get version info
+        id: version
+        shell: bash
+        run: |
+          short_sha=$(git rev-parse --short=7 HEAD)
+          if [ "${GITHUB_REF_TYPE}" = tag ]; then
+            tag=${GITHUB_REF_NAME}
+          else
+            tag=development-${short_sha}
+          fi
+          echo "tag=${tag}" >> "$GITHUB_OUTPUT"
+
+      - name: Reclaim runner space for provider SDKs
+        shell: bash
+        run: |
+          sudo rm -rf /usr/local/lib/android
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /opt/ghc
+
+      - name: Provision swap for source-built NVIDIA runtime
+        if: matrix.swap_gb > 0
+        shell: bash
+        run: |
+          swap_file="$RUNNER_TEMP/onnx-provider.swap"
+          sudo fallocate -l '${{ matrix.swap_gb }}G' "$swap_file"
+          sudo chmod 600 "$swap_file"
+          sudo mkswap "$swap_file"
+          sudo swapon "$swap_file"
+          free -h
+
+      - uses: docker/setup-buildx-action@v4
+
+      - name: Log in to GHCR
+        if: inputs.publish
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Log in to Docker Hub
+        if: inputs.publish
+        uses: docker/login-action@v4
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build platform accelerator image
+        id: build
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: Dockerfile.mistserver-onnx
+          platforms: ${{ matrix.platform }}
+          push: ${{ inputs.publish }}
+          load: ${{ !inputs.publish }}
+          provenance: ${{ inputs.publish }}
+          sbom: ${{ inputs.publish }}
+          build-args: |
+            BUILD_BASE=${{ matrix.build_base }}
+            RUNTIME_BASE=${{ matrix.runtime_base }}
+            ONNX_PROFILE=${{ matrix.profile }}
+            ONNX_STATIC=false
+            ONNX_RUN_PROVIDER_TEST=false
+            ONNX_INSTALL_TEST_PROBE=true
+            ONNX_DEP_JOBS=${{ matrix.dependency_jobs }}
+            ONNX_RUNTIME_DISTRIBUTION=${{ matrix.runtime_distribution }}
+            ONNX_NVCC_THREADS=${{ matrix.nvcc_threads }}
+            ONNX_CUDA_ARCHITECTURES=${{ matrix.cuda_architectures }}
+            CUDA_HOME=${{ matrix.cuda_home }}
+            CUDNN_HOME=${{ matrix.cudnn_home }}
+            TENSORRT_HOME=${{ matrix.tensorrt_home }}
+            OpenVINO_DIR=${{ matrix.openvino_dir }}
+            VERSION=${{ steps.version.outputs.tag }}
+            RELEASE=${{ matrix.platform }}_${{ matrix.profile }}
+          tags: |
+            ${{ env.REGISTRY_GHCR }}/mistserver:${{ steps.version.outputs.tag }}-onnx-${{ matrix.profile }}-${{ matrix.arch }}
+            ${{ env.REGISTRY_DOCKERHUB }}/mistserver:${{ steps.version.outputs.tag }}-onnx-${{ matrix.profile }}-${{ matrix.arch }}
+          # Exporting mode=max caches for the multi-gigabyte vendor SDK layers took longer
+          # than rebuilding them (up to 26 minutes). Existing caches remain consumable.
+          cache-from: type=gha,scope=onnx-${{ matrix.profile }}-${{ matrix.arch }}
+
+      - name: Pull published image for package audit
+        if: inputs.publish
+        shell: bash
+        run: docker pull '${{ env.REGISTRY_GHCR }}/mistserver:${{ steps.version.outputs.tag }}-onnx-${{ matrix.profile }}-${{ matrix.arch }}'
+
+      - name: Audit packaged profile and runtime closure
+        env:
+          IMAGE: ${{ env.REGISTRY_GHCR }}/mistserver:${{ steps.version.outputs.tag }}-onnx-${{ matrix.profile }}-${{ matrix.arch }}
+          PROFILE: ${{ matrix.profile }}
+          RUNTIME_DISTRIBUTION: ${{ matrix.runtime_distribution }}
+        shell: bash
+        run: |
+          capability=$(docker run --rm --entrypoint MistProcONNX "$IMAGE" -j 2>/dev/null || true)
+          printf '%s' "$capability" | grep -F "This binary packages the '$PROFILE' profile"
+          docker run --rm -e PROFILE="$PROFILE" \
+            -e RUNTIME_DISTRIBUTION="$RUNTIME_DISTRIBUTION" \
+            --entrypoint /bin/sh "$IMAGE" -ec '
+            lib=$(find /usr/local/lib -name libmistonnx.so -print -quit)
+            test -n "$lib"
+            ldd "$lib" > /tmp/libmistonnx.ldd
+            ! grep -F "not found" /tmp/libmistonnx.ldd
+            grep -F "libonnxruntime" /tmp/libmistonnx.ldd
+            test -x /opt/mist-onnx/libexec/onnxmodelprobe
+            ldd /opt/mist-onnx/libexec/onnxmodelprobe > /tmp/onnxmodelprobe.ldd
+            ! grep -F "not found" /tmp/onnxmodelprobe.ldd
+            for dependency in /opt/mist-onnx/lib/*.so /opt/mist-onnx/lib/*.so.*; do
+              [ -e "$dependency" ] || continue
+              ldd "$dependency" >> /tmp/provider-libs.ldd
+            done
+            if grep -F "not found" /tmp/provider-libs.ldd > /tmp/provider-libs.missing; then
+              case "$PROFILE" in
+                cuda|tensorrt)
+                  grep -Ev "^[[:space:]]*libcuda\.so\.1 => not found$" \
+                    /tmp/provider-libs.missing > /tmp/provider-libs.unexpected || true
+                  if [ -s /tmp/provider-libs.unexpected ]; then
+                    cat /tmp/provider-libs.unexpected >&2
+                    exit 1
+                  fi
+                  ;;
+                *) cat /tmp/provider-libs.missing >&2; exit 1 ;;
+              esac
+            fi
+            case "$PROFILE" in
+              cuda)
+                test -f /opt/mist-onnx/lib/libonnxruntime_providers_cuda.so
+                test ! -e /opt/mist-onnx/lib/libonnxruntime_providers_tensorrt.so
+                ffmpeg -hide_banner -encoders 2>/dev/null | grep -F h264_nvenc
+                ffmpeg -hide_banner -encoders 2>/dev/null | grep -F av1_nvenc
+                ffmpeg -hide_banner -decoders 2>/dev/null | grep -F h264_cuvid
+                ffmpeg -hide_banner -decoders 2>/dev/null | grep -F av1_cuvid
+                ;;
+              tensorrt)
+                test -f /opt/mist-onnx/lib/libonnxruntime_providers_cuda.so
+                test -f /opt/mist-onnx/lib/libonnxruntime_providers_tensorrt.so
+                ffmpeg -hide_banner -encoders 2>/dev/null | grep -F h264_nvenc
+                ffmpeg -hide_banner -encoders 2>/dev/null | grep -F av1_nvenc
+                ffmpeg -hide_banner -decoders 2>/dev/null | grep -F h264_cuvid
+                ffmpeg -hide_banner -decoders 2>/dev/null | grep -F av1_cuvid
+                ;;
+              openvino)
+                test -f /opt/mist-onnx/lib/libonnxruntime_providers_openvino.so
+                ;;
+            esac
+            test -f /opt/mist-onnx/share/licenses/onnxruntime/ThirdPartyNotices.txt
+            test -d /opt/mist-onnx/share/licenses/opencv5
+            grep -F "/$PROFILE/onnxruntime-" /opt/mist-onnx/.mist-onnx-dependencies
+            if [ "$RUNTIME_DISTRIBUTION" = source ]; then
+              ! grep -F "/distribution-" /opt/mist-onnx/.mist-onnx-dependencies
+            else
+              grep -F "/distribution-$RUNTIME_DISTRIBUTION-" \
+                /opt/mist-onnx/.mist-onnx-dependencies
+            fi
+            test -f /opt/mist-onnx/share/mistserver/onnx/dependencies.lock.tsv
+            test -f /opt/mist-onnx/share/mistserver/onnx/models.manifest.tsv
+          '
+
+      - name: Record platform bundle metadata
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+        shell: bash
+        run: |
+          mkdir -p release-metadata
+          stem=onnx-${{ matrix.profile }}-${{ matrix.arch }}
+          printf '%s\n' "$DIGEST" > "release-metadata/${stem}-digest.txt"
+          printf '%s\n' '${{ env.REGISTRY_GHCR }}/mistserver:${{ steps.version.outputs.tag }}-onnx-${{ matrix.profile }}-${{ matrix.arch }}' \
+            > "release-metadata/${stem}-image.txt"
+          printf '%s\n' '${{ matrix.build_base }}' > "release-metadata/${stem}-build-base.txt"
+          printf '%s\n' '${{ matrix.runtime_base }}' > "release-metadata/${stem}-runtime-base.txt"
+
+      - name: Package bare-metal accelerator bundle
+        env:
+          IMAGE: ${{ env.REGISTRY_GHCR }}/mistserver:${{ steps.version.outputs.tag }}-onnx-${{ matrix.profile }}-${{ matrix.arch }}
+        shell: bash
+        run: |
+          mkdir -p release-native
+          scripts/ONNX/package_native_bundle.sh \
+            --image "$IMAGE" \
+            --output "release-native/mistserver-linux-${{ matrix.arch }}-onnx-${{ matrix.profile }}-${{ steps.version.outputs.tag }}.tar.gz" \
+            --profile '${{ matrix.profile }}' \
+            --platform '${{ matrix.platform }}' \
+            --version '${{ steps.version.outputs.tag }}' \
+            --source-revision '${{ github.sha }}'
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: onnx-accelerator-metadata-${{ matrix.profile }}-${{ matrix.arch }}
+          path: |
+            release-metadata/*.txt
+            release-native/*.tar.gz
+            release-native/*.sha256.txt
+          if-no-files-found: error
+          compression-level: 0
+
+  manifest:
+    name: Publish ${{ matrix.profile }} platform manifest
+    if: inputs.publish
+    needs: [select, build]
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.select.outputs.manifest_matrix) }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Get version info
+        id: version
+        shell: bash
+        run: |
+          short_sha=$(git rev-parse --short=7 HEAD)
+          if [ "${GITHUB_REF_TYPE}" = tag ]; then
+            tag=${GITHUB_REF_NAME}
+          else
+            tag=development-${short_sha}
+          fi
+          echo "tag=${tag}" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/setup-buildx-action@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v4
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Create architecture manifest
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
+          PROFILE: ${{ matrix.profile }}
+          ARCHES: ${{ matrix.arches }}
+        shell: bash
+        run: |
+          ghcr_sources=()
+          dockerhub_sources=()
+          for arch in $ARCHES; do
+            ghcr_sources+=("${{ env.REGISTRY_GHCR }}/mistserver:${TAG}-onnx-${PROFILE}-${arch}")
+            dockerhub_sources+=("${{ env.REGISTRY_DOCKERHUB }}/mistserver:${TAG}-onnx-${PROFILE}-${arch}")
+          done
+          docker buildx imagetools create \
+            --tag "${{ env.REGISTRY_GHCR }}/mistserver:${TAG}-onnx-${PROFILE}" \
+            "${ghcr_sources[@]}"
+          docker buildx imagetools create \
+            --tag "${{ env.REGISTRY_DOCKERHUB }}/mistserver:${TAG}-onnx-${PROFILE}" \
+            "${dockerhub_sources[@]}"
+          mkdir -p release-metadata
+          docker buildx imagetools inspect \
+            "${{ env.REGISTRY_GHCR }}/mistserver:${TAG}-onnx-${PROFILE}" \
+            --format '{{json .Manifest}}' > "release-metadata/onnx-${PROFILE}-manifest.json"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: onnx-accelerator-metadata-${{ matrix.profile }}-manifest
+          path: release-metadata/*.json
+          if-no-files-found: error
+
+  hardware-test:
+    name: Hardware test ${{ matrix.profile }} / linux/amd64
+    if: inputs.run_hardware_tests && inputs.publish
+    needs: [select, build]
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.select.outputs.hardware_matrix) }}
+    runs-on:
+      - self-hosted
+      - linux
+      - x64
+      - onnx-${{ matrix.profile }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Get image tag
+        id: version
+        shell: bash
+        run: |
+          short_sha=$(git rev-parse --short=7 HEAD)
+          if [ "${GITHUB_REF_TYPE}" = tag ]; then
+            tag=${GITHUB_REF_NAME}
+          else
+            tag=development-${short_sha}
+          fi
+          echo "image=${{ env.REGISTRY_GHCR }}/mistserver:${tag}-onnx-${{ matrix.profile }}-amd64" >> "$GITHUB_OUTPUT"
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Exercise exact platform image on hardware
+        env:
+          IMAGE: ${{ steps.version.outputs.image }}
+          PROFILE: ${{ matrix.profile }}
+          DOCKER_ARGS: ${{ matrix.docker_args }}
+        shell: bash
+        run: |
+          docker pull "$IMAGE"
+          # DOCKER_ARGS is a fixed matrix value, split deliberately into Docker CLI arguments.
+          # shellcheck disable=SC2086
+          docker run --rm $DOCKER_ARGS -e PROFILE="$PROFILE" --entrypoint /bin/sh "$IMAGE" -ec '
+            set -eu
+            model_dir=$(mktemp -d)
+            /opt/mist-onnx/share/mistserver/onnx/prepare_models.sh --dir "$model_dir" yolo26n
+            ffmpeg -hide_banner -loglevel error -y -f lavfi \
+              -i testsrc2=size=640x640 -frames:v 1 "$model_dir/test.jpg"
+            MIST_ONNX_TEST_PROVIDER="$PROFILE" /opt/mist-onnx/libexec/onnxmodelprobe \
+              "$model_dir/yolo26n.onnx" 640 auto "$model_dir/test.jpg"
+            MIST_ONNX_TEST_PROVIDER="$PROFILE" /opt/mist-onnx/libexec/onnxmodelprobe \
+              --tensor "$model_dir/yolo26n.onnx"
+            rejected=cuda
+            case "$PROFILE" in cuda|tensorrt) rejected=coreml ;; esac
+            if MIST_ONNX_TEST_PROVIDER="$rejected" /opt/mist-onnx/libexec/onnxmodelprobe \
+                 "$model_dir/yolo26n.onnx" 640 >"$model_dir/rejection.log" 2>&1; then
+              echo "Unpackaged provider $rejected was accepted" >&2
+              exit 1
+            fi
+            grep -F "not included in this '\''$PROFILE'\'' ONNX build profile" \
+              "$model_dir/rejection.log"
+          '

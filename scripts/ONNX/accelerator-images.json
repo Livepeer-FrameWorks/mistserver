@@ -1,0 +1,166 @@
+{
+  "native_deployment": {
+    "schema": "mist.onnx.native-deployment/v1",
+    "platforms": {
+      "linux/amd64": {
+        "os": "linux",
+        "distribution": "ubuntu",
+        "release": "24.04",
+        "libc": "glibc",
+        "architecture": "amd64",
+        "package_manager": "apt",
+        "system_packages": [
+          "ca-certificates",
+          "curl",
+          "ffmpeg",
+          "libcjson1",
+          "libmbedtls14t64",
+          "libmbedx509-1t64",
+          "libmbedcrypto7t64",
+          "libxml2",
+          "librist4",
+          "libsrt1.5-openssl",
+          "libsrtp2-1",
+          "libusrsctp2"
+        ],
+        "loader_paths": [
+          "/usr/local/lib",
+          "/usr/local/lib/x86_64-linux-gnu",
+          "/opt/mist-onnx/lib"
+        ]
+      },
+      "linux/arm64": {
+        "os": "linux",
+        "distribution": "ubuntu",
+        "release": "24.04",
+        "libc": "glibc",
+        "architecture": "arm64",
+        "package_manager": "apt",
+        "system_packages": [
+          "ca-certificates",
+          "curl",
+          "ffmpeg",
+          "libcjson1",
+          "libmbedtls14t64",
+          "libmbedx509-1t64",
+          "libmbedcrypto7t64",
+          "libxml2",
+          "librist4",
+          "libsrt1.5-openssl",
+          "libsrtp2-1",
+          "libusrsctp2"
+        ],
+        "loader_paths": [
+          "/usr/local/lib",
+          "/usr/local/lib/aarch64-linux-gnu",
+          "/opt/mist-onnx/lib"
+        ]
+      },
+      "darwin/arm64": {
+        "os": "darwin",
+        "architecture": "arm64",
+        "minimum_release": "15.0",
+        "package_manager": "homebrew",
+        "system_packages": ["ffmpeg", "srt", "srtp", "libxml2"],
+        "loader_paths": ["/usr/local/lib", "/opt/homebrew/lib"]
+      }
+    },
+    "profiles": {
+      "coreml": {
+        "family": "apple-coreml",
+        "installation": "operating-system",
+        "probe_commands": ["system_profiler SPHardwareDataType"],
+        "cpu_fallback": true
+      },
+      "cuda": {
+        "family": "nvidia-cuda",
+        "version": "12.8.1",
+        "installation": "external",
+        "probe_commands": ["nvidia-smi"],
+        "device_paths": ["/dev/nvidiactl"],
+        "driver_libraries": ["libcuda.so.1"],
+        "cpu_fallback": true
+      },
+      "tensorrt": {
+        "family": "nvidia-tensorrt",
+        "version": "10.13",
+        "cuda_version": "13.0",
+        "installation": "external",
+        "probe_commands": ["nvidia-smi"],
+        "device_paths": ["/dev/nvidiactl"],
+        "driver_libraries": ["libcuda.so.1"],
+        "cpu_fallback": true
+      },
+      "openvino": {
+        "family": "intel-openvino",
+        "version": "2026.0",
+        "installation": "external",
+        "probe_commands": [],
+        "optional_device_paths": ["/dev/dri"],
+        "cpu_fallback": true
+      }
+    },
+    "targets": [
+      {"profile": "coreml", "platform": "darwin/arm64"},
+      {"profile": "cuda", "platform": "linux/amd64"},
+      {"profile": "tensorrt", "platform": "linux/amd64"},
+      {"profile": "openvino", "platform": "linux/amd64"}
+    ]
+  },
+  "include": [
+    {
+      "profile": "cuda",
+      "runner": "ubuntu-latest",
+      "platform": "linux/amd64",
+      "arch": "amd64",
+      "build_base": "nvidia/cuda:12.8.1-cudnn-devel-ubuntu24.04@sha256:24c8e3581ea6330038b0d374920721983312627f8adbfcf390bdb4b399d280ed",
+      "runtime_base": "nvidia/cuda:12.8.1-cudnn-runtime-ubuntu24.04@sha256:ac55d124da4882b497f732d8dfd9a702d5447a5f29d08d56da6f64f0a1eb34bc",
+      "cuda_home": "/usr/local/cuda",
+      "cudnn_home": "/usr",
+      "tensorrt_home": "",
+      "openvino_dir": "",
+      "dependency_jobs": 2,
+      "runtime_distribution": "onnxruntime-linux-x64-gpu-cuda12",
+      "nvcc_threads": 1,
+      "swap_gb": 0,
+      "cuda_architectures": "75;80;86;89;90",
+      "docker_args": "--gpus all"
+    },
+    {
+      "profile": "tensorrt",
+      "runner": "ubuntu-latest",
+      "platform": "linux/amd64",
+      "arch": "amd64",
+      "build_base": "nvcr.io/nvidia/tensorrt:25.08-py3@sha256:81c48cacaecbc586e0ad1e9c15f7cf7769a1a146b6a12f3bbaf83f9c5c16e623",
+      "runtime_base": "nvcr.io/nvidia/tensorrt:25.08-py3@sha256:81c48cacaecbc586e0ad1e9c15f7cf7769a1a146b6a12f3bbaf83f9c5c16e623",
+      "cuda_home": "/usr/local/cuda",
+      "cudnn_home": "/usr",
+      "tensorrt_home": "/usr",
+      "openvino_dir": "",
+      "dependency_jobs": 2,
+      "runtime_distribution": "onnxruntime-linux-x64-gpu-cuda13",
+      "nvcc_threads": 1,
+      "swap_gb": 0,
+      "cuda_architectures": "75;80;86;89;90",
+      "docker_args": "--gpus all"
+    },
+    {
+      "profile": "openvino",
+      "runner": "ubuntu-latest",
+      "platform": "linux/amd64",
+      "arch": "amd64",
+      "build_base": "openvino/ubuntu24_dev:2026.0.0@sha256:012a503ae3131e4c3dc727bc76cb8ba317d223894797b1af65eab3bea9414bcb",
+      "runtime_base": "openvino/ubuntu24_runtime:2026.0.0@sha256:2ffb2a3258d09fb49146fee91632ea3eb78f5e5e44bf11d43a01c53bbf6a339c",
+      "cuda_home": "",
+      "cudnn_home": "",
+      "tensorrt_home": "",
+      "openvino_dir": "/opt/intel/openvino/runtime/cmake",
+      "dependency_jobs": 4,
+      "runtime_distribution": "source",
+      "nvcc_threads": 1,
+      "swap_gb": 0,
+      "cuda_architectures": "",
+      "docker_args": "--device=/dev/dri"
+    }
+  ]
+}
