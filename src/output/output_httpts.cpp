@@ -214,7 +214,7 @@ namespace Mist{
   }
 
   void OutHTTPTS::sendTS(const char *tsData, size_t len){
-    if (isRecording()){
+    if (isRecording()) {
       myConn.SendNow(tsData, len);
       return;
     }

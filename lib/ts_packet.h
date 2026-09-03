@@ -7,6 +7,7 @@
 
 #include <cstdio>
 #include <cstdlib>
+#include <functional>
 #include <iostream>
 #include <map>
 #include <stdint.h> //for uint64_t
@@ -72,10 +73,10 @@ namespace TS{
     void updPos(unsigned int newPos);
 
     // PES helpers
-    static void getPESVideoLeadIn(std::string & outData, unsigned int len, unsigned long long PTS,
-                                          unsigned long long offset, bool isAligned, uint64_t bps = 0);
-    static std::string &getPESVideoLeadIn(unsigned int len, unsigned long long PTS,
-                                          unsigned long long offset, bool isAligned, uint64_t bps = 0);
+    static void getPESVideoLeadIn(std::string & outData, unsigned int len, unsigned long long PTS, int64_t offset,
+                                  bool isAligned, uint64_t bps = 0);
+    static std::string &
+      getPESVideoLeadIn(unsigned int len, unsigned long long PTS, int64_t offset, bool isAligned, uint64_t bps = 0);
     static void getPESAudioLeadIn(std::string & outData, unsigned int len, unsigned long long PTS, uint64_t bps);
     static std::string &getPESAudioLeadIn(unsigned int len, unsigned long long PTS, uint64_t bps = 0);
     static std::string &getPESMetaLeadIn(unsigned int len, unsigned long long PTS, uint64_t bps = 0);
@@ -272,7 +273,11 @@ namespace TS{
 
   size_t getUniqTrackID(const DTSC::Meta &M, size_t idx);
 
-  const char *createPMT(std::set<size_t> &selectedTracks, const DTSC::Meta &M, int contCounter = 0);
+  std::map<size_t, size_t> buildPidMap(const DTSC::Meta & meta, const std::set<size_t> & selectedTracks,
+                                       const std::map<std::string, std::string> & parameters);
+
+  const char *createPMT(std::set<size_t> & selectedTracks, const DTSC::Meta & M, int contCounter = 0,
+                        const std::function<size_t(const DTSC::Meta &, size_t)> & = getUniqTrackID);
   const char *createSDT(const std::string &streamName, int contCounter = 0);
 
 }// namespace TS

@@ -514,7 +514,7 @@ namespace Mist{
         tsStream.finish();
         isFinished = true;
       }
-      hasPacket = true;
+      hasPacket = (idx == INVALID_TRACK_ID ? tsStream.hasPacket() : tsStream.hasPacket(pid));
     }
     if (!hasPacket){return;}
     if (idx == INVALID_TRACK_ID){
@@ -546,9 +546,9 @@ namespace Mist{
       reader.readSome(188, *this);
       if (reader.isEOF()) {
         tsStream.finish();
-      } else if (readPos == prePos) {
-        Util::sleep(50);
+        break;
       }
+      if (readPos == prePos) { Util::sleep(50); }
     }
   }
 

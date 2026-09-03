@@ -1,8 +1,11 @@
 #pragma once
 #include "input.h"
+
 #include <mist/dtsc.h>
 #include <mist/nal.h>
 #include <mist/segmentreader.h>
+
+#include <mutex>
 
 #define BUFFERTIME 10
 
@@ -63,6 +66,9 @@ namespace Mist{
 
   /// Keeps the segment entry list by playlist ID
   extern std::map<uint32_t, std::deque<playListEntries> > listEntries;
+  extern std::mutex entryMutex;
+
+  bool snapshotPlaylistEntry(uint32_t playlist, size_t index, playListEntries & entry);
 
   class Playlist{
   public:

@@ -12,8 +12,8 @@ namespace Mist{
     maxSkipAhead = 0;
   }
 
-  void TSOutput::fillPacket(char const *data, size_t dataLen, bool &firstPack, bool video,
-                            bool keyframe, size_t pkgPid, uint16_t &contPkg){
+  void TSOutput::fillPacket(const char *data, size_t dataLen, bool & firstPack, bool video, bool keyframe,
+                            size_t pkgPid, uint16_t & contPkg) {
     do{
       if (!packData.getBytesFree()){
         if ((sendRepeatingHeaders && thisPacket.getTime() - lastHeaderTime > sendRepeatingHeaders) || !packCounter){
@@ -28,7 +28,8 @@ namespace Mist{
           tmpPack.FromPointer(TS::PAT);
           tmpPack.setContinuityCounter(++contPAT);
           sendTS(tmpPack.checkAndGetBuffer());
-          sendTS(TS::createPMT(selectedTracks, M, ++contPMT));
+          sendTS(TS::createPMT(selectedTracks, M, ++contPMT,
+                               [this](const DTSC::Meta & M, size_t idx) { return pidMapper(M, idx); }));
           sendTS(TS::createSDT(streamName, ++contSDT));
           packCounter += 3;
         }
@@ -37,7 +38,7 @@ namespace Mist{
         packData.clear();
       }
 
-      if (!dataLen){return;}
+      if (!dataLen) { return; }
 
       if (packData.getBytesFree() == 184){
         packData.clear();
@@ -59,7 +60,19 @@ namespace Mist{
       size_t tmp = packData.fillFree(data, dataLen);
       data += tmp;
       dataLen -= tmp;
-    }while (dataLen);
+    } while (dataLen);
+  }
+
+  size_t TSOutput::pidMapper(const DTSC::Meta & M, size_t idx) {
+    if (pidMap.size() != userSelect.size() || !pidMap.count(idx)) {
+      std::set<size_t> selectedTracks;
+      for (const auto & selection : userSelect) { selectedTracks.insert(selection.first); }
+      pidMap = TS::buildPidMap(M, selectedTracks, targetParams);
+    }
+    // Return 0 if not found, or found mapping otherwise
+    auto f = pidMap.find(idx);
+    if (f == pidMap.end()) { return 0; }
+    return f->second;
   }
 
   void TSOutput::sendNext(){
@@ -72,13 +85,13 @@ namespace Mist{
         return;
       }
     }
-    if (liveSeek(true)){return;}
+    if (liveSeek(true)) { return; }
     if (!M.trackLoaded(thisIdx)){return;}
     // Get ready some data to speed up accesses
     std::string type = M.getType(thisIdx);
     std::string codec = M.getCodec(thisIdx);
     bool video = (type == "video");
-    size_t pkgPid = TS::getUniqTrackID(M, thisIdx);
+    size_t pkgPid = pidMapper(M, thisIdx);
     bool &firstPack = first[thisIdx];
     uint16_t &contPkg = contCounters[pkgPid];
     uint64_t packTime = thisPacket.getTime();
@@ -139,7 +152,7 @@ namespace Mist{
         const uint32_t MAX_PES_SIZE = 65490 - 13;
         uint32_t ThisNaluSize = 0;
         uint32_t i = 0;
-        uint64_t offset = thisPacket.getInt("offset") * 90;
+        int64_t offset = (int64_t)thisPacket.getInt("offset") * 90;
 
         bs.clear();
         TS::Packet::getPESVideoLeadIn(bs,

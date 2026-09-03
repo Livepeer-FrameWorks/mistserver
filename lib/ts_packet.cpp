@@ -46,6 +46,46 @@
 namespace TS{
   std::map<unsigned int, std::string> stream_pids;
 
+  std::map<size_t, size_t> buildPidMap(const DTSC::Meta & meta, const std::set<size_t> & selectedTracks,
+                                       const std::map<std::string, std::string> & parameters) {
+    std::map<size_t, size_t> result;
+
+    for (const size_t track : selectedTracks) {
+      const std::string parameter = "mappid" + JSON::Value(track).asString();
+      if (parameters.count(parameter)) { result[track] = JSON::Value(parameters.at(parameter)).asInt(); }
+    }
+
+    const struct {
+        const char *parameter;
+        const char *type;
+        bool subtitle;
+    } ranges[] = {{"vidpidstart", "video", false},
+                  {"audpidstart", "audio", false},
+                  {"metapidstart", "meta", false},
+                  {"subpidstart", "meta", true}};
+
+    for (const auto & range : ranges) {
+      if (!parameters.count(range.parameter)) { continue; }
+      size_t currentPid = JSON::Value(parameters.at(range.parameter)).asInt();
+      for (const size_t track : selectedTracks) {
+        const bool isSubtitle = meta.getCodec(track) == "subtitle";
+        if (!result.count(track) && meta.getType(track) == range.type &&
+            (range.type != std::string("meta") || isSubtitle == range.subtitle)) {
+          result[track] = currentPid++;
+        }
+      }
+    }
+
+    size_t currentPid = 255;
+    for (const auto & mapping : result) {
+      if (mapping.second >= currentPid) { currentPid = mapping.second + 1; }
+    }
+    for (const size_t track : selectedTracks) {
+      if (!result.count(track)) { result[track] = currentPid++; }
+    }
+    return result;
+  }
+
   char PAT[188] ={
       0x47, 0x40, 0x00, 0x10, 0x00, 0x00, 0xB0, 0x0D, 0x00, 0x01, 0xC1, 0x00, 0x00, 0x00, 0x01,
       0xF0, 0x00, 0x2A, 0xB1, 0x04, 0xB2, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
@@ -499,8 +539,8 @@ namespace TS{
   /// Prepends the lead-in to variable toSend, assumes toSend's length is all other data.
   /// \param len The length of this frame.
   /// \param PTS The timestamp of the frame.
-  void Packet::getPESVideoLeadIn(std::string &outData, unsigned int len, unsigned long long PTS,
-                                         unsigned long long offset, bool isAligned, uint64_t bps){
+  void Packet::getPESVideoLeadIn(std::string & outData, unsigned int len, unsigned long long PTS, int64_t offset,
+                                 bool isAligned, uint64_t bps) {
     if (len){len += (offset ? 13 : 8);}
     if (bps >= 50){
       if (len){len += 3;}
@@ -527,13 +567,11 @@ namespace TS{
     }
   }
 
-
   /// Generates a PES Lead-in for a video frame.
   /// Prepends the lead-in to variable toSend, assumes toSend's length is all other data.
   /// \param len The length of this frame.
   /// \param PTS The timestamp of the frame.
-  std::string &Packet::getPESVideoLeadIn(unsigned int len, unsigned long long PTS,
-                                         unsigned long long offset, bool isAligned, uint64_t bps){
+  std::string & Packet::getPESVideoLeadIn(unsigned int len, unsigned long long PTS, int64_t offset, bool isAligned, uint64_t bps) {
     if (len){len += (offset ? 13 : 8);}
     if (bps >= 50){
       if (len){len += 3;}
@@ -1450,7 +1488,8 @@ namespace TS{
   ///\param selectedTracks tracks to include in PMT creation
   ///\param myMeta
   ///\returns character pointer to a static 188B TS packet
-  const char *createPMT(std::set<size_t> &selectedTracks, const DTSC::Meta &M, int contCounter){
+  const char *createPMT(std::set<size_t> & selectedTracks, const DTSC::Meta & M, int contCounter,
+                        const std::function<size_t(const DTSC::Meta &, size_t)> & pidMapper) {
     static ProgramMappingTable PMT;
     PMT.setPID(4096);
     PMT.setTableId(2);
@@ -1490,7 +1529,7 @@ namespace TS{
       }
     }
     if (vidTrack == -1){vidTrack = *(selectedTracks.begin());}
-    PMT.setPCRPID(getUniqTrackID(M, vidTrack));
+    PMT.setPCRPID(pidMapper(M, vidTrack));
     if (hasSCTE) {
       std::string progInfo("\005\004CUEI", 6);
       PMT.setProgramInfo(progInfo);
@@ -1500,7 +1539,7 @@ namespace TS{
     ProgramMappingEntry entry = PMT.getEntry(0);
     for (std::set<size_t>::iterator it = selectedTracks.begin(); it != selectedTracks.end(); it++){
       std::string codec = M.getCodec(*it);
-      entry.setElementaryPid(getUniqTrackID(M, *it));
+      entry.setElementaryPid(pidMapper(M, *it));
       std::string es_info;
       if (codec == "H264"){
         entry.setStreamType(0x1B);

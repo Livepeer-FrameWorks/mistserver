@@ -168,6 +168,14 @@ namespace Mist{
   uint32_t globalWaitTime; //< Time between playlist reloads, based on TARGETDURATION
   std::map<uint32_t, std::deque<playListEntries> > listEntries; //< Segments currently in the playlist
 
+  bool snapshotPlaylistEntry(uint32_t playlist, size_t index, playListEntries & entry) {
+    std::lock_guard<std::mutex> guard(entryMutex);
+    const std::map<uint32_t, std::deque<playListEntries>>::const_iterator found = listEntries.find(playlist);
+    if (found == listEntries.end() || found->second.size() <= index) { return false; }
+    entry = found->second[index];
+    return true;
+  }
+
   // These are used in the HTTP::Downloader callback, to prevent timeouts when downloading
   // segments/playlists.
   InputHLS *self = 0;
@@ -595,6 +603,7 @@ namespace Mist{
     capa["codecs"]["audio"].append("AAC");
     capa["codecs"]["audio"].append("AC3");
     capa["codecs"]["audio"].append("MP3");
+    capa["codecs"]["audio"].append("opus");
 
     JSON::Value option;
     option["arg"] = "integer";
@@ -1060,17 +1069,22 @@ namespace Mist{
   void InputHLS::getNext(size_t idx){
     uint32_t tid = 0;
     thisPacket.null();
-    uint64_t segIdx = listEntries[currentPlaylist].at(currentIndex).bytePos;
+    playListEntries currentEntry;
+    if (!snapshotPlaylistEntry(currentPlaylist, currentIndex, currentEntry)) {
+      WARN_MSG("Playlist %" PRIu64 " has no segment at index %zu", currentPlaylist, currentIndex);
+      return;
+    }
+    uint64_t segIdx = currentEntry.bytePos;
     while (config->is_active && (needsLock() || keepAlive())){
       // Check if we have a packet
       if (readNext(segDowner, thisPacket, segIdx)){
         if (!thisPacket){continue;}
         tid = getOriginalTrackId(currentPlaylist, thisPacket.getTrackId());
         uint64_t packetTime = thisPacket.getTime();
-        if (listEntries[currentPlaylist].at(currentIndex).timeOffset){
-          packetTime += listEntries[currentPlaylist].at(currentIndex).timeOffset;
-        }else{
-          packetTime = getPacketTime(thisPacket.getTime(), tid, currentPlaylist, listEntries[currentPlaylist].at(currentIndex).mUTC);
+        if (currentEntry.timeOffset) {
+          packetTime += currentEntry.timeOffset;
+        } else {
+          packetTime = getPacketTime(thisPacket.getTime(), tid, currentPlaylist, currentEntry.mUTC);
         }
         // Is it one we want?
         if (idx == INVALID_TRACK_ID || getMappedTrackId(M.getID(idx)) == thisPacket.getTrackId()){
@@ -1090,7 +1104,12 @@ namespace Mist{
       if (readNextFile()){
         allowRemap = true;
         MEDIUM_MSG("Next segment read successfully");
-        segIdx = listEntries[currentPlaylist].at(currentIndex).bytePos;
+        if (!snapshotPlaylistEntry(currentPlaylist, currentIndex, currentEntry)) {
+          WARN_MSG("Playlist %" PRIu64 " lost segment at index %zu after loading", currentPlaylist, currentIndex);
+          thisPacket.null();
+          return;
+        }
+        segIdx = currentEntry.bytePos;
         continue; // Success! Continue regular parsing.
       }
 
