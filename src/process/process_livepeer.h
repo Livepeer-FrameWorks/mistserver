@@ -1,8 +1,11 @@
 #include "../output/output_ts_base.h"
-#include <mist/ts_stream.h>
+
 #include <mist/defines.h>
 #include <mist/json.h>
 #include <mist/stream.h>
+#include <mist/ts_stream.h>
+
+#include <atomic>
 
 namespace Mist{
   bool getFirst = false;
@@ -27,7 +30,7 @@ namespace Mist{
       bool fullyWritten;
       TS::Stream S;
       Util::ResizeablePointer data;
-      readySegment(){
+      readySegment() {
         ID = nextFreeID++;
         time = 0;
         timeOffset = 0;
@@ -36,7 +39,7 @@ namespace Mist{
         fullyWritten = false;
         offsetCalcd = false;
         lastPacket = 0;
-      };
+      }
       void set(uint64_t t, void * ptr, size_t len){
         time = t;
         data.assign(ptr, len);
@@ -56,8 +59,8 @@ namespace Mist{
       uint64_t keyNo;
       uint64_t width;
       uint64_t height;
-      bool fullyRead;
-      bool fullyWritten;
+      std::atomic<bool> fullyRead;
+      std::atomic<bool> fullyWritten;
       Util::ResizeablePointer data;
       preparedSegment(){
         time = 0;
@@ -74,5 +77,4 @@ namespace Mist{
   std::string currBroadAddr;
   std::string lpID;
 
-}// namespace Mist
-
+} // namespace Mist

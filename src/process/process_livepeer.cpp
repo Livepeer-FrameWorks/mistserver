@@ -1,18 +1,33 @@
 #include "process_livepeer.h"
-#include "process.hpp"
-#include <mist/timing.h>
-#include <mist/procs.h>
-#include <mist/util.h>
-#include <mist/downloader.h>
-#include <mist/triggers.h>
-#include <mist/encode.h>
+
 #include "../input/input.h"
-#include <ostream>
-#include <thread>
+#include "livepeer_diagnostics.h"
+#include "livepeer_order.h"
+#include "livepeer_request.h"
+#include "process.hpp"
+
+#include <mist/downloader.h>
+#include <mist/encode.h>
+#include <mist/proc_stats.h>
+#include <mist/procs.h>
+#include <mist/shared_memory.h>
+#include <mist/timing.h>
+#include <mist/triggers.h>
+#include <mist/util.h>
+
+#ifdef SSL
+#include <psa/crypto.h>
+#endif
+
+#include <algorithm>
+#include <atomic>
 #include <mutex>
-#include <sys/stat.h>  //for stat
+#include <ostream>
+#include <set>
+#include <sys/stat.h> //for stat
 #include <sys/types.h> //for stat
-#include <unistd.h>    //for stat
+#include <thread>
+#include <unistd.h> //for stat
 
 std::mutex segMutex;
 std::mutex broadcasterMutex;
@@ -22,26 +37,61 @@ std::string cookie;
 JSON::Value pStat;
 JSON::Value & pData = pStat["proc_status_update"]["status"];
 std::mutex statsMutex;
-uint64_t statSwitches = 0;
-uint64_t statFailN200 = 0;
-uint64_t statFailTimeout = 0;
-uint64_t statFailParse = 0;
-uint64_t statFailOther = 0;
-uint64_t statSinkMs = 0;
-uint64_t statSourceMs = 0;
+std::atomic<uint64_t> statSwitches{0};
+// Failure counters: written from uploadThread(s), read from main's periodic
+// publisher for control decisions -> must be atomic.
+std::atomic<uint64_t> statFailN200{0};
+std::atomic<uint64_t> statFailTimeout{0};
+std::atomic<uint64_t> statFailParse{0};
+std::atomic<uint64_t> statFailOther{0};
+std::atomic<uint64_t> statSinkMs{0};
+std::atomic<uint64_t> statSourceMs{0};
+
+// Pressure-publisher inputs. Updated from uploadThread(s); consumed by the
+// periodic ProcState writer in main(). Atomics to avoid the statsMutex hot path.
+std::atomic<uint64_t> statTotalExternalUs{0}; // sum of POST-to-response time (us)
+std::atomic<uint64_t> statTotalLocalWorkUs{0}; // sum of local muxing/parse/insert time (us)
+std::atomic<uint64_t> statTotalSourceWaitUs{0}; // sum of time uploadThreads waited for input
+std::atomic<uint64_t> statTotalSinkWaitUs{0}; // sum of time uploadThreads waited their insert turn
+std::atomic<uint32_t> statActiveUploads{0}; // # uploadThreads currently mid-POST
+std::atomic<uint32_t> statLastSegSpeedQ16_16{0}; // last observed segDuration/turnaround (Q16.16)
+// Slots currently occupied (filled by source, not yet released by upload).
+// Read by the periodic publisher into ProcState.queueDepth without a lock;
+// the previous approach of summing presegs[i].fullyWritten/fullyRead was a
+// data race against the source and upload threads.
+std::atomic<uint32_t> statQueueDepth{0};
 
 std::string api_url;
 
 Util::Config co;
 Util::Config conf;
 
-size_t insertTurn = 0;
-bool isStuck = false;
-size_t sourceIndex = INVALID_TRACK_ID;
+IPC::sharedPage procStatePage;
+ProcExitState procExit;
 
-uint8_t sinkCommState = COMM_STATUS_ACTSOURCEDNT;
+Mist::LivepeerInsertOrder insertOrder(PRESEG_COUNT);
+std::atomic<bool> isStuck{false};
+std::atomic<size_t> sourceIndex{INVALID_TRACK_ID};
+std::atomic<bool> livepeerSourceEOF{false};
+std::atomic<bool> livepeerStopRequested{false};
+std::string livepeerThreadStreamName;
+
+inline void requestLivepeerStop() {
+  livepeerStopRequested.store(true, std::memory_order_release);
+  conf.is_active = false;
+  co.is_active = false;
+}
+
+static uint32_t evenScaledDimension(uint32_t numerator, uint32_t requested, uint32_t denominator) {
+  if (!denominator || !requested) { return 0; }
+  uint64_t scaled = ((uint64_t)numerator * requested + (denominator / 2)) / denominator;
+  if (scaled & 1) { ++scaled; }
+  return (uint32_t)scaled;
+}
 
 namespace Mist{
+
+  bool livepeerQueuesDrained();
 
   void pickRandomBroadcaster(){
     std::string prevBroad = currBroadAddr;
@@ -78,9 +128,21 @@ namespace Mist{
       wantRequest = false;
       parseData = true;
       currPreSeg = 0;
+      tailFinalized = false;
     }
     inline virtual bool keepGoing() { return config->is_active; }
     virtual bool onFinish(){
+      bool ret = TSOutput::onFinish();
+      finishCurrentSegment();
+      if (!ret) {
+        livepeerSourceEOF.store(true, std::memory_order_release);
+        if (!livepeerStopRequested.load(std::memory_order_acquire)) {
+          // Output::run may drop the shared active flag immediately after
+          // onFinish returns. Enter drain mode before the sink observes that.
+          conf.is_active = true;
+          co.is_active = true;
+        }
+      }
       if (opt.isMember("exit_unmask") && opt["exit_unmask"].asBool()){
         if (userSelect.size()){
           for (std::map<size_t, Comms::Users>::iterator it = userSelect.begin(); it != userSelect.end(); it++){
@@ -89,7 +151,7 @@ namespace Mist{
           }
         }
       }
-      return TSOutput::onFinish();
+      return ret;
     }
     virtual void dropTrack(size_t trackId, const std::string &reason, bool probablyBad = true){
       if (opt.isMember("exit_unmask") && opt["exit_unmask"].asBool()){
@@ -99,12 +161,45 @@ namespace Mist{
       TSOutput::dropTrack(trackId, reason, probablyBad);
     }
     size_t currPreSeg;
+    bool tailFinalized;
     void sendTS(const char *tsData, size_t len = 188){
       if (!presegs[currPreSeg].data.size()){
         presegs[currPreSeg].time = thisPacket.getTime();
       }
       presegs[currPreSeg].data.append(tsData, len);
     };
+    bool finishCurrentSegment() {
+      if (tailFinalized) { return false; }
+      tailFinalized = true;
+      Mist::preparedSegment & cur = presegs[currPreSeg];
+      if (livepeerStopRequested.load(std::memory_order_acquire) || cur.fullyWritten.load(std::memory_order_acquire) ||
+          cur.data.size() <= 187) {
+        return false;
+      }
+      size_t mainIdx = getMainSelectedTrack();
+      if (mainIdx == INVALID_TRACK_ID) { mainIdx = sourceIndex.load(std::memory_order_relaxed); }
+      if (mainIdx == INVALID_TRACK_ID) { mainIdx = thisIdx; }
+      uint64_t endTime = statSourceMs.load(std::memory_order_relaxed);
+      if (thisTime > endTime) { endTime = thisTime; }
+      if (mainIdx != INVALID_TRACK_ID) {
+        sourceIndex.store(mainIdx, std::memory_order_relaxed);
+        uint64_t trackEnd = M.getNowms(mainIdx);
+        if (M.getLastms(mainIdx) > trackEnd) { trackEnd = M.getLastms(mainIdx); }
+        if (trackEnd > endTime) { endTime = trackEnd; }
+      }
+      cur.keyNo = keyCount;
+      cur.width = mainIdx == INVALID_TRACK_ID ? 0 : M.getWidth(mainIdx);
+      cur.height = mainIdx == INVALID_TRACK_ID ? 0 : M.getHeight(mainIdx);
+      cur.segDuration = endTime > cur.time ? endTime - cur.time : 1;
+      cur.fullyRead.store(false, std::memory_order_relaxed);
+      cur.fullyWritten.store(true, std::memory_order_release);
+      statQueueDepth.fetch_add(1, std::memory_order_relaxed);
+      INFO_MSG("Finalizing Livepeer tail segment %" PRIu64 " (%" PRIu64 "-%" PRIu64 " = %" PRIu64 " ms, %zu bytes)",
+               cur.keyNo, cur.time, cur.time + cur.segDuration, cur.segDuration, cur.data.size());
+      currPreSeg = (currPreSeg + 1) % PRESEG_COUNT;
+      ++keyCount;
+      return true;
+    }
     virtual void initialSeek(bool dryRun = false){
       if (!meta){return;}
       if (!dryRun){
@@ -115,7 +210,7 @@ namespace Mist{
             meta.validateTrack(ti->first, meta.trackValid(ti->first) & opt["source_mask"].asInt());
           }
         }
-        if (!meta.getLive() || opt["leastlive"].asBool()){
+        if (!meta.getLive() || (opt.isMember("leastlive") && opt["leastlive"].asBool())) {
           INFO_MSG("Seeking to earliest point in stream");
           seek(0);
           return;
@@ -133,7 +228,8 @@ namespace Mist{
           }
         }
       }
-      if (thisTime > statSourceMs){statSourceMs = thisTime;}
+      uint64_t sourceMs = statSourceMs.load(std::memory_order_relaxed);
+      while (thisTime > sourceMs && !statSourceMs.compare_exchange_weak(sourceMs, thisTime, std::memory_order_relaxed)) {}
 
       // Split if we have a keyframe which contains new init data
       if (thisPacket.getFlag("keyframe") && M.trackLoaded(thisIdx) && M.getType(thisIdx) == "video") {
@@ -167,17 +263,21 @@ namespace Mist{
           }
         }
         if (shouldSplit) {
-          sourceIndex = getMainSelectedTrack();
+          sourceIndex.store(getMainSelectedTrack(), std::memory_order_relaxed);
           if (presegs[currPreSeg].data.size() > 187) {
             presegs[currPreSeg].keyNo = keyCount;
             presegs[currPreSeg].width = M.getWidth(thisIdx);
             presegs[currPreSeg].height = M.getHeight(thisIdx);
             presegs[currPreSeg].segDuration = thisTime - presegs[currPreSeg].time;
-            presegs[currPreSeg].fullyRead = false;
-            presegs[currPreSeg].fullyWritten = true;
+            presegs[currPreSeg].fullyRead.store(false, std::memory_order_relaxed);
+            presegs[currPreSeg].fullyWritten.store(true, std::memory_order_release);
+            statQueueDepth.fetch_add(1, std::memory_order_relaxed);
             currPreSeg = (currPreSeg + 1) % PRESEG_COUNT;
           }
-          while (!presegs[currPreSeg].fullyRead && conf.is_active) { Util::sleep(100); }
+          while (!presegs[currPreSeg].fullyRead.load(std::memory_order_acquire) && conf.is_active &&
+                 !livepeerStopRequested.load(std::memory_order_acquire)) {
+            Util::sleep(100);
+          }
           presegs[currPreSeg].data.assign(0, 0);
           selectDefaultTracks();
           needsLookAhead = 0;
@@ -203,7 +303,6 @@ namespace Mist{
         std::lock_guard<std::mutex> guard(statsMutex);
         pStat["proc_status_update"]["sink"] = streamName;
         pStat["proc_status_update"]["source"] = opt["source"];
-        if (streamName != opt["source"].asStringRef()) { sinkCommState = COMM_STATUS_ACTIVE | COMM_STATUS_SOURCE; }
       }
       Util::setStreamName(opt["source"].asString() + "→" + streamName);
       if (opt.isMember("target_mask") && !opt["target_mask"].isNull() && opt["target_mask"].asString() != ""){
@@ -212,12 +311,6 @@ namespace Mist{
         DTSC::trackValidDefault = TRACK_VALID_EXT_HUMAN | TRACK_VALID_EXT_PUSH;
       }
       preRun();
-    };
-    void connStats(Comms::Connections & statComm) {
-      for (std::map<size_t, Comms::Users>::iterator it = userSelect.begin(); it != userSelect.end(); it++) {
-        if (it->second) { it->second.setStatus(sinkCommState | it->second.getStatus()); }
-      }
-      Input::connStats(statComm);
     }
     virtual bool needsLock(){return false;}
     bool isSingular(){return false;}
@@ -237,7 +330,8 @@ namespace Mist{
           }
         }
       }
-      while (!thisPacket && conf.is_active){
+      while (!thisPacket && !livepeerStopRequested.load(std::memory_order_acquire) &&
+             (conf.is_active || !Mist::livepeerQueuesDrained())) {
         {
           std::lock_guard<std::mutex> guard(segMutex);
           std::string oRend;
@@ -269,19 +363,32 @@ namespace Mist{
               timeOffset = S.timeOffset;
               if (thisPacket){
                 S.lastPacket = thisPacket.getTime() + timeOffset;
-                if (S.lastPacket >= statSinkMs){statSinkMs = S.lastPacket;}
+                uint64_t sinkMs = statSinkMs.load(std::memory_order_relaxed);
+                while (S.lastPacket >= sinkMs &&
+                       !statSinkMs.compare_exchange_weak(sinkMs, S.lastPacket, std::memory_order_relaxed)) {}
               }
               trackId = (S.ID << 16) + thisPacket.getTrackId();
               thisIdx = M.trackIDToIndex(trackId, getpid());
               if (thisIdx == INVALID_TRACK_ID || !M.getCodec(thisIdx).size()){
                 INFO_MSG("Initializing track %zi as %" PRIu64 " for playlist %zu", thisPacket.getTrackId(), trackId, S.ID);
+                // initializeMetadata validates the track (trackValidDefault):
+                // the proc is segment-based, so the first packet is always a
+                // keyframe and the rendition is immediately servable. Audio in
+                // returned segments is passthrough we don't publish.
                 S.S.initializeMetadata(meta, thisPacket.getTrackId(), trackId);
                 thisIdx = M.trackIDToIndex(trackId, getpid());
-                meta.setSourceTrack(thisIdx, sourceIndex);
+                meta.setSourceTrack(thisIdx, sourceIndex.load(std::memory_order_relaxed));
                 if (M.getType(thisIdx) == "audio") { meta.validateTrack(thisIdx, 0); }
               }
             }
-            if (S.byteOffset >= S.data.size() && !S.S.hasPacket()){
+            const bool parseExhausted = livepeerSegmentParseExhausted(S.byteOffset, S.data.size(), S.S.hasPacket());
+            if (parseExhausted) {
+              // A segment that never produced a single packet would otherwise
+              // vanish without a trace — the exact failure mode where renditions
+              // come back from the gateway but no track ever registers.
+              if (livepeerSegmentProducedNoPackets(parseExhausted, S.offsetCalcd)) {
+                WARN_MSG("Discarding segment for %s (%zu bytes): TS parse yielded no packets", oRend.c_str(), S.data.size());
+              }
               S.fullyWritten = false;
               S.fullyRead = true;
             }
@@ -290,7 +397,7 @@ namespace Mist{
         if (!thisPacket){
           Util::sleep(25);
           if (userSelect.size() && userSelect.begin()->second.getStatus() == COMM_STATUS_REQDISCONNECT){
-            Util::logExitReason(ER_CLEAN_LIVE_BUFFER_REQ, "buffer requested shutdown");
+            procExit.log(ER_CLEAN_LIVE_BUFFER_REQ, 0, "buffer requested shutdown");
             return;
           }
         }
@@ -316,26 +423,65 @@ namespace Mist{
 
 }// namespace Mist
 
+namespace Mist {
+  bool livepeerQueuesDrained() {
+    if (statQueueDepth.load(std::memory_order_relaxed) || statActiveUploads.load(std::memory_order_relaxed)) {
+      return false;
+    }
+    std::lock_guard<std::mutex> guard(segMutex);
+    for (std::map<std::string, readySegment>::iterator it = segs.begin(); it != segs.end(); ++it) {
+      if (it->second.fullyWritten || !it->second.fullyRead) { return false; }
+    }
+    return true;
+  }
 
+  bool waitForLivepeerDrain() {
+    uint64_t start = Util::bootMS();
+    uint64_t lastLog = start;
+    while (!livepeerStopRequested.load(std::memory_order_acquire) && !livepeerQueuesDrained()) {
+      uint64_t now = Util::bootMS();
+      if (now > start + 60000) {
+        procExit.log(ER_FORMAT_SPECIFIC, 2, "Timed out waiting for Livepeer segment drain; queueDepth=%u activeUploads=%u",
+                     statQueueDepth.load(std::memory_order_relaxed), statActiveUploads.load(std::memory_order_relaxed));
+        livepeerStopRequested.store(true, std::memory_order_release);
+        return false;
+      }
+      if (now > lastLog + 1000) {
+        lastLog = now;
+        INFO_MSG("Waiting for Livepeer segment drain: queueDepth=%u activeUploads=%u",
+                 statQueueDepth.load(std::memory_order_relaxed), statActiveUploads.load(std::memory_order_relaxed));
+      }
+      Util::sleep(25);
+    }
+    return livepeerQueuesDrained();
+  }
+} // namespace Mist
 
 void sinkThread(){
+  Util::setStreamName(livepeerThreadStreamName);
   Mist::ProcessSink in(&co);
   co.activate();
   co.is_active = true;
   INFO_MSG("Running sink thread...");
-  in.run();
+  int rc = in.run();
+  if (rc == 0) {
+    procExit.log(ER_CLEAN_EOF, 0, "Sink thread finished");
+  } else {
+    procExit.log(Util::mRExitReason ? Util::mRExitReason : ER_UNKNOWN, rc, "%s",
+                 Util::exitReason[0] ? Util::exitReason : "Sink thread failed");
+  }
   INFO_MSG("Sink thread shutting down");
-  conf.is_active = false;
-  co.is_active = false;
+  if (!livepeerSourceEOF.load(std::memory_order_acquire) || livepeerStopRequested.load(std::memory_order_acquire)) {
+    requestLivepeerStop();
+  }
 }
 
 void sourceThread(){
-  conf.addOption("streamname", R"-({
-    "arg":"string",
-    "short":"s",
-    "long":"stream",
-    "help":"The name of the stream that this connector will transmit."
-  })-");
+  Util::setStreamName(livepeerThreadStreamName);
+  conf.addOption("streamname",
+                 JSON::fromString("{\"arg\":\"string\",\"short\":\"s\",\"long\":"
+                                  "\"stream\",\"help\":\"The name of the stream "
+                                  "that this connector will transmit.\"}"));
   JSON::Value opt;
   opt["arg"] = "string";
   opt["default"] = "";
@@ -361,20 +507,53 @@ void sourceThread(){
   Mist::ProcessSource out(c, conf, capa);
   if (conf.is_active){
     INFO_MSG("Running source thread...");
-    out.run();
-    INFO_MSG("Stopping source thread...");
+    int rc = out.run();
+    std::string sourceExitReason = Util::mRExitReason ? Util::mRExitReason : "";
+    bool cleanExit = (sourceExitReason.compare(0, 5, "CLEAN") == 0);
+    if (rc == 0 && cleanExit) {
+      livepeerSourceEOF.store(true, std::memory_order_release);
+      procExit.log(sourceExitReason.size() ? sourceExitReason.c_str() : ER_CLEAN_EOF, 0, "Source thread finished");
+      if (!livepeerStopRequested.load(std::memory_order_acquire)) {
+        // Output::run uses Util::Config::is_active as a process-wide flag and
+        // may clear it on clean VOD EOF. Keep the process alive long enough for
+        // Livepeer uploads, retries and sink insertion to drain.
+        conf.is_active = true;
+        co.is_active = true;
+      }
+    } else {
+      procExit.log(Util::mRExitReason ? Util::mRExitReason : ER_UNKNOWN, rc, "%s",
+                   Util::exitReason[0] ? Util::exitReason : "Source thread failed");
+      livepeerStopRequested.store(true, std::memory_order_release);
+    }
+    if (cleanExit) {
+      if (!Mist::waitForLivepeerDrain()) { WARN_MSG("Livepeer drain did not complete cleanly"); }
+    }
+    INFO_MSG("Stopping source thread");
   }else{
-    INFO_MSG("Aborting source thread...");
+    procExit.log(ER_READ_START_FAILURE, 2, "Source thread failed to initialize");
+    livepeerStopRequested.store(true, std::memory_order_release);
   }
-  conf.is_active = false;
-  co.is_active = false;
+  requestLivepeerStop();
 }
+
+/// Structure to hold per-rendition information
+struct RenditionInfo {
+    std::string name;
+    size_t bytes;
+};
+
+/// Result from parsing multipart response
+struct MultipartResult {
+    size_t renditionCount;
+    size_t totalOutputBytes;
+    std::vector<RenditionInfo> renditions;
+};
 
 ///Inserts a part into the queue of parts to parse
 void insertPart(const Mist::preparedSegment & mySeg, const std::string & rendition, void * ptr, size_t len){
   uint64_t waitTime = Util::bootMS();
   uint64_t lastAlert = waitTime;
-  while (conf.is_active){
+  while (!livepeerStopRequested.load(std::memory_order_acquire)) {
     {
       std::lock_guard<std::mutex> guard(segMutex);
       if (Mist::segs[rendition].fullyRead){
@@ -394,15 +573,18 @@ void insertPart(const Mist::preparedSegment & mySeg, const std::string & renditi
   }
 }
 
-///Parses a multipart response
-void parseMultipart(const Mist::preparedSegment & mySeg, const std::string & cType, const std::string & d){
+/// Parses a multipart response, returns rendition details
+MultipartResult parseMultipart(const Mist::preparedSegment & mySeg, const std::string & cType, const std::string & d) {
+  MultipartResult result;
+  result.renditionCount = 0;
+  result.totalOutputBytes = 0;
   std::string bound;
   if (cType.find("boundary=") != std::string::npos){
     bound = "--"+cType.substr(cType.find("boundary=")+9);
   }
   if (!bound.size()){
     FAIL_MSG("Could not parse boundary string from Content-Type header!");
-    return;
+    return result;
   }
   size_t startPos = 0;
   size_t nextPos = d.find(bound, startPos);
@@ -432,17 +614,25 @@ void parseMultipart(const Mist::preparedSegment & mySeg, const std::string & cTy
       for (std::map<std::string, std::string>::iterator it = partHeaders.begin(); it != partHeaders.end(); ++it){
         VERYHIGH_MSG("Header %s = %s", it->first.c_str(), it->second.c_str());
       }
-      VERYHIGH_MSG("Body has length %zi", nextPos-headEnd-6);
+      size_t bodyLen = nextPos - headEnd - 6;
+      VERYHIGH_MSG("Body has length %zi", bodyLen);
       std::string preType = partHeaders["Content-Type"].substr(0, 10);
       Util::stringToLower(preType);
       if (preType == "video/mp2t"){
-        insertPart(mySeg, partHeaders["Rendition-Name"], (void*)(d.data()+headEnd+4), nextPos-headEnd-6);
+        insertPart(mySeg, partHeaders["Rendition-Name"], (void *)(d.data() + headEnd + 4), bodyLen);
+        ++result.renditionCount;
+        result.totalOutputBytes += bodyLen;
+        RenditionInfo rInfo;
+        rInfo.name = partHeaders["Rendition-Name"];
+        rInfo.bytes = bodyLen;
+        result.renditions.push_back(rInfo);
       }
     }
   }
+  return result;
 }
 
-void segmentRejectedTrigger(Mist::preparedSegment & mySeg, const std::string & bc1, const std::string & bc2){
+void segmentRejectedTrigger(size_t myNum, Mist::preparedSegment & mySeg, const std::string & bc1, const std::string & bc2) {
   if (Triggers::shouldTrigger("LIVEPEER_SEGMENT_REJECTED", Util::streamName)){
     FAIL_MSG("Segment could not be transcoded, skipping to next and submitting for analysis");
     JSON::Value trackInfo;
@@ -454,19 +644,46 @@ void segmentRejectedTrigger(Mist::preparedSegment & mySeg, const std::string & b
   }else{
     FAIL_MSG("Segment could not be transcoded, skipping to next");
   }
-  mySeg.fullyWritten = false;
-  mySeg.fullyRead = true;
-  insertTurn = (insertTurn + 1) % PRESEG_COUNT;
+  uint64_t sinkWaitStart = Util::getMicros();
+  while (!insertOrder.isCurrent(myNum) && !livepeerStopRequested.load(std::memory_order_acquire)) { Util::sleep(100); }
+  statTotalSinkWaitUs.fetch_add(Util::getMicros(sinkWaitStart), std::memory_order_relaxed);
+  if (livepeerStopRequested.load(std::memory_order_acquire)) { return; }
+
+  mySeg.fullyWritten.store(false, std::memory_order_relaxed);
+  mySeg.fullyRead.store(true, std::memory_order_release);
+  statQueueDepth.fetch_sub(1, std::memory_order_relaxed);
+  if (!insertOrder.complete(myNum)) {
+    procExit.log(ER_FORMAT_SPECIFIC, 2, "Livepeer segment rejection completed out of order");
+    requestLivepeerStop();
+  }
 }
 
 void uploadThread(size_t myNum){
+  Util::setStreamName(livepeerThreadStreamName);
   Mist::preparedSegment & mySeg = Mist::presegs[myNum];
   HTTP::Downloader upper;
   bool was422 = false;
+  uint32_t consecutive422 = 0;
   std::string prevURL;
-  while (conf.is_active){
-    while (conf.is_active && !mySeg.fullyWritten){Util::sleep(100);}
-    if (!conf.is_active){return;}//Exit early on shutdown
+  while (!livepeerStopRequested.load(std::memory_order_acquire)) {
+    // Block until source thread has prepared this slot. Time spent here counts
+    // as "source wait"; we are starved for input.
+    uint64_t srcWaitStart = Util::getMicros();
+    while (!livepeerStopRequested.load(std::memory_order_acquire) && !mySeg.fullyWritten.load(std::memory_order_acquire)) {
+      if (livepeerSourceEOF.load(std::memory_order_acquire)) {
+        statTotalSourceWaitUs.fetch_add(Util::getMicros(srcWaitStart), std::memory_order_relaxed);
+        return;
+      }
+      if (!conf.is_active) {
+        statTotalSourceWaitUs.fetch_add(Util::getMicros(srcWaitStart), std::memory_order_relaxed);
+        return;
+      }
+      Util::sleep(100);
+    }
+    statTotalSourceWaitUs.fetch_add(Util::getMicros(srcWaitStart), std::memory_order_relaxed);
+    if (livepeerStopRequested.load(std::memory_order_acquire) || !mySeg.fullyWritten.load(std::memory_order_acquire)) {
+      return;
+    } // Exit early on shutdown
     size_t attempts = 0;
     do{
       HTTP::URL target;
@@ -475,53 +692,142 @@ void uploadThread(size_t myNum){
         target = HTTP::URL(Mist::currBroadAddr+"/live/"+Mist::lpID+"/"+JSON::Value(mySeg.keyNo).asString()+".ts");
         upper.setHeader("Cookie", cookie);
       }
-      upper.dataTimeout = mySeg.segDuration/1000 + 2;
-      upper.retryCount = 2;
+      // Mist's HTTP timeout is "gateway response budget + socket margin", not
+      // transcode policy. When the workload contract supplies a deadline the
+      // gateway owns selection/retry/fallback and returns within it; Mist only
+      // needs to outlast that. Without a deadline (e.g. live) keep the legacy
+      // segment-duration timeout.
+      // Read as signed and clamp: a negative/invalid override must not wrap into
+      // a huge unsigned timeout.
+      int64_t deadlineMsRaw = Mist::opt.isMember("deadline_ms") ? Mist::opt["deadline_ms"].asInt() : 0;
+      uint64_t deadlineMs = deadlineMsRaw > 0 ? (uint64_t)deadlineMsRaw : 0;
+      if (deadlineMs > 0) {
+        upper.dataTimeout = Mist::livepeerSocketTimeoutSeconds(mySeg.segDuration, deadlineMs);
+        // Under the workload contract the gateway owns retry policy, so make a
+        // single deliberate attempt per outer iteration: the explicit retry logic
+        // below decides same-broadcaster (idempotent join) vs switch, and the
+        // total stays within the advertised deadline wall instead of the
+        // downloader silently re-sending and multiplying the response budget.
+        upper.retryCount = Mist::livepeerDownloaderRetryCount(deadlineMs);
+      } else {
+        upper.dataTimeout = Mist::livepeerSocketTimeoutSeconds(mySeg.segDuration, deadlineMs);
+        upper.retryCount = Mist::livepeerDownloaderRetryCount(deadlineMs);
+      }
       upper.setHeader("Accept", "multipart/mixed");
       upper.setHeader("Content-Duration", JSON::Value(mySeg.segDuration).asString());
       upper.setHeader("Content-Resolution", JSON::Value(mySeg.width).asString()+"x"+JSON::Value(mySeg.height).asString());
 
       // If the Livepeer API Key hasn't been set then we send the configuration as an HTTP header rather than pushing to the API
       if (!Mist::opt.isMember("access_token") || !Mist::opt["access_token"] || !Mist::opt["access_token"].isString()) {
-        JSON::Value tc;
-        tc["profiles"] = Mist::opt["target_profiles"];
+        // Workload-aware transcode contract: the gateway parses these camelCase keys
+        // from the same header to own deadline, selection and retry policy.
+        JSON::Value tc = Mist::buildLivepeerTranscodeConfiguration(Mist::opt, deadlineMs);
         upper.setHeader("Livepeer-Transcode-Configuration", tc.toString());
       }
 
       uint64_t uplTime = Util::getMicros();
-      if (upper.post(target, mySeg.data, mySeg.data.size())){
+      statActiveUploads.fetch_add(1, std::memory_order_relaxed);
+      bool postOk = upper.post(target, mySeg.data, mySeg.data.size());
+      statActiveUploads.fetch_sub(1, std::memory_order_relaxed);
+      if (postOk) {
         uplTime = Util::getMicros(uplTime);
+        statTotalExternalUs.fetch_add(uplTime, std::memory_order_relaxed);
         if (upper.getStatusCode() == 200){
           MEDIUM_MSG("Uploaded %zu bytes (time %" PRIu64 "-%" PRIu64 " = %" PRIu64 " ms) to %s in %.2f ms", mySeg.data.size(), mySeg.time, mySeg.time+mySeg.segDuration, mySeg.segDuration, target.getUrl().c_str(), uplTime/1000.0);
           was422 = false;
+          consecutive422 = 0;
           prevURL.clear();
-          mySeg.fullyWritten = false;
+          mySeg.fullyWritten.store(false, std::memory_order_relaxed);
           {
             std::lock_guard<std::mutex> guard(broadcasterMutex);
             std::string newCookie = upper.getCookie();
             if (newCookie.size() && newCookie != cookie) { cookie = newCookie; }
           }
-          //Wait your turn
-          while (myNum != insertTurn && conf.is_active){Util::sleep(100);}
-          if (!conf.is_active){return;}//Exit early on shutdown
+          // Sink wait: blocked waiting for our insertion turn (serialized
+          // across uploadThreads).
+          uint64_t sinkWaitStart = Util::getMicros();
+          while (!insertOrder.isCurrent(myNum) && !livepeerStopRequested.load(std::memory_order_acquire)) {
+            Util::sleep(100);
+          }
+          statTotalSinkWaitUs.fetch_add(Util::getMicros(sinkWaitStart), std::memory_order_relaxed);
+          if (livepeerStopRequested.load(std::memory_order_acquire)) { return; } // Exit early on shutdown
+          // Local work: multipart parse + per-rendition insert. Whatever
+          // happens here is CPU we're spending on this proc.
+          uint64_t workStart = Util::getMicros();
+          MultipartResult mpResult;
+          mpResult.renditionCount = 0;
+          mpResult.totalOutputBytes = 0;
           if (upper.getHeader("Content-Type").substr(0, 10) == "multipart/"){
-            parseMultipart(mySeg, upper.getHeader("Content-Type"), upper.const_data());
+            mpResult = parseMultipart(mySeg, upper.getHeader("Content-Type"), upper.const_data());
           }else{
             ++statFailParse;
             FAIL_MSG("Non-multipart response (%s, %zu bytes) received - this version only works "
                      "with multipart!",
                      upper.getHeader("Content-Type").c_str(), upper.const_data().size());
           }
-          mySeg.fullyRead = true;
-          insertTurn = (insertTurn + 1) % PRESEG_COUNT;
+          mySeg.fullyRead.store(true, std::memory_order_release);
+          statQueueDepth.fetch_sub(1, std::memory_order_relaxed);
+          if (!insertOrder.complete(myNum)) {
+            procExit.log(ER_FORMAT_SPECIFIC, 2, "Livepeer response completed out of order");
+            requestLivepeerStop();
+            return;
+          }
+          statTotalLocalWorkUs.fetch_add(Util::getMicros(workStart), std::memory_order_relaxed);
+
+          // Always publish observed speed to ProcState; the controller needs
+          // this independent of whether LIVEPEER_SEGMENT_COMPLETE is wired up.
+          // Only the trigger payload emission lives behind shouldTrigger().
+          uint64_t turnaroundMs = uplTime / 1000;
+          double speedFactor = turnaroundMs > 0 ? (double)mySeg.segDuration / (double)turnaroundMs : 0.0;
+          {
+            double sf = speedFactor;
+            if (sf < 0) sf = 0;
+            if (sf > 65535.0) sf = 65535.0;
+            statLastSegSpeedQ16_16.store((uint32_t)(sf * 65536.0), std::memory_order_relaxed);
+          }
+
+          if (Triggers::shouldTrigger("LIVEPEER_SEGMENT_COMPLETE", Util::streamName)) {
+            // Build renditions JSON array (only this field is JSON since it's variable-length)
+            JSON::Value renditionsJson;
+            for (size_t i = 0; i < mpResult.renditions.size(); ++i) {
+              JSON::Value rend;
+              rend["name"] = mpResult.renditions[i].name;
+              rend["bytes"] = (uint64_t)mpResult.renditions[i].bytes;
+              renditionsJson.append(rend);
+            }
+
+            std::string payload = std::string(Util::streamName) + "\n" + // 1. stream name
+              Mist::lpID + "\n" + // 2. livepeer session ID
+              JSON::Value(mySeg.keyNo).asString() + "\n" + // 3. segment number
+              JSON::Value(mySeg.time).asString() + "\n" + // 4. segment start ms
+              JSON::Value(mySeg.segDuration).asString() + "\n" + // 5. segment duration ms
+              JSON::Value(mySeg.width).asString() + "\n" + // 6. source width
+              JSON::Value(mySeg.height).asString() + "\n" + // 7. source height
+              JSON::Value((uint64_t)mySeg.data.size()).asString() + "\n" + // 8. input bytes
+              JSON::Value((uint64_t)mpResult.totalOutputBytes).asString() + "\n" + // 9. output bytes total
+              JSON::Value(mpResult.renditionCount).asString() + "\n" + // 10. rendition count
+              JSON::Value((uint64_t)attempts).asString() + "\n" + // 11. attempt count
+              target.getUrl() + "\n" + // 12. broadcaster URL
+              JSON::Value(turnaroundMs).asString() + "\n" + // 13. turnaround ms
+              JSON::Value(speedFactor).asString() + "\n" + // 14. speed factor
+              renditionsJson.toString(); // 15. renditions (JSON array)
+            Triggers::doTrigger("LIVEPEER_SEGMENT_COMPLETE", payload, Util::streamName);
+          }
           break;//Success: no need to retry
         }else if (upper.getStatusCode() == 422){
           //segment rejected by broadcaster node; try a different broadcaster at most once and keep track
           ++statFailN200;
+          ++consecutive422;
           WARN_MSG("Rejected upload of %zu bytes to %s after %.2f ms: %" PRIu32 " %s", mySeg.data.size(), target.getUrl().c_str(), uplTime/1000.0, upper.getStatusCode(), upper.getStatusText().c_str());
+          if (Mist::livepeerShouldFallback(consecutive422)) {
+            procExit.log(ER_FORMAT_SPECIFIC, 2,
+                         "Livepeer: %" PRIu32 " consecutive segment rejections (422) — falling back", consecutive422);
+            requestLivepeerStop();
+            return;
+          }
           if (was422){
             //second error in a row, fire off LIVEPEER_SEGMENT_REJECTED trigger
-            segmentRejectedTrigger(mySeg, prevURL, target.getUrl());
+            segmentRejectedTrigger(myNum, mySeg, prevURL, target.getUrl());
             was422 = false;
             prevURL.clear();
             break;
@@ -533,11 +839,18 @@ void uploadThread(size_t myNum){
           //Failure due to non-200/422 status code
           ++statFailN200;
           WARN_MSG("Failed to upload %zu bytes to %s in %.2f ms: %" PRIu32 " %s", mySeg.data.size(), target.getUrl().c_str(), uplTime/1000.0, upper.getStatusCode(), upper.getStatusText().c_str());
+          if (Mist::livepeerFatalUploadStatus(upper.getStatusCode())) {
+            procExit.log(ER_FORMAT_SPECIFIC, 2, "Livepeer upload fatal HTTP status %" PRIu32 " %s",
+                         upper.getStatusCode(), upper.getStatusText().c_str());
+            requestLivepeerStop();
+            return;
+          }
         }
-      }else{
+      } else {
         //other failures and aborted uploads
-        if (!conf.is_active){return;}//Exit early on shutdown
+        if (!conf.is_active && !livepeerSourceEOF.load(std::memory_order_acquire)) { return; } // Exit early on shutdown
         uplTime = Util::getMicros(uplTime);
+        statTotalExternalUs.fetch_add(uplTime, std::memory_order_relaxed);
         ++statFailTimeout;
         WARN_MSG("Failed to upload %zu bytes to %s in %.2f ms", mySeg.data.size(), target.getUrl().c_str(), uplTime/1000.0);
       }
@@ -545,9 +858,21 @@ void uploadThread(size_t myNum){
       attempts++;
       Util::sleep(100);//Rate-limit retries
       if (attempts > 4){
-        Util::logExitReason(ER_FORMAT_SPECIFIC, "too many upload failures");
-        conf.is_active = false;
+        procExit.log(ER_FORMAT_SPECIFIC, 2, "too many upload failures");
+        requestLivepeerStop();
         return;
+      }
+      // We finished writing the request body but got no response in time (the
+      // gateway is likely still transcoding). Do NOT switch broadcasters: re-POST
+      // the same segment to the SAME gateway, which dedups by (seq, payload hash)
+      // and joins the in-flight transcode rather than starting a duplicate.
+      // Switching here would spawn a duplicate transcode on another orchestrator
+      // and poison state — the original prod failure mode. Only a send/connect
+      // failure (request body never fully sent) switches.
+      if (Mist::livepeerShouldRetryCurrentBroadcaster(postOk, upper.requestWasSent())) {
+        WARN_MSG("Upload of seg %s accepted but response timed out; retrying same broadcaster",
+                 JSON::Value(mySeg.keyNo).asString().c_str());
+        continue;
       }
       bool switchSuccess = false;
       {
@@ -557,8 +882,8 @@ void uploadThread(size_t myNum){
         Mist::pickRandomBroadcaster();
         if (!Mist::currBroadAddr.size()){
           FAIL_MSG("Cannot switch to new broadcaster: none available");
-          Util::logExitReason(ER_FORMAT_SPECIFIC, "no Livepeer broadcasters available");
-          conf.is_active = false;
+          procExit.log(ER_FORMAT_SPECIFIC, 2, "no Livepeer broadcasters available");
+          requestLivepeerStop();
           return;
         }
         if (Mist::currBroadAddr != prevBroadAddr){
@@ -571,12 +896,12 @@ void uploadThread(size_t myNum){
       }
       if (!switchSuccess && was422){
         //no switch possible, fire off LIVEPEER_SEGMENT_REJECTED trigger
-        segmentRejectedTrigger(mySeg, prevURL, "N/A");
+        segmentRejectedTrigger(myNum, mySeg, prevURL, "N/A");
         was422 = false;
         prevURL.clear();
         break;
       }
-    }while(conf.is_active);
+    } while (!livepeerStopRequested.load(std::memory_order_acquire));
   }
 }
 
@@ -584,6 +909,15 @@ int main(int argc, char *argv[]){
   DTSC::trackValidMask = TRACK_VALID_INT_PROCESS;
   Util::Config config(argv[0]);
   Util::Config::binaryType = Util::PROCESS;
+
+  // Initialize SHM early so exit reasons are available even for config errors
+  {
+    char shmName[NAME_BUFFER_SIZE];
+    snprintf(shmName, NAME_BUFFER_SIZE, SHM_PROC_STATE, getpid());
+    procStatePage.init(shmName, sizeof(ProcState), true, false);
+    ProcState::initPage(procStatePage);
+  }
+
   JSON::Value capa;
 
   {
@@ -609,7 +943,10 @@ int main(int argc, char *argv[]){
 
   capa["codecs"][0u][0u].append("H264");
 
-  if (!(config.parseArgs(argc, argv))){return 1;}
+  if (!(config.parseArgs(argc, argv))) {
+    procExit.log(ER_FORMAT_SPECIFIC, 2, "Failed to parse command-line arguments");
+    return procExit.flush(procStatePage);
+  }
   if (config.getBool("json")){
 
     capa["name"] = "Livepeer";
@@ -702,11 +1039,11 @@ int main(int argc, char *argv[]){
       grp["name"]["name"] = "Name";
       grp["name"]["help"] = "Name for the profile. Must be unique within this transcode.";
       grp["name"]["type"] = "str";
-      grp["name"]["n"] = 0;
+      grp["name"]["sort"] = 0;
       grp["bitrate"]["name"] = "Bitrate";
       grp["bitrate"]["help"] = "Target bit rate of the output";
       grp["bitrate"]["type"] = "int";
-      grp["bitrate"]["n"] = 1;
+      grp["bitrate"]["sort"] = 1;
       grp["bitrate"]["unit"][0u][0u] = "1";
       grp["bitrate"]["unit"][0u][1u] = "bit/s";
       grp["bitrate"]["unit"][1u][0u] = "1000";
@@ -714,29 +1051,29 @@ int main(int argc, char *argv[]){
       grp["bitrate"]["unit"][2u][0u] = "1000000";
       grp["bitrate"]["unit"][2u][1u] = "Mbit/s";
     }{
-      JSON::Value &grp = capa["required"]["target_profiles"]["optional"];
+      JSON::Value & grp = capa["required"]["target_profiles"]["sublist"];
       grp["width"]["name"] = "Width";
       grp["width"]["help"] = "Width in pixels of the output. Defaults to match aspect with height, or source width if both are default.";
       grp["width"]["unit"] = "px";
       grp["width"]["type"] = "int";
-      grp["width"]["n"] = 2;
+      grp["width"]["sort"] = 2;
       grp["height"]["name"] = "Height";
       grp["height"]["help"] = "Height in pixels of the output. Defaults to match aspect with width, or source height if both are default. If only height is given and the source height is greater than the source width, width and height will swap and do what you most likely wanted to do (e.g. follow your config in portrait mode instead of landscape mode).";
       grp["height"]["unit"] = "px";
       grp["height"]["type"] = "int";
-      grp["height"]["n"] = 3;
+      grp["height"]["sort"] = 3;
       grp["fps"]["name"] = "Framerate";
       grp["fps"]["help"] = "Framerate of the output. Zero means to match the input (= the default).";
       grp["fps"]["unit"] = "frames per second";
       grp["fps"]["default"] = 0;
       grp["fps"]["type"] = "int";
-      grp["fps"]["n"] = 4;
+      grp["fps"]["sort"] = 4;
       grp["gop"]["name"] = "Keyframe interval / GOP size";
       grp["gop"]["help"] = "Interval of keyframes / duration of GOPs for the transcode. \"0.0\" means to match input (= the default), 'intra' means to send only key frames. Otherwise, fractional seconds between keyframes.";
       grp["gop"]["unit"] = "seconds";
       grp["gop"]["default"] = "0.0";
       grp["gop"]["type"] = "str";
-      grp["gop"]["n"] = 5;
+      grp["gop"]["sort"] = 5;
 
       grp["profile"]["name"] = "H264 Profile";
       grp["profile"]["help"] = "Profile to use. Defaults to \"High\".";
@@ -811,23 +1148,26 @@ int main(int argc, char *argv[]){
 
   // read configuration
   if (config.getString("configuration") != "-"){
-    Mist::opt.fromString(config.getString("configuration"));
+    Mist::opt = JSON::fromString(config.getString("configuration"));
   } else {
+    std::string json, line;
     INFO_MSG("Reading configuration from standard input");
-    Mist::opt.fromStream(std::cin);
+    while (std::getline(std::cin, line)) { json.append(line); }
+    Mist::opt = JSON::fromString(json.c_str());
   }
 
   // check config for generic options
   srand(getpid());
   // Check generic configuration variables
   if (!Mist::opt.isMember("source") || !Mist::opt["source"] || !Mist::opt["source"].isString()){
-    FAIL_MSG("Missing or blank source in config!");
-    return 1;
+    procExit.log(ER_FORMAT_SPECIFIC, 2, "Missing or blank source in config");
+    return procExit.flush(procStatePage);
   }
 
   if (!Mist::opt.isMember("sink") || !Mist::opt["sink"] || !Mist::opt["sink"].isString()){
     INFO_MSG("No sink explicitly set, using source as sink");
   }
+  ProcState::publishStartup(procStatePage, 8.0, PRC_RESOURCE_EXTERNAL);
   if (!Mist::opt.isMember("custom_url") || !Mist::opt["custom_url"] || !Mist::opt["custom_url"].isString()){
     api_url = "https://livepeer.live/api";
   }else{
@@ -840,19 +1180,28 @@ int main(int argc, char *argv[]){
     std::string streamName = Mist::opt["sink"].asString();
     if (!streamName.size()){streamName = Mist::opt["source"].asString();}
     Util::streamVariables(streamName, Mist::opt["source"].asString());
-    Util::setStreamName(Mist::opt["source"].asString() + "→" + streamName);
+    livepeerThreadStreamName = Mist::opt["source"].asString() + "→" + streamName;
+    Util::setStreamName(livepeerThreadStreamName);
   }
 
+#ifdef SSL
+  psa_status_t psaStatus = psa_crypto_init();
+  if (psaStatus != PSA_SUCCESS) {
+    procExit.log(ER_FORMAT_SPECIFIC, 2, "Failed to initialize PSA crypto before Livepeer upload threads");
+    FAIL_MSG("Failed to initialize PSA crypto before Livepeer upload threads: %d", (int)psaStatus);
+    return procExit.flush(procStatePage);
+  }
+#endif
 
   const std::string & srcStrm = Mist::opt["source"].asStringRef();
   if (config.getBool("kickoff")){
     if (!Util::startInput(srcStrm, "")){
-      FAIL_MSG("Could not connector and/or start source stream!");
-      return 1;
+      procExit.log(ER_READ_START_FAILURE, 1, "Could not start source stream");
+      return procExit.flush(procStatePage);
     }
     uint8_t streamStat = Util::getStreamStatus(srcStrm);
     size_t sleeps = 0;
-    while (++sleeps < 2400 && streamStat != STRMSTAT_OFF && streamStat != STRMSTAT_READY){
+    while (++sleeps < 2400 && streamStat != STRMSTAT_OFF && streamStat != STRMSTAT_OFFLINE && streamStat != STRMSTAT_READY) {
       if (sleeps >= 16 && (sleeps % 4) == 0){
         INFO_MSG("Waiting for stream to boot... (" PRETTY_PRINT_TIME " / " PRETTY_PRINT_TIME ")", PRETTY_ARG_TIME(sleeps/4), PRETTY_ARG_TIME(2400/4));
       }
@@ -860,8 +1209,8 @@ int main(int argc, char *argv[]){
       streamStat = Util::getStreamStatus(srcStrm);
     }
     if (streamStat != STRMSTAT_READY){
-      FAIL_MSG("Stream not available!");
-      return 1;
+      procExit.log(ER_READ_START_FAILURE, 1, "Source stream not available after kickoff");
+      return procExit.flush(procStatePage);
     }
   }
 
@@ -890,8 +1239,8 @@ int main(int argc, char *argv[]){
     }
   }
   if (sourceIdx == INVALID_TRACK_ID || !M.getWidth(sourceIdx) || !M.getHeight(sourceIdx)){
-    FAIL_MSG("No valid source track!");
-    return 1;
+    procExit.log(ER_FORMAT_SPECIFIC, 2, "No valid source video track found");
+    return procExit.flush(procStatePage);
   }
 
   //build transcode request
@@ -919,23 +1268,20 @@ int main(int argc, char *argv[]){
         //portrait mode
         uint32_t heightSetting = (*prof)["height"].asInt();
         (*prof)["width"] = heightSetting;
-        (*prof)["height"] = M.getHeight(sourceIdx) * heightSetting / M.getWidth(sourceIdx);
+        (*prof)["height"] = evenScaledDimension(M.getHeight(sourceIdx), heightSetting, M.getWidth(sourceIdx));
       }else{
         //landscape mode
         uint32_t heightSetting = (*prof)["height"].asInt();
-        (*prof)["width"] = M.getWidth(sourceIdx) * heightSetting / M.getHeight(sourceIdx);
+        (*prof)["width"] = evenScaledDimension(M.getWidth(sourceIdx), heightSetting, M.getHeight(sourceIdx));
       }
     }
     if (!prof->isMember("height") || !(*prof)["height"].asInt()){
       //no height, but we have width
       //No portrait/landscape check, as per documentation
       uint32_t widthSetting = (*prof)["width"].asInt();
-      (*prof)["height"] = M.getHeight(sourceIdx) * widthSetting / M.getWidth(sourceIdx);
+      (*prof)["height"] = evenScaledDimension(M.getHeight(sourceIdx), widthSetting, M.getWidth(sourceIdx));
     }
-    //force width/height to multiples of 16
-    (*prof)["width"] = ((*prof)["width"].asInt() / 16) * 16;
-    (*prof)["height"] = ((*prof)["height"].asInt() / 16) * 16;
-    
+
     if (prof->isMember("track_inhibit")){
       std::set<size_t> wouldSelect = Util::wouldSelect(
           M, std::string("audio=none&video=none&subtitle=none&") + (*prof)["track_inhibit"].asStringRef());
@@ -966,7 +1312,7 @@ int main(int argc, char *argv[]){
     const std::string & hcbc = Mist::opt["hardcoded_broadcasters"].asStringRef();
     // Detect array
     if (hcbc.size() && hcbc[0] == '[') {
-      Mist::lpBroad.fromString(hcbc);
+      Mist::lpBroad = JSON::fromString(hcbc);
       // If an array element is a string, assume it's the address field only
       jsonForEach (Mist::lpBroad, it) {
         if (it->isString()) {
@@ -983,19 +1329,19 @@ int main(int argc, char *argv[]){
   } else {
     // Get broadcaster list, pick first valid address
     if (!dl.get(HTTP::URL(api_url + "/broadcaster"))) {
-      FAIL_MSG("Livepeer API responded negatively to request for broadcaster list");
-      return 1;
+      procExit.log(ER_FORMAT_SPECIFIC, 2, "Livepeer API rejected broadcaster list request");
+      return procExit.flush(procStatePage);
     }
-    Mist::lpBroad.fromString(dl.data());
+    Mist::lpBroad = JSON::fromString(dl.data());
   }
   if (!Mist::lpBroad || !Mist::lpBroad.isArray()){
-    FAIL_MSG("No Livepeer broadcasters available");
-    return 1;
+    procExit.log(ER_FORMAT_SPECIFIC, 2, "No Livepeer broadcasters available (invalid response)");
+    return procExit.flush(procStatePage);
   }
   Mist::pickRandomBroadcaster();
   if (!Mist::currBroadAddr.size()){
-  FAIL_MSG("No Livepeer broadcasters available");
-    return 1;
+    procExit.log(ER_FORMAT_SPECIFIC, 2, "No Livepeer broadcasters available (empty list)");
+    return procExit.flush(procStatePage);
   }
   INFO_MSG("Using broadcaster: %s", Mist::currBroadAddr.c_str());
   if (Mist::opt.isMember("access_token") && Mist::opt["access_token"] && Mist::opt["access_token"].isString()) {
@@ -1003,17 +1349,17 @@ int main(int argc, char *argv[]){
     dl.setHeader("Content-Type", "application/json");
     dl.setHeader("Authorization", "Bearer " + Mist::opt["access_token"].asStringRef());
     if (!dl.post(HTTP::URL(api_url + "/stream"), pl.toString())) {
-      FAIL_MSG("Livepeer API responded negatively to encode request");
-      return 1;
+      procExit.log(ER_FORMAT_SPECIFIC, 2, "Livepeer API rejected encode request");
+      return procExit.flush(procStatePage);
     }
-    Mist::lpEnc.fromString(dl.data());
+    Mist::lpEnc = JSON::fromString(dl.data());
     if (!Mist::lpEnc) {
-      FAIL_MSG("Livepeer API did not respond with JSON");
-      return 1;
+      procExit.log(ER_FORMAT_SPECIFIC, 2, "Livepeer API did not respond with JSON");
+      return procExit.flush(procStatePage);
     }
     if (!Mist::lpEnc.isMember("id")) {
-      FAIL_MSG("Livepeer API did not respond with a valid ID: %s", dl.data().data());
-      return 1;
+      procExit.log(ER_FORMAT_SPECIFIC, 2, "Livepeer API response missing stream ID");
+      return procExit.flush(procStatePage);
     }
     Mist::lpID = Mist::lpEnc["id"].asStringRef();
   } else {
@@ -1047,29 +1393,119 @@ int main(int argc, char *argv[]){
   std::thread uploader0(uploadThread, 0);
   std::thread uploader1(uploadThread, 1);
 
-  while (conf.is_active && co.is_active){
+  // Previous-window snapshots for pressure derivation.
+  uint64_t prevTotalFails = 0;
+  uint64_t prevSourceMsForRate = statSourceMs.load(std::memory_order_relaxed);
+  uint64_t prevSinkMsForRate = statSinkMs.load(std::memory_order_relaxed);
+  uint64_t prevRateUpdateMs = Util::bootMS();
+  uint32_t capacitySamples = 0;
+  while (!livepeerStopRequested.load(std::memory_order_acquire) && (conf.is_active || !Mist::livepeerQueuesDrained())) {
     Util::sleep(200);
-    if (lastProcUpdate + 5 <= Util::bootSecs()){
+    if (lastProcUpdate + 1 <= Util::bootSecs()) {
       std::lock_guard<std::mutex> guard(statsMutex);
       pData["active_seconds"] = (Util::bootSecs() - startTime);
-      pData["ainfo"]["switches"] = statSwitches;
-      pData["ainfo"]["fail_non200"] = statFailN200;
-      pData["ainfo"]["fail_timeout"] = statFailTimeout;
-      pData["ainfo"]["fail_parse"] = statFailParse;
-      pData["ainfo"]["fail_other"] = statFailOther;
-      pData["ainfo"]["sourceTime"] = statSourceMs;
-      pData["ainfo"]["sinkTime"] = statSinkMs;
+      pData["ainfo"]["switches"] = statSwitches.load(std::memory_order_relaxed);
+      pData["ainfo"]["fail_non200"] = statFailN200.load();
+      pData["ainfo"]["fail_timeout"] = statFailTimeout.load();
+      pData["ainfo"]["fail_parse"] = statFailParse.load();
+      pData["ainfo"]["fail_other"] = statFailOther.load();
+      uint64_t sourceMs = statSourceMs.load(std::memory_order_relaxed);
+      uint64_t sinkMs = statSinkMs.load(std::memory_order_relaxed);
+      pData["ainfo"]["sourceTime"] = sourceMs;
+      pData["ainfo"]["sinkTime"] = sinkMs;
       M.reloadReplacedPagesIfNeeded();
       if (M.getVod()) {
         uint64_t start = M.getFirstms(sourceIdx);
         uint64_t end = M.getLastms(sourceIdx);
-        pData["ainfo"]["percent_done"] = 100 * (statSinkMs - start) / (end - start);
+        pData["ainfo"]["percent_done"] = 100 * (sinkMs - start) / (end - start);
       }
       {
         std::lock_guard<std::mutex> guard(broadcasterMutex);
         pData["ainfo"]["bc"] = Mist::currBroadAddr;
       }
       Util::sendUDPApi(pStat);
+
+      // Publish ProcState v2: timing + normalized pressure for the rate controller.
+      if (procStatePage.mapped && ProcState::isValid(procStatePage)) {
+        ProcState *s = (ProcState *)procStatePage.mapped;
+        uint64_t nowBootMs = Util::bootMS();
+
+        // Backlog: pre-segments that are written but not yet inserted.
+        // Maintained as an atomic counter (incremented by the source thread
+        // when filling a slot, decremented by the upload thread on insert /
+        // reject); free of the data race the previous flag-scan had.
+        uint32_t queueDepth = statQueueDepth.load(std::memory_order_relaxed);
+        uint32_t inflight = statActiveUploads.load(std::memory_order_relaxed);
+        uint64_t totExtUs = statTotalExternalUs.load(std::memory_order_relaxed);
+        uint64_t totWorkUs = statTotalLocalWorkUs.load(std::memory_order_relaxed);
+        uint64_t totSrcWaitUs = statTotalSourceWaitUs.load(std::memory_order_relaxed);
+        uint64_t totSnkWaitUs = statTotalSinkWaitUs.load(std::memory_order_relaxed);
+        uint64_t totalFails = statFailN200.load() + statFailTimeout.load() + statFailParse.load() + statFailOther.load();
+        uint32_t retryDelta = (uint32_t)(totalFails - prevTotalFails);
+        uint32_t obsSpeed = statLastSegSpeedQ16_16.load(std::memory_order_relaxed);
+        uint64_t wallDeltaMs = nowBootMs > prevRateUpdateMs ? nowBootMs - prevRateUpdateMs : 0;
+        uint32_t inputSpeed = 0, outputSpeed = 0;
+        if (wallDeltaMs && sourceMs > prevSourceMsForRate) {
+          inputSpeed = ProcState::speedToQ16((double)(sourceMs - prevSourceMsForRate) / (double)wallDeltaMs);
+        }
+        if (wallDeltaMs && sinkMs > prevSinkMsForRate) {
+          outputSpeed = ProcState::speedToQ16((double)(sinkMs - prevSinkMsForRate) / (double)wallDeltaMs);
+        }
+
+        // Only retry/queue_full are hard signals. Normal external capacity is
+        // expressed through the measured recommendation below, so InputBuffer
+        // does not need any Livepeer-specific throughput logic.
+        uint8_t reason = PRC_REASON_UNKNOWN;
+        uint16_t pressureQ = 0;
+        uint8_t accept = 1;
+        if (retryDelta > 0) {
+          reason = PRC_REASON_RETRY;
+          double p = 0.25 * (double)retryDelta;
+          if (p > 1.0) p = 1.0;
+          pressureQ = (uint16_t)(p * 65535.0);
+          accept = 0;
+        } else if (queueDepth >= PRESEG_COUNT) {
+          reason = PRC_REASON_QUEUE_FULL;
+          pressureQ = 60000; // ~0.92
+          accept = 0;
+        }
+
+        s->beginPublish();
+        s->totalWork = totWorkUs;
+        s->totalSourceWait = totSrcWaitUs;
+        s->totalSinkWait = totSnkWaitUs;
+        s->totalExternalWait = totExtUs;
+        s->frameCount = 0; // proc-defined; segments are not frames
+        s->lastUpdateMs = nowBootMs;
+        s->observedSpeedQ16_16 = obsSpeed;
+        s->inputSpeedQ16_16 = inputSpeed;
+        s->outputSpeedQ16_16 = outputSpeed;
+        if (obsSpeed) {
+          ++capacitySamples;
+          s->capacitySpeedQ16_16 = obsSpeed;
+          s->recommendedFeedQ16_16 = ProcState::speedToQ16(std::max(1.0, ((double)obsSpeed / 65536.0) * 0.85));
+          s->flags |= PRC_FLAG_CAPACITY_VALID;
+        }
+        s->flags &= ~(PRC_FLAG_SOURCE_LIMITED | PRC_FLAG_PROCESSOR_LIMITED);
+        if (!queueDepth && !inflight && inputSpeed == 0) { s->flags |= PRC_FLAG_SOURCE_LIMITED; }
+        if (pressureQ > (uint16_t)(0.7 * 65535.0)) { s->flags |= PRC_FLAG_PROCESSOR_LIMITED; }
+        s->phase = capacitySamples >= 3 ? PRC_PHASE_READY : PRC_PHASE_MEASURING;
+        s->confidenceQ0_16 = (uint16_t)std::min((uint32_t)65535, capacitySamples * 65535 / 3);
+        s->pressureQ0_16 = pressureQ;
+        s->canAcceptMore = accept;
+        s->reasonCode = reason;
+        s->queueDepth = queueDepth;
+        s->inflight = inflight;
+        s->retryCount = retryDelta;
+        s->primaryResource = PRC_RESOURCE_EXTERNAL;
+        s->endPublish();
+
+        prevTotalFails = totalFails;
+        prevSourceMsForRate = sourceMs;
+        prevSinkMsForRate = sinkMs;
+        prevRateUpdateMs = nowBootMs;
+      }
+
       lastProcUpdate = Util::bootSecs();
     }
   }
@@ -1084,5 +1520,5 @@ int main(int argc, char *argv[]){
   uploader1.join();
 
   INFO_MSG("Shutdown reason: %s", Util::exitReason);
-  return 0;
+  return procExit.flush(procStatePage);
 }
