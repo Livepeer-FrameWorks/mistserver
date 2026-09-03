@@ -2,6 +2,8 @@
 #include "process_onnx.h"
 
 #include "../output/output.h"
+#include "onnx_lifecycle.h"
+#include "onnx_proc_state.h"
 #include "process.hpp"
 #include "process_onnx_audio.h"
 
@@ -31,10 +33,12 @@ Util::Config conf;
 JSON::Value pStat;
 JSON::Value & pData = pStat["proc_status_update"]["status"];
 std::mutex statsMutex;
-uint64_t statSinkMs = 0;
-uint64_t statSourceMs = 0;
+std::atomic<uint64_t> statSinkMs{0};
+std::atomic<uint64_t> statSourceMs{0};
 int64_t bootMsOffset = 0;
 std::atomic<size_t> sourceTrackIdx{INVALID_TRACK_ID};
+IPC::sharedPage procStatePage;
+ProcExitState procExit;
 
 static std::string packagedONNXProfile() {
 #ifdef MIST_ONNX_PROFILE
@@ -138,6 +142,7 @@ std::atomic<uint64_t> tensorRuns{0};
 std::atomic<uint64_t> tensorErrors{0};
 std::atomic<uint64_t> tensorInputDrops{0};
 std::atomic<uint64_t> tensorOutputDrops{0};
+std::atomic<uint64_t> tensorProcessingUs{0};
 std::atomic<size_t> tensorInputDepth{0};
 std::atomic<size_t> tensorOutputDepth{0};
 
@@ -153,16 +158,24 @@ std::deque<JSON::Value> transcriptQueue;
 // Set true by the audio process thread once it has produced its final (tail) transcript,
 // so the sink drain knows the queue won't grow anymore and can stop deterministically.
 std::atomic<bool> audioProcessingDone{false};
+std::atomic<bool> onnxProcessingDone{false};
 
 // ASR observability, accumulated by the audio process thread and reported by ProcONNX::Run.
 std::atomic<uint64_t> asrChunks{0};       // chunks transcribed
 std::atomic<uint64_t> asrAudioMs{0};      // total audio duration fed to the model
-std::atomic<uint64_t> asrInferMs{0};      // total wall time spent in transcribe()
+std::atomic<uint64_t> asrInferUs{0}; // total wall time spent in inference
 std::atomic<uint64_t> visionReceivedFrames{0};
 std::atomic<uint64_t> visionDroppedFrames{0};
 std::atomic<uint64_t> visionRateSkippedFrames{0};
 std::atomic<uint64_t> visionInferenceFrames{0};
 std::atomic<uint64_t> visionProcessingMs{0};
+
+static ProcPrimaryResource onnxResource = PRC_RESOURCE_UNKNOWN;
+
+static void updateMaximum(std::atomic<uint64_t> & target, uint64_t value) {
+  uint64_t current = target.load(std::memory_order_relaxed);
+  while (value > current && !target.compare_exchange_weak(current, value, std::memory_order_relaxed, std::memory_order_relaxed)) {}
+}
 
 // Processed video pipeline - frames with bounding boxes from processing thread to ProcessSink
 std::mutex latestProcessedVideoMutex;
@@ -170,6 +183,26 @@ ONNX::ProcessedVideoFrame latestProcessedVideo;
 bool hasLatestProcessedVideo = false;
 
 std::atomic<bool> isActive{false};
+
+static bool onnxOutputPending() {
+  if (activeModality == ONNX::ModelModality::TENSOR) {
+    std::lock_guard<std::mutex> lock(tensorOutputMutex);
+    if (!tensorOutputQueue.empty()) { return true; }
+  }
+  {
+    std::lock_guard<std::mutex> lock(transcriptMutex);
+    if (!transcriptQueue.empty()) { return true; }
+  }
+  {
+    std::lock_guard<std::mutex> lock(latestMetadataMutex);
+    if (hasLatestMetadata) { return true; }
+  }
+  {
+    std::lock_guard<std::mutex> lock(latestProcessedVideoMutex);
+    if (hasLatestProcessedVideo) { return true; }
+  }
+  return false;
+}
 
 JSON::Value opt; /// Options
 
@@ -285,7 +318,7 @@ namespace Mist {
           tensorInputQueue.push_back(std::move(packet));
           tensorInputDepth = tensorInputQueue.size();
         }
-        if (thisTime > statSourceMs) { statSourceMs = thisTime; }
+        updateMaximum(statSourceMs, thisTime);
       }
       needsLookAhead = 0;
       maxSkipAhead = 0;
@@ -375,7 +408,7 @@ namespace Mist {
         }
       }
 
-      if (thisTime > statSourceMs) { statSourceMs = thisTime; }
+      updateMaximum(statSourceMs, thisTime);
       needsLookAhead = 0;
       maxSkipAhead = 0;
       return;
@@ -466,7 +499,7 @@ namespace Mist {
     }
 
     // Update stats
-    if (thisTime > statSourceMs) { statSourceMs = thisTime; }
+    updateMaximum(statSourceMs, thisTime);
     needsLookAhead = 0;
     maxSkipAhead = 0;
 
@@ -594,7 +627,7 @@ namespace Mist {
         // nothing does not leak an empty track.
 
         // Main loop - wait for metadata and video frames from processing thread and ingest them
-        while (config->is_active && isActive) {
+        while (onnxSinkShouldContinue(config->is_active, onnxProcessingDone.load(std::memory_order_acquire), onnxOutputPending())) {
           JSON::Value metadata;
           bool hasMetadata = false;
           ONNX::ProcessedVideoFrame videoFrame;
@@ -666,7 +699,7 @@ namespace Mist {
 
             // Ingest into MistServer
             bufferLivePacket(thisPacket);
-            if (timestamp > statSinkMs) { statSinkMs = timestamp; }
+            updateMaximum(statSinkMs, timestamp);
           }
 
           if (hasVideoFrame) {
@@ -731,7 +764,7 @@ namespace Mist {
 
             // Ingest into MistServer
             bufferLivePacket(thisPacket);
-            if (videoFrame.timestamp > statSinkMs) { statSinkMs = videoFrame.timestamp; }
+            updateMaximum(statSinkMs, videoFrame.timestamp);
 
             VERYHIGH_MSG("Buffered video frame into MistServer: %zu bytes", tmpStr.size());
           }
@@ -748,7 +781,7 @@ namespace Mist {
               thisPacket.reInit(tmpStr.data(), tmpStr.size());
               thisIdx = metadataTrackIdx;
               bufferLivePacket(thisPacket);
-              if (tensorOutput.timestamp > statSinkMs) { statSinkMs = tensorOutput.timestamp; }
+              updateMaximum(statSinkMs, tensorOutput.timestamp);
             }
           }
 
@@ -820,7 +853,7 @@ namespace Mist {
             thisIdx = metadataTrackIdx;
             bufferLivePacket(thisPacket);
             uint64_t drainedTimestamp = md["timestamp_ms"].asInt();
-            if (drainedTimestamp > statSinkMs) { statSinkMs = drainedTimestamp; }
+            updateMaximum(statSinkMs, drainedTimestamp);
             drained++;
           }
           if (drained) { INFO_MSG("ProcessSink drained %zu trailing transcript(s) at shutdown", (size_t)drained); }
@@ -899,6 +932,16 @@ namespace Mist {
 
   void ProcONNX::Run() {
     uint64_t lastProcUpdate = Util::bootSecs();
+    uint64_t lastStateUpdateMs = Util::bootMS();
+    uint64_t prevSourceMs = statSourceMs.load(std::memory_order_relaxed);
+    uint64_t prevSinkMs = statSinkMs.load(std::memory_order_relaxed);
+    uint64_t prevWorkUs = 0;
+    uint64_t prevItems = 0;
+    uint64_t prevInputDrops = 0;
+    uint64_t prevOutputDrops = 0;
+    uint64_t prevErrors = 0;
+    uint64_t prevProcessedMediaMs = 0;
+    OnnxProcPublishState publishState;
     {
       std::lock_guard<std::mutex> guard(statsMutex);
       pStat["proc_status_update"]["id"] = getpid();
@@ -907,11 +950,80 @@ namespace Mist {
     uint64_t startTime = Util::bootSecs();
     while (conf.is_active && co.is_active) {
       Util::sleep(200);
+      const uint64_t nowMs = Util::bootMS();
+      if (nowMs >= lastStateUpdateMs + 1000 && procStatePage.mapped && ProcState::isValid(procStatePage)) {
+        OnnxProcSample sample;
+        sample.wallDeltaMs = nowMs - lastStateUpdateMs;
+        const uint64_t sourceMs = statSourceMs.load(std::memory_order_relaxed);
+        const uint64_t sinkMs = statSinkMs.load(std::memory_order_relaxed);
+        sample.sourceDeltaMs = sourceMs >= prevSourceMs ? sourceMs - prevSourceMs : 0;
+        sample.sinkDeltaMs = sinkMs >= prevSinkMs ? sinkMs - prevSinkMs : 0;
+        sample.resource = onnxResource;
+
+        uint64_t totalWorkUs = 0;
+        uint64_t totalItems = 0;
+        uint64_t totalInputDrops = 0;
+        uint64_t totalOutputDrops = 0;
+        uint64_t totalErrors = 0;
+        if (activeModality == ONNX::ModelModality::TENSOR) {
+          sample.modality = ONNX_PROC_TENSOR;
+          totalWorkUs = tensorProcessingUs.load();
+          totalItems = tensorRuns.load();
+          totalInputDrops = tensorInputDrops.load();
+          totalOutputDrops = tensorOutputDrops.load();
+          totalErrors = tensorErrors.load();
+          sample.inputQueueDepth = (uint32_t)tensorInputDepth.load();
+          sample.outputQueueDepth = (uint32_t)tensorOutputDepth.load();
+          sample.queueCapacity = (uint32_t)maxTensorQueueDepth;
+        } else if (activeModality == ONNX::ModelModality::AUDIO) {
+          sample.modality = ONNX_PROC_AUDIO;
+          totalWorkUs = asrInferUs.load();
+          totalItems = asrChunks.load();
+          const int audioRate = asrModel ? asrModel->sampleRate() : (audioModel ? audioModel->sampleRate() : 0);
+          const uint64_t bufferedMs = (uint64_t)(audioWindower.bufferedSeconds() * 1000.0);
+          const uint64_t droppedMs = audioRate ? audioWindower.droppedSamples() * 1000ull / (uint64_t)audioRate : 0;
+          sample.inputQueueDepth = (uint32_t)std::min<uint64_t>(bufferedMs, UINT32_MAX);
+          sample.queueCapacity = (uint32_t)std::min<uint64_t>((uint64_t)(maxBufferSec * 1000.0), UINT32_MAX);
+          totalInputDrops = droppedMs;
+        } else {
+          sample.modality = ONNX_PROC_VISION;
+          totalWorkUs = visionProcessingMs.load() * 1000;
+          totalItems = visionInferenceFrames.load();
+          totalInputDrops = visionDroppedFrames.load();
+          sample.configuredMaxFps = maxInferenceFps;
+          {
+            std::lock_guard<std::mutex> lock(latestVideoMutex);
+            sample.inputQueueDepth = hasLatestVideo ? 1 : 0;
+          }
+        }
+
+        sample.workDeltaUs = totalWorkUs >= prevWorkUs ? totalWorkUs - prevWorkUs : 0;
+        sample.processedItemsDelta = totalItems >= prevItems ? totalItems - prevItems : 0;
+        sample.inputDropsDelta = totalInputDrops >= prevInputDrops ? totalInputDrops - prevInputDrops : 0;
+        sample.outputDropsDelta = totalOutputDrops >= prevOutputDrops ? totalOutputDrops - prevOutputDrops : 0;
+        sample.errorsDelta = totalErrors >= prevErrors ? totalErrors - prevErrors : 0;
+        if (sample.modality == ONNX_PROC_AUDIO) {
+          const uint64_t totalAudioMs = asrAudioMs.load();
+          sample.processedMediaDeltaMs = totalAudioMs >= prevProcessedMediaMs ? totalAudioMs - prevProcessedMediaMs : 0;
+          prevProcessedMediaMs = totalAudioMs;
+        }
+
+        publishOnnxProcState(procStatePage, sample, totalWorkUs, totalItems, nowMs, publishState);
+
+        prevSourceMs = sourceMs;
+        prevSinkMs = sinkMs;
+        prevWorkUs = totalWorkUs;
+        prevItems = totalItems;
+        prevInputDrops = totalInputDrops;
+        prevOutputDrops = totalOutputDrops;
+        prevErrors = totalErrors;
+        lastStateUpdateMs = nowMs;
+      }
       if (lastProcUpdate + 5 <= Util::bootSecs()) {
         std::lock_guard<std::mutex> guard(statsMutex);
         pData["active_seconds"] = (Util::bootSecs() - startTime);
-        pData["ainfo"]["sourceTime"] = statSourceMs;
-        pData["ainfo"]["sinkTime"] = statSinkMs;
+        pData["ainfo"]["sourceTime"] = statSourceMs.load(std::memory_order_relaxed);
+        pData["ainfo"]["sinkTime"] = statSinkMs.load(std::memory_order_relaxed);
         if (activeModality == ONNX::ModelModality::TENSOR) {
           pData["tensor"]["runs"] = tensorRuns.load();
           pData["tensor"]["errors"] = tensorErrors.load();
@@ -923,16 +1035,16 @@ namespace Mist {
         } else if (activeModality == ONNX::ModelModality::AUDIO) {
           uint64_t chunks = asrChunks.load();
           uint64_t audioMs = asrAudioMs.load();
-          uint64_t inferMs = asrInferMs.load();
+          uint64_t inferUs = asrInferUs.load();
           pData["asr"]["chunks"] = chunks;
           pData["asr"]["audio_seconds"] = audioMs / 1000.0;
-          pData["asr"]["infer_seconds"] = inferMs / 1000.0;
+          pData["asr"]["infer_seconds"] = inferUs / 1000000.0;
           // Speed relative to realtime: audio duration / processing time. >1 = faster than
           // realtime (healthy), <1 = falling behind. (Named "speedup_x" to avoid confusion
           // with the conventional RTF = processing/audio, which is its reciprocal.)
-          pData["asr"]["speedup_x"] = inferMs > 0 ? (double)audioMs / (double)inferMs : 0.0;
+          pData["asr"]["speedup_x"] = inferUs > 0 ? (double)audioMs * 1000.0 / (double)inferUs : 0.0;
           pData["asr"]["buffered_seconds"] = audioWindower.bufferedSeconds();
-          int asrRate = asrModel ? asrModel->sampleRate() : 0;
+          int asrRate = asrModel ? asrModel->sampleRate() : (audioModel ? audioModel->sampleRate() : 0);
           pData["asr"]["dropped_seconds"] = asrRate ? audioWindower.droppedSamples() / (double)asrRate : 0.0;
         } else {
           uint64_t inferred = visionInferenceFrames.load();
@@ -988,9 +1100,15 @@ namespace Mist {
     Socket::Connection S;
     Mist::ProcessSource out(S, conf, capa);
     MEDIUM_MSG("Running source thread...");
-    out.run();
+    int rc = out.run();
+    if (rc == 0) {
+      procExit.log(ER_CLEAN_EOF, 0, "ONNX source thread finished");
+    } else {
+      procExit.log(Util::mRExitReason ? Util::mRExitReason : ER_UNKNOWN, rc, "%s",
+                   Util::exitReason[0] ? Util::exitReason : "ONNX source thread failed");
+    }
     INFO_MSG("Stop source thread...");
-    co.is_active = false;
+    conf.is_active = false;
     isActive = false;
   }
 
@@ -999,7 +1117,13 @@ namespace Mist {
     ProcessSink sink(&co);
     co.getOption("output", true).append("-");
     INFO_MSG("Running sink thread...");
-    sink.run();
+    int rc = sink.run();
+    if (rc == 0) {
+      procExit.log(ER_CLEAN_EOF, 0, "ONNX sink thread finished");
+    } else {
+      procExit.log(Util::mRExitReason ? Util::mRExitReason : ER_UNKNOWN, rc, "%s",
+                   Util::exitReason[0] ? Util::exitReason : "ONNX sink thread failed");
+    }
     INFO_MSG("Stop sink thread...");
     conf.is_active = false;
     isActive = false;
@@ -1149,6 +1273,9 @@ namespace Mist {
 
   void processThread() {
     INFO_MSG("Running processing thread...");
+    struct ProcessingDoneSignal {
+        ~ProcessingDoneSignal() { onnxProcessingDone.store(true, std::memory_order_release); }
+    } processingDoneSignal;
 
     uint64_t processedFrames = 0;
     uint64_t lastStatsTime = 0;
@@ -1187,10 +1314,12 @@ namespace Mist {
           }
         }
         if (!havePacket) { Util::sleep(5); continue; }
+        const uint64_t workStartUs = Util::getMicros();
         std::vector<ONNX::TensorData> inputs, outputs;
         std::string err;
         if (!ONNX::TensorWire::decode(packet.data.data(), packet.data.size(), inputs, err) ||
             !tensorModel || !tensorModel->runTensors(inputs, outputs, err)) {
+          tensorProcessingUs += Util::getMicros() - workStartUs;
           tensorErrors++;
           WARN_MSG("ONNXTENSOR inference failed at %" PRIu64 "ms: %s", packet.timestamp, err.c_str());
           continue;
@@ -1198,6 +1327,7 @@ namespace Mist {
         TensorPacket result;
         result.timestamp = packet.timestamp;
         if (!ONNX::TensorWire::encode(outputs, result.data, err)) {
+          tensorProcessingUs += Util::getMicros() - workStartUs;
           tensorErrors++;
           WARN_MSG("ONNXTENSOR output encoding failed: %s", err.c_str());
           continue;
@@ -1211,6 +1341,7 @@ namespace Mist {
           tensorOutputQueue.push_back(std::move(result));
           tensorOutputDepth = tensorOutputQueue.size();
         }
+        tensorProcessingUs += Util::getMicros() - workStartUs;
         tensorRuns++;
       }
       INFO_MSG("Tensor processing thread exiting after %" PRIu64 " runs", tensorRuns.load());
@@ -1265,7 +1396,12 @@ namespace Mist {
         }
         expectedMs = baseMs + chunkMs;
         haveExpected = true;
+        const uint64_t inferStartUs = Util::getMicros();
         ONNX::AudioResult r = audioModel->process(chunk.data(), chunk.size(), baseMs);
+        const uint64_t inferUs = Util::getMicros() - inferStartUs;
+        asrChunks++;
+        asrAudioMs += chunkMs;
+        asrInferUs += inferUs;
         if (!r.ok || r.scores.empty()) { continue; }
         ONNX::EventSmoother::Event ev = vadSmoother.update(r.scores[0].confidence, r.startMs);
         if (ev != ONNX::EventSmoother::NONE) {
@@ -1311,7 +1447,13 @@ namespace Mist {
       auto emitTranscription = [&](const std::vector<float> & pcm, uint64_t ts) {
         if (!asrModel) {
           // Generic windowed audio model (classification/tagging/embedding)
+          const uint64_t inferStartUs = Util::getMicros();
           ONNX::AudioResult r = audioModel->process(pcm.data(), pcm.size(), ts);
+          const uint64_t inferUs = Util::getMicros() - inferStartUs;
+          const uint64_t audioMs = audioRate ? (pcm.size() * 1000ull / (uint64_t)audioRate) : 0;
+          asrChunks++;
+          asrAudioMs += audioMs;
+          asrInferUs += inferUs;
           if (!r.ok) { return; }
           const char *kind = "audio_classification";
           if (audioModel->task() == ONNX::ModelType::AUDIO_TAGGING) { kind = "audio_tagging"; }
@@ -1323,11 +1465,11 @@ namespace Mist {
         }
         uint64_t t0 = Util::getMicros();
         ONNX::TranscriptResult tr = asrModel->transcribe(pcm.data(), pcm.size(), ts);
-        uint64_t inferMs = (Util::getMicros() - t0) / 1000;
+        uint64_t inferUs = Util::getMicros() - t0;
         uint64_t audioMs = asrModel->sampleRate() ? (pcm.size() * 1000ull / (uint64_t)asrModel->sampleRate()) : 0;
         asrChunks++;
         asrAudioMs += audioMs;
-        asrInferMs += inferMs;
+        asrInferUs += inferUs;
         if (!tr.ok || tr.text.empty()) { return; }
         JSON::Value metadata;
         metadata["schema"] = "mist.onnx.result/v1";
@@ -1693,6 +1835,15 @@ int main(int argc, char *argv[]) {
   Util::Config::binaryType = Util::PROCESS;
   JSON::Value capa;
 
+  // Create the process contract before argument/model validation so failed starts
+  // still leave an actionable exit reason for InputBuffer and the controller.
+  {
+    char shmName[NAME_BUFFER_SIZE];
+    snprintf(shmName, sizeof(shmName), SHM_PROC_STATE, getpid());
+    procStatePage.init(shmName, sizeof(ProcState), true, false);
+    ProcState::initPage(procStatePage);
+  }
+
   // Standard JSON options
   {
     JSON::Value opt;
@@ -1727,7 +1878,10 @@ int main(int argc, char *argv[]) {
   capa["ainfo"]["sinkTime"]["name"] = "Sink timestamp";
   capa["ainfo"]["sourceTime"]["name"] = "Source timestamp";
 
-  if (!config.parseArgs(argc, argv)) return 1;
+  if (!config.parseArgs(argc, argv)) {
+    procExit.log(ER_FORMAT_SPECIFIC, 2, "Failed to parse ONNX command-line arguments");
+    return procExit.flush(procStatePage);
+  }
   if (config.getBool("json")) {
     capa["name"] = "ONNX-AI";
     capa["hrn"] = "ONNX AI Processing";
@@ -2351,7 +2505,8 @@ int main(int argc, char *argv[]) {
   Mist::ProcONNX proc;
   if (!proc.CheckConfig()) {
     FAIL_MSG("Configuration check failed");
-    return 1;
+    procExit.log(ER_FORMAT_SPECIFIC, 2, "Invalid ONNX process configuration");
+    return procExit.flush(procStatePage);
   }
 
   // Resolve model path from dropdown or direct path
@@ -2363,7 +2518,8 @@ int main(int argc, char *argv[]) {
     if (modelChoice == "custom") {
       if (!opt.isMember("model_path") || opt["model_path"].asString().empty()) {
         FAIL_MSG("Custom model selected but no model_path provided");
-        return 1;
+        procExit.log(ER_FORMAT_SPECIFIC, 2, "Custom ONNX model selected without model_path");
+        return procExit.flush(procStatePage);
       }
       modelPath = opt["model_path"].asString();
     } else {
@@ -2387,7 +2543,9 @@ int main(int argc, char *argv[]) {
           if (modelPath.empty()) {
             FAIL_MSG("Model '%s' could not be provisioned. %s", modelChoice.c_str(),
                      hint.empty() ? "Run: scripts/ONNX/prepare_models.sh <id>" : hint.c_str());
-            return 1;
+            procExit.log(ER_FORMAT_SPECIFIC, 2, "Could not provision ONNX model '%s': %s", modelChoice.c_str(),
+                         hint.empty() ? "model preparation failed" : hint.c_str());
+            return procExit.flush(procStatePage);
           }
         }
       }
@@ -2396,7 +2554,8 @@ int main(int argc, char *argv[]) {
     modelPath = opt["model_path"].asString();
   } else {
     FAIL_MSG("No model specified");
-    return 1;
+    procExit.log(ER_FORMAT_SPECIFIC, 2, "No ONNX model specified");
+    return procExit.flush(procStatePage);
   }
 
   std::string streamName = opt["sink"].asString();
@@ -2488,7 +2647,8 @@ int main(int argc, char *argv[]) {
       std::string err;
       if (!tensorModel->load(modelPath, numThreads, epChoice, err, lowLatency)) {
         FAIL_MSG("Failed to create generic tensor session from %s: %s", modelPath.c_str(), err.c_str());
-        return 1;
+        procExit.log(ER_FORMAT_SPECIFIC, 2, "Failed to create ONNX tensor session: %s", err.c_str());
+        return procExit.flush(procStatePage);
       }
       INFO_MSG("Generic ONNXTENSOR session ready: %zu input(s), %zu output(s), EP=%s",
                tensorModel->numInputs(), tensorModel->numOutputs(), tensorModel->activeEP().c_str());
@@ -2502,13 +2662,16 @@ int main(int argc, char *argv[]) {
         if (!bundle.ok) {
           FAIL_MSG("OCR model '%s' could not be provisioned. %s", modelChoice.c_str(),
                    hint.empty() ? "Run: scripts/ONNX/prepare_models.sh <id>" : hint.c_str());
-          return 1;
+          procExit.log(ER_FORMAT_SPECIFIC, 2, "Could not provision ONNX OCR model '%s': %s", modelChoice.c_str(),
+                       hint.empty() ? "model preparation failed" : hint.c_str());
+          return procExit.flush(procStatePage);
         }
       }
       onnxModel = ONNX::ModelFactory::createOCRModel(bundle, numThreads, epChoice, lowLatency);
       if (!onnxModel) {
         FAIL_MSG("Failed to create OCR model '%s'", modelChoice.c_str());
-        return 1;
+        procExit.log(ER_FORMAT_SPECIFIC, 2, "Failed to create ONNX OCR model '%s'", modelChoice.c_str());
+        return procExit.flush(procStatePage);
       }
       INFO_MSG("OCR model ready: %s", modelChoice.c_str());
     } else if (activeModality == ONNX::ModelModality::AUDIO && singleFileAudio) {
@@ -2522,13 +2685,16 @@ int main(int argc, char *argv[]) {
         if (audioPath.empty()) {
           FAIL_MSG("Audio model '%s' could not be provisioned. %s", modelChoice.c_str(),
                    hint.empty() ? "Run: scripts/ONNX/prepare_models.sh <id>" : hint.c_str());
-          return 1;
+          procExit.log(ER_FORMAT_SPECIFIC, 2, "Could not provision ONNX audio model '%s': %s", modelChoice.c_str(),
+                       hint.empty() ? "model preparation failed" : hint.c_str());
+          return procExit.flush(procStatePage);
         }
       }
       audioModel = ONNX::ModelFactory::createAudioModel(audioPath, audioEntry->type, numThreads, epChoice, lowLatency);
       if (!audioModel) {
         FAIL_MSG("Failed to create audio model '%s'", modelChoice.c_str());
-        return 1;
+        procExit.log(ER_FORMAT_SPECIFIC, 2, "Failed to create ONNX audio model '%s'", modelChoice.c_str());
+        return procExit.flush(procStatePage);
       }
       // The windower buffers/timestamps PCM for both policies; fixed-chunk models pop
       // exact chunks via takeFixed and ignore the pause-windowing parameters.
@@ -2567,7 +2733,9 @@ int main(int argc, char *argv[]) {
         if (!bundle.ok) {
           FAIL_MSG("Transcription model '%s' could not be provisioned. %s", modelChoice.c_str(),
                    hint.empty() ? "Run: scripts/ONNX/prepare_models.sh <id>" : hint.c_str());
-          return 1;
+          procExit.log(ER_FORMAT_SPECIFIC, 2, "Could not provision ONNX transcription model '%s': %s",
+                       modelChoice.c_str(), hint.empty() ? "model preparation failed" : hint.c_str());
+          return procExit.flush(procStatePage);
         }
       }
       // EP default when the user didn't force one: INT8 is a CPU-shaped workload
@@ -2579,7 +2747,8 @@ int main(int argc, char *argv[]) {
       asrModel = ONNX::ModelFactory::createTranscriptionModel(bundle, numThreads, asrEP, lowLatency);
       if (!asrModel) {
         FAIL_MSG("Failed to create transcription model '%s'", modelChoice.c_str());
-        return 1;
+        procExit.log(ER_FORMAT_SPECIFIC, 2, "Failed to create ONNX transcription model '%s'", modelChoice.c_str());
+        return procExit.flush(procStatePage);
       }
       // Streaming ASR chunking (parsed by parseConfig): accumulate to windowTargetSec, cut at
       // the nearest speech pause, bounded by [windowMinSec, windowMaxSec], drop-oldest beyond
@@ -2603,7 +2772,8 @@ int main(int argc, char *argv[]) {
       onnxModel = ONNX::ModelFactory::createModel(modelPath, createSize, numThreads, modelTypeOverride, epChoice, lowLatency);
       if (!onnxModel) {
         FAIL_MSG("Failed to create ONNX model from %s", modelPath.c_str());
-        return 1;
+        procExit.log(ER_FORMAT_SPECIFIC, 2, "Failed to create ONNX model from %s", modelPath.c_str());
+        return procExit.flush(procStatePage);
       }
       visionSmoother.configure((float)eventEnter, (float)eventExit, eventEma, eventMinMs);
       // Classifier surface: ranked top-K in metadata + output mode (softmax/sigmoid/raw)
@@ -2633,7 +2803,8 @@ int main(int argc, char *argv[]) {
     }
   } catch (const std::exception & e) {
     FAIL_MSG("Failed to load ONNX model %s: %s", modelPath.c_str(), e.what());
-    return 1;
+    procExit.log(ER_FORMAT_SPECIFIC, 2, "Failed to load ONNX model %s: %s", modelPath.c_str(), e.what());
+    return procExit.flush(procStatePage);
   }
 
   // Vision-only post-configuration: push the parsed options into the model. Values came from
@@ -2727,6 +2898,26 @@ int main(int argc, char *argv[]) {
     if (processEveryNth > 1) { INFO_MSG("Processing every %d frames", processEveryNth); }
   } // end vision-only post-configuration
 
+  std::string activeProvider;
+  if (tensorModel) {
+    activeProvider = tensorModel->activeEP();
+  } else if (asrModel) {
+    activeProvider = asrModel->executionProvider();
+  } else if (audioModel) {
+    activeProvider = audioModel->executionProvider();
+  } else if (onnxModel) {
+    activeProvider = onnxModel->getExecutionProvider();
+  }
+  onnxResource = Mist::onnxExecutionProviderResource(activeProvider);
+  ProcState::publishStartup(procStatePage, 1.0, onnxResource);
+  Mist::OnnxProcModality procModality = Mist::ONNX_PROC_VISION;
+  if (activeModality == ONNX::ModelModality::AUDIO) {
+    procModality = Mist::ONNX_PROC_AUDIO;
+  } else if (activeModality == ONNX::ModelModality::TENSOR) {
+    procModality = Mist::ONNX_PROC_TENSOR;
+  }
+  Mist::publishOnnxOutputContract(procStatePage, procModality, annotatedVideo);
+
   // Mark ONNX as initialized
   {
     std::lock_guard<std::mutex> lock(onnxInitMutex);
@@ -2739,6 +2930,7 @@ int main(int argc, char *argv[]) {
   co.is_active = true;
   conf.is_active = true;
   isActive = true;
+  onnxProcessingDone = false;
 
   // stream which connects to input
   std::thread source(Mist::sourceThread);
@@ -2752,7 +2944,6 @@ int main(int argc, char *argv[]) {
   // Run main processing
   proc.Run();
 
-  co.is_active = false;
   conf.is_active = false;
   isActive = false;
   onnxInitialized = false;
@@ -2766,5 +2957,7 @@ int main(int argc, char *argv[]) {
   sink.join();
   HIGH_MSG("sink thread joined");
 
-  return 0;
+  co.is_active = false;
+
+  return procExit.flush(procStatePage);
 }
