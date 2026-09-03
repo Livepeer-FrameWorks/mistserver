@@ -3,6 +3,7 @@
 #include "controller_api.h"
 #include "controller_capabilities.h"
 #include "controller_push.h"
+#include "controller_statistics_policy.h"
 #include "controller_storage.h"
 
 #include <mist/bitfields.h>
@@ -19,6 +20,10 @@
 #include <signal.h>
 #include <sstream>
 #include <sys/statvfs.h> //for fstatvfs
+#ifdef __APPLE__
+#include <ifaddrs.h>
+#include <net/if.h>
+#endif
 
 #ifndef KILL_ON_EXIT
 #define KILL_ON_EXIT false
@@ -1605,11 +1610,7 @@ void Controller::fillActive(JSON::Value &req, JSON::Value &rep){
             for (std::set<size_t>::iterator ti = trks.begin(); ti != trks.end(); ++ti){
               pids.insert(M.isClaimedBy(*ti));
             }
-            pids.erase(0);
-            F.shrink(0);
-            for (std::set<uint64_t>::iterator pi = pids.begin(); pi != pids.end(); ++pi){
-              F.append(*pi);
-            }
+            F = Controller::sourcePidList(pids);
           }
         } else if (j->asStringRef() == "status") {
           uint8_t ss = Util::getStreamStatus(it->first);
@@ -1620,6 +1621,7 @@ void Controller::fillActive(JSON::Value &req, JSON::Value &rep){
             case STRMSTAT_WAIT: F = "Waiting for data"; break;
             case STRMSTAT_READY: F = "Online"; break;
             case STRMSTAT_SHUTDOWN: F = "Shutting down"; break;
+            case STRMSTAT_OFFLINE: F = "Offline"; break;
             default: F = "Invalid / Unknown"; break;
           }
         } else if (j->asStringRef() == "pid") {
@@ -1879,6 +1881,18 @@ void Controller::handlePrometheus(HTTP::Parser &H, Socket::Connection &conn, int
   // Collect core server stats
   uint64_t bw_up_total = 0, bw_down_total = 0;
   {
+#ifdef __APPLE__
+    struct ifaddrs *ifap, *ifa;
+    if (getifaddrs(&ifap) == 0) {
+      for (ifa = ifap; ifa; ifa = ifa->ifa_next) {
+        struct if_data *ifData = (struct if_data *)ifa->ifa_data;
+        Controller::accumulateInterfaceCounters(ifa->ifa_addr && ifa->ifa_addr->sa_family == AF_LINK,
+                                                ifa->ifa_flags & IFF_LOOPBACK, ifData, ifData ? ifData->ifi_obytes : 0,
+                                                ifData ? ifData->ifi_ibytes : 0, bw_up_total, bw_down_total);
+      }
+      freeifaddrs(ifap);
+    }
+#else
     std::ifstream netUsage("/proc/net/dev");
     while (netUsage){
       char line[300];
@@ -1893,6 +1907,7 @@ void Controller::handlePrometheus(HTTP::Parser &H, Socket::Connection &conn, int
         }
       }
     }
+#endif
   }
 
   if (mode == PROMETHEUS_TEXT){

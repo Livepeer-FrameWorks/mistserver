@@ -12,6 +12,7 @@
 #include "json.h"
 #include "langcodes.h"
 #include "mp4_generic.h"
+#include "offline_attempt.h"
 #include "procs.h"
 #include "shared_memory.h"
 #include "socket.h"
@@ -248,6 +249,7 @@ std::string Util::getTmpFolder(){
 /// that character is deleted. The original string is modified. If a '+' or space
 /// exists, then only the part before that is sanitized.
 void Util::sanitizeName(std::string &streamname){
+  if (!streamname.size()) { return; }
   // strip anything that isn't numbers, digits or underscores
   size_t index = streamname.find_first_of("+ ");
   if (index != std::string::npos){
@@ -455,15 +457,19 @@ JSON::Value Util::getStreamConfig(const std::string &streamname){
   return stream_cfg.asJSON();
 }
 
-JSON::Value Util::getGlobalConfig(const std::string &optionName){
-  IPC::sharedPage globCfg(SHM_GLOBAL_CONF);
+JSON::Value Util::getGlobalConfig(const std::string & optionName, bool waitForPage) {
+  IPC::sharedPage globCfg(SHM_GLOBAL_CONF, 0, false, waitForPage);
   if (!globCfg.mapped){
-    FAIL_MSG("Could not open global configuration options to read setting for '%s'", optionName.c_str());
+    if (waitForPage) {
+      FAIL_MSG("Could not open global configuration options to read setting for '%s'", optionName.c_str());
+    }
     return JSON::Value();
   }
   Util::RelAccX cfgData(globCfg.mapped);
   if (!cfgData.isReady()){
-    FAIL_MSG("Global configuration options not ready; cannot read setting for '%s'", optionName.c_str());
+    if (waitForPage) {
+      FAIL_MSG("Global configuration options not ready; cannot read setting for '%s'", optionName.c_str());
+    }
     return JSON::Value();
   }
   Util::RelAccXFieldData dataField = cfgData.getFieldData(optionName);
@@ -604,13 +610,20 @@ bool Util::checkStreamKey(std::string & streamName) {
 /// If no, loads up the server configuration and attempts to start the given stream according to
 /// current configuration. At this point, fails and aborts if MistController isn't running.
 bool Util::startInput(std::string streamname, std::string filename, bool forkFirst, bool isProvider,
-                      const std::map<std::string, std::string> &overrides, pid_t *spawn_pid){
+                      const std::map<std::string, std::string> & overrides, pid_t *spawn_pid, bool *outOffline) {
   sanitizeName(streamname);
   if (streamname.size() > 100){
     FAIL_MSG("Stream opening denied: %s is longer than 100 characters (%zu).", streamname.c_str(),
              streamname.size());
     return false;
   }
+  clearStreamOffline(streamname);
+
+  // The page name is inherited only across the actual spawn boundary. Keeping
+  // it in the process-global environment during the startup wait would let
+  // concurrent or nested attempts overwrite each other's result channel.
+  OfflineAttemptResult attempt(outOffline);
+
   // Check if the stream is already active.
   // If yes, don't activate again to prevent duplicate inputs.
   // It's still possible a duplicate starts anyway, this is caught in the inputs initializer.
@@ -619,8 +632,8 @@ bool Util::startInput(std::string streamname, std::string filename, bool forkFir
   uint8_t streamStat = getStreamStatus(streamname);
   // Wait for a maximum of 240 x 250ms sleeps = 60 seconds
   size_t sleeps = 0;
-  while (++sleeps < 240 && streamStat != STRMSTAT_OFF && streamStat != STRMSTAT_READY &&
-         (!isProvider || streamStat != STRMSTAT_WAIT)){
+  while (++sleeps < 240 && streamStat != STRMSTAT_OFF && streamStat != STRMSTAT_OFFLINE &&
+         streamStat != STRMSTAT_READY && (!isProvider || streamStat != STRMSTAT_WAIT)) {
     if (streamStat == STRMSTAT_BOOT && overrides.count("throughboot")){break;}
     Util::sleep(250);
     streamStat = getStreamStatus(streamname);
@@ -655,11 +668,23 @@ bool Util::startInput(std::string streamname, std::string filename, bool forkFir
   /*LTS-START*/
   if (!filename.size()){
     if (stream_cfg && stream_cfg.isMember("hardlimit_active")){return false;}
-    if (Triggers::shouldTrigger("STREAM_LOAD", smp)){
-      if (!Triggers::doTrigger("STREAM_LOAD", streamname, smp)){return false;}
+    if (Triggers::shouldTrigger("STREAM_LOAD", streamname)) {
+      if (!Triggers::doTrigger("STREAM_LOAD", streamname, streamname)) { return false; }
     }
-    if (Triggers::shouldTrigger("STREAM_SOURCE", smp)){
-      Triggers::doTrigger("STREAM_SOURCE", streamname, smp, false, filename);
+    if (Triggers::shouldTrigger("STREAM_SOURCE", streamname)) {
+      Triggers::Result triggerResult;
+      triggerResult.response = filename;
+      Triggers::doTrigger("STREAM_SOURCE", streamname, streamname, false, triggerResult);
+      if (triggerResult.action == Triggers::ACT_OFFLINE) {
+        INFO_MSG("STREAM_SOURCE reports %s offline: %s", streamname.c_str(), triggerResult.reason.c_str());
+        Util::setStreamOffline(streamname);
+        attempt.markOffline();
+        Util::reportAttemptOffline();
+        return false;
+      }
+      if (triggerResult.action == Triggers::ACT_VALUE || triggerResult.action == Triggers::ACT_KEEP) {
+        filename = triggerResult.response;
+      }
     }
   }
   /*LTS-END*/
@@ -686,7 +711,12 @@ bool Util::startInput(std::string streamname, std::string filename, bool forkFir
   } else {
     args.push_back(Util::getMyPath() + "MistIn" + input["name"].asStringRef());
   }
-  Util::optionsToArguments(stream_cfg, input, args, overrides);
+  std::map<std::string, std::string> effectiveOverrides = overrides;
+  bool isInternalPush = filename.find("push://INTERNAL_") == 0;
+  if (!isInternalPush && stream_cfg.isMember("realtime") && stream_cfg["realtime"].asBool() && !effectiveOverrides.count("realtime")) {
+    effectiveOverrides["realtime"] = "1";
+  }
+  Util::optionsToArguments(stream_cfg, input, args, effectiveOverrides);
 
   // Set debug level if needed
   if (Util::printDebugLevel != DEBUG && !stream_cfg.isMember("debug")) {
@@ -699,6 +729,13 @@ bool Util::startInput(std::string streamname, std::string filename, bool forkFir
   args.push_back(streamname);
   args.push_back(filename);
 
+  if (Util::printDebugLevel >= DLVL_MEDIUM) {
+    std::stringstream cmdline;
+    for (std::string & s : args) { cmdline << s << " "; }
+    MEDIUM_MSG("Options: %s", stream_cfg.toString().c_str());
+    MEDIUM_MSG("Starting process: %s", cmdline.str().c_str());
+  }
+
   // Set environment variable so we can know if we have a provider when re-exec'ing.
   if (isProvider) { setenv("MISTPROVIDER", "1", 1); }
 
@@ -710,6 +747,7 @@ bool Util::startInput(std::string streamname, std::string filename, bool forkFir
     Socket::Connection io(0, 1);
     io.drop();
     INFO_MSG("Starting %s", args.begin()->c_str());
+    attempt.advertiseForExec();
     std::vector<char *> argv = Util::dequeToArgv(args);
     if (!argv.size()) {
       FAIL_MSG("Invalid arguments for input command - aborting");
@@ -721,7 +759,7 @@ bool Util::startInput(std::string streamname, std::string filename, bool forkFir
   }
 
   int fdErr = STDERR_FILENO;
-  pid_t pid = Util::Procs::StartPiped(args, 0, 0, &fdErr);
+  pid_t pid = attempt.runWithAdvertisement([&]() { return Util::Procs::StartPiped(args, 0, 0, &fdErr); });
   if (!hadOriginal){unsetenv("MIST_ORIGINAL_SOURCE");}
   if (!pid) {
     FAIL_MSG("Starting process for stream %s failed: %s", streamname.c_str(), strerror(errno));
@@ -739,14 +777,18 @@ bool Util::startInput(std::string streamname, std::string filename, bool forkFir
   if (overrides.count("dontWaitForStream")) { return true; }
 
   unsigned int waiting = 0;
-  while (!streamAlive(streamname) && ++waiting < 240){
-    Util::wait(250);
+  bool throughBoot = overrides.count("throughboot");
+  while (!streamAlive(streamname) && ++waiting < 240) {
     if (!Util::Procs::isRunning(pid)){
       std::stringstream cmd;
       for (auto & a : args) { cmd << "'" << a << "' "; }
       FAIL_MSG("Input process (PID %d, command: %s) shut down before stream coming online, aborting.", pid, cmd.str().c_str());
       break;
+    } else if (throughBoot) {
+      streamStat = getStreamStatus(streamname);
+      if (streamStat == STRMSTAT_BOOT || streamStat == STRMSTAT_WAIT || streamStat == STRMSTAT_READY) { return true; }
     }
+    Util::wait(250);
   }
 
   return streamAlive(streamname);
@@ -888,7 +930,7 @@ void Util::optionsToArguments(const JSON::Value conf, const JSON::Value & capa, 
 
 /// Sends a message to the local UDP API port
 void Util::sendUDPApi(JSON::Value & cmd){
-  HTTP::URL UDPAddr(getGlobalConfig("udpApi").asStringRef());
+  HTTP::URL UDPAddr(getGlobalConfig("udpApi", false).asStringRef());
   if (UDPAddr.protocol != "udp"){
     FAIL_MSG("Local UDP API address not defined; can't send command to MistController!");
     return;
@@ -905,7 +947,14 @@ pid_t Util::startPush(const std::string &streamname, std::string &target, int de
   if (Triggers::shouldTrigger("PUSH_OUT_START", streamname)){
     std::string payload = streamname + "\n" + target;
     std::string filepath_response = target;
-    Triggers::doTrigger("PUSH_OUT_START", payload, streamname.c_str(), false, filepath_response);
+    Triggers::Result triggerResult;
+    triggerResult.response = filepath_response;
+    Triggers::doTrigger("PUSH_OUT_START", payload, streamname.c_str(), false, triggerResult);
+    if (triggerResult.action == Triggers::ACT_DENY) {
+      filepath_response.clear();
+    } else {
+      filepath_response = triggerResult.response;
+    }
     target = filepath_response;
   }
   if (!target.size()){
@@ -1052,6 +1101,39 @@ uint8_t Util::getStreamStatusPercentage(const std::string &streamname){
   IPC::sharedPage streamStatus(pageName, 2, false, false);
   if (!streamStatus || streamStatus.len < 2){return 0;}
   return streamStatus.mapped[1];
+}
+
+/// Writes the status byte and clears the progress-percentage byte. Creates
+/// the page if missing.
+static void writeStreamState(const std::string & streamname, uint8_t status) {
+  char pageName[NAME_BUFFER_SIZE];
+  snprintf(pageName, NAME_BUFFER_SIZE, SHM_STREAM_STATE, streamname.c_str());
+  IPC::sharedPage p(pageName, STRMSTATE_PAGE_LEN, false, false);
+  if (!p) { p.init(pageName, STRMSTATE_PAGE_LEN, true, false); }
+  if (p) {
+    p.mapped[0] = status;
+    if (p.len >= 2) { p.mapped[1] = 0; }
+    p.master = false;
+  }
+}
+
+/// See STRMSTAT_OFFLINE in defines.h.
+void Util::setStreamOffline(const std::string & streamname) {
+  writeStreamState(streamname, STRMSTAT_OFFLINE);
+}
+
+/// Idempotent reset of STRMSTAT_OFFLINE back to STRMSTAT_OFF.
+void Util::clearStreamOffline(const std::string & streamname) {
+  if (Util::getStreamStatus(streamname) == STRMSTAT_OFFLINE) { writeStreamState(streamname, STRMSTAT_OFF); }
+}
+
+/// Child-side counterpart to startInput's outOffline parameter: writes to the
+/// per-attempt SHM page named in MIST_OFFLINE_RESULT_PAGE. No-op if unset.
+void Util::reportAttemptOffline() {
+  const char *pageName = getenv("MIST_OFFLINE_RESULT_PAGE");
+  if (!pageName || !*pageName) { return; }
+  IPC::sharedPage p(pageName, 1, false, false);
+  if (p) { p.mapped[0] = 1; }
 }
 
 /// Checks if a given user agent is allowed according to the given exception.
@@ -1253,6 +1335,17 @@ std::set<size_t> Util::pickTracks(const DTSC::Meta &M, const std::set<size_t> tr
 
   //less-than or greater-than track matching on bit rate or resolution
   if (trackLow[0] == '<' || trackLow[0] == '>'){
+    // Image/sprite tracks (JPEG thumbnails etc.) register as type "video" but
+    // are not renditions; size/rate comparators must not match them through a
+    // type-based selector, or a `video=<WxH` track_inhibit fires the moment a
+    // thumbnailer publishes its sprite track and kills every transcode process
+    // on the stream. An explicit codec selector (e.g. "JPEG=<640x360") still
+    // matches them.
+    auto imageViaTypeSelector = [&M, &trackType](size_t tid) {
+      const std::string & codec = M.getCodec(tid);
+      if (codec != "JPEG" && codec != "PNG") { return false; }
+      return codec != trackType;
+    };
     unsigned int bpsVal;
     uint64_t targetBps = 0;
     if (trackLow.find("bps") != std::string::npos && sscanf(trackLow.c_str(), "<%ubps", &bpsVal) == 1){targetBps = bpsVal;}
@@ -1266,6 +1359,7 @@ std::set<size_t> Util::pickTracks(const DTSC::Meta &M, const std::set<size_t> tr
       // select all tracks of this type that match the requirements
       for (std::set<size_t>::iterator it = trackList.begin(); it != trackList.end(); it++){
         if (!trackType.size() || M.getType(*it) == trackType || M.getCodec(*it) == trackType){
+          if (imageViaTypeSelector(*it)) { continue; }
           if (trackLow[0] == '>' && M.getBps(*it) > targetBps){result.insert(*it);}
           if (trackLow[0] == '<' && M.getBps(*it) < targetBps){result.insert(*it);}
         }
@@ -1280,6 +1374,7 @@ std::set<size_t> Util::pickTracks(const DTSC::Meta &M, const std::set<size_t> tr
       // select all tracks of this type that match the requirements
       for (std::set<size_t>::iterator it = trackList.begin(); it != trackList.end(); it++){
         if (!trackType.size() || M.getType(*it) == trackType || M.getCodec(*it) == trackType){
+          if (imageViaTypeSelector(*it)) { continue; }
           uint64_t trackArea = M.getWidth(*it)*M.getHeight(*it);
           if (trackLow[0] == '>' && trackArea > targetArea){result.insert(*it);}
           if (trackLow[0] == '<' && trackArea < targetArea){result.insert(*it);}
@@ -1920,4 +2015,3 @@ void Util::sortTracks(std::set<size_t> & validTracks, const DTSC::Meta & M, Util
     if (!inserted){srtTrks.push_back(*it);}
   }
 }
-

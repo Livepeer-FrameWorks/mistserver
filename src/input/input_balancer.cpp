@@ -1,7 +1,10 @@
 #include "input_balancer.h"
+
+#include "input_balancer_policy.h"
+
 #include <mist/defines.h>
-#include <mist/encode.h>
 #include <mist/downloader.h>
+#include <mist/encode.h>
 #include <mist/stream.h>
 #include <mist/url.h>
 
@@ -127,13 +130,25 @@ namespace Mist{
       url.args = HTTP::argStr(args, false);
     }
 
-    if (dl.get(url)){
-      HTTP::URL newUrl(dl.data());
-      if (Socket::isLocalhost(newUrl.host)){
-        WARN_MSG("Load balancer returned a local address - ignoring");
-      }else{
-        source = dl.data();
-      }
+    const bool requestSucceeded = dl.get(url);
+    std::string response;
+    bool responseIsLocal = false;
+    if (requestSucceeded) {
+      response = dl.data();
+      const HTTP::URL responseUrl(response);
+      responseIsLocal = Socket::isLocalhost(responseUrl.host);
+    }
+    const BalancerResponseKind responseKind = classifyBalancerResponse(requestSucceeded, response, responseIsLocal);
+    if (responseKind == BALANCER_OFFLINE) {
+      INFO_MSG("Load balancer reports stream %s offline", streamName.c_str());
+      Util::setStreamOffline(streamName);
+      Util::reportAttemptOffline();
+      return 0;
+    }
+    if (requestSucceeded && responseKind == BALANCER_KEEP_FALLBACK) {
+      WARN_MSG("Load balancer returned a local address - ignoring");
+    } else if (responseKind == BALANCER_USE_RESPONSE) {
+      source = response;
     }
 
     if (!source.size()){
@@ -141,8 +156,27 @@ namespace Mist{
       return 1;
     }
 
+    // Distinguish "viewer can't boot a provider-only input (e.g. push://)" -
+    // a legitimate offline outcome - from "no matching input at all" - a
+    // genuine failure that should fall through to fallback_stream.
+    bool isProv = (getenv("MISTPROVIDER") != NULL);
+    const bool bootableInContext = Util::getInputBySource(source, isProv);
+    const BalancerSourceKind sourceKind =
+      classifyBalancerSource(isProv, bootableInContext, !isProv && Util::getInputBySource(source, true));
+    if (sourceKind != BALANCER_SOURCE_BOOTABLE) {
+      if (sourceKind == BALANCER_SOURCE_PROVIDER_ONLY) {
+        INFO_MSG("Source %s only bootable as provider; marking %s offline for non-provider context", source.c_str(),
+                 streamName.c_str());
+        Util::setStreamOffline(streamName);
+        Util::reportAttemptOffline();
+        return 0;
+      }
+      FAIL_MSG("No compatible input for source %s - falling back", source.c_str());
+      return 1;
+    }
+
     // Attempt to boot the source we got
-    Util::startInput(streamName, source, false, getenv("MISTPROVIDER"));
+    Util::startInput(streamName, source, false, isProv);
     return 1;
   }
 
