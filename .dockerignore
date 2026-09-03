@@ -1,4 +1,9 @@
 build
+build-*
 .git
 Dockerfile.*
-
+node_modules
+subprojects/*
+!subprojects/*.wrap
+!subprojects/packagefiles/
+!subprojects/packagefiles/**

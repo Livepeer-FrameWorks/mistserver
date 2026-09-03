@@ -51,7 +51,6 @@ noh264.h
 *.swp
 Makefile
 CMakeFiles
-mist
 *.cmake
 Doxyfile
 CMakeCache.txt

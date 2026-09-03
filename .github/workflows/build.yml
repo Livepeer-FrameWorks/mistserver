@@ -1,0 +1,737 @@
+name: Build MistServer
+
+on:
+  push:
+    tags:
+      - 'v*'
+      - 'frameworks-*'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  REGISTRY_GHCR: ghcr.io/livepeer-frameworks
+  REGISTRY_DOCKERHUB: livepeerframeworks
+  DAV1D_REF: 1.5.3
+  SVT_AV1_REF: v3.1.2
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Docker image — linux/amd64 on ubuntu
+  # ---------------------------------------------------------------------------
+  build-image-amd64:
+    name: Build Docker Image (linux/amd64)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Get version info
+        id: version
+        run: |
+          SHORT_SHA=$(git rev-parse --short=7 HEAD)
+          echo "short_sha=${SHORT_SHA}" >> "$GITHUB_OUTPUT"
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            echo "tag=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=development-${SHORT_SHA}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Log in to DockerHub
+        uses: docker/login-action@v4
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build and push (amd64)
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile.mistserver
+          platforms: linux/amd64
+          push: true
+          provenance: true
+          sbom: true
+          tags: |
+            ${{ env.REGISTRY_GHCR }}/mistserver:${{ steps.version.outputs.tag }}-amd64
+            ${{ env.REGISTRY_DOCKERHUB }}/mistserver:${{ steps.version.outputs.tag }}-amd64
+          cache-from: |
+            type=gha,scope=mistserver-amd64
+            type=registry,ref=${{ env.REGISTRY_GHCR }}/mistserver:latest
+          cache-to: type=gha,mode=max,ignore-error=true,scope=mistserver-amd64
+
+      - name: Save digest
+        run: |
+          mkdir -p release-metadata
+          echo "${{ steps.build.outputs.digest }}" > release-metadata/docker-digest-amd64.txt
+          echo "${{ steps.version.outputs.tag }}" > release-metadata/docker-tag.txt
+
+      - name: Upload metadata
+        uses: actions/upload-artifact@v7
+        with:
+          name: docker-metadata-amd64
+          path: release-metadata/*.txt
+
+  # ---------------------------------------------------------------------------
+  # Docker image — linux/arm64 on GitHub-hosted native ARM runner
+  # ---------------------------------------------------------------------------
+  build-image-arm64:
+    name: Build Docker Image (linux/arm64)
+    runs-on: ubuntu-24.04-arm
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Get version info
+        id: version
+        run: |
+          SHORT_SHA=$(git rev-parse --short=7 HEAD)
+          echo "short_sha=${SHORT_SHA}" >> "$GITHUB_OUTPUT"
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            echo "tag=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=development-${SHORT_SHA}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Log in to DockerHub
+        uses: docker/login-action@v4
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build and push (arm64)
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile.mistserver
+          platforms: linux/arm64
+          push: true
+          provenance: true
+          sbom: true
+          tags: |
+            ${{ env.REGISTRY_GHCR }}/mistserver:${{ steps.version.outputs.tag }}-arm64
+            ${{ env.REGISTRY_DOCKERHUB }}/mistserver:${{ steps.version.outputs.tag }}-arm64
+          cache-from: |
+            type=gha,scope=mistserver-arm64
+          cache-to: type=gha,mode=max,ignore-error=true,scope=mistserver-arm64
+
+      - name: Save digest
+        run: |
+          mkdir -p release-metadata
+          echo "${{ steps.build.outputs.digest }}" > release-metadata/docker-digest-arm64.txt
+
+      - name: Upload metadata
+        uses: actions/upload-artifact@v7
+        with:
+          name: docker-metadata-arm64
+          path: release-metadata/*.txt
+
+  # ---------------------------------------------------------------------------
+  # Multi-arch Docker manifest — combine amd64 + arm64 images
+  # ---------------------------------------------------------------------------
+  create-manifest:
+    name: Create Multi-arch Docker Manifest
+    needs: [build-image-amd64, build-image-arm64]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Get version info
+        id: version
+        run: |
+          SHORT_SHA=$(git rev-parse --short=7 HEAD)
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            echo "tag=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=development-${SHORT_SHA}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Log in to DockerHub
+        uses: docker/login-action@v4
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Create and push multi-arch manifests
+        run: |
+          set -euo pipefail
+          TAG="${{ steps.version.outputs.tag }}"
+
+          # GHCR manifests
+          docker buildx imagetools create \
+            -t ${{ env.REGISTRY_GHCR }}/mistserver:${TAG} \
+            ${{ env.REGISTRY_GHCR }}/mistserver:${TAG}-amd64 \
+            ${{ env.REGISTRY_GHCR }}/mistserver:${TAG}-arm64
+
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            docker buildx imagetools create \
+              -t ${{ env.REGISTRY_GHCR }}/mistserver:latest \
+              ${{ env.REGISTRY_GHCR }}/mistserver:${TAG}-amd64 \
+              ${{ env.REGISTRY_GHCR }}/mistserver:${TAG}-arm64
+          fi
+
+          # DockerHub manifests
+          docker buildx imagetools create \
+            -t ${{ env.REGISTRY_DOCKERHUB }}/mistserver:${TAG} \
+            ${{ env.REGISTRY_DOCKERHUB }}/mistserver:${TAG}-amd64 \
+            ${{ env.REGISTRY_DOCKERHUB }}/mistserver:${TAG}-arm64
+
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            docker buildx imagetools create \
+              -t ${{ env.REGISTRY_DOCKERHUB }}/mistserver:latest \
+              ${{ env.REGISTRY_DOCKERHUB }}/mistserver:${TAG}-amd64 \
+              ${{ env.REGISTRY_DOCKERHUB }}/mistserver:${TAG}-arm64
+          fi
+
+      - name: Save Docker metadata
+        run: |
+          TAG="${{ steps.version.outputs.tag }}"
+          mkdir -p release-metadata
+          echo "${TAG}" > release-metadata/docker-tag.txt
+
+      - name: Upload Docker metadata
+        uses: actions/upload-artifact@v7
+        with:
+          name: docker-metadata
+          path: release-metadata/*.txt
+
+  # ---------------------------------------------------------------------------
+  # Native binary — linux/amd64 on ubuntu
+  # ---------------------------------------------------------------------------
+  build-binaries-amd64:
+    name: Build Native Binaries (linux/amd64)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Get version info
+        id: version
+        run: |
+          SHORT_SHA=$(git rev-parse --short=7 HEAD)
+          echo "short_sha=${SHORT_SHA}" >> "$GITHUB_OUTPUT"
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            echo "tag=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=development-${SHORT_SHA}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential git python3 python3-pip ninja-build pkg-config nasm yasm cmake \
+            libmbedtls-dev libcjson-dev zlib1g-dev liblzma-dev libxml2-dev libmp3lame-dev \
+            libopus-dev libvpx-dev libx265-dev libnuma-dev libaom-dev
+          python3 -m pip install --break-system-packages 'meson>=1.6.0'
+
+      - name: Build static dav1d
+        run: |
+          set -euo pipefail
+          git clone --depth 1 --branch "${DAV1D_REF}" https://code.videolan.org/videolan/dav1d.git /tmp/dav1d-src
+          meson setup /tmp/dav1d-build /tmp/dav1d-src \
+            --default-library=static \
+            --prefix=/tmp/dav1d-static \
+            --libdir=lib \
+            --buildtype=release \
+            -Denable_tools=false \
+            -Denable_tests=false
+          meson compile -C /tmp/dav1d-build
+          meson install -C /tmp/dav1d-build
+          PKG_CONFIG_PATH=/tmp/dav1d-static/lib/pkgconfig pkg-config --exists dav1d
+
+      - name: Build static SVT-AV1
+        run: |
+          set -euo pipefail
+          git clone --depth 1 --branch "${SVT_AV1_REF}" https://gitlab.com/AOMediaCodec/SVT-AV1.git /tmp/svt-av1-src
+          cmake -S /tmp/svt-av1-src -B /tmp/svt-av1-build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_INSTALL_PREFIX=/tmp/svt-av1-static \
+            -DBUILD_SHARED_LIBS=OFF \
+            -DBUILD_APPS=OFF \
+            -DBUILD_TESTING=OFF \
+            -DNATIVE=OFF
+          cmake --build /tmp/svt-av1-build
+          cmake --install /tmp/svt-av1-build
+          test -n "$(find /tmp/svt-av1-static -path '*/pkgconfig/SvtAv1Enc.pc' -print -quit)"
+
+      - name: Build MistServer
+        env:
+          PKG_CONFIG_PATH: /tmp/dav1d-static/lib/pkgconfig:/tmp/dav1d-static/lib64/pkgconfig:/tmp/svt-av1-static/lib/pkgconfig:/tmp/svt-av1-static/lib64/pkgconfig
+        run: |
+          meson setup build \
+            --default-library=static \
+            --wrap-mode=default \
+            --prefer-static \
+            --force-fallback-for=mbedtls,usrsctp,libavcodec,libavfilter,libavformat,libavutil,libswscale,libswresample,x264 \
+            -DWITH_AV=true \
+            -DDEBUG=3 \
+            -DNORIST=true \
+            -DRELEASE=Generic_x86_64 \
+            --prefix=/tmp/mistserver-install
+          # Assert NDI/ONVIF support compiled in (static libxml2 present in this env).
+          grep -qE 'NDI:[[:space:]]+COMPILED' build/meson-logs/meson-log.txt || { echo "::error::NDI support was not compiled"; exit 1; }
+          grep -qE 'ONVIF camera discovery:[[:space:]]+YES' build/meson-logs/meson-log.txt || { echo "::error::ONVIF support was not built"; exit 1; }
+          ninja -C build
+          meson test -C build "Pinned FFmpeg codec registry contract" --print-errorlogs
+          ninja -C build install
+
+      - name: Verify native runtime dependencies
+        run: |
+          set -euo pipefail
+          failed=0
+          for bin in /tmp/mistserver-install/bin/Mist*; do
+            [ -x "$bin" ] || continue
+            name="$(basename "$bin")"
+            log="/tmp/needed-${name}.txt"
+            echo "::group::runtime deps ${name}"
+            objdump -p "$bin" | awk '/NEEDED/ {print $2}' | tee "$log"
+            echo "::endgroup::"
+            if grep -Ev '^(ld-linux(-x86-64|-aarch64)?\.so\.[0-9]+|libc\.so\.6|libm\.so\.6|libgcc_s\.so\.1|libstdc\+\+\.so\.6)$' "$log"; then
+              echo "Unexpected runtime dependency in ${name}" >&2
+              failed=1
+            fi
+          done
+          if [ "$failed" -ne 0 ]; then
+            echo "Native artifact has non-system runtime dependencies" >&2
+            exit 1
+          fi
+
+      - name: Extract debug symbols
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/mistserver-debug/bin
+          for bin in /tmp/mistserver-install/bin/Mist*; do
+            [ -x "$bin" ] || continue
+            name="$(basename "$bin")"
+            objcopy --only-keep-debug "$bin" "/tmp/mistserver-debug/bin/${name}.debug"
+            objcopy --strip-debug --strip-unneeded "$bin"
+            objcopy --add-gnu-debuglink="/tmp/mistserver-debug/bin/${name}.debug" "$bin"
+          done
+
+      - name: Package binaries
+        run: |
+          cd /tmp/mistserver-install
+          tar czf ${{ github.workspace }}/mistserver-linux-amd64-${{ steps.version.outputs.tag }}.tar.gz bin/ lib/
+
+      - name: Package debug symbols
+        run: |
+          cd /tmp/mistserver-debug
+          tar czf ${{ github.workspace }}/mistserver-linux-amd64-debug-${{ steps.version.outputs.tag }}.tar.gz bin/
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: mistserver-linux-amd64
+          path: mistserver-linux-amd64-${{ steps.version.outputs.tag }}.tar.gz
+          compression-level: 0
+
+      - name: Upload debug symbols
+        uses: actions/upload-artifact@v7
+        with:
+          name: mistserver-linux-amd64-debug
+          path: mistserver-linux-amd64-debug-${{ steps.version.outputs.tag }}.tar.gz
+          compression-level: 0
+
+  # ---------------------------------------------------------------------------
+  # Native binary — linux/arm64 on GitHub-hosted native ARM runner
+  # ---------------------------------------------------------------------------
+  build-binaries-arm64:
+    name: Build Native Binaries (linux/arm64)
+    runs-on: ubuntu-24.04-arm
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Get version info
+        id: version
+        run: |
+          SHORT_SHA=$(git rev-parse --short=7 HEAD)
+          echo "short_sha=${SHORT_SHA}" >> "$GITHUB_OUTPUT"
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            echo "tag=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=development-${SHORT_SHA}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential git python3 python3-pip ninja-build pkg-config nasm yasm cmake \
+            libmbedtls-dev libcjson-dev zlib1g-dev liblzma-dev libxml2-dev libmp3lame-dev \
+            libopus-dev libvpx-dev libx265-dev libnuma-dev libaom-dev
+          python3 -m pip install --break-system-packages 'meson>=1.6.0'
+
+      - name: Build static dav1d
+        run: |
+          set -euo pipefail
+          git clone --depth 1 --branch "${DAV1D_REF}" https://code.videolan.org/videolan/dav1d.git /tmp/dav1d-src
+          meson setup /tmp/dav1d-build /tmp/dav1d-src \
+            --default-library=static \
+            --prefix=/tmp/dav1d-static \
+            --libdir=lib \
+            --buildtype=release \
+            -Denable_tools=false \
+            -Denable_tests=false
+          meson compile -C /tmp/dav1d-build
+          meson install -C /tmp/dav1d-build
+          PKG_CONFIG_PATH=/tmp/dav1d-static/lib/pkgconfig pkg-config --exists dav1d
+
+      - name: Build static SVT-AV1
+        run: |
+          set -euo pipefail
+          git clone --depth 1 --branch "${SVT_AV1_REF}" https://gitlab.com/AOMediaCodec/SVT-AV1.git /tmp/svt-av1-src
+          cmake -S /tmp/svt-av1-src -B /tmp/svt-av1-build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_INSTALL_PREFIX=/tmp/svt-av1-static \
+            -DBUILD_SHARED_LIBS=OFF \
+            -DBUILD_APPS=OFF \
+            -DBUILD_TESTING=OFF \
+            -DNATIVE=OFF
+          cmake --build /tmp/svt-av1-build
+          cmake --install /tmp/svt-av1-build
+          test -n "$(find /tmp/svt-av1-static -path '*/pkgconfig/SvtAv1Enc.pc' -print -quit)"
+
+      - name: Build MistServer
+        env:
+          PKG_CONFIG_PATH: /tmp/dav1d-static/lib/pkgconfig:/tmp/dav1d-static/lib64/pkgconfig:/tmp/svt-av1-static/lib/pkgconfig:/tmp/svt-av1-static/lib64/pkgconfig
+        run: |
+          meson setup build \
+            --default-library=static \
+            --wrap-mode=default \
+            --prefer-static \
+            --force-fallback-for=mbedtls,usrsctp,libavcodec,libavfilter,libavformat,libavutil,libswscale,libswresample,x264 \
+            -DWITH_AV=true \
+            -DDEBUG=3 \
+            -DNORIST=true \
+            -DRELEASE=Generic_aarch64 \
+            --prefix=/tmp/mistserver-install
+          # Assert NDI/ONVIF support compiled in (static libxml2 present in this env).
+          grep -qE 'NDI:[[:space:]]+COMPILED' build/meson-logs/meson-log.txt || { echo "::error::NDI support was not compiled"; exit 1; }
+          grep -qE 'ONVIF camera discovery:[[:space:]]+YES' build/meson-logs/meson-log.txt || { echo "::error::ONVIF support was not built"; exit 1; }
+          ninja -C build
+          meson test -C build "Pinned FFmpeg codec registry contract" --print-errorlogs
+          ninja -C build install
+
+      - name: Verify native runtime dependencies
+        run: |
+          set -euo pipefail
+          failed=0
+          for bin in /tmp/mistserver-install/bin/Mist*; do
+            [ -x "$bin" ] || continue
+            name="$(basename "$bin")"
+            log="/tmp/needed-${name}.txt"
+            echo "::group::runtime deps ${name}"
+            objdump -p "$bin" | awk '/NEEDED/ {print $2}' | tee "$log"
+            echo "::endgroup::"
+            if grep -Ev '^(ld-linux(-x86-64|-aarch64)?\.so\.[0-9]+|libc\.so\.6|libm\.so\.6|libgcc_s\.so\.1|libstdc\+\+\.so\.6)$' "$log"; then
+              echo "Unexpected runtime dependency in ${name}" >&2
+              failed=1
+            fi
+          done
+          if [ "$failed" -ne 0 ]; then
+            echo "Native artifact has non-system runtime dependencies" >&2
+            exit 1
+          fi
+
+      - name: Extract debug symbols
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/mistserver-debug/bin
+          for bin in /tmp/mistserver-install/bin/Mist*; do
+            [ -x "$bin" ] || continue
+            name="$(basename "$bin")"
+            objcopy --only-keep-debug "$bin" "/tmp/mistserver-debug/bin/${name}.debug"
+            objcopy --strip-debug --strip-unneeded "$bin"
+            objcopy --add-gnu-debuglink="/tmp/mistserver-debug/bin/${name}.debug" "$bin"
+          done
+
+      - name: Package binaries
+        run: |
+          cd /tmp/mistserver-install
+          tar czf ${{ github.workspace }}/mistserver-linux-arm64-${{ steps.version.outputs.tag }}.tar.gz bin/ lib/
+
+      - name: Package debug symbols
+        run: |
+          cd /tmp/mistserver-debug
+          tar czf ${{ github.workspace }}/mistserver-linux-arm64-debug-${{ steps.version.outputs.tag }}.tar.gz bin/
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: mistserver-linux-arm64
+          path: mistserver-linux-arm64-${{ steps.version.outputs.tag }}.tar.gz
+          compression-level: 0
+
+      - name: Upload debug symbols
+        uses: actions/upload-artifact@v7
+        with:
+          name: mistserver-linux-arm64-debug
+          path: mistserver-linux-arm64-debug-${{ steps.version.outputs.tag }}.tar.gz
+          compression-level: 0
+
+  # ---------------------------------------------------------------------------
+  # Native binary — darwin/arm64 on self-hosted Mac
+  # ---------------------------------------------------------------------------
+  build-binaries-darwin:
+    name: Build Native Binaries (darwin/arm64)
+    runs-on: macos-arm64-self-hosted
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Add Homebrew to PATH
+        run: echo "/opt/homebrew/bin" >> "$GITHUB_PATH"
+
+      - name: Get version info
+        id: version
+        run: |
+          SHORT_SHA=$(git rev-parse --short=7 HEAD)
+          echo "short_sha=${SHORT_SHA}" >> "$GITHUB_OUTPUT"
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            echo "tag=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=development-${SHORT_SHA}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Install macOS build dependencies
+        run: brew install meson ninja pkg-config ffmpeg srt srtp cmake libxml2
+
+      - name: Build darwin/arm64
+        run: |
+          # Homebrew libxml2 is keg-only; expose its pkg-config so ONVIF is detected deterministically.
+          LIBXML2_PREFIX="$(brew --prefix libxml2)"
+          export PKG_CONFIG_PATH="${LIBXML2_PREFIX}/lib/pkgconfig:${PKG_CONFIG_PATH:-}"
+          meson setup build-darwin-arm64 \
+            --default-library=static \
+            --wrap-mode=default \
+            --force-fallback-for=mbedtls,usrsctp \
+            -DWITH_AV=true \
+            -DDEBUG=3 \
+            -DNORIST=true \
+            -DRELEASE=macOS_aarch64 \
+            --prefix="$RUNNER_TEMP/darwin-arm64/mistserver-install"
+          # Fail loudly if NDI/ONVIF support was not compiled in.
+          grep -qE 'NDI:[[:space:]]+COMPILED' build-darwin-arm64/meson-logs/meson-log.txt || { echo "::error::NDI support was not compiled"; exit 1; }
+          grep -qE 'ONVIF camera discovery:[[:space:]]+YES' build-darwin-arm64/meson-logs/meson-log.txt || { echo "::error::ONVIF support was not built"; exit 1; }
+          ninja -C build-darwin-arm64 install
+
+      - name: Package darwin/arm64
+        run: |
+          cd "$RUNNER_TEMP/darwin-arm64/mistserver-install"
+          tar czf "${{ github.workspace }}/mistserver-darwin-arm64-${{ steps.version.outputs.tag }}.tar.gz" bin/ lib/
+
+      - name: Upload darwin/arm64 artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: mistserver-darwin-arm64
+          path: mistserver-darwin-arm64-${{ steps.version.outputs.tag }}.tar.gz
+          compression-level: 0
+
+  # ---------------------------------------------------------------------------
+  # Code signing + notarization for darwin binaries
+  # ---------------------------------------------------------------------------
+  sign-darwin:
+    name: Sign and Notarize darwin Binaries
+    needs: [build-binaries-darwin]
+    runs-on: macos-arm64-self-hosted
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Add Homebrew to PATH
+        run: echo "/opt/homebrew/bin" >> "$GITHUB_PATH"
+
+      - name: Download darwin/arm64 artifact
+        uses: actions/download-artifact@v8
+        with:
+          name: mistserver-darwin-arm64
+          path: dist/
+
+      - name: Extract darwin binaries
+        run: |
+          mkdir -p sign/darwin-arm64
+          tar xzf dist/mistserver-darwin-arm64-*.tar.gz -C sign/darwin-arm64
+
+      - name: Setup signing keychain
+        env:
+          APPLE_CERTIFICATE_P12: ${{ secrets.APPLE_CERTIFICATE_P12 }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+        run: ./scripts/ci/setup-signing-keychain.sh
+
+      - name: Sign darwin binaries
+        run: |
+          for bin in sign/darwin-arm64/bin/Mist*; do
+            [ -f "$bin" ] || continue
+            codesign --sign "${{ secrets.APPLE_DEVELOPER_ID }}" \
+              --timestamp --options runtime --force "$bin"
+            echo "Signed: $bin"
+          done
+
+      - name: Verify signatures
+        run: |
+          for bin in sign/darwin-arm64/bin/Mist*; do
+              [ -f "$bin" ] || continue
+              codesign --verify --verbose=2 "$bin"
+          done
+
+      - name: Notarize darwin/arm64
+        run: |
+          cd sign/darwin-arm64
+          zip -r ../../notarize-darwin-arm64.zip bin/
+          xcrun notarytool submit ../../notarize-darwin-arm64.zip \
+            --apple-id "${{ secrets.APPLE_ID }}" \
+            --team-id "${{ secrets.APPLE_TEAM_ID }}" \
+            --password "${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}" \
+            --wait
+
+      - name: Get version info
+        id: version
+        run: |
+          SHORT_SHA=$(git rev-parse --short=7 HEAD)
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            echo "tag=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=development-${SHORT_SHA}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Re-package signed binaries
+        run: |
+          TAG="${{ steps.version.outputs.tag }}"
+          cd sign/darwin-arm64
+          tar czf "${{ github.workspace }}/mistserver-darwin-arm64-${TAG}.tar.gz" bin/ lib/
+
+      - name: Upload signed darwin/arm64
+        uses: actions/upload-artifact@v7
+        with:
+          name: mistserver-darwin-arm64-signed
+          path: mistserver-darwin-arm64-*.tar.gz
+          compression-level: 0
+
+      - name: Clean up signing keychain
+        if: always()
+        run: ./scripts/ci/cleanup-signing-keychain.sh
+
+  # ---------------------------------------------------------------------------
+  # GitHub Release — assemble all artifacts
+  # ---------------------------------------------------------------------------
+  create-release:
+    name: Create GitHub Release
+    needs: [create-manifest, build-binaries-amd64, build-binaries-arm64, build-binaries-darwin, sign-darwin]
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Download linux/amd64 binary
+        uses: actions/download-artifact@v8
+        with:
+          name: mistserver-linux-amd64
+          path: dist/
+
+      - name: Download linux/arm64 binary
+        uses: actions/download-artifact@v8
+        with:
+          name: mistserver-linux-arm64
+          path: dist/
+
+      - name: Download linux/amd64 debug symbols
+        uses: actions/download-artifact@v8
+        with:
+          name: mistserver-linux-amd64-debug
+          path: dist/
+
+      - name: Download linux/arm64 debug symbols
+        uses: actions/download-artifact@v8
+        with:
+          name: mistserver-linux-arm64-debug
+          path: dist/
+
+      - name: Download signed darwin/arm64 binary
+        uses: actions/download-artifact@v8
+        with:
+          name: mistserver-darwin-arm64-signed
+          path: dist/
+
+      - name: Download Docker metadata
+        uses: actions/download-artifact@v8
+        with:
+          name: docker-metadata
+          path: dist/
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: MistServer ${{ github.ref_name }}
+          generate_release_notes: true
+          files: |
+            dist/*.tar.gz
+            dist/*.txt
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

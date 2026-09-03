@@ -1,4 +1,4 @@
-project('mistserver', 'cpp', default_options: ['cpp_std=c++11'])
+project('mistserver', 'cpp', meson_version: '>=1.6.0', default_options: ['cpp_std=c++11'])
 add_project_arguments(['-funsigned-char', '-D_LARGEFILE_SOURCE','-Wno-sign-compare', '-Wparentheses', '-Wno-non-virtual-dtor', '-Wno-strict-aliasing'], language: 'cpp')
 
 if host_machine.system() == 'darwin'
@@ -173,6 +173,10 @@ if usessl
       mbedtls = mbedtls_proj.get_variable('mbedtls_dep')
       mbedx509 = mbedtls_proj.get_variable('mbedx509_dep')
       mbedcrypto = mbedtls_proj.get_variable('mbedcrypto_dep')
+      # Make nested fallbacks such as libsrtp2 consume the same bundled MbedTLS.
+      # Otherwise they may rediscover the system MbedTLS and put both versions
+      # on every executable's link line, causing duplicate symbols.
+      meson.override_dependency('mbedtls', mbedtls)
     endif
 
   endif
@@ -191,17 +195,29 @@ if usessl
 endif
 
 libsrt = false
+libsrt_has_shutdown = false
 if not get_option('NOSRT')
-  if ccpp.has_header_symbol('srt/srt.h', 'SRTS_SHUTDOWN')
-    libsrt = dependency('srt', fallback: ['libsrt', 'srt_dep'])
+  libsrt = dependency('srt', required: false)
+  if libsrt.found()
+    # Compiler feature checks only accept external dependencies. Keep this check
+    # on the system dependency before the fallback can replace it with Meson's
+    # internal DependencyHolder.
+    libsrt_has_shutdown = ccpp.has_header_symbol(
+      'srt/srt.h', 'SRTS_SHUTDOWN', dependencies: libsrt)
   else
     libsrt_proj = subproject('libsrt', default_options: ['default_library=static'])
     libsrt = libsrt_proj.get_variable('srt_dep')
+    # The pinned 1.5.6 fallback declares SRTS_SHUTDOWN and implements the state
+    # in srtcore/api.cpp; its compile is the feature check.
+    libsrt_has_shutdown = true
   endif
 endif
 have_srt = not get_option('NOSRT') and libsrt.found()
 if have_srt
   option_defines += '-DWITH_SRT'
+  if libsrt_has_shutdown
+    option_defines += '-DHAVE_SRTS_SHUTDOWN'
+  endif
 endif
 
 librist = false
@@ -212,11 +228,92 @@ have_librist = not get_option('NORIST') and librist.found()
 
 av_libs = []
 if get_option('WITH_AV')
-  av_libs += dependency('libswscale')
-  av_libs += dependency('libavformat')
-  av_libs += dependency('libavcodec')
-  av_libs += dependency('libavutil')
-  av_libs += dependency('libswresample')
+  # Keep the fallback build intentional and reproducible: this is the codec/filter
+  # contract for all WITH_AV targets, including MistProcAV, MistInAV, MistProcThumbs,
+  # and MistOutJPEGReceiver. System FFmpeg dependencies ignore these options; they
+  # only apply when Meson enters the pinned FFmpeg subproject.
+  ffmpeg_opts = [
+    'prefer_static=true',
+    'auto_features=disabled',
+    'gpl=enabled',
+    'version3=enabled',
+    'protocols=enabled',
+    'demuxers=enabled',
+    'muxers=enabled',
+    'bsfs=enabled',
+    'parsers=enabled',
+    'filters=enabled',
+    'libmp3lame=enabled',
+    'libmp3lame_encoder=enabled',
+    'libopus=enabled',
+    'libopus_decoder=enabled',
+    'libopus_encoder=enabled',
+    'libvpx=enabled',
+    'libvpx_vp8_decoder=enabled',
+    'libvpx_vp8_encoder=enabled',
+    'libvpx_vp9_decoder=enabled',
+    'libvpx_vp9_encoder=enabled',
+    'libx264=enabled',
+    'libx264_encoder=enabled',
+    'libx265=enabled',
+    'libx265_encoder=enabled',
+    'libdav1d=enabled',
+    'libdav1d_decoder=enabled',
+    'libaom=enabled',
+    'libaom_av1_decoder=enabled',
+    'libaom_av1_encoder=enabled',
+    'libsvtav1=enabled',
+    'libsvtav1_encoder=enabled',
+    'h264_parser=enabled',
+    'h264_muxer=enabled',
+    'h264_demuxer=enabled',
+    'h264_decoder=enabled',
+    'hevc_parser=enabled',
+    'hevc_demuxer=enabled',
+    'hevc_decoder=enabled',
+    'av1_decoder=enabled',
+    'av1_demuxer=enabled',
+    'av1_parser=enabled',
+    'vp8_decoder=enabled',
+    'vp9_decoder=enabled',
+    'vp9_parser=enabled',
+    'mjpeg_decoder=enabled',
+    'mjpeg_encoder=enabled',
+    'mjpeg_demuxer=enabled',
+    'mjpeg_muxer=enabled',
+    'aac_decoder=enabled',
+    'aac_encoder=enabled',
+    'aac_parser=enabled',
+    'opus_decoder=enabled',
+    'opus_encoder=enabled',
+    'opus_parser=enabled',
+    'mp3_decoder=enabled',
+    'mp3float_decoder=enabled',
+    'flac_decoder=enabled',
+    'flac_encoder=enabled',
+    'vorbis_decoder=enabled',
+    'vorbis_encoder=enabled',
+    'pcm_s16be_decoder=enabled',
+    'pcm_s16be_encoder=enabled',
+    'pcm_s32be_decoder=enabled',
+    'pcm_s32be_encoder=enabled',
+    'rawvideo_decoder=enabled',
+    'rawvideo_encoder=enabled',
+    'vsrc_buffer_filter=enabled',
+    'vsink_buffer_filter=enabled',
+    'scale_filter=enabled',
+    'format_filter=enabled',
+    'aresample_filter=enabled',
+    'decklink=disabled',
+    'decklink_indev=disabled',
+    'decklink_outdev=disabled',
+  ]
+  av_libs += dependency('libswscale', fallback: ['ffmpeg', 'libswscale_dep'], default_options: ffmpeg_opts)
+  av_libs += dependency('libavformat', fallback: ['ffmpeg', 'libavformat_dep'], default_options: ffmpeg_opts)
+  av_libs += dependency('libavcodec', fallback: ['ffmpeg', 'libavcodec_dep'], default_options: ffmpeg_opts)
+  av_libs += dependency('libavutil', fallback: ['ffmpeg', 'libavutil_dep'], default_options: ffmpeg_opts)
+  av_libs += dependency('libswresample', fallback: ['ffmpeg', 'libswresample_dep'], default_options: ffmpeg_opts)
+  av_libs += dependency('libavfilter', fallback: ['ffmpeg', 'libavfilter_dep'], default_options: ffmpeg_opts)
 endif
 
 onnx_libs = []
@@ -239,6 +336,38 @@ if not opencv_dep.found()
                           required: onnx_required, static: onnx_static)
 endif
 
+# Some packages (notably Homebrew OpenCV 5) install static archives but omit their
+# TIFF/WebP/PNG/LAPACK closure from pkg-config's Libs.private. Detect that packaging
+# failure at configure time and fall back to the complete shared dependency rather
+# than accepting ONNX support that can compile but never link.
+opencv_static_usable = onnx_static
+if opencv_dep.found() and onnx_static
+  opencv_static_probe = '''
+    #include <opencv2/core.hpp>
+    #include <opencv2/imgcodecs.hpp>
+    #include <opencv2/video/tracking.hpp>
+    #include <vector>
+    int main() {
+      cv::Mat image(2, 2, CV_8UC3);
+      std::vector<unsigned char> encoded;
+      cv::imencode(".png", image, encoded);
+      cv::KalmanFilter filter(2, 1);
+      return encoded.empty() || filter.statePre.empty();
+    }
+  '''
+  if not ccpp.links(opencv_static_probe, dependencies: opencv_dep,
+                    name: 'OpenCV static dependency closure')
+    warning('Static OpenCV dependency metadata is incomplete; using shared OpenCV for ONNX')
+    opencv_dep = dependency('opencv4', modules: opencv_modules,
+                            required: false, static: false)
+    if not opencv_dep.found()
+      opencv_dep = dependency('opencv5', modules: opencv_modules,
+                              required: onnx_required, static: false)
+    endif
+    opencv_static_usable = false
+  endif
+endif
+
 have_onnx = not onnx_opt.disabled() and onnxruntime_dep.found() and opencv_dep.found()
 if have_onnx
   onnx_libs += [onnxruntime_dep, opencv_dep]
@@ -246,7 +375,8 @@ if have_onnx
   if onnx_static
     onnx_defines += '-DMIST_ONNX_STATIC=1'
   endif
-  message('ONNX support enabled (profile=@0@, static dependencies=@1@)'.format(onnx_profile, onnx_static))
+  message('ONNX support enabled (profile=@0@, static requested=@1@, OpenCV static=@2@)'.format(
+          onnx_profile, onnx_static, opencv_static_usable))
 else
   missing = []
   if not onnxruntime_dep.found()
