@@ -27,6 +27,8 @@ namespace Mist{
     uint64_t lastClusterBPos;
     EBML::toDTSC parser;
     size_t totalBytes;
+    bool liveOffsetSet;
+    int64_t liveOffset;
 
     /// For live streams: to update the stats with correct values.
     virtual size_t streamByteCount() { return totalBytes; }
@@ -40,6 +42,7 @@ namespace Mist{
     void getNext(size_t idx = INVALID_TRACK_ID);
     void seek(uint64_t seekTime, size_t idx = INVALID_TRACK_ID);
     bool readExistingHeader();
+    void applyLiveOffset();
     void parseStreamHeader(){readHeader();}
     bool openStreamSource(){return true;}
     bool needHeader() { return (config->getBool("realtime") || needsLock()) && !readExistingHeader(); }

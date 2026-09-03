@@ -1,5 +1,7 @@
 #include "output_ebml.h"
 
+#include "../processing_lifecycle.h"
+
 #include <mist/ebml_socketglue.h>
 #include <mist/opus.h>
 #include <mist/procs.h>
@@ -20,6 +22,7 @@ namespace Mist{
     cuesSize = 0;
     seekheadSize = 0;
     seekSize = 0;
+    liveFileClusterOpen = false;
     doctype = "matroska";
     readPos = 0;
     seenTime = false;
@@ -40,6 +43,10 @@ namespace Mist{
       }
       if (config->getString("target").find(".webm") != std::string::npos){doctype = "webm";}
       initialize();
+      // File recordings are initialized and sought by Output::run(), after it
+      // has enabled recording mode. Seeking here would interpret recording
+      // options as playback options, apply a stale limiter and seek twice.
+      if (isFileTarget()) { return; }
       initialSeek();
 
       std::string timestamps = "zero";
@@ -52,7 +59,7 @@ namespace Mist{
         int64_t utcTime = M.packetTimeToUnixMs(currentTime());
         if (utcTime){subtractTime = currentTime() - utcTime;}
       }
-      if (M && !M.getLive()){calcVodSizes();}
+      if (M && !liveEBMLMode()) { calcVodSizes(); }
     }
   }
 
@@ -192,11 +199,82 @@ namespace Mist{
     return sendLen;
   }
 
+  bool OutEBML::liveClusterBoundaryReady(uint64_t clusterEnd, size_t *readyTracks, size_t *totalTracks) {
+    if (readyTracks) { *readyTracks = 0; }
+    if (totalTracks) { *totalTracks = 0; }
+    if (!M || !liveEBMLMode() || !isRecording() || !isFileTarget() || !clusterEnd) { return true; }
+    bool processControlledRealtimeEnded = processingControlledRealtimeSelectionEnded();
+
+    meta.reloadReplacedPagesIfNeeded();
+    for (std::map<size_t, Comms::Users>::iterator it = userSelect.begin(); it != userSelect.end(); ++it) {
+      const size_t tid = it->first;
+      if (!M.trackLoaded(tid) || !M.getValidTracks().count(tid)) { continue; }
+      if (totalTracks) { ++(*totalTracks); }
+
+      if (liveClusterTrackReady(clusterEnd, M.getFirstms(tid), M.getNowms(tid), M.getLastms(tid), M.isClaimed(tid),
+                                processControlledRealtimeEnded)) {
+        if (readyTracks) { ++(*readyTracks); }
+        continue;
+      }
+      return false;
+    }
+    return true;
+  }
+
+  void OutEBML::waitForLiveClusterBoundary(uint64_t clusterEnd) {
+    if (liveClusterBoundaryReady(clusterEnd)) { return; }
+    uint64_t lastLog = 0;
+    while (keepGoing()) {
+      size_t readyTracks = 0;
+      size_t totalTracks = 0;
+      if (liveClusterBoundaryReady(clusterEnd, &readyTracks, &totalTracks)) { return; }
+      uint64_t now = Util::bootSecs();
+      if (now != lastLog) {
+        INFO_MSG("Waiting for EBML cluster boundary %" PRIu64 "ms: %zu/%zu selected tracks ready", clusterEnd, readyTracks, totalTracks);
+        lastLog = now;
+      }
+      stats();
+      Util::sleep(50);
+    }
+  }
+
+  bool OutEBML::liveEBMLMode() {
+    if (!M) { return false; }
+    return useLiveEbmlLayout(M.getLive(), isRecording(), isFileTarget(), recordingSourceWasLive);
+  }
+
+  bool OutEBML::bufferedLiveFileClusters() {
+    return liveEBMLMode() && isRecording() && isFileTarget();
+  }
+
+  void OutEBML::startLiveFileCluster() {
+    liveFileClusterBuffer.clear();
+    EBML::appendElemUInt(liveFileClusterBuffer, EBML::EID_TIMECODE, currentClusterTime - subtractTime);
+    liveFileClusterOpen = true;
+  }
+
+  void OutEBML::flushLiveFileCluster() {
+    if (!liveFileClusterOpen) { return; }
+    EBML::sendElemHead(myConn, EBML::EID_CLUSTER, liveFileClusterBuffer.size());
+    myConn.SendNow(liveFileClusterBuffer);
+    liveFileClusterBuffer.clear();
+    liveFileClusterOpen = false;
+  }
+
+  bool OutEBML::onFinish() {
+    flushLiveFileCluster();
+    return false;
+  }
+
   void OutEBML::sendNext(){
     if (thisTime >= newClusterTime) {
       if (liveSeek()){return;}
+      if (bufferedLiveFileClusters() && liveFileClusterOpen) {
+        waitForLiveClusterBoundary(newClusterTime);
+        flushLiveFileCluster();
+      }
       currentClusterTime = thisTime;
-      if (!M.getLive()){
+      if (!liveEBMLMode()) {
         // In case of VoD, clusters are aligned with the main track fragments
         // EXCEPT when they are more than 30 seconds long, because clusters are limited to -32 to 32
         // seconds.
@@ -211,7 +289,7 @@ namespace Mist{
         EXTREME_MSG("Cluster: %" PRIu64 " - %" PRIu64 " (%" PRIu32 "/%zu) = %zu",
                     currentClusterTime, newClusterTime, fragIndice, fragments.getEndValid(),
                     clusterSize(currentClusterTime, newClusterTime));
-      }else{
+      } else {
         // In live, clusters are aligned with the lookAhead time
         newClusterTime = currentClusterTime + needsLookAhead;
         // EXCEPT if there's a keyframe within the lookAhead window, then align to that keyframe
@@ -223,12 +301,28 @@ namespace Mist{
           newClusterTime = 0;
         }
       }
-      EBML::sendElemHead(myConn, EBML::EID_CLUSTER, clusterSize(currentClusterTime, newClusterTime));
-      EBML::sendElemUInt(myConn, EBML::EID_TIMECODE, currentClusterTime-subtractTime);
+      if (bufferedLiveFileClusters()) {
+        startLiveFileCluster();
+      } else {
+        waitForLiveClusterBoundary(newClusterTime);
+        EBML::sendElemHead(myConn, EBML::EID_CLUSTER, clusterSize(currentClusterTime, newClusterTime));
+        EBML::sendElemUInt(myConn, EBML::EID_TIMECODE, currentClusterTime - subtractTime);
+      }
     }
 
     bool isKey = (M.getType(thisIdx) != "video") || M.hasEmbeddedFrames(thisIdx) || thisPacket.getFlag("keyframe");
-    EBML::sendSimpleBlock(myConn, thisData, thisDataLen, thisIdx + 1, thisTime, isKey, currentClusterTime);
+    uint64_t blockTime = thisTime;
+    int64_t packetOffset = thisPacket.getInt("offset");
+    if (packetOffset < 0 && (uint64_t)(-packetOffset) > blockTime) {
+      blockTime = 0;
+    } else {
+      blockTime += packetOffset;
+    }
+    if (bufferedLiveFileClusters()) {
+      EBML::appendSimpleBlock(liveFileClusterBuffer, thisData, thisDataLen, thisIdx + 1, blockTime, isKey, currentClusterTime);
+    } else {
+      EBML::sendSimpleBlock(myConn, thisData, thisDataLen, thisIdx + 1, blockTime, isKey, currentClusterTime);
+    }
   }
 
   std::string OutEBML::trackCodecID(size_t idx){
@@ -466,15 +560,29 @@ namespace Mist{
   void OutEBML::sendHeader(){
     double duration = 0;
     size_t idx = getMainSelectedTrack();
-    if (!M.getLive()){
+    bool liveMode = liveEBMLMode();
+    if (isRecording() && isFileTarget()) {
+      std::string timestamps = "zero";
+      if (targetParams.count("ts")) { timestamps = targetParams["ts"]; }
+      if (timestamps == "zero") {
+        subtractTime = currentTime();
+      } else if (timestamps == "keep") {
+        subtractTime = 0;
+      } else if (M) {
+        int64_t utcTime = M.packetTimeToUnixMs(currentTime());
+        if (utcTime) { subtractTime = currentTime() - utcTime; }
+      }
+      if (!liveMode) { calcVodSizes(); }
+    }
+    if (!liveMode) {
       duration = M.getLastms(idx) - M.getFirstms(idx);
-    }else{
+    } else {
       needsLookAhead = 250;
     }
     // EBML header and Segment
     EBML::sendElemEBML(myConn, doctype);
-    EBML::sendElemHead(myConn, EBML::EID_SEGMENT, segmentSize); // Default = Unknown size
-    if (!M.getLive()){
+    EBML::sendElemHead(myConn, EBML::EID_SEGMENT, liveMode ? 0xFFFFFFFFFFFFFFFFull : segmentSize);
+    if (!liveMode) {
       // SeekHead
       EBML::sendElemHead(myConn, EBML::EID_SEEKHEAD, seekSize);
       EBML::sendElemSeek(myConn, EBML::EID_INFO, seekheadSize);
@@ -488,13 +596,13 @@ namespace Mist{
     size_t trackSizes = 0;
     for (std::map<size_t, Comms::Users>::iterator it = userSelect.begin(); it != userSelect.end(); it++){
       trackSizes += sizeElemTrackEntry(it->first);
-      if (M.hasEmbeddedFrames(idx) && M.getLive()) { needsLookAhead = 0; }
+      if (M.hasEmbeddedFrames(idx) && liveMode) { needsLookAhead = 0; }
     }
     EBML::sendElemHead(myConn, EBML::EID_TRACKS, trackSizes);
     for (std::map<size_t, Comms::Users>::iterator it = userSelect.begin(); it != userSelect.end(); it++){
       sendElemTrackEntry(it->first);
     }
-    if (!M.getLive()){
+    if (!liveMode) {
       EBML::sendElemHead(myConn, EBML::EID_CUES, cuesSize);
       uint64_t tmpsegSize = infoSize + tracksSize + seekheadSize + cuesSize +
                             EBML::sizeElemHead(EBML::EID_CUES, cuesSize);

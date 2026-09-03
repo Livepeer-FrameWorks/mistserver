@@ -87,6 +87,39 @@ namespace EBML{
     sendUniInt(C, size);
   }
 
+  void appendUniInt(std::string & buffer, const uint64_t val) {
+    uint8_t wSize = UniInt::writeSize(val);
+    if (!wSize) {
+      buffer.append("\377", 1); // Unknown size, all ones.
+      return;
+    }
+    char tmp[8];
+    UniInt::writeInt(tmp, val);
+    buffer.append(tmp, wSize);
+  }
+
+  void appendElemHead(std::string & buffer, uint32_t ID, const uint64_t size) {
+    appendUniInt(buffer, ID);
+    appendUniInt(buffer, size);
+  }
+
+  void appendElemUInt(std::string & buffer, uint32_t ID, const uint64_t val) {
+    char tmp[8];
+    uint8_t wSize = sizeUInt(val);
+    switch (wSize) {
+      case 8: Bit::htobll(tmp, val); break;
+      case 7: Bit::htob56(tmp, val); break;
+      case 6: Bit::htob48(tmp, val); break;
+      case 5: Bit::htob40(tmp, val); break;
+      case 4: Bit::htobl(tmp, val); break;
+      case 3: Bit::htob24(tmp, val); break;
+      case 2: Bit::htobs(tmp, val); break;
+      case 1: tmp[0] = val; break;
+    }
+    appendElemHead(buffer, ID, wSize);
+    buffer.append(tmp, wSize);
+  }
+
   void sendElemUInt(Socket::Connection &C, uint32_t ID, const uint64_t val){
     char tmp[8];
     uint8_t wSize = sizeUInt(val);
@@ -204,6 +237,18 @@ namespace EBML{
     Bit::htobs(blockHead, (int16_t)(time - clusterTime));
     C.SendNow(blockHead, 3);
     C.SendNow(dataPointer, dataLen);
+  }
+
+  void appendSimpleBlock(std::string & buffer, const char *dataPointer, const size_t dataLen, size_t trackId,
+                         uint64_t time, bool keyFrame, uint64_t clusterTime) {
+    uint32_t blockSize = UniInt::writeSize(trackId) + 3 + dataLen;
+    appendElemHead(buffer, EID_SIMPLEBLOCK, blockSize);
+    appendUniInt(buffer, trackId);
+    char blockHead[3] = {0, 0, 0};
+    if (keyFrame) { blockHead[2] = 0x80; }
+    Bit::htobs(blockHead, (int16_t)(time - clusterTime));
+    buffer.append(blockHead, 3);
+    buffer.append(dataPointer, dataLen);
   }
 
   uint32_t sizeSimpleBlock(uint64_t trackId, uint32_t dataSize){

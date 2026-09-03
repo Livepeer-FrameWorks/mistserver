@@ -8,6 +8,7 @@
 namespace Mist{
 
   InputEBML::InputEBML(Util::Config *cfg) : Input(cfg) {
+    liveOffsetSet = false;
     capa["name"] = "EBML";
     capa["desc"] = "Allows loading MKV, MKA, MK3D, MKS and WebM files for Video on Demand, or "
                    "accepts live streams in those formats over standard input.";
@@ -279,6 +280,16 @@ namespace Mist{
     parser.postHeader(meta);
   }
 
+  void InputEBML::applyLiveOffset() {
+    if (!M.getLive()) { return; }
+    if (!liveOffsetSet) {
+      liveOffset = static_cast<int64_t>(Util::bootMS()) - M.getBootMsOffset() - static_cast<int64_t>(thisTime);
+      liveOffsetSet = true;
+    }
+    thisTime = static_cast<uint64_t>(static_cast<int64_t>(thisTime) + liveOffset);
+    thisPacket.setTime(thisTime);
+  }
+
   void InputEBML::getNext(size_t idx){
     bool singleTrack = (idx != INVALID_TRACK_ID);
     size_t wantedID = singleTrack ? M.getID(idx) : 0;
@@ -286,6 +297,7 @@ namespace Mist{
     do {
       // Make sure we empty our buffer first
       while (parser.fillPacket(M, thisIdx, thisTime, thisPacket)) {
+        applyLiveOffset();
         if (!singleTrack || M.getID(thisIdx) == wantedID) { return; }
       }
 
@@ -295,6 +307,7 @@ namespace Mist{
         parser.finish();
         // Attempt to read from the parser again
         while (parser.fillPacket(M, thisIdx, thisTime, thisPacket)) {
+          applyLiveOffset();
           if (!singleTrack || M.getID(thisIdx) == wantedID) { return; }
         }
         // Nothing left? Set to empty and return. We reached end of stream.

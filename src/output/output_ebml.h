@@ -11,6 +11,7 @@ namespace Mist{
     void respondHTTP(const HTTP::Parser & req, bool headersOnly);
     void sendNext();
     void sendHeader();
+    bool onFinish();
     size_t clusterSize(uint64_t start, uint64_t end);
     void preHTTP();
     virtual void dataCallback(const char *ptr, size_t size);
@@ -48,6 +49,14 @@ namespace Mist{
     size_t seekSize;                       // size of contents of SeekHead (excl. header)
     std::map<size_t, size_t> clusterSizes; // sizes of Clusters (incl. header)
     void byteSeek(size_t startPos);
+    bool liveEBMLMode();
+    bool liveClusterBoundaryReady(uint64_t clusterEnd, size_t *readyTracks = 0, size_t *totalTracks = 0);
+    void waitForLiveClusterBoundary(uint64_t clusterEnd);
+    bool bufferedLiveFileClusters();
+    void startLiveFileCluster();
+    void flushLiveFileCluster();
+    bool liveFileClusterOpen;
+    std::string liveFileClusterBuffer;
   };
 }// namespace Mist
 
