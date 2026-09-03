@@ -1,10 +1,13 @@
 #include "output_http.h"
+
 #include <mist/checksum.h>
 #include <mist/encode.h>
 #include <mist/langcodes.h>
 #include <mist/stream.h>
-#include <mist/util.h>
+#include <mist/trusted_proxy.h>
 #include <mist/url.h>
+#include <mist/util.h>
+
 #include <set>
 #include <sstream>
 #include <sys/stat.h>
@@ -401,10 +404,8 @@ namespace Mist{
           if (storage.count("jwt")) { tkn = storage.at("jwt"); }
         }
 
-        if (H.hasHeader("Authorization")) {
-          std::string auth = H.GetHeader("Authorization");
-          if (auth.size() > 7 && auth.substr(0, 7) == "Bearer ") { tkn = auth.substr(8); }
-        }
+        const std::string bearerToken = H.getBearerToken();
+        if (bearerToken.size()) { tkn = bearerToken; }
         // Generate a session token if it is being sent as a cookie or url parameter and we couldn't read one
         if (!tkn.size() && Comms::tknMode > 3) {
           const std::string newTkn = UA + JSON::Value(getpid()).asString();
@@ -1129,18 +1130,8 @@ namespace Mist{
       trustedProxies.insert("localhost");
 
       IPC::sharedPage rPage(SHM_PROXY, 0, false, false);
-      if (rPage){
-        Util::RelAccX rAcc(rPage.mapped);
-        std::string trustedList(rAcc.getPointer("proxy_data"), rAcc.getSize("proxy_data"));
-        size_t pos = 0;
-        size_t endPos;
-        while (pos != std::string::npos){
-          endPos = trustedList.find(" ", pos);
-          trustedProxies.insert(trustedList.substr(pos, endPos - pos));
-          pos = endPos;
-          if (pos != std::string::npos){pos++;}
-        }
-      }
+      const std::set<std::string> configured = Util::readTrustedProxyList(rPage);
+      trustedProxies.insert(configured.begin(), configured.end());
     }
     std::string binIp = Socket::getBinForms(ip);
     for (std::set<std::string>::iterator it = trustedProxies.begin(); it != trustedProxies.end(); ++it){

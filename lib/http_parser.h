@@ -27,6 +27,7 @@ namespace HTTP{
     bool Read(Socket::Connection & conn, std::function<void(const char *, size_t)> onData = 0);
     bool Read(std::string &strbuf);
     const std::string &GetHeader(const std::string &i) const;
+    std::string getBearerToken() const;
     bool hasHeader(const std::string &i) const;
     void clearHeader(const std::string &i);
     uint8_t getPercentage() const;

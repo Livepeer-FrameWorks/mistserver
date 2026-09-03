@@ -7,6 +7,7 @@
 #include <mist/jwt.h>
 #include <mist/langcodes.h>
 #include <mist/stream.h>
+#include <mist/stream_status.h>
 #include <mist/triggers.h>
 #include <mist/url.h>
 #include <mist/websocket.h>
@@ -290,16 +291,24 @@ namespace Mist{
     if (config->getString("nostreamtext") != ""){
       json_resp["on_error"] = config->getString("nostreamtext");
     }
+    // Status requests arrive before generic Output initialization. The shared
+    // gate ensures the later playback initialization does not run this twice.
+    if (applyPlayRewrite("status") == PLAY_REWRITE_DENIED) {
+      json_resp["error"] = "Playback rejected by PLAY_REWRITE trigger";
+      return json_resp;
+    }
     // Make note of any defaultStream-based redirection
     if (origStreamName.size() && origStreamName != streamName){
       json_resp["redirected"].append(origStreamName);
       json_resp["redirected"].append(streamName);
     }
+    bool wasOffline = false;
+    if (!Util::streamAlive(streamName)) { Util::startInput(streamName, "", true, false, {}, NULL, &wasOffline); }
     uint8_t streamStatus = Util::getStreamStatus(streamName);
     uint8_t streamStatusPerc = Util::getStreamStatusPercentage(streamName);
     if (streamStatus != STRMSTAT_READY){
       // If we haven't rewritten the stream name yet to a fallback, attempt to do so
-      if (origStreamName == streamName){
+      if (statusAllowsFallback(wasOffline, origStreamName, streamName)) {
         // If stream is configured, use fallback stream setting, if set.
         JSON::Value strCnf = Util::getStreamConfig(streamName);
         if (strCnf && strCnf["fallback_stream"].asStringRef().size()){
@@ -339,15 +348,8 @@ namespace Mist{
         }
         origStreamName.clear(); // no fallback, don't check again
       }
-      switch (streamStatus){
-      case STRMSTAT_OFF: json_resp["error"] = "Stream is offline"; break;
-      case STRMSTAT_INIT: json_resp["error"] = "Stream is initializing"; break;
-      case STRMSTAT_BOOT: json_resp["error"] = "Stream is booting"; break;
-      case STRMSTAT_WAIT: json_resp["error"] = "Stream is waiting for data"; break;
-      case STRMSTAT_SHUTDOWN: json_resp["error"] = "Stream is shutting down"; break;
-      case STRMSTAT_INVALID: json_resp["error"] = "Stream status is invalid?!"; break;
-      default: json_resp["error"] = "Stream status is unknown?!"; break;
-      }
+      streamStatus = effectiveStatus(streamStatus, wasOffline);
+      json_resp["error"] = Util::streamStatusDescription(streamStatus);
       if (streamStatusPerc){json_resp["perc"] = ((double)streamStatusPerc)/2.55;}
       return json_resp;
     }

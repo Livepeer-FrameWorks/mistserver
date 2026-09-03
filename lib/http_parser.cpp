@@ -486,6 +486,14 @@ const std::string &HTTP::Parser::GetHeader(const std::string &i) const{
   return empty;
 }
 
+/// Returns the RFC 6750 bearer token from the Authorization header, or an empty string when the
+/// header does not use the Bearer authentication scheme.
+std::string HTTP::Parser::getBearerToken() const {
+  const std::string & auth = GetHeader("Authorization");
+  if (auth.size() <= 7 || auth.compare(0, 7, "Bearer ")) { return ""; }
+  return auth.substr(7);
+}
+
 /// Returns header i, if set.
 bool HTTP::Parser::hasHeader(const std::string &i) const{
   if (headers.count(i)){return true;}

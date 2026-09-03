@@ -250,6 +250,16 @@ namespace {
     return contains(response.BuildResponse("200", "OK"), "Content-Length: 0",
                     "zero content length");
   }
+
+  bool bearerTokenParsing() {
+    HTTP::Parser request;
+    request.SetHeader("Authorization", "Bearer first-character-must-survive");
+    if (request.getBearerToken() != "first-character-must-survive") { return false; }
+    request.SetHeader("Authorization", "Basic credentials");
+    if (request.getBearerToken().size()) { return false; }
+    request.SetHeader("Authorization", "Bearer ");
+    return request.getBearerToken().empty();
+  }
 }
 
 int main() {
@@ -283,5 +293,6 @@ int main() {
   CHECK_RESPONSE_TEST(bodylessResponse("GET", "304", false));
   CHECK_RESPONSE_TEST(bodylessResponse("CONNECT", "200", false));
   CHECK_RESPONSE_TEST(buildResponseKeepsZeroLength());
+  CHECK_RESPONSE_TEST(bearerTokenParsing());
   return responseTestsOk ? 0 : 1;
 }
