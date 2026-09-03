@@ -85,6 +85,9 @@ namespace h264{
       bool valid{false};
   };
 
+  /// Converts Annex B SPS/PPS initialization data to AVCDecoderConfigurationRecord format.
+  std::string initFromAnnexB(const char *ptr, size_t len);
+
   bool isKeyframe(const char *data, uint32_t len);
 
   class nalUnit{

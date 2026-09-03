@@ -53,5 +53,44 @@ int main() {
     return 1;
   }
 
+  PartTimeMeta reordered;
+  reordered.reInit("", true);
+  size_t reorderedTrack = reordered.addTrack(2, 2, 6, 1, true);
+  reordered.setType(reorderedTrack, "video");
+  reordered.setCodec(reorderedTrack, "H264");
+  reordered.update(1000, 120, reorderedTrack, 100, 0, true, 40);
+  reordered.update(1040, 200, reorderedTrack, 100, 0, false, 40);
+  reordered.update(1080, 40, reorderedTrack, 100, 0, false, 40);
+  reordered.update(1120, 80, reorderedTrack, 100, 0, false, 40);
+  reordered.update(1160, 120, reorderedTrack, 100, 0, false, 40);
+  reordered.update(1200, 120, reorderedTrack, 100, 0, true, 40);
+  reordered.applyLimiter(1000, 1120);
+
+  DTSC::Keys limitedKeys = reordered.getKeys(reorderedTrack);
+  if (limitedKeys.getTotalPartCount() != 4) {
+    std::cerr << "reordered limiter retained " << limitedKeys.getTotalPartCount()
+              << " parts, expected 4 to preserve the final presentation frame" << std::endl;
+    return 1;
+  }
+
+  PartTimeMeta reorderedAcrossKeys;
+  reorderedAcrossKeys.reInit("", true);
+  size_t acrossTrack = reorderedAcrossKeys.addTrack(3, 3, 11, 1, true);
+  reorderedAcrossKeys.setType(acrossTrack, "video");
+  reorderedAcrossKeys.setCodec(acrossTrack, "H264");
+  for (size_t partNo = 0; partNo < 11; ++partNo) {
+    const int64_t offsets[] = {120, 200, 40, 80, 120};
+    reorderedAcrossKeys.update(1000 + partNo * 40, offsets[partNo % 5], acrossTrack, 100, 0,
+                               partNo == 0 || partNo == 5 || partNo == 10, 40);
+  }
+  reorderedAcrossKeys.applyLimiter(1000, 1320);
+
+  DTSC::Keys acrossKeys = reorderedAcrossKeys.getKeys(acrossTrack);
+  if (acrossKeys.getTotalPartCount() != 9) {
+    std::cerr << "multi-key reordered limiter retained " << acrossKeys.getTotalPartCount()
+              << " parts, expected 9 to preserve the final presentation frame" << std::endl;
+    return 1;
+  }
+
   return 0;
 }

@@ -364,6 +364,60 @@ namespace h264{
         << " bytes long" << std::endl;
   }
 
+  std::string initFromAnnexB(const char *ptr, size_t len) {
+    std::deque<std::string> sps;
+    std::deque<std::string> pps;
+    const char *nalStart = ptr;
+    const char *end = ptr + len;
+    const char *nextStart = nalu::scanAnnexB(ptr, len);
+    if (!nextStart) {
+      WARN_MSG("No start codes in Annex B H264 init data");
+      return "";
+    }
+
+    while (nalStart < end) {
+      if (!nextStart) { nextStart = end; }
+      const char *nalEnd = nalu::nalEndPosition(nalStart, nextStart - nalStart);
+      size_t nalSize = nalEnd - nalStart;
+      if (nalSize) {
+        uint8_t nalType = nalStart[0] & 0x1F;
+        if (nalType == 7) { sps.push_back(std::string(nalStart, nalSize)); }
+        if (nalType == 8) { pps.push_back(std::string(nalStart, nalSize)); }
+      }
+      if (nextStart == end || nextStart + 3 >= end) { break; }
+      nalStart = nextStart + 3;
+      nextStart = nalu::scanAnnexB(nalStart, end - nalStart);
+    }
+
+    bool oversized = false;
+    for (const std::string &unit : sps) { oversized |= unit.size() > 0xFFFF; }
+    for (const std::string &unit : pps) { oversized |= unit.size() > 0xFFFF; }
+    if (sps.empty() || pps.empty() || sps.size() > 31 || pps.size() > 255 || sps.front().size() < 4 || oversized) {
+      WARN_MSG("Annex B H264 init data contains %zu SPS and %zu PPS; invalid", sps.size(), pps.size());
+      return "";
+    }
+
+    std::string result;
+    result += (char)1;
+    result += sps.front()[1];
+    result += sps.front()[2];
+    result += sps.front()[3];
+    result += (char)0xFF;
+    result += (char)(0xE0 + sps.size());
+    for (const std::string &unit : sps) {
+      result += (char)(unit.size() >> 8);
+      result += (char)(unit.size() & 0xFF);
+      result += unit;
+    }
+    result += (char)pps.size();
+    for (const std::string &unit : pps) {
+      result += (char)(unit.size() >> 8);
+      result += (char)(unit.size() & 0xFF);
+      result += unit;
+    }
+    return result;
+  }
+
   void spsUnit::scalingList(uint64_t *scalingList, size_t sizeOfScalingList,
                             bool &useDefaultScalingMatrixFlag, Utils::bitstream &bs){
     int32_t lastScale = 8;

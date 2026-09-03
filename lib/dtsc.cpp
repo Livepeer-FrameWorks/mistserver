@@ -23,6 +23,15 @@
 #include <sstream>
 
 namespace DTSC{
+  static const size_t RAW_FRAME_TABLE_OVERHEAD = 36 + 16;
+  static const size_t RAW_FRAME_READABLE_COUNT = RAW_FRAME_COUNT * 3 / 4;
+
+  static size_t firstReadableFrame(const Util::RelAccX & frames) {
+    const size_t end = frames.getEndPos();
+    const size_t safetyBoundary = end > RAW_FRAME_READABLE_COUNT ? end - RAW_FRAME_READABLE_COUNT : 0;
+    return std::max<size_t>(frames.getDeleted(), safetyBoundary);
+  }
+
   char Magic_Header[] = "DTSC";
   char Magic_Packet[] = "DTPD";
   char Magic_Packet2[] = "DTP2";
@@ -1131,7 +1140,7 @@ namespace DTSC{
     trackList.setReady();
   }
 
-  void Meta::addTrackFrom(const DTSC::Scan &trak){
+  void Meta::addTrackFrom(const DTSC::Scan & trak) {
     char *fragStor = 0;
     char *keyStor = 0;
     char *partStor = 0;
@@ -1174,9 +1183,7 @@ namespace DTSC{
     setID(tIdx, trak.getMember("trackid").asInt());
     setFirstms(tIdx, trak.getMember("firstms").asInt());
     setLastms(tIdx, trak.getMember("lastms").asInt());
-    if (trak.hasMember("nowms")){
-      setNowms(tIdx, trak.getMember("nowms").asInt());
-    }
+    if (trak.hasMember("nowms")) { setNowms(tIdx, trak.getMember("nowms").asInt()); }
     setBps(tIdx, trak.getMember("bps").asInt());
     setMaxBps(tIdx, trak.getMember("maxbps").asInt());
     if (trak.hasMember("source")) {
@@ -1795,7 +1802,7 @@ namespace DTSC{
     // Raw track! Embed the data instead
     if (frameSize){
       // Reserve room for RAW_FRAME_COUNT frames
-      newPageSize = TRACK_TRACK_OFFSET + TRACK_TRACK_RECORDSIZE + (8 + frameSize) * RAW_FRAME_COUNT;
+      newPageSize = TRACK_TRACK_OFFSET + TRACK_TRACK_RECORDSIZE + RAW_FRAME_TABLE_OVERHEAD + (8 + frameSize) * RAW_FRAME_COUNT;
     }
 
     if (isMemBuf){
@@ -2192,7 +2199,7 @@ namespace DTSC{
     // Raw track! Embed the data instead
     if (frameSize){
       // Reserve room for RAW_FRAME_COUNT frames
-      pageSize = TRACK_TRACK_OFFSET + TRACK_TRACK_RECORDSIZE + (8 + frameSize) * RAW_FRAME_COUNT;
+      pageSize = TRACK_TRACK_OFFSET + TRACK_TRACK_RECORDSIZE + RAW_FRAME_TABLE_OVERHEAD + (8 + frameSize) * RAW_FRAME_COUNT;
     }
 
     size_t tNumber = trackList.getPresent();
@@ -2283,7 +2290,7 @@ namespace DTSC{
       if (!R.getEndPos()) { return false; }
       num = R.getEndPos() - 1;
     }
-    if (R.getEndPos() <= num || R.getEndPos() > num + RAW_FRAME_COUNT*0.75){return false;}
+    if (num < firstReadableFrame(R) || R.getEndPos() <= num) { return false; }
     dataPtr = R.getPointer(t.framesDataField, num);
     dataLen = t.framesDataField.size;
     return true;
@@ -2292,7 +2299,7 @@ namespace DTSC{
   bool Meta::getEmbeddedTime(size_t trackIdx, size_t num, uint64_t & time) const{
     const Track & t = tracks.at(trackIdx);
     const Util::RelAccX & R = t.frames;
-    if (R.getEndPos() <= num || R.getEndPos() > num + RAW_FRAME_COUNT*0.75){return false;}
+    if (num < firstReadableFrame(R) || R.getEndPos() <= num) { return false; }
     time = R.getInt(t.framesTimeField, num);
     return true;
   }
@@ -2328,9 +2335,8 @@ namespace DTSC{
       t.track.addField("fragments", RAX_NESTED, TRACK_FRAGMENT_OFFSET + (TRACK_FRAGMENT_RECORDSIZE * fragCount));
       t.track.addField("pages", RAX_NESTED, TRACK_PAGE_OFFSET + (TRACK_PAGE_RECORDSIZE * pageCount));
     }else{
-      // 36 = RAX_REQDFIELDS_LEN
-      // 6 bytes for "time" uint64_t + 10 bytes for "data" raw field = 16
-      t.track.addField("frames", RAX_NESTED, 36 + 16 + (8+frameSize)*RAW_FRAME_COUNT);
+      // Nested RelAccX header and field definitions, followed by the frame records.
+      t.track.addField("frames", RAX_NESTED, RAW_FRAME_TABLE_OVERHEAD + (8 + frameSize) * RAW_FRAME_COUNT);
     }
 
     t.track.setRCount(1);
@@ -2436,6 +2442,12 @@ namespace DTSC{
     DTSC::Track &t = tracks.at(trackIdx);
     std::string codec = t.track.getPointer(t.trackCodecField);
     if (codec == "H264") {
+      bool annexB = initLen >= 3 && !init[0] && !init[1] &&
+                    (init[2] == 1 || (initLen >= 4 && !init[2] && init[3] == 1));
+      if (annexB) {
+        // Annex B style init data, should be converted
+        return Meta::setInit(trackIdx, h264::initFromAnnexB(init, initLen));
+      }
       h264::initData iData(init, initLen);
       if (!iData) {
         WARN_MSG("Invalid H264 init data received!");
@@ -3777,7 +3789,7 @@ namespace DTSC{
     if (!Util::externalWriter(uri, outFile, false)) { return; }
     if (outFile){
       send(outFile, false, getValidTracks(), false);
-      outFile.close();
+      Util::finishExternalWriter(uri, outFile);
     }
   }
 
@@ -4179,7 +4191,7 @@ namespace DTSC{
     const Track &trk = trIt->second;
     if (trk.frames.isReady()){
       if (!trk.frames.getEndPos()){return INVALID_KEY_NUM;}
-      size_t res = trk.frames.getDeleted();
+      size_t res = firstReadableFrame(trk.frames);
       for (size_t i = res; i < trk.frames.getEndPos(); i++){
         if (trk.frames.getInt(trk.framesTimeField, i) > time){
           return res;
@@ -4478,7 +4490,8 @@ namespace DTSC{
   }
 
   size_t Keys::getFirstValid() const{
-    return isLimited ? limMin : cKeys.getDeleted();
+    if (isLimited) { return limMin; }
+    return isFrames ? firstReadableFrame(cKeys) : cKeys.getDeleted();
   }
   size_t Keys::getEndValid() const{
     return isLimited ? limMax : cKeys.getEndPos();
@@ -4511,7 +4524,7 @@ namespace DTSC{
     return cKeys.getInt(partsField, idx);
   }
   uint64_t Keys::getTime(size_t idx) const{
-    if (isLimited && idx == limMin){return limMinTime;}
+    if (!isFrames && isLimited && idx == limMin) { return limMinTime; }
     return cKeys.getInt(timeField, idx);
   }
   void Keys::setSize(size_t idx, size_t _size){
@@ -4540,6 +4553,28 @@ namespace DTSC{
       if (t >= timestamp || t + getDuration(i) > timestamp){return i;}
     }
     return endKey ? (endKey - 1) : 0;
+  }
+
+  /// Returns the decode-order end position needed to retain every sample that presents before
+  /// maxTime. Reordered streams may place a future reference sample before earlier-presenting
+  /// samples, so limiting on decode-order time alone can silently lose the final displayed frame.
+  static size_t presentationPartEnd(const DTSC::Parts & parts, size_t firstPart, size_t endPart, uint64_t keyTime, uint64_t maxTime) {
+    size_t requiredEnd = firstPart;
+    uint64_t decodeTime = keyTime;
+    const int64_t firstOffset = parts.getOffset(firstPart);
+    for (size_t partNo = firstPart; partNo < endPart; ++partNo) {
+      const int64_t relativeOffset = parts.getOffset(partNo) - firstOffset;
+      bool presentsBeforeMax = false;
+      if (relativeOffset < 0) {
+        const uint64_t offsetBack = (uint64_t)(-(relativeOffset + 1)) + 1;
+        presentsBeforeMax = offsetBack > decodeTime || decodeTime - offsetBack < maxTime;
+      } else {
+        presentsBeforeMax = decodeTime < maxTime && (uint64_t)relativeOffset < maxTime - decodeTime;
+      }
+      if (presentsBeforeMax) { requiredEnd = partNo + 1; }
+      decodeTime += parts.getDuration(partNo);
+    }
+    return requiredEnd;
   }
 
   void Keys::applyLimiter(uint64_t _min, uint64_t _max, DTSC::Parts _p){
@@ -4580,6 +4615,14 @@ namespace DTSC{
           }
           ++partNo;
         }
+        const size_t presentationEnd = presentationPartEnd(_p, getFirstPart(limMin), truePartEnd, getTime(limMin), _max);
+        partNo = limMinFirstPart + limMinParts;
+        while (partNo < presentationEnd) {
+          ++limMinParts;
+          limMinDuration += _p.getDuration(partNo);
+          limMinSize += _p.getSize(partNo);
+          ++partNo;
+        }
         limMaxSize = limMinSize;
         limMaxParts = limMinParts;
         limMaxDuration = limMinDuration;
@@ -4612,6 +4655,14 @@ namespace DTSC{
         uint64_t endTime = getTime(limMax-1);
         while (partNo < truePartEnd){
           if (endTime + limMaxDuration >= _max){break;}
+          ++limMaxParts;
+          limMaxDuration += _p.getDuration(partNo);
+          limMaxSize += _p.getSize(partNo);
+          ++partNo;
+        }
+        const size_t presentationEnd = presentationPartEnd(_p, getFirstPart(limMax - 1), truePartEnd, getTime(limMax - 1), _max);
+        partNo = getFirstPart(limMax - 1) + limMaxParts;
+        while (partNo < presentationEnd) {
           ++limMaxParts;
           limMaxDuration += _p.getDuration(partNo);
           limMaxSize += _p.getSize(partNo);
