@@ -1,14 +1,27 @@
 #include "controller_capabilities.h"
-#include <fstream>
+#include "fork_trigger_capabilities.h"
+
+#include "runtime_stats.h"
+
 #include <mist/config.h>
 #include <mist/defines.h>
-#include <mist/shared_memory.h>
+#include <mist/proc_stats.h>
 #include <mist/procs.h>
+#include <mist/shared_memory.h>
+#include <mist/timing.h>
+
+#include <fstream>
 #include <set>
 #include <stdio.h>
 #include <string.h>
 #include <sys/statvfs.h> //for shm space check
-
+#ifdef __APPLE__
+#include <mach/host_info.h>
+#include <mach/mach.h>
+#include <mach/mach_host.h>
+#include <mach/processor_info.h>
+#include <sys/sysctl.h>
+#endif
 
 uint64_t memTotal = 0, memFree = 0;
 uint64_t shmTotal = 0, shmFree = 0;
@@ -22,6 +35,13 @@ float load_1 = 0, load_5 = 0, load_15 = 0;
 uint64_t cl_total = 0, cl_idle = 0;
 uint64_t c_user = 0, c_nice = 0, c_syst = 0, c_idle = 0, c_total = 0;
 uint16_t cpuK = 0;
+
+#ifndef __APPLE__
+static Controller::RuntimeStats::PsiTotals readPsiTotals(const char *path) {
+  std::ifstream psi(path);
+  return Controller::RuntimeStats::parsePsiTotals(psi);
+}
+#endif
 
 JSON::Value cpuInfo;
 
@@ -62,9 +82,34 @@ namespace Controller{
 
   /// Thread that updates system load information once per second
   size_t updateLoad() {
+#ifndef __APPLE__
     char line[300];
+#endif
     // Get CPU info just once
     if (!cpuInfo){
+#ifdef __APPLE__
+      char brand[256] = "Unknown";
+      size_t len = sizeof(brand);
+      sysctlbyname("machdep.cpu.brand_string", brand, &len, NULL, 0);
+      int physCores = 1, logCores = 1;
+      len = sizeof(int);
+      sysctlbyname("hw.physicalcpu", &physCores, &len, NULL, 0);
+      len = sizeof(int);
+      sysctlbyname("hw.logicalcpu", &logCores, &len, NULL, 0);
+      uint64_t cpuFreq = 0;
+      len = sizeof(cpuFreq);
+      // hw.cpufrequency may not be available on Apple Silicon
+      sysctlbyname("hw.cpufrequency", &cpuFreq, &len, NULL, 0);
+      int mhz = cpuFreq / 1000000;
+      JSON::Value thiscpu;
+      thiscpu["model"] = std::string(brand);
+      thiscpu["cores"] = physCores;
+      thiscpu["threads"] = logCores;
+      thiscpu["mhz"] = mhz;
+      cpuInfo["cpu"].append(thiscpu);
+      cpuInfo["speed"] = physCores * mhz;
+      cpuInfo["threads"] = logCores;
+#else
       std::ifstream cpuinfo("/proc/cpuinfo");
       if (cpuinfo){
         std::map<int, cpudata> cpus;
@@ -111,9 +156,33 @@ namespace Controller{
         cpuInfo["speed"] = total_speed;
         cpuInfo["threads"] = total_threads;
       }
+#endif
     }
     // Get RAM/swap usage stats
     {
+#ifdef __APPLE__
+      int64_t physMem = 0;
+      size_t len = sizeof(physMem);
+      sysctlbyname("hw.memsize", &physMem, &len, NULL, 0);
+      memTotal = physMem / (1024 * 1024);
+      vm_size_t pageSize;
+      mach_port_t machPort = mach_host_self();
+      host_page_size(machPort, &pageSize);
+      vm_statistics64_data_t vmStats;
+      mach_msg_type_number_t count = HOST_VM_INFO64_COUNT;
+      if (host_statistics64(machPort, HOST_VM_INFO64, (host_info64_t)&vmStats, &count) == KERN_SUCCESS) {
+        memFree = ((uint64_t)vmStats.free_count * pageSize) / (1024 * 1024);
+        bufcache = ((uint64_t)(vmStats.external_page_count + vmStats.purgeable_count) * pageSize) / (1024 * 1024);
+        memUsed = RuntimeStats::usedMemoryMiB(memTotal, memFree, bufcache);
+        if (memTotal > 0) { memK = (memUsed * 1000) / memTotal; }
+      }
+      struct xsw_usage swapUsage;
+      len = sizeof(swapUsage);
+      if (sysctlbyname("vm.swapusage", &swapUsage, &len, NULL, 0) == 0) {
+        swapTotal = swapUsage.xsu_total / (1024 * 1024);
+        swapFree = swapUsage.xsu_avail / (1024 * 1024);
+      }
+#else
       std::ifstream meminfo("/proc/meminfo");
       if (meminfo) {
         bufcache = 0;
@@ -135,9 +204,10 @@ namespace Controller{
           if (sscanf(line, "Buffers : %" PRIu64 " kB", &i) == 1) { bufcache += i / 1024; }
           if (sscanf(line, "Cached : %" PRIu64 " kB", &i) == 1) { bufcache += i / 1024; }
         }
-        memUsed = memTotal - memFree - bufcache;
+        memUsed = RuntimeStats::usedMemoryMiB(memTotal, memFree, bufcache);
         memK = (memUsed * 1000) / memTotal;
       }
+#endif
     }
     // Get shared memory stats
     {
@@ -154,6 +224,14 @@ namespace Controller{
     }
     // Get load averages
     {
+#ifdef __APPLE__
+      double lavg[3];
+      if (getloadavg(lavg, 3) == 3) {
+        load_1 = lavg[0];
+        load_5 = lavg[1];
+        load_15 = lavg[2];
+      }
+#else
       std::ifstream loadavg("/proc/loadavg");
       if (loadavg) {
         loadavg.getline(line, 300);
@@ -164,22 +242,92 @@ namespace Controller{
           load_15 = 0;
         }
       }
+#endif
     }
     // Get CPU usage
     {
+#ifdef __APPLE__
+      natural_t numCPUs = 0;
+      processor_info_array_t cpuLoadInfo;
+      mach_msg_type_number_t infoCount;
+      if (host_processor_info(mach_host_self(), PROCESSOR_CPU_LOAD_INFO, &numCPUs, &cpuLoadInfo, &infoCount) == KERN_SUCCESS) {
+        uint64_t totalUser = 0, totalSystem = 0, totalIdle = 0, totalNice = 0;
+        for (natural_t i = 0; i < numCPUs; i++) {
+          totalUser += cpuLoadInfo[CPU_STATE_MAX * i + CPU_STATE_USER];
+          totalSystem += cpuLoadInfo[CPU_STATE_MAX * i + CPU_STATE_SYSTEM];
+          totalIdle += cpuLoadInfo[CPU_STATE_MAX * i + CPU_STATE_IDLE];
+          totalNice += cpuLoadInfo[CPU_STATE_MAX * i + CPU_STATE_NICE];
+        }
+        c_user = totalUser;
+        c_nice = totalNice;
+        c_syst = totalSystem;
+        c_idle = totalIdle;
+        c_total = c_user + c_nice + c_syst + c_idle;
+        cpuK = RuntimeStats::cpuUsePermille(cl_total, cl_idle, c_total, c_idle, cpuK);
+        cl_total = c_total;
+        cl_idle = c_idle;
+        vm_deallocate(mach_task_self(), (vm_address_t)cpuLoadInfo, infoCount * sizeof(integer_t));
+      }
+#else
       std::ifstream cpustat("/proc/stat");
       if (cpustat) {
         while (cpustat.getline(line, 300)) {
           if (sscanf(line, "cpu %" PRIu64 " %" PRIu64 " %" PRIu64 " %" PRIu64, &c_user, &c_nice, &c_syst, &c_idle) == 4) {
             c_total = c_user + c_nice + c_syst + c_idle;
-            if (cl_total && cl_idle <= c_idle && cl_total < c_total) {
-              cpuK = 1000 - ((c_idle - cl_idle) * 1000) / (c_total - cl_total);
-            }
+            cpuK = RuntimeStats::cpuUsePermille(cl_total, cl_idle, c_total, c_idle, cpuK);
             cl_total = c_total;
             cl_idle = c_idle;
             break;
           }
         }
+      }
+#endif
+    }
+
+    // Publish a single consistent node-pressure sample for all InputBuffers.
+    // Linux PSI measures actual resource stalls; other platforms fall back to
+    // the CPU utilization already sampled above.
+    {
+      static IPC::sharedPage nodePage;
+#ifndef __APPLE__
+      static RuntimeStats::PsiDeltaTracker pressureTracker;
+      RuntimeStats::PsiSample pressureSample;
+      pressureSample.cpu = readPsiTotals("/proc/pressure/cpu");
+      pressureSample.memory = readPsiTotals("/proc/pressure/memory");
+      pressureSample.io = readPsiTotals("/proc/pressure/io");
+#endif
+      uint64_t nowMs = Util::bootMS();
+#ifndef __APPLE__
+      pressureSample.timeMs = nowMs;
+#endif
+      if (!nodePage || !NodePressureState::isValid(nodePage)) {
+        nodePage.init(SHM_NODE_PRESSURE, sizeof(NodePressureState), true, false);
+        NodePressureState::initPage(nodePage);
+        nodePage.master = false;
+      }
+      if (nodePage.mapped && NodePressureState::isValid(nodePage)) {
+        NodePressureState *state = (NodePressureState *)nodePage.mapped;
+        state->beginPublish();
+        state->lastUpdateMs = nowMs;
+        state->flags = 0;
+        state->cpuUseQ0_16 = (uint16_t)std::min((uint64_t)65535, (uint64_t)cpuK * 65535 / 1000);
+        state->cpuSomeQ0_16 = 0;
+        state->memorySomeQ0_16 = 0;
+        state->memoryFullQ0_16 = 0;
+        state->ioSomeQ0_16 = 0;
+        state->ioFullQ0_16 = 0;
+#ifndef __APPLE__
+        RuntimeStats::PsiRatios ratios;
+        if (pressureTracker.update(pressureSample, ratios)) {
+          state->flags |= NODE_PRESSURE_HAS_PSI;
+          state->cpuSomeQ0_16 = ratios.cpuSome;
+          state->memorySomeQ0_16 = ratios.memorySome;
+          state->memoryFullQ0_16 = ratios.memoryFull;
+          state->ioSomeQ0_16 = ratios.ioSome;
+          state->ioFullQ0_16 = ratios.ioFull;
+        }
+#endif
+        state->endPublish();
       }
     }
     return 1000;
@@ -301,7 +449,6 @@ namespace Controller{
         "A non-empty response will set the stream source to the response value. An empty response "
         "will cause the stream source to not be changed from the normally configured stream "
         "source.";
-
     trgs["STREAM_LOAD"]["when"] = "Before a stream input is loaded";
     trgs["STREAM_LOAD"]["stream_specific"] = true;
     trgs["STREAM_LOAD"]["payload"] = "stream name (string)";
@@ -391,7 +538,6 @@ namespace Controller{
     trgs["PUSH_REWRITE"]["response_action"] =
         "If non-empty, overrides the parsed stream name to the response value. If empty, denies the "
         "incoming push.";
-
     trgs["PUSH_OUT_START"]["when"] = "Before a push out (to file or other target type) is started";
     trgs["PUSH_OUT_START"]["stream_specific"] = true;
     trgs["PUSH_OUT_START"]["payload"] = "stream name (string)\npush target (string)";
@@ -399,15 +545,14 @@ namespace Controller{
     trgs["PUSH_OUT_START"]["response_action"] =
         "A non-empty response will set the push target to the response value. An empty response "
         "will abort the push. Variable substitution will still take place.";
-
     trgs["RECORDING_END"]["when"] = "When a push to file finishes";
     trgs["RECORDING_END"]["stream_specific"] = true;
     trgs["RECORDING_END"]["payload"] =
-        "stream name (string)\npush target (string)\nconnector / filetype (string)\nbytes recorded "
-        "(integer)\nseconds spent recording (integer)\nunix time recording started (integer)\nunix "
-        "time recording stopped (integer)\ntotal milliseconds of media data recorded "
-        "(integer)\nmillisecond timestamp of first media packet (integer)\nmillisecond timestamp "
-        "of last media packet (integer)\nmachine-readable reason for exit (string, enum)\nhuman-readable reason for exit (string)";
+      "stream name (string)\npush target (string)\nconnector / filetype (string)\nbytes recorded "
+      "(integer)\nseconds spent recording (integer)\nunix time recording started (integer)\nunix "
+      "time recording stopped (integer)\ntotal milliseconds of media data recorded "
+      "(integer)\nmillisecond timestamp of first media packet (integer)\nmillisecond timestamp "
+      "of last media packet (integer)\nmachine-readable reason for exit (string, enum)\nhuman-readable reason for exit (string)";
     trgs["RECORDING_END"]["response"] = "ignored";
     trgs["RECORDING_END"]["response_action"] = "None.";
 
@@ -448,8 +593,6 @@ namespace Controller{
     trgs["PLAY_REWRITE"]["payload"] = "stream name (string)\nconnection address (string)\nconnector (string)\nrequest url (string)";
     trgs["PLAY_REWRITE"]["response"] = "always";
     trgs["PLAY_REWRITE"]["response_action"] = "Output is connected to the returned stream name instead of the requested stream name.";
-
-
     trgs["USER_NEW"]["when"] = "Every time a new session is added to the session cache";
     trgs["USER_NEW"]["stream_specific"] = true;
     trgs["USER_NEW"]["payload"] =
@@ -459,7 +602,6 @@ namespace Controller{
     trgs["USER_NEW"]["response_action"] =
         "If false, denies the session while it remains in the cache. If true, accepts the session "
         "while it remains in the cache.";
-
     trgs["USER_END"]["when"] =
         "Every time a session ends (same time it is written to the access log)";
     trgs["USER_END"]["stream_specific"] = true;
@@ -503,6 +645,8 @@ namespace Controller{
     trgs["LIVEPEER_SEGMENT_REJECTED"]["payload"] = "transcode options (json string)\nraw segment that was rejected (base64 encoded)\ninformation about the source track (json string)\nfirst attempted broadcaster URL\nsecond attempted broadcaster URL or the text \"N/A\" if no secondary was available";
     trgs["LIVEPEER_SEGMENT_REJECTED"]["response"] = "ignored";
     trgs["LIVEPEER_SEGMENT_REJECTED"]["response_action"] = "None.";
+
+    Controller::addForkTriggerCapabilities(trgs);
   }
 
   /// Acquire list of available protocols, storing in global 'capabilities' JSON::Value.

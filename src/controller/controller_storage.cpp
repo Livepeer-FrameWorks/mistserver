@@ -13,6 +13,7 @@
 #include <mist/shared_memory.h>
 #include <mist/timing.h>
 #include <mist/triggers.h>
+#include <mist/trusted_proxy.h>
 
 #include <algorithm>
 #include <cstdint>
@@ -625,7 +626,7 @@ namespace Controller{
         if ((*it)["connector"].asStringRef() == "CMAF"){foundCMAF = true;}
         newVal.append(*it);
       }
-      if (edit && !foundCMAF) { newVal.append().fromString(R"-({"connector":"CMAF"})-"); }
+      if (edit && !foundCMAF) { newVal.append(JSON::fromString("{\"connector\":\"CMAF\"}")); }
       if (edit){
         Controller::Storage["config"]["protocols"] = newVal;
         LOG_MSG("CONF", "Translated protocols to new versions");
@@ -709,29 +710,12 @@ namespace Controller{
     }
     if (proxy_written != tmpProxy){
       proxy_written = tmpProxy;
-      static IPC::sharedPage mistProxOut(SHM_PROXY, proxy_written.size() + 100, true, false);
+      static IPC::sharedPage mistProxOut;
       addShmPage(SHM_PROXY);
-      mistProxOut.close();
-      mistProxOut.init(SHM_PROXY, proxy_written.size() + 100, false, false);
-      if (mistProxOut){
-        Util::RelAccX tmpA(mistProxOut.mapped, false);
-        if (tmpA.isReady()){tmpA.setReload();}
-        mistProxOut.master = true;
-        mistProxOut.close();
-      }
-      mistProxOut.init(SHM_PROXY, proxy_written.size() + 100, true, false);
-      if (!mistProxOut.mapped){
+      if (!Util::publishTrustedProxyList(mistProxOut, SHM_PROXY, proxy_written)) {
         FAIL_MSG("Could not open trusted proxy config for writing! Is shared memory enabled on "
                  "your system?");
         return;
-      }else{
-        Util::RelAccX A(mistProxOut.mapped, false);
-        A.addField("proxy_data", RAX_STRING, proxy_written.size());
-        // write config
-        memcpy(A.getPointer("proxy_data"), proxy_written.data(), proxy_written.size());
-        A.setRCount(1);
-        A.setEndPos(1);
-        A.setReady();
       }
     }
     static JSON::Value proto_written;
@@ -953,6 +937,7 @@ namespace Controller{
           tPage.addField("streams", RAX_256RAW);
           tPage.addField("params", RAX_128STRING);
           tPage.addField("default", RAX_128STRING);
+          tPage.addField("onfail", RAX_UINT);
           tPage.setReady();
           uint32_t i = 0;
           uint32_t max = (32 * 1024 - tPage.getOffset()) / tPage.getRSize();
@@ -1013,6 +998,16 @@ namespace Controller{
               }else{
                 tPage.setString("default", "", i);
               }
+              Triggers::Action onFail = Triggers::ACT_LEGACY;
+              if (triggIt->isMember("onfail") && !(*triggIt)["onfail"].isNull()) {
+                onFail = Triggers::actionFromString((*triggIt)["onfail"].asStringRef());
+                if (onFail == Triggers::ACT_VALUE || !Triggers::actionAllowed(it.key(), onFail) || !(*triggIt)["sync"].asBool()) {
+                  ERROR_MSG("Ignoring invalid onfail action '%s' for %s trigger",
+                            (*triggIt)["onfail"].asStringRef().c_str(), (it.key()).c_str());
+                  onFail = Triggers::ACT_LEGACY;
+                }
+              }
+              tPage.setInt("onfail", onFail, i);
             }
 
             ++i;
