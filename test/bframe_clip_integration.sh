@@ -22,6 +22,8 @@ output_mp4=$5
 session=$6
 util_log=$7
 util_nuke=$8
+script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+trigger_handler="$script_dir/capture_trigger.sh"
 
 for program in "$ffmpeg" "$ffprobe" "$controller" "$input_mp4" "$output_mp4" "$session" "$util_log" "$util_nuke"; do
   if [ ! -x "$program" ]; then
@@ -29,6 +31,10 @@ for program in "$ffmpeg" "$ffprobe" "$controller" "$input_mp4" "$output_mp4" "$s
     exit 77
   fi
 done
+if [ ! -x "$trigger_handler" ]; then
+  echo "required trigger capture helper is unavailable: $trigger_handler" >&2
+  exit 77
+fi
 
 if ! "$ffmpeg" -hide_banner -encoders 2>/dev/null | grep -q 'libx264'; then
   echo "ffmpeg lacks the libx264 encoder required for the B-frame fixture" >&2
@@ -40,6 +46,9 @@ ipc_root="$work/ipc"
 mkdir -p "$ipc_root"
 stream="bframeclip$$"
 reject_stream="bframereject$$"
+trigger_base="$work/trigger"
+recording_trigger_file="$trigger_base.RECORDING_END"
+export MIST_TEST_TRIGGER_OUTPUT="$trigger_base"
 controller_pid=
 
 show_logs() {
@@ -88,7 +97,7 @@ fi
 port=$((20000 + ($$ % 20000)))
 config="$work/config.json"
 printf '%s\n' \
-  "{\"account\":{\"test\":{\"password\":\"098f6bcd4621d373cade4e832627b4f6\"}},\"auto_push\":null,\"bandwidth\":{\"exceptions\":[\"::1\",\"127.0.0.0/8\"]},\"config\":{\"accesslog\":\"LOG\",\"controller\":{\"interface\":\"127.0.0.1\",\"port\":$port,\"username\":null},\"debug\":4,\"defaultStream\":null,\"prometheus\":\"\",\"protocols\":[],\"serverid\":null,\"sessionInputMode\":15,\"sessionOutputMode\":15,\"sessionStreamInfoMode\":1,\"sessionUnspecifiedMode\":0,\"sessionViewerMode\":14,\"tknMode\":15,\"triggers\":{},\"trustedproxy\":[]},\"extwriters\":null,\"jwks\":null,\"push_settings\":{\"maxspeed\":0,\"wait\":3},\"streamkeys\":null,\"streams\":{\"$stream\":{\"name\":\"$stream\",\"source\":\"$source_mp4\"},\"$reject_stream\":{\"name\":\"$reject_stream\",\"source\":\"$reject_source_mp4\"}},\"variables\":null}" \
+  "{\"account\":{\"test\":{\"password\":\"098f6bcd4621d373cade4e832627b4f6\"}},\"auto_push\":null,\"bandwidth\":{\"exceptions\":[\"::1\",\"127.0.0.0/8\"]},\"config\":{\"accesslog\":\"LOG\",\"controller\":{\"interface\":\"127.0.0.1\",\"port\":$port,\"username\":null},\"debug\":4,\"defaultStream\":null,\"prometheus\":\"\",\"protocols\":[],\"serverid\":null,\"sessionInputMode\":15,\"sessionOutputMode\":15,\"sessionStreamInfoMode\":1,\"sessionUnspecifiedMode\":0,\"sessionViewerMode\":14,\"tknMode\":15,\"triggers\":{\"RECORDING_END\":[{\"handler\":\"$trigger_handler\",\"sync\":false,\"streams\":[\"$reject_stream\"]}]},\"trustedproxy\":[]},\"extwriters\":null,\"jwks\":null,\"push_settings\":{\"maxspeed\":0,\"wait\":3},\"streamkeys\":null,\"streams\":{\"$stream\":{\"name\":\"$stream\",\"source\":\"$source_mp4\"},\"$reject_stream\":{\"name\":\"$reject_stream\",\"source\":\"$reject_source_mp4\"}},\"variables\":null}" \
   >"$config"
 
 TMP="$ipc_root" MIST_CONTROL=1 "$controller" -c "$config" -C r -L "$work/controller.log" &
@@ -158,17 +167,38 @@ diff -u "$work/expected.hashes" "$work/av.hashes"
 diff -u "$work/expected.hashes" "$work/video.hashes"
 
 reject_clip="$work/reject.mp4"
+set +e
 TMP="$ipc_root" MIST_CONTROL=1 "$output_mp4" -s "$reject_stream" \
-  "$reject_clip?start=3337&duration=3" >"$work/output-reject.log" 2>&1 || true
+  "$reject_clip?start=3337&duration=3" >"$work/output-reject.log" 2>&1
+reject_status=$?
+set -e
+if [ "$reject_status" -eq 0 ]; then
+  echo "mismatched track tails returned a successful process status" >&2
+  exit 1
+fi
 if ! grep -q 'Inconsistent MP4 input' "$work/output-reject.log"; then
   echo "mismatched track tails were not rejected before MP4 sample corruption" >&2
   exit 1
 fi
-"$ffmpeg" -hide_banner -loglevel error -i "$reject_clip" -f null - \
-  2>"$work/reject-decode.log" || true
-if grep -Eq 'Invalid NAL unit|Error splitting the input' "$work/reject-decode.log"; then
-  echo "rejected MP4 contains cross-track H.264 sample corruption" >&2
+if [ -e "$reject_clip" ]; then
+  echo "mismatched track tails left a partial recording artifact" >&2
   exit 1
 fi
 
-echo "B-frame MP4 clips preserved 75 visible frames and rejected mismatched track tails"
+attempt=0
+while [ "$attempt" -lt 50 ] && [ ! -s "$recording_trigger_file" ]; do
+  attempt=$((attempt + 1))
+  sleep 0.1
+done
+if [ ! -s "$recording_trigger_file" ]; then
+  echo "failed recording did not emit RECORDING_END" >&2
+  exit 1
+fi
+if [ "$(sed -n '12p' "$recording_trigger_file")" != "FORMAT_SPECIFIC" ] ||
+   [ "$(sed -n '13p' "$recording_trigger_file")" != "Inconsistent MP4 input" ]; then
+  echo "RECORDING_END did not expose the MP4 rejection reason" >&2
+  cat "$recording_trigger_file" >&2
+  exit 1
+fi
+
+echo "B-frame MP4 clips preserved 75 visible frames and cleanly rejected mismatched track tails"

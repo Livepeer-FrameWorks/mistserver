@@ -1340,6 +1340,7 @@ namespace Mist{
       WARN_MSG("Inconsistent MP4 input. Expected %zu:%" PRIu64 " (%zub) but got %zu:%" PRIu64
                " (%zub) - cancelling output",
                firstKeyPart.trackID, firstKeyPart.time, parts.getSize(firstKeyPart.index), thisIdx, thisPacket.getTime(), len);
+      Util::logExitReason(ER_FORMAT_SPECIFIC, "Inconsistent MP4 input");
       onFail("Inconsistent MP4 input", true);
       return;
     }

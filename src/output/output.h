@@ -174,12 +174,14 @@ namespace Mist{
     bool parseData; ///< If true, triggers initalization if not already done, sending of header, sending of packets.
     bool isInitialized; ///< If false, triggers initialization if parseData is true.
     bool sentHeader;    ///< If false, triggers sendHeader if parseData is true.
+    bool outputFailed; ///< True after an unclean onFail(), used by direct file-output callers.
 
     virtual bool isRecording();
     virtual bool isFileTarget();
     virtual bool isPushing(){return pushing;};
     virtual void serveOfflineResponse();
     std::string getExitTriggerPayload(bool includeTrackSummary = false);
+    void discardFailedRecording();
     void recEndTrigger();
     void outputEndTrigger();
     bool allowPush(const std::string &passwd);

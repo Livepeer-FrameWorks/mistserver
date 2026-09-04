@@ -147,6 +147,7 @@ namespace Mist{
     }
     sentHeader = false;
     isRecordingToFile = false;
+    outputFailed = false;
 
     // If we have a streamname option, set internal streamname to that option
     if (!streamName.size() && config->hasOption("streamname")){
@@ -222,6 +223,10 @@ namespace Mist{
       MEDIUM_MSG("%s", msg.c_str());
     }
     Util::logExitReason(ER_UNKNOWN, msg.c_str());
+    // A clean reason may already have been recorded before onFail() is used to close the
+    // connection (for example, an intentional session stop). Only propagate actual failures to
+    // direct file-output callers.
+    if (strncmp(Util::mRExitReason, "CLEAN", 5) != 0) { outputFailed = true; }
     isInitialized = false;
     wantRequest = false;
     parseData = false;
@@ -2336,6 +2341,7 @@ namespace Mist{
       if (!gotResponse) { WARN_MSG("No reply from remote server to PUT request"); }
     }
     myConn.close();
+    discardFailedRecording();
     if (isRecordingToFile) { recEndTrigger(); }
     outputEndTrigger();
 
@@ -2343,7 +2349,7 @@ namespace Mist{
     stats(true);
     userSelect.clear();
     trackSelectionChanged();
-    return 0;
+    return outputFailed ? 1 : 0;
   }
 
   void Output::dropTrack(size_t trackId, const std::string &reason, bool probablyBad){
@@ -3141,6 +3147,23 @@ namespace Mist{
       payl << trackSummary.toString() << '\n';
     }
     return payl.str();
+  }
+
+  void Output::discardFailedRecording() {
+    if (!isRecordingToFile || !outputFailed || !currentTarget.size() || currentTarget == "-" ||
+        targetParams.count("append") || targetParams.count("m3u8")) {
+      return;
+    }
+
+    HTTP::URL target = HTTP::localURIResolver().link(currentTarget);
+    if (!target.isLocalPath()) { return; }
+
+    const std::string path = target.getFilePath();
+    if (!unlink(path.c_str())) {
+      INFO_MSG("Removed failed recording artifact '%s'", path.c_str());
+    } else if (errno != ENOENT) {
+      WARN_MSG("Could not remove failed recording artifact '%s': %s", path.c_str(), strerror(errno));
+    }
   }
 
   void Output::recEndTrigger(){
