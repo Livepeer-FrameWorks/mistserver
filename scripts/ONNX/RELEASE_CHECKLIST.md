@@ -9,6 +9,10 @@ outside the first release gate.
 
 ## Build contract
 
+- Tagged releases include `mistserver-release-index.json` (`mistserver.release/v1`). This is the
+  authoritative mapping from release/profile/platform to digest-pinned images and checksum-pinned
+  native bundles; downstream release tooling must not select deployable artifacts by filename order.
+
 - Build the dependency revisions in `dependencies.lock.tsv` with
   `build_dependencies.sh`. Only the OpenCV `core`, `imgproc`, `imgcodecs`, `video`, and
   `geometry` modules are required; do not bundle video I/O, DNN, GUI, Python, Java,

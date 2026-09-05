@@ -7,6 +7,14 @@ on:
     branches: [master, main]
 
 jobs:
+  release-contract:
+    name: Release contract
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+      - name: Test release index generation
+        run: python3 scripts/ONNX/test_create_release_index.py
+
   onnx-dependencies:
     name: Locked ONNX dependencies
     runs-on: ubuntu-24.04

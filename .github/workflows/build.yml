@@ -133,7 +133,7 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: docker-metadata-amd64
-          path: release-metadata/*.txt
+          path: release-metadata/docker-digest-amd64.txt
 
   # ---------------------------------------------------------------------------
   # Docker image — linux/arm64 on GitHub-hosted native ARM runner
@@ -970,12 +970,33 @@ jobs:
           name: docker-metadata
           path: dist/
 
+      - name: Download linux/amd64 Docker metadata
+        uses: actions/download-artifact@v8
+        with:
+          name: docker-metadata-amd64
+          path: dist/
+
+      - name: Download linux/arm64 Docker metadata
+        uses: actions/download-artifact@v8
+        with:
+          name: docker-metadata-arm64
+          path: dist/
+
       - name: Download ONNX accelerator image metadata
         uses: actions/download-artifact@v8
         with:
           pattern: onnx-accelerator-metadata-*
           path: dist/
           merge-multiple: true
+
+      - name: Create release variant index
+        run: |
+          python3 scripts/ONNX/create_release_index.py \
+            --dist dist \
+            --matrix scripts/ONNX/accelerator-images.json \
+            --release-tag '${{ github.ref_name }}' \
+            --source-revision '${{ github.sha }}' \
+            --output dist/mistserver-release-index.json
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
@@ -985,6 +1006,9 @@ jobs:
           generate_release_notes: true
           files: |
             dist/*.tar.gz
+            dist/*/*.tar.gz
             dist/*.txt
+            dist/*/*.txt
+            dist/mistserver-release-index.json
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
