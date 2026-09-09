@@ -145,6 +145,16 @@ void HTTP::Parser::setCORSHeaders(){
   SetHeader("Expires", "0");
 }
 
+/// Percent-encodes the path part of a request target and keeps an existing query
+/// string as the caller composed it: callers such as HTTP::Downloader already append
+/// pre-encoded arguments after the '?', so encoding the whole string would turn the
+/// separator into %3f and double-encode every value.
+static std::string encodeRequestTarget(const std::string & url) {
+  size_t qmark = url.find('?');
+  if (qmark == std::string::npos) { return Encodings::URL::encode(url, "/:=@[]"); }
+  return Encodings::URL::encode(url.substr(0, qmark), "/:=@[]") + url.substr(qmark);
+}
+
 /// Returns a string containing a valid HTTP 1.0 or 1.1 request, ready for sending.
 /// The request is build from internal variables set before this call is made.
 /// To be precise, method, url, protocol, headers and body are used.
@@ -154,9 +164,9 @@ std::string &HTTP::Parser::BuildRequest(){
   std::map<std::string, std::string>::iterator it;
   if (protocol.size() < 5 || protocol[4] != '/'){protocol = "HTTP/1.0";}
   if (!(method == "POST" && GetHeader("Content-Type") == "application/x-www-form-urlencoded") && vars.size() && url.find('?') == std::string::npos){
-    builder = method + " " + Encodings::URL::encode(url, "/:=@[]") + allVars() + " " + protocol + "\r\n";
+    builder = method + " " + encodeRequestTarget(url) + allVars() + " " + protocol + "\r\n";
   }else{
-    builder = method + " " + Encodings::URL::encode(url, "/:=@[]") + " " + protocol + "\r\n";
+    builder = method + " " + encodeRequestTarget(url) + " " + protocol + "\r\n";
   }
   for (it = headers.begin(); it != headers.end(); it++){
     if ((*it).first != "" && (*it).second != ""){
@@ -183,9 +193,9 @@ void HTTP::Parser::sendRequest(Socket::Connection &conn, const void *reqbody,
     std::map<std::string, std::string>::iterator it;
     if (protocol.size() < 5 || protocol[4] != '/'){protocol = "HTTP/1.0";}
     if (!(method == "POST" && GetHeader("Content-Type") == "application/x-www-form-urlencoded") && vars.size() && url.find('?') == std::string::npos){
-      builder = method + " " + Encodings::URL::encode(url, "/:=@[]") + allVars() + " " + protocol + "\r\n";
+      builder = method + " " + encodeRequestTarget(url) + allVars() + " " + protocol + "\r\n";
     }else{
-      builder = method + " " + Encodings::URL::encode(url, "/:=@[]") + " " + protocol + "\r\n";
+      builder = method + " " + encodeRequestTarget(url) + " " + protocol + "\r\n";
     }
     if (reqbodyLen){SetHeader("Content-Length", reqbodyLen);}
     for (it = headers.begin(); it != headers.end(); it++){
@@ -206,9 +216,9 @@ void HTTP::Parser::sendRequest(Socket::Connection &conn, const void *reqbody,
   if (protocol.size() < 5 || protocol[4] != '/'){protocol = "HTTP/1.0";}
   if (!(method == "POST" && GetHeader("Content-Type") == "application/x-www-form-urlencoded") && vars.size() &&
       url.find('?') == std::string::npos) {
-    builder = method + " " + Encodings::URL::encode(url, "/:=@[]") + allVars() + " " + protocol + "\r\n";
+    builder = method + " " + encodeRequestTarget(url) + allVars() + " " + protocol + "\r\n";
   } else {
-    builder = method + " " + Encodings::URL::encode(url, "/:=@[]") + " " + protocol + "\r\n";
+    builder = method + " " + encodeRequestTarget(url) + " " + protocol + "\r\n";
   }
   conn.SendNow(builder);
   if (reqbodyLen){SetHeader("Content-Length", reqbodyLen);}

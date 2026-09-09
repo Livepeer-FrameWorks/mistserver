@@ -593,6 +593,9 @@ test('DTSC part time skips deleted keys', dtsc_part_time_test)
 http_response_test = executable('http_response_test', 'http_response.cpp', header_tgts, dependencies: libmist_dep)
 test('HTTP response persistence and framing', http_response_test, suite: 'HTTP parser')
 
+http_request_target_test = executable('http_request_target_test', 'http_request_target.cpp', header_tgts, dependencies: libmist_dep)
+test('HTTP request target keeps composed query', http_request_target_test, suite: 'HTTP parser')
+
 hls_live_window_test = executable('hls_live_window_test', 'hls_live_window.cpp', header_tgts, dependencies: libmist_dep)
 test('CMAF HLS playlist generator', hls_live_window_test, suite: 'HLS')
 
