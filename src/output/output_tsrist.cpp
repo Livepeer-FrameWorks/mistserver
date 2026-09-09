@@ -178,7 +178,7 @@ namespace Mist{
         reqUrl.port = config->getString("port");
         reqUrl.host = config->getString("interface");
         //reqUrl.args = "streamid="+Encodings::URL::encode(sName);
-        std::string payload = reqUrl.getUrl() + "\n" + getConnectedHost() + "\n" + streamName;
+        std::string payload = reqUrl.getUrl() + "\n" + getConnectedHost() + "\n" + streamName + "\n" + capa["name"].asStringRef();
         std::string newStream = "";
         Triggers::doTrigger("PUSH_REWRITE", payload, "", false, newStream);
         if (!newStream.size()){

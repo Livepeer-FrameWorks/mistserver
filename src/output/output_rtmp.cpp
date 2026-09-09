@@ -1839,7 +1839,7 @@ namespace Mist {
           }
 
           if (Triggers::shouldTrigger("PUSH_REWRITE")) {
-            std::string payload = reqUrl + "\n" + getConnectedHost() + "\n" + streamName;
+            std::string payload = reqUrl + "\n" + getConnectedHost() + "\n" + streamName + "\n" + capa["name"].asStringRef();
             std::string newStream = streamName;
             Triggers::doTrigger("PUSH_REWRITE", payload, "", false, newStream);
             if (!newStream.size()) {

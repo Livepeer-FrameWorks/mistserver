@@ -407,7 +407,8 @@ namespace Mist{
             HTTP::URL qUrl("rtsp://" + HTTP_R.GetHeader("Host") + "/" + HTTP_R.url);
             if (!qUrl.host.size()) { qUrl.host = myConn.getBoundAddress(); }
             if (!qUrl.port.size()) { qUrl.port = config->getOption("port").asString(); }
-            std::string payload = qUrl.getUrl() + "\n" + getConnectedHost() + "\n" + streamName;
+            std::string payload =
+              qUrl.getUrl() + "\n" + getConnectedHost() + "\n" + streamName + "\n" + capa["name"].asStringRef();
             std::string newStream = streamName;
             Triggers::doTrigger("PUSH_REWRITE", payload, "", false, newStream);
             if (!newStream.size()) {

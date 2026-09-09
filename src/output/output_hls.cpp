@@ -216,7 +216,7 @@ namespace Mist{
       }
     } else {
       if (Triggers::shouldTrigger("PUSH_REWRITE")) {
-        std::string payload = reqUrl + "\n" + getConnectedHost() + "\n" + streamName;
+        std::string payload = reqUrl + "\n" + getConnectedHost() + "\n" + streamName + "\n" + capa["name"].asStringRef();
         std::string newStream = streamName;
         Triggers::doTrigger("PUSH_REWRITE", payload, "", false, newStream);
         if (!newStream.size()) {
@@ -349,6 +349,8 @@ namespace Mist{
 
     HTTPOutput::respondHTTP(req, headersOnly);
     initialize();
+    // A denied PLAY_REWRITE already answered and closed the connection.
+    if (!keepGoing()) { return; }
 
     if (req.url == "/crossdomain.xml") {
       H.SetHeader("Content-Type", "text/xml");
@@ -495,6 +497,7 @@ namespace Mist{
       ts_from = from;
     } else {
       initialize();
+      if (!keepGoing()) { return; }
       initialSeek(true);
       std::string request = req.url.substr(req.url.find("/", 5) + 1);
       H.SetHeader("Content-Type", "application/vnd.apple.mpegurl");
@@ -565,7 +568,9 @@ namespace Mist{
   void OutHLS::sendTS(const char *tsData, size_t len){H.Chunkify(tsData, len, myConn);}
 
   void OutHLS::onFail(const std::string &msg, bool critical){
-    if (HTTP::URL(reqUrl).getExt().substr(0, 3) != "m3u"){
+    // A trigger denial is a refusal, not a transient stream failure: answer with
+    // the plain HTTP 404 so clients fail over instead of parsing an error playlist.
+    if (HTTP::URL(reqUrl).getExt().substr(0, 3) != "m3u" || !strncmp(Util::mRExitReason, ER_TRIGGER, 7)) {
       HTTPOutput::onFail(msg, critical);
       return;
     }

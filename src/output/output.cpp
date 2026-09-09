@@ -264,6 +264,10 @@ namespace Mist{
     if (isInitialized){return;}
     if (!isPushing() && DTSC::trackValidMask == TRACK_VALID_EXT_HUMAN && applyPlayRewrite("playback") == PLAY_REWRITE_DENIED) {
       Util::logExitReason(ER_TRIGGER, "playback rejected by PLAY_REWRITE trigger");
+      // Route the denial through onFail so protocol outputs complete their refusal
+      // (HTTP outputs send a full 404 body) and the connection closes, instead of
+      // leaving a client waiting on a response that never finishes.
+      onFail("Playback rejected by PLAY_REWRITE trigger", true);
       return;
     }
     if (streamName.size() < 1){

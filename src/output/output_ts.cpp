@@ -102,7 +102,8 @@ namespace Mist{
     parseData = !pushing;
     if (pushing){
       if (Triggers::shouldTrigger("PUSH_REWRITE")){
-        std::string payload = "ts-tcp://" + myConn.getBoundAddress() + ":" + config->getOption("port").asString() + "\n" + getConnectedHost() + "\n" + streamName;
+        std::string payload = "ts-tcp://" + myConn.getBoundAddress() + ":" + config->getOption("port").asString() +
+          "\n" + getConnectedHost() + "\n" + streamName + "\n" + capa["name"].asStringRef();
         std::string newStream = streamName;
         Triggers::doTrigger("PUSH_REWRITE", payload, "", false, newStream);
         if (!newStream.size()){
@@ -255,7 +256,8 @@ namespace Mist{
       if (parseData){
         parseData = false;
         if (Triggers::shouldTrigger("PUSH_REWRITE")){
-          std::string payload = "ts-tcp://" + myConn.getBoundAddress() + ":" + config->getOption("port").asString() + "\n" + getConnectedHost() + "\n" + streamName;
+          std::string payload = "ts-tcp://" + myConn.getBoundAddress() + ":" + config->getOption("port").asString() +
+            "\n" + getConnectedHost() + "\n" + streamName + "\n" + capa["name"].asStringRef();
           std::string newStream = "";
           Triggers::doTrigger("PUSH_REWRITE", payload, "", false, newStream);
           if (!newStream.size()){

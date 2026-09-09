@@ -20,7 +20,7 @@ namespace Mist{
     } else {
       if (Triggers::shouldTrigger("PUSH_REWRITE")) {
         std::string payload = "jsonline://" + myConn.getBoundAddress() + ":" + config->getOption("port").asString() +
-          "\n" + getConnectedHost() + "\n" + streamName;
+          "\n" + getConnectedHost() + "\n" + streamName + "\n" + capa["name"].asStringRef();
         std::string newStream = streamName;
         Triggers::doTrigger("PUSH_REWRITE", payload, "", false, newStream);
         if (!newStream.size()) {
