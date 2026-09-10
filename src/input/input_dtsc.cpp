@@ -151,6 +151,7 @@ namespace Mist{
     prep["cmd"] = "play";
     prep["version"] = APPIDENT;
     prep["stream"] = streamName;
+    if (args.count("token")) { prep["token"] = args["token"]; }
     if (args.count("sync")) { prep["sync"].fromString(args["sync"]); }
     srcConn.SendNow("DTCM");
     char sSize[4] ={0, 0, 0, 0};

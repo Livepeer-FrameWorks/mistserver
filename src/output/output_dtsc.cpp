@@ -404,7 +404,7 @@ namespace Mist{
       }
     }
     parseData = true;
-    INFO_MSG("Handled play for %s", reqUrl.c_str());
+    INFO_MSG("Handled play for %s", streamName.c_str());
     setBlocking(false);
   }
 
