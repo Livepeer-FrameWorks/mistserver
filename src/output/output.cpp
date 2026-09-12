@@ -585,6 +585,10 @@ namespace Mist{
     if (diffs.size()){MEDIUM_MSG("Dropping %zu tracks", diffs.size());}
     for (std::set<size_t>::iterator it = diffs.begin(); it != diffs.end(); it++){
       HIGH_MSG("Dropping track %zu", *it);
+      // A reselection (metadata reload) can deselect a track a recording
+      // already wrote — the source track once transcoded outputs appear —
+      // so it must stay in the RECORDING_END summary like any dropped track.
+      if (isRecordingToFile || isRecording()) { rememberRecordedTrack(*it); }
       userSelect.erase(*it);
       trackSelectionChanged();
     }
@@ -2357,6 +2361,11 @@ namespace Mist{
   }
 
   void Output::dropTrack(size_t trackId, const std::string &reason, bool probablyBad){
+    // A selected track of a recording was written to the file; keep it (and
+    // its metadata, still readable here) for the RECORDING_END summary. A
+    // push_start to a file target sets `pushing`, so isRecording() alone would
+    // miss exactly the process-controlled recordings that need this.
+    if ((isRecordingToFile || isRecording()) && userSelect.count(trackId)) { rememberRecordedTrack(trackId); }
     //We can drop from the buffer without any checks, it's a no-op if no entry exists
     buffer.dropTrack(trackId);
     // depending on whether this is probably bad and the current debug level, print a message
@@ -3089,16 +3098,25 @@ namespace Mist{
       // valid in the stream buffer at exit: process tracks may already be torn
       // down by then, and buffer tracks that appeared after the header was
       // written are not in the file at all.
+      // What the recording wrote: the tracks still selected at exit plus every
+      // track that was selected and dropped earlier (drained, end of VoD track,
+      // producer ended). Only when neither is known (nothing was ever selected)
+      // does the current buffer inventory stand in.
       std::set<size_t> finalTracks = selectedTracks;
+      finalTracks.insert(recordedTracks.begin(), recordedTracks.end());
       if (!finalTracks.size() && M) { finalTracks = M.getValidTracks(true); }
       for (const auto & trackIdx : finalTracks) {
         JSON::Value & T = tracks.append();
+        // A dropped track's snapshot was taken while its metadata was complete
+        // and is the record of what was written; live metadata is read only for
+        // tracks that never left the selection. Reading live metadata for a
+        // dropped track risks zeroed dimensions/bounds after buffer teardown.
+        const bool snapshot = recordedTrackDetails.count(trackIdx) > 0;
+        const bool liveMeta = !snapshot && M && (M.trackValid(trackIdx) || M.getCodec(trackIdx).size());
+        if (snapshot) { T = recordedTrackDetails[trackIdx]; }
         T["idx"] = trackIdx;
-        T["selected"] = (bool)selectedTracks.count(trackIdx);
-        // Populate per-track details whenever the metadata is still readable,
-        // not only while the valid-flag is set — a selected track invalidated
-        // during teardown was still written to the file.
-        if (M && (M.trackValid(trackIdx) || M.getCodec(trackIdx).size())) {
+        T["selected"] = (bool)(selectedTracks.count(trackIdx) || recordedTracks.count(trackIdx));
+        if (liveMeta) {
           T["id"] = M.getID(trackIdx);
           T["type"] = M.getType(trackIdx);
           T["codec"] = M.getCodec(trackIdx);
@@ -3357,6 +3375,26 @@ namespace Mist{
     Util::DTSCShmReader rStrmConf(tmpBuf);
     DTSC::Scan streamCfg = rStrmConf.getScan();
     return streamCfg && streamCfg.getMember("process_controlled_realtime").asBool();
+  }
+
+  /// Records a track this recording wrote, with a snapshot of its metadata,
+  /// so the exit summary can still describe it after it left the selection
+  /// and after the buffer tore it down.
+  void Output::rememberRecordedTrack(size_t trackIdx) {
+    recordedTracks.insert(trackIdx);
+    if (recordedTrackDetails.count(trackIdx) || !M) { return; }
+    if (!(M.trackValid(trackIdx) || M.getCodec(trackIdx).size())) { return; }
+    JSON::Value & T = recordedTrackDetails[trackIdx];
+    T["id"] = M.getID(trackIdx);
+    T["type"] = M.getType(trackIdx);
+    T["codec"] = M.getCodec(trackIdx);
+    T["firstms"] = M.getFirstms(trackIdx);
+    T["lastms"] = M.getLastms(trackIdx);
+    T["bps"] = M.getBps(trackIdx);
+    T["rate"] = M.getRate(trackIdx);
+    if (M.getWidth(trackIdx)) { T["width"] = M.getWidth(trackIdx); }
+    if (M.getHeight(trackIdx)) { T["height"] = M.getHeight(trackIdx); }
+    if (M.getChannels(trackIdx)) { T["channels"] = M.getChannels(trackIdx); }
   }
 
   void Output::refreshProcessStreamState() {
