@@ -4297,7 +4297,15 @@ namespace DTSC{
         track["keys"]["frame_ms_max"] = longest_prt;
         track["keys"]["frames_min"] = shrtest_cnt;
         track["keys"]["frames_max"] = longest_cnt;
-        if (srcTrk == INVALID_TRACK_ID) {
+        // Stability heuristics describe continuous A/V ingest. Thumbnail
+        // enrichment (a JPEG still every few seconds, its VTT index) is not
+        // linked as a derived track by design (see the Thumbs note in
+        // input_buffer.cpp), so exclude it here explicitly: a 5s JPEG "frame"
+        // is not an unstable connection, and an issue flagged for it would
+        // keep the buffer DRY and the publisher unclaimable for the whole
+        // stream.
+        const bool continuousMedia = (type == "video" || type == "audio") && codec != "JPEG";
+        if (srcTrk == INVALID_TRACK_ID && continuousMedia) {
           if (jitter < minKeep) { jitter = minKeep; }
           if (longest_prt > 500) { issues << "unstable connection (" << longest_prt << "ms " << codec << " frame)! "; }
           if (shrtest_cnt < 6) {
