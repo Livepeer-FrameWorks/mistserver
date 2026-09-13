@@ -890,13 +890,6 @@ namespace Mist{
       Util::streamVariables(sink, streamName);
       if (sink != streamName) { return false; }
     }
-    auto hasOriginalTrack = [this](const std::set<size_t> & tracks) {
-      for (std::set<size_t>::const_iterator it = tracks.begin(); it != tracks.end(); ++it) {
-        if (M.getSourceTrack(*it) == INVALID_TRACK_ID) { return true; }
-      }
-      return false;
-    };
-
     if (proc.isMember("tags_inhibit")) {
       std::set<std::string> tags = Util::streamTags(streamName);
       auto matchesTag = [&tags](const JSON::Value & J) {
@@ -925,7 +918,16 @@ namespace Mist{
     if (proc.isMember("track_inhibit")) {
       std::set<size_t> tracks = Util::wouldSelect(
         M, std::string("audio=none&video=none&subtitle=none&meta=none&") + proc["track_inhibit"].asStringRef());
-      if (hasOriginalTrack(tracks)) { return false; }
+      if (!tracks.empty()) {
+        JSON::Value keyed = proc;
+        keyed["source"] = streamName;
+        const auto running = runningProcs.find(keyed.toString());
+        if (running == runningProcs.end()) { return false; }
+        const std::set<size_t> ownTracks = M.getMySourceTracks(running->second);
+        for (const size_t track : tracks) {
+          if (!ownTracks.count(track)) { return false; }
+        }
+      }
     }
     return true;
   }
@@ -1017,14 +1019,22 @@ namespace Mist{
     resolved = true;
     if (!procs.isArray() || !procs.size()) { return 0; }
     size_t expectedOutputTracks = 0;
+    std::set<size_t> readyOutputs;
+    for (const size_t track : M.getValidTracks(true)) {
+      if (M.getSourceTrack(track) != INVALID_TRACK_ID && (M.trackValid(track) & TRACK_VALID_EXT_PUSH)) {
+        readyOutputs.insert(track);
+      }
+    }
+    // Completed producers leave their tracks in the stream. Count those tracks
+    // plus each active producer's missing outputs, so completed thumbnails cannot
+    // satisfy the expectation for video renditions that have not arrived yet.
+    expectedOutputTracks = readyOutputs.size();
     jsonForEachConst (procs, it) {
       if (!it->isObject() || !it->isMember("process")) { continue; }
       const std::string procName = (*it)["process"].asString();
-      // Thumbs is intentionally absent: its JPEG track is enrichment that no
-      // consumer gates on, it does not mark its output as a derived track
-      // (no setSourceTrack), and a flaky thumbnailer must not hold up the
-      // recording of the actual media outputs.
-      if (procName != "AV" && procName != "Livepeer" && procName != "FFmpeg" && procName != "ONNX") { continue; }
+      if (procName != "AV" && procName != "Livepeer" && procName != "FFmpeg" && procName != "ONNX" && procName != "Thumbs") {
+        continue;
+      }
       const bool matchesCurrentSource = processingProcessMatchesSource(*it);
       const bool mayMatchConfiguredOutput =
         !matchesCurrentSource && procName == "ONNX" && processingProcessMayMatchTranscodeOutput(*it, procs);
@@ -1044,6 +1054,7 @@ namespace Mist{
         }
       }
       if (!recordingVisible) { continue; }
+      size_t producerExpected = 0;
       if (procName == "Livepeer" && it->isMember("target_profiles") && (*it)["target_profiles"].isArray()) {
         jsonForEachConst ((*it)["target_profiles"], prof) {
           if (!prof->isObject()) { continue; }
@@ -1059,8 +1070,12 @@ namespace Mist{
             }
             if (hasOriginalTrack) { continue; }
           }
-          ++expectedOutputTracks;
+          ++producerExpected;
         }
+      } else if (procName == "Thumbs") {
+        // Sprite JPEG, VTT and preview JPEG must exist before a recording
+        // freezes its track declarations. Retired processes are excluded above.
+        producerExpected = 3;
       } else if (procName == "ONNX") {
         JSON::Value keyed = *it;
         keyed["source"] = streamName;
@@ -1079,10 +1094,20 @@ namespace Mist{
           resolved = false;
           continue;
         }
-        expectedOutputTracks += state.expectedOutputTracks;
+        producerExpected = state.expectedOutputTracks;
       } else {
-        ++expectedOutputTracks;
+        producerExpected = 1;
       }
+      JSON::Value keyed = *it;
+      keyed["source"] = streamName;
+      size_t producerReady = 0;
+      const auto running = runningProcs.find(keyed.toString());
+      if (running != runningProcs.end() && running->second) {
+        for (const size_t track : M.getMySourceTracks(running->second)) {
+          if (readyOutputs.count(track)) { ++producerReady; }
+        }
+      }
+      if (producerExpected > producerReady) { expectedOutputTracks += producerExpected - producerReady; }
     }
     return expectedOutputTracks;
   }

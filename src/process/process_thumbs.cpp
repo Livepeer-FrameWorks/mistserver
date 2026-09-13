@@ -46,6 +46,7 @@ std::condition_variable thumbCV;
 std::deque<ThumbFrame> thumbCache;
 uint64_t bufferFirstMs = 0;
 uint64_t bufferLastMs = 0;
+size_t thumbSourceTrackIdx = INVALID_TRACK_ID;
 bool isVod = false;
 bool vodDone = false; // true when VOD source has finished scanning
 bool newData = false; // set by source when new keyframes are cached
@@ -223,7 +224,7 @@ namespace Mist {
       virtual bool publishesTracks() { return false; }
       void connStats(Comms::Connections & statComm) {}
 
-      void initTracks(uint32_t cellWidth, uint32_t cellHeight) {
+      void initTracks(uint32_t cellWidth, uint32_t cellHeight, size_t sourceTrackIdx) {
         uint32_t gridW = cellWidth * gridCols;
         uint32_t gridH = cellHeight * gridRows;
 
@@ -251,6 +252,7 @@ namespace Mist {
         meta.setWidth(spriteIdx, gridW);
         meta.setHeight(spriteIdx, gridH);
         meta.setID(spriteIdx, spriteIdx);
+        if (streamName == opt["source"].asString()) { meta.setSourceTrack(spriteIdx, sourceTrackIdx); }
         meta.markUpdated(spriteIdx);
         userSelect[spriteIdx].reload(streamName, spriteIdx, COMM_STATUS_ACTSOURCEDNT);
 
@@ -259,6 +261,7 @@ namespace Mist {
         meta.setType(vttIdx, "meta");
         meta.setCodec(vttIdx, "thumbvtt");
         meta.setID(vttIdx, vttIdx);
+        if (streamName == opt["source"].asString()) { meta.setSourceTrack(vttIdx, sourceTrackIdx); }
         meta.markUpdated(vttIdx);
         userSelect[vttIdx].reload(streamName, vttIdx, COMM_STATUS_ACTSOURCEDNT);
 
@@ -270,6 +273,7 @@ namespace Mist {
         meta.setWidth(previewIdx, cellWidth);
         meta.setHeight(previewIdx, cellHeight);
         meta.setID(previewIdx, previewIdx);
+        if (streamName == opt["source"].asString()) { meta.setSourceTrack(previewIdx, sourceTrackIdx); }
         meta.markUpdated(previewIdx);
         userSelect[previewIdx].reload(streamName, previewIdx, COMM_STATUS_ACTSOURCEDNT);
 
@@ -389,6 +393,7 @@ namespace Mist {
         std::deque<ThumbFrame> localCache;
         uint64_t firstMs, lastMs;
         uint32_t cellWidth, cellHeight;
+        size_t sourceTrackIdx;
         {
           std::lock_guard<std::mutex> lk(thumbMutex);
           if (!thumbGeometryReady) { return; }
@@ -397,6 +402,7 @@ namespace Mist {
           lastMs = bufferLastMs;
           cellWidth = thumbWidth;
           cellHeight = thumbHeight;
+          sourceTrackIdx = thumbSourceTrackIdx;
         }
 
         if (localCache.empty() || lastMs <= firstMs) {
@@ -404,7 +410,7 @@ namespace Mist {
           return;
         }
 
-        initTracks(cellWidth, cellHeight);
+        initTracks(cellWidth, cellHeight, sourceTrackIdx);
 
         uint32_t gridW = cellWidth * gridCols;
         uint32_t gridH = cellHeight * gridRows;
@@ -789,6 +795,7 @@ namespace Mist {
           std::lock_guard<std::mutex> lk(thumbMutex);
           bufferFirstMs = M.getFirstms(thisIdx);
           bufferLastMs = M.getLastms(thisIdx);
+          thumbSourceTrackIdx = thisIdx;
           isVod = M.getVod();
 
           thumbCache.push_back({(uint64_t)presentationTime, std::move(rgbData)});

@@ -93,6 +93,17 @@ namespace {
 
       void publishExpected(const JSON::Value & processes) { publishProcessingOutputExpectation(processes); }
 
+      void addCompletedOutput(uint8_t mask = TRACK_VALID_ALL) {
+        const size_t track = meta.addTrack();
+        meta.setID(track, track + 1);
+        meta.setType(track, "video");
+        meta.setCodec(track, "JPEG");
+        meta.setSourceTrack(track, 0);
+        meta.validateTrack(track, mask);
+        meta.update(0, 0, track, 1, 0, true, 1);
+        meta.breakClaim(track);
+      }
+
       bool expectationResolved() const { return streamStatus.mapped[STRMSTATE_PROCESS_OUTPUTS_RESOLVED_OFFSET] != 0; }
 
       bool feedPaused() const { return streamStatus.mapped[STRMSTATE_PROCESS_FEED_PAUSED_OFFSET] != 0; }
@@ -184,6 +195,17 @@ int main() {
   if (input.expected(recordingInvisible, resolved) != 0 || !resolved) {
     return fail("recording readiness must ignore viewer-only and processing-only derived tracks");
   }
+  JSON::Value viewerOnlyThumbs = thumbs;
+  viewerOnlyThumbs["target_mask"] = TRACK_VALID_EXT_HUMAN;
+  recordingInvisible.append(viewerOnlyThumbs);
+  if (input.expected(recordingInvisible, resolved) != 0 || !resolved) {
+    return fail("viewer-only thumbnails must not gate recordings");
+  }
+  JSON::Value thumbnailOnly;
+  thumbnailOnly.append(thumbs);
+  if (input.expected(thumbnailOnly, resolved) != 3 || !resolved) {
+    return fail("recordings must await both JPEG tracks and the VTT track");
+  }
 
   JSON::Value rawIntermediate = av;
   rawIntermediate["codec"] = "NV12";
@@ -235,7 +257,7 @@ int main() {
   processes.append(livepeer);
   processes.append(onnx);
   processes.append(JSON::Value("invalid"));
-  if (input.expected(processes, resolved) != 4 || resolved) {
+  if (input.expected(processes, resolved) != 7 || resolved) {
     return fail("processing output expectation must remain unresolved until ONNX publishes its contract");
   }
   input.publishExpected(processes);
@@ -251,7 +273,7 @@ int main() {
   ProcState::publishStartup(procPage, 1.0, PRC_RESOURCE_CPU);
   ProcState::publishOutputContract(procPage, 1, PRC_INPUT_AUDIO);
   input.bindRunning(onnx, getpid());
-  if (input.expected(processes, resolved) != 5 || !resolved) {
+  if (input.expected(processes, resolved) != 8 || !resolved) {
     return fail("audio ONNX must publish one output even when annotated_video is configured");
   }
 
@@ -262,7 +284,7 @@ int main() {
   }
 
   input.retireHard(ffmpeg);
-  if (input.expected(processes, resolved) != 4 || !resolved) {
+  if (input.expected(processes, resolved) != 7 || !resolved) {
     return fail("hard-failed processes must leave the recording output expectation");
   }
 
@@ -276,8 +298,36 @@ int main() {
   }
 
   input.publishExpected(processes);
-  if (!input.expectationResolved() || input.publishedExpected() != 4) {
+  if (!input.expectationResolved() || input.publishedExpected() != 7) {
     return fail("the input buffer must publish its revised processing output expectation");
+  }
+
+  {
+    InputBufferProbe completed(&config);
+    completed.initMetadata("completed-output-expectation-test");
+    JSON::Value completedThumbs = thumbs;
+    completedThumbs["restart_type"] = "disabled";
+    completed.retireDisabled(completedThumbs);
+    for (size_t i = 0; i < 3; ++i) { completed.addCompletedOutput(); }
+    JSON::Value pending;
+    pending.append(completedThumbs);
+    pending.append(av);
+    if (completed.expected(pending, resolved) != 4 || !resolved) {
+      return fail("three completed thumbnail tracks must not satisfy a pending video output");
+    }
+    completed.addCompletedOutput(TRACK_VALID_INT_PROCESS);
+    if (completed.expected(pending, resolved) != 4 || !resolved) {
+      return fail("recording-invisible completed tracks must not affect its expectation");
+    }
+    completed.retireHard(av);
+    if (completed.expected(pending, resolved) != 3 || !resolved) {
+      return fail("a failed producer must unblock without discarding completed output expectations");
+    }
+    JSON::Value inhibited = av;
+    inhibited["track_inhibit"] = "video=JPEG";
+    if (completed.matchesSource(inhibited)) {
+      return fail("an existing derived track must inhibit a new process just as it does in the supervisor");
+    }
   }
 
   std::deque<std::string> sleeper;
