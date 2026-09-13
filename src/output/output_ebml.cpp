@@ -23,6 +23,7 @@ namespace Mist{
     seekheadSize = 0;
     seekSize = 0;
     liveFileClusterOpen = false;
+    sourceWasLive = false;
     doctype = "matroska";
     readPos = 0;
     seenTime = false;
@@ -238,13 +239,20 @@ namespace Mist{
     }
   }
 
+  void OutEBML::initialSeek(bool dryRun) {
+    // A bounded playback limiter makes live metadata appear to be VOD, but
+    // it does not make predicted file/cluster byte counts exact.
+    if (M && M.getLive()) { sourceWasLive = true; }
+    Output::initialSeek(dryRun);
+  }
+
   bool OutEBML::liveEBMLMode() {
     if (!M) { return false; }
-    return useLiveEbmlLayout(M.getLive(), isRecording(), isFileTarget(), recordingSourceWasLive);
+    return sourceWasLive || useLiveEbmlLayout(M.getLive(), isRecording(), isFileTarget(), recordingSourceWasLive);
   }
 
   bool OutEBML::bufferedLiveFileClusters() {
-    return liveEBMLMode() && isRecording() && isFileTarget();
+    return liveEBMLMode() && ((isRecording() && isFileTarget()) || targetParams.count("stop"));
   }
 
   void OutEBML::startLiveFileCluster() {
@@ -267,6 +275,17 @@ namespace Mist{
   }
 
   void OutEBML::sendNext(){
+    if (myConn.sendLimitReached()) {
+      parseData = false;
+      return;
+    }
+    if (isRecording() && isFileTarget() && !declaredTracks.count(thisIdx)) {
+      std::stringstream reason;
+      reason << "EBML track " << thisIdx << " (" << M.getCodec(thisIdx) << ") was not declared in the recording header; declared:";
+      for (const size_t track : declaredTracks) { reason << " " << track; }
+      onFail(reason.str(), true);
+      return;
+    }
     if (thisTime >= newClusterTime) {
       if (liveSeek()){return;}
       if (bufferedLiveFileClusters() && liveFileClusterOpen) {
@@ -323,6 +342,7 @@ namespace Mist{
     } else {
       EBML::sendSimpleBlock(myConn, thisData, thisDataLen, thisIdx + 1, blockTime, isKey, currentClusterTime);
     }
+    if (myConn.sendLimitReached()) { parseData = false; }
   }
 
   std::string OutEBML::trackCodecID(size_t idx){
@@ -599,8 +619,10 @@ namespace Mist{
       if (M.hasEmbeddedFrames(idx) && liveMode) { needsLookAhead = 0; }
     }
     EBML::sendElemHead(myConn, EBML::EID_TRACKS, trackSizes);
+    declaredTracks.clear();
     for (std::map<size_t, Comms::Users>::iterator it = userSelect.begin(); it != userSelect.end(); it++){
       sendElemTrackEntry(it->first);
+      declaredTracks.insert(it->first);
     }
     if (!liveMode) {
       EBML::sendElemHead(myConn, EBML::EID_CUES, cuesSize);
@@ -650,11 +672,12 @@ namespace Mist{
   }
 
   void OutEBML::respondHTTP(const HTTP::Parser & req, bool headersOnly){
+    myConn.setSendLimit(UINT64_MAX);
     //Set global defaults, first
     HTTPOutput::respondHTTP(req, headersOnly);
 
     //If non-live, we accept range requests
-    if (!M.getLive()){H.SetHeader("Accept-Ranges", "bytes, parsec");}
+    if (!liveEBMLMode()) { H.SetHeader("Accept-Ranges", "bytes, parsec"); }
 
     //We change the header's document type based on file extension
     if (req.url.find(".webm") != std::string::npos){
@@ -665,7 +688,7 @@ namespace Mist{
 
     // Calculate the sizes of various parts, if we're VoD.
     size_t totalSize = 0;
-    if (!M.getLive()){
+    if (!liveEBMLMode()) {
       calcVodSizes();
       // We now know the full size of the segment, thus can calculate the total size
       totalSize = EBML::sizeElemEBML(doctype) + EBML::sizeElemHead(EBML::EID_SEGMENT, segmentSize) + segmentSize;
@@ -673,16 +696,18 @@ namespace Mist{
 
     uint64_t byteEnd = totalSize - 1;
     uint64_t byteStart = 0;
-    if (!M.getLive() && req.GetHeader("Range") != ""){
+    if (!liveEBMLMode() && req.GetHeader("Range") != "") {
       //Range request
-      if (parseRange(req.GetHeader("Range"), byteStart, byteEnd)){
+      const bool validRange = parseRange(req.GetHeader("Range"), byteStart, byteEnd) && byteStart <= byteEnd && byteEnd < totalSize;
+      if (validRange) {
         if (!req.GetVar("buffer").size()){
           size_t idx = getMainSelectedTrack();
           maxSkipAhead = (M.getLastms(idx) - M.getFirstms(idx)) / 20 + 7500;
         }
       }
       //Failed range request
-      if (!byteEnd){
+      if (!validRange) {
+        H.SetHeader("Content-Range", "bytes */" + JSON::Value((uint64_t)totalSize).asString());
         if (req.GetHeader("Range")[0] == 'p'){
           if (!headersOnly){H.SetBody("Starsystem not in communications range");}
           H.SendResponse("416", "Starsystem not in communications range", myConn);
@@ -700,23 +725,23 @@ namespace Mist{
       /// \todo Switch to chunked?
       H.SendResponse("206", "Partial content", myConn);
       if (!headersOnly){
+        myConn.setSendLimit(byteEnd - byteStart + 1);
         byteSeek(byteStart);
       }
-    }else{
+    } else {
       //Non-range request
-      if (!M.getLive()){H.SetHeader("Content-Length", byteEnd - byteStart + 1);}
+      if (!liveEBMLMode()) { H.SetHeader("Content-Length", byteEnd - byteStart + 1); }
       initialSeek();
       /// \todo Switch to chunked?
       H.SendResponse("200", "OK", myConn);
     }
 
-
     std::string timestamps = "zero";
     if (req.GetVar("ts").size()){timestamps = req.GetVar("ts");}
     if (timestamps == "zero"){
-      if (M.getLive()){
+      if (liveEBMLMode()) {
         subtractTime = currentTime();
-      }else{
+      } else {
         subtractTime = startTime();
       }
     } else if (timestamps == "keep"){
