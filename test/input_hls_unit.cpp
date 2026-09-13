@@ -4,7 +4,30 @@
 #include <cassert>
 #include <thread>
 
+class SequentialHLSProbe : public Mist::InputHLS {
+  public:
+    explicit SequentialHLSProbe(Util::Config *config) : Mist::InputHLS(config) { meta.reInit("", true); }
+    size_t addMediaTrack(uint32_t playlist, uint32_t pid, const char *type, const char *codec) {
+      const size_t idx = meta.addTrack();
+      meta.setID(idx, getPacketID(playlist, pid));
+      meta.setType(idx, type);
+      meta.setCodec(idx, codec);
+      return idx;
+    }
+    size_t seekAnchorTrack() { return muxedPlaylistSeekAnchorTrack(); }
+};
+
 int main() {
+  Util::Config config("hls-sequential-unit");
+  SequentialHLSProbe input(&config);
+  assert(input.seekAnchorTrack() == INVALID_TRACK_ID);
+  const size_t video = input.addMediaTrack(1, 256, "video", "H264");
+  input.addMediaTrack(1, 257, "audio", "AAC");
+  // Both tracks share the playlist; video is only the seek anchor, not a filter.
+  assert(input.seekAnchorTrack() == video);
+  input.addMediaTrack(2, 258, "audio", "AAC");
+  assert(input.seekAnchorTrack() == INVALID_TRACK_ID);
+
   {
     std::lock_guard<std::mutex> guard(Mist::entryMutex);
     Mist::listEntries.clear();

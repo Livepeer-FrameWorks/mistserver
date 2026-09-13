@@ -1093,6 +1093,7 @@ namespace Mist{
           Bit::htobl(thisPacket.getData() + 8, tid);
           Bit::htobll(thisPacket.getData() + 12, packetTime);
           thisTime = packetTime;
+          thisIdx = M.trackIDToIndex(tid, getpid());
           return; // Success!
         }
         continue;
@@ -1119,8 +1120,34 @@ namespace Mist{
     }
   }
 
+  // Choose an existing track only as a seek anchor for the shared media playlist.
+  // This does not filter packets: getNext(INVALID_TRACK_ID) still reads all tracks.
+  // No anchor is available if there are no tracks or they span multiple playlists.
+  size_t InputHLS::muxedPlaylistSeekAnchorTrack() {
+    const std::set<size_t> tracks = M.getValidTracks();
+    if (tracks.empty()) { return INVALID_TRACK_ID; }
+    const size_t first = *tracks.begin();
+    const uint32_t playlist = getMappedTrackPlaylist(M.getID(first));
+    for (std::set<size_t>::const_iterator it = tracks.begin(); it != tracks.end(); ++it) {
+      if (getMappedTrackPlaylist(M.getID(*it)) != playlist) { return INVALID_TRACK_ID; }
+    }
+    return first;
+  }
+
   void InputHLS::seek(uint64_t seekTime, size_t idx){
-    if (idx == INVALID_TRACK_ID){return;}
+    if (idx == INVALID_TRACK_ID) {
+      // INVALID_TRACK_ID means no track filter, not media without tracks.
+      // The realtime feeder calls seek(0), then getNext() to read audio and video.
+      // Use one track's index to position the playlist; subsequent reads remain unfiltered.
+      idx = muxedPlaylistSeekAnchorTrack();
+      if (idx == INVALID_TRACK_ID) {
+        // This reader has one playlist cursor; accepting a master with tracks
+        // in multiple playlists would silently omit media from the output.
+        Util::logExitReason(ER_FORMAT_SPECIFIC, "Sequential HLS input requires a single muxed media playlist");
+        config->is_active = false;
+        return;
+      }
+    }
     plsTimeOffset.clear();
     plsLastTime.clear();
     plsInterval.clear();
