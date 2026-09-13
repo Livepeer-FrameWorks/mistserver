@@ -168,6 +168,7 @@ namespace Socket{
     bool isLocked;
     bool chunkedMode;
     bool blocking;
+    uint64_t sendLimitRemaining;
 #ifdef SSL
     /// optional extension that uses mbedtls for SSL
     bool sslConnected;
@@ -234,6 +235,10 @@ namespace Socket{
     void SendNow(const char *data);
     void SendNow(const char *data, size_t len);
     void skipBytes(uint32_t byteCount);
+    /// Limits subsequent bytes written, excluding bytes discarded by skipBytes.
+    /// UINT64_MAX restores unlimited writes. This does not close the connection.
+    void setSendLimit(uint64_t byteCount) { sendLimitRemaining = byteCount; }
+    bool sendLimitReached() const { return sendLimitRemaining == 0; }
     uint32_t skipCount;
     // unbuffered i/o methods
     unsigned int iwrite(const void *buffer, int len); ///< Incremental write call.

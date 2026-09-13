@@ -1183,8 +1183,10 @@ namespace Mist{
     byteEnd = fileSize - 1;
     currPos = 0;
     if (!M.getLive() && req.GetHeader("Range") != ""){
-      if (parseRange(req.GetHeader("Range"), byteStart, byteEnd)){findSeekPoint(byteStart, seekPoint, headerSize);}
-      if (!byteEnd){
+      const bool validRange = parseRange(req.GetHeader("Range"), byteStart, byteEnd) && byteEnd < fileSize;
+      if (validRange) { findSeekPoint(byteStart, seekPoint, headerSize); }
+      if (!validRange) {
+        H.SetHeader("Content-Range", "bytes */" + JSON::Value(fileSize).asString());
         if (req.GetHeader("Range")[0] == 'p'){
           H.SetBody("Starsystem not in communications range");
           H.SendResponse("416", "Starsystem not in communications range", myConn);
@@ -1198,7 +1200,7 @@ namespace Mist{
           wantRequest = true;
           return;
         }
-      }else{
+      } else {
         std::stringstream rangeReply;
         rangeReply << "bytes " << byteStart << "-" << byteEnd << "/" << fileSize;
         H.SetHeader("Content-Length", byteEnd - byteStart + 1);
@@ -1236,11 +1238,16 @@ namespace Mist{
       }
     }
     currPos += headerSize; // we're now guaranteed to be past the header point, no matter what
+    if (!M.getLive() && leftOver == 0) { parseData = false; }
   }
 
   void OutMP4::sendNext(){
     //Call parent handler for generic websocket handling
     HTTPOutput::sendNext();
+    if (!webSock && !isRecording() && !M.getLive() && leftOver <= 0) {
+      parseData = false;
+      return;
+    }
     if (!thisPacket) { return; }
     // Obtain a pointer to the data of this packet
     char *dataPointer = 0;
@@ -1365,16 +1372,17 @@ namespace Mist{
       myConn.SendNow(dataPointer, len);
     }else{
       if (currPos >= byteStart){
-        H.Chunkify(dataPointer, std::min(leftOver, (int64_t)len), myConn);
-
-        leftOver -= len;
+        const size_t count = std::min(leftOver, (int64_t)len);
+        H.Chunkify(dataPointer, count, myConn);
+        leftOver -= count;
       }else{
         if (currPos + len > byteStart){
-          H.Chunkify(dataPointer + (byteStart - currPos),
-                     std::min((uint64_t)leftOver, (len - (byteStart - currPos))), myConn);
-          leftOver -= len - (byteStart - currPos);
+          const size_t count = std::min((uint64_t)leftOver, len - (byteStart - currPos));
+          H.Chunkify(dataPointer + (byteStart - currPos), count, myConn);
+          leftOver -= count;
         }
       }
+      if (!leftOver) { parseData = false; }
     }
 
     // keep track of where we are

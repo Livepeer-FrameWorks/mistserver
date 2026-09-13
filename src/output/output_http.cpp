@@ -1,5 +1,7 @@
 #include "output_http.h"
 
+#include "http_range.h"
+
 #include <mist/checksum.h>
 #include <mist/encode.h>
 #include <mist/langcodes.h>
@@ -1144,66 +1146,9 @@ namespace Mist{
   /// Assumes byteStart and byteEnd are initialized to their minimum respectively maximum values
   /// when the function is called. On error, byteEnd is set to zero and the function return false.
   bool HTTPOutput::parseRange(std::string header, uint64_t &byteStart, uint64_t &byteEnd){
-    if (header.size() < 6 || header.substr(0, 6) != "bytes="){
-      byteEnd = 0;
+    if (!parseSingleByteRange(header, byteStart, byteEnd)) {
       WARN_MSG("Invalid range header: %s", header.c_str());
       return false;
-    }
-    header.erase(0, 6);
-    // Do parsing of the rest of the header...
-    if (header.size() && header[0] == '-'){
-      // negative range = count from end
-      byteStart = 0;
-      for (unsigned int i = 1; i < header.size(); ++i){
-        if (header[i] >= '0' && header[i] <= '9'){
-          byteStart *= 10;
-          byteStart += header[i] - '0';
-          continue;
-        }
-        break;
-      }
-      if (byteStart > byteEnd){
-        // entire file if starting before byte zero
-        byteStart = 0;
-      }else{
-        // start byteStart bytes before byteEnd
-        byteStart = byteEnd - byteStart;
-      }
-      MEDIUM_MSG("Range request: %" PRIu64 "-%" PRIu64 " (%s)", byteStart, byteEnd, header.c_str());
-      return true;
-    }
-
-    // Positive range
-    long long size = byteEnd;
-    byteEnd = 0;
-    byteStart = 0;
-    unsigned int i = 0;
-    for (; i < header.size(); ++i){
-      if (header[i] >= '0' && header[i] <= '9'){
-        byteStart *= 10;
-        byteStart += header[i] - '0';
-        continue;
-      }
-      break;
-    }
-    if (header[i] != '-'){
-      WARN_MSG("Invalid range header: %s", header.c_str());
-      byteEnd = 0;
-      return false;
-    }
-    ++i;
-    if (i < header.size()){
-      for (; i < header.size(); ++i){
-        if (header[i] >= '0' && header[i] <= '9'){
-          byteEnd *= 10;
-          byteEnd += header[i] - '0';
-          continue;
-        }
-        break;
-      }
-      if (byteEnd > size){byteEnd = size;}
-    }else{
-      byteEnd = size;
     }
     MEDIUM_MSG("Range request: %" PRIu64 "-%" PRIu64 " (%s)", byteStart, byteEnd, header.c_str());
     return true;

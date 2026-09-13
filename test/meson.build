@@ -6,6 +6,9 @@ streamstatustest = executable('streamstatustest', 'status.cpp', header_tgts, dep
 websockettest = executable('websockettest', 'websocket.cpp', header_tgts, dependencies: libmist_dep)
 
 # Actual unit tests
+httprangetest = executable('httprangetest', 'http_range_unit.cpp')
+test('HTTP single byte ranges validate bounds and suffixes', httprangetest, suite: 'HTTP')
+
 if meson.version().version_compare('>=1.11.0')
   test('Redirecting log messages produces no error', exec_tgts.get('MistUtilLog'), suite:'Logs', args: ['BadBinary'], expected_fail: true)
 else
@@ -355,6 +358,10 @@ test('Socket buffer test 8MiB', sockbuftest, args: ['1048576'])
 socketaddresstest = executable('socketaddresstest', 'socket_address_unit.cpp', header_tgts,
                                dependencies: libmist_dep)
 test('Unknown socket address is not an operational failure', socketaddresstest, suite: 'Sockets')
+
+socketsendlimittest = executable('socketsendlimittest', 'socket_send_limit_unit.cpp', header_tgts,
+                                  dependencies: libmist_dep)
+test('Socket bounded writes preserve skipped prefixes and partial sends', socketsendlimittest, suite: 'Sockets')
 
 if usessl
   tlssetuptest = executable('tlssetuptest', 'tls_setup_unit.cpp', header_tgts,

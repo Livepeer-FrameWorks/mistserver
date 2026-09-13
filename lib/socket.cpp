@@ -1010,6 +1010,7 @@ void Socket::Connection::clear(){
   conntime = Util::bootSecs();
   Error = false;
   skipCount = 0;
+  sendLimitRemaining = UINT64_MAX;
   memset(&remoteaddr, 0, sizeof(remoteaddr));
 #ifdef SSL
   sslConnected = false;
@@ -1694,6 +1695,24 @@ void Socket::Connection::skipBytes(uint32_t byteCount){
 /// \param len Amount of bytes to write.
 /// \returns The amount of bytes actually written.
 unsigned int Socket::Connection::iwrite(const void *buffer, int len){
+  if (!connected() || len < 1) { return 0; }
+  if (skipCount) {
+    if (len <= skipCount) {
+      skipCount -= len;
+      return len;
+    }
+    const unsigned int toSkip = skipCount;
+    skipCount = 0;
+    return iwrite(static_cast<const char *>(buffer) + toSkip, len - toSkip) + toSkip;
+  }
+  // Like skipped prefix bytes, an excluded suffix is consumed without writing
+  // it. Partial socket writes still report only the prefix actually consumed.
+  if (!sendLimitRemaining) { return len; }
+  if (static_cast<uint64_t>(len) > sendLimitRemaining) {
+    const unsigned int allowed = sendLimitRemaining;
+    const unsigned int written = iwrite(buffer, allowed);
+    return written == allowed ? len : written;
+  }
 #ifdef SSL
   if (sslConnected){
     DONTEVEN_MSG("SSL iwrite");
@@ -1720,22 +1739,11 @@ unsigned int Socket::Connection::iwrite(const void *buffer, int len){
       close();
     }
     up += r;
+    if (sendLimitRemaining != UINT64_MAX) { sendLimitRemaining -= r; }
     return r;
   }
 #endif
   if (!connected() || len < 1){return 0;}
-  if (skipCount){
-    // We have bytes to skip writing.
-    // Pretend we write them, but don't really.
-    if (len <= skipCount){
-      skipCount -= len;
-      return len;
-    }else{
-      unsigned int toSkip = skipCount;
-      skipCount = 0;
-      return iwrite((((char *)buffer) + toSkip), len - toSkip) + toSkip;
-    }
-  }
   int r;
   if (isTrueSocket){
     r = ::send(sSend, buffer, len, 0);
@@ -1760,6 +1768,7 @@ unsigned int Socket::Connection::iwrite(const void *buffer, int len){
     close();
   }
   up += r;
+  if (sendLimitRemaining != UINT64_MAX) { sendLimitRemaining -= r; }
   return r;
 }// Socket::Connection::iwrite
 
