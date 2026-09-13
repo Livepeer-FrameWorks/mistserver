@@ -435,6 +435,20 @@ namespace Mist{
     unsigned int moovOffset = 0;
 
     uint64_t firstms = 0xFFFFFFFFFFFFFFull;
+    const auto trackDuration = [&](size_t idx) {
+      uint64_t duration = M.getLastms(idx) - M.getFirstms(idx);
+      // Lastms names the last sample's timestamp, not its end. Explicit cuts
+      // retain their requested presentation endpoint; full VOD includes the
+      // final sample instead of hiding it through the edit-list duration.
+      if (!fragmented && !targetParams.count("stop") && !targetParams.count("recstop")) {
+        DTSC::Keys keys = M.getKeys(idx);
+        if (keys.getTotalPartCount()) {
+          const DTSC::Parts parts(M.parts(idx));
+          duration += parts.getDuration(keys.getFirstPart(keys.getFirstValid()) + keys.getTotalPartCount() - 1);
+        }
+      }
+      return duration;
+    };
     // Construct with duration of -1, as this is the default for fragmented
     MP4::MVHD mvhdBox(0);
     // Then override it when we are not sending a VoD asset
@@ -444,7 +458,7 @@ namespace Mist{
       for (std::map<size_t, Comms::Users>::const_iterator it = userSelect.begin();
            it != userSelect.end(); it++){
         if (prevVidTrack != INVALID_TRACK_ID && it->first == prevVidTrack){continue;}
-        lastms = std::max(lastms, M.getLastms(it->first));
+        lastms = std::max(lastms, M.getFirstms(it->first) + trackDuration(it->first));
         firstms = std::min(firstms, M.getFirstms(it->first));
       }
       mvhdBox.setDuration(lastms - firstms);
@@ -465,7 +479,7 @@ namespace Mist{
         const int64_t firstOffset = parts.getOffset(keys.getFirstPart(keys.getFirstValid()));
         if (firstOffset > 0) { mediaStart = firstOffset; }
       }
-      uint64_t tDuration = M.getLastms(it->first) - M.getFirstms(it->first);
+      uint64_t tDuration = trackDuration(it->first);
       std::string tType = M.getType(it->first);
 
       MP4::TRAK trakBox;
@@ -473,6 +487,7 @@ namespace Mist{
       size_t trakOffset = 0;
 
       MP4::TKHD tkhdBox(M, it->first);
+      if (!fragmented) { tkhdBox.setDuration(tDuration); }
       trakBox.setContent(tkhdBox, trakOffset++);
 
       // This box is used for track durations as well as firstms synchronisation;

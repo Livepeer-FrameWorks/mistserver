@@ -71,7 +71,11 @@ show_logs() {
     kill -INT "$controller_pid" >/dev/null 2>&1 || true
     wait "$controller_pid" >/dev/null 2>&1 || true
   fi
-  rm -rf -- "$work"
+  if [ "${MIST_KEEP_MEDIA_TESTS:-}" = 1 ]; then
+    echo "Preserved media test evidence: $work" >&2
+  else
+    rm -rf -- "$work"
+  fi
   exit "$status"
 }
 trap show_logs EXIT HUP INT TERM
@@ -83,8 +87,8 @@ source_mp4="$work/source.mp4"
   -c:v libx264 -pix_fmt yuv420p -preset veryfast -g 50 -keyint_min 50 -bf 2 -sc_threshold 0 \
   -c:a aac -b:a 96k -movflags +faststart "$source_mp4"
 
-# A shorter audio track forces the generic reader and MP4 sample table to disagree at the audio
-# tail. The output must diagnose and stop that case before audio bytes enter video sample slots.
+# Independent audio/video tails are valid. The completed audio track must not
+# enter the remaining video sample slots or truncate the video's presentation.
 reject_source_mp4="$work/reject-source.mp4"
 "$ffmpeg" -hide_banner -loglevel error -y -i "$source_mp4" -map 0:v:0 -map 0:a:0 \
   -c:v copy -c:a aac -af atrim=duration=4.5 -movflags +faststart "$reject_source_mp4"
@@ -172,16 +176,21 @@ TMP="$ipc_root" MIST_CONTROL=1 "$output_mp4" -s "$reject_stream" \
   "$reject_clip?start=3337&duration=3" >"$work/output-reject.log" 2>&1
 reject_status=$?
 set -e
-if [ "$reject_status" -eq 0 ]; then
-  echo "mismatched track tails returned a successful process status" >&2
+if [ "$reject_status" -ne 0 ]; then
+  echo "valid unequal track tails failed recording" >&2
   exit 1
 fi
-if ! grep -q 'Inconsistent MP4 input' "$work/output-reject.log"; then
-  echo "mismatched track tails were not rejected before MP4 sample corruption" >&2
+"$ffmpeg" -hide_banner -loglevel error -i "$reject_clip" -f null - 2>"$work/tail-decode-errors"
+if [ -s "$work/tail-decode-errors" ]; then
+  cat "$work/tail-decode-errors" >&2
   exit 1
 fi
-if [ -e "$reject_clip" ]; then
-  echo "mismatched track tails left a partial recording artifact" >&2
+"$ffmpeg" -hide_banner -loglevel error -i "$reject_clip" -map 0:v:0 -f framemd5 "$work/tail.md5"
+awk '!/^#/ { print $NF }' "$work/tail.md5" >"$work/tail.hashes"
+diff -u "$work/expected.hashes" "$work/tail.hashes"
+audio_duration=$("$ffprobe" -v error -select_streams a:0 -show_entries stream=duration -of csv=p=0 "$reject_clip")
+if ! awk -v duration="$audio_duration" 'BEGIN { if (duration < 2.45 || duration > 2.55) exit 1 }'; then
+  echo "short audio tail has duration $audio_duration instead of approximately 2.5 seconds" >&2
   exit 1
 fi
 
@@ -191,14 +200,13 @@ while [ "$attempt" -lt 50 ] && [ ! -s "$recording_trigger_file" ]; do
   sleep 0.1
 done
 if [ ! -s "$recording_trigger_file" ]; then
-  echo "failed recording did not emit RECORDING_END" >&2
+  echo "successful unequal-tail recording did not emit RECORDING_END" >&2
   exit 1
 fi
-if [ "$(sed -n '12p' "$recording_trigger_file")" != "FORMAT_SPECIFIC" ] ||
-   [ "$(sed -n '13p' "$recording_trigger_file")" != "Inconsistent MP4 input" ]; then
-  echo "RECORDING_END did not expose the MP4 rejection reason" >&2
+if [ "$(sed -n '12p' "$recording_trigger_file")" != "CLEAN_INTENDED_STOP" ]; then
+  echo "RECORDING_END did not report the clean planned stop" >&2
   cat "$recording_trigger_file" >&2
   exit 1
 fi
 
-echo "B-frame MP4 clips preserved 75 visible frames and cleanly rejected mismatched track tails"
+echo "B-frame MP4 clips preserved 75 visible frames with equal and unequal audio/video tails"

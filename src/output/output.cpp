@@ -1499,11 +1499,10 @@ namespace Mist{
       }
       // If we have a stop position and it's within available range,
       // apply a limiter to the stream to make it appear like a VoD asset
-      if (targetParams.count("stop") || !M.getLive()){
+      if (targetParams.count("stop")) {
         size_t mainTrack = getMainSelectedTrack();
         if (mainTrack != INVALID_TRACK_ID){
-          uint64_t stopPos = M.getLastms(mainTrack);
-          if (targetParams.count("stop")){stopPos = atoll(targetParams["stop"].c_str());}
+          const uint64_t stopPos = atoll(targetParams["stop"].c_str());
           if (!M.getLive() || stopPos <= M.getLastms(mainTrack)){
             meta.applyLimiter(seekPos, stopPos);
           }else{
@@ -1511,7 +1510,7 @@ namespace Mist{
             meta.applyLimiter(seekPos, 0xFFFFFFFFFFFFFFFFull);
           }
         }
-      }else{
+      } else {
         // No stop point, only apply limiter if a start point is set, and never limit the end point.
         if (targetParams.count("start")){
           meta.applyLimiter(seekPos, 0xFFFFFFFFFFFFFFFFull);
@@ -2489,9 +2488,8 @@ namespace Mist{
   void Output::invalidateTrackPage(size_t trackId) {}
 
   /// Attempts to prepare a new packet for output.
-  /// If it returns true and thisPacket evaluates to false, playback has completed.
+  /// If it returns zero and thisPacket evaluates to false, playback has completed.
   /// Could be called repeatedly in a loop if you really really want a new packet.
-  /// \returns true if thisPacket was filled with the next packet.
   /// \returns 0 if a packet was filled, suggested wait time in milliseconds otherwise
   size_t Output::prepareNext(){
     lastReadAttemptWasAtLivePoint = false;
@@ -2751,7 +2749,7 @@ namespace Mist{
         thisTime = nxt.time;
         thisPacket.getString("data", thisData, thisDataLen);
         dropTrack(nxt.tid, "end of non-live track reached", false);
-        return 1;
+        return 0;
       }
 
       //Check if there exists a different page for the next key
