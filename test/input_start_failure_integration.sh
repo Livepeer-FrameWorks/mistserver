@@ -73,7 +73,7 @@ if [ "$ready" -ne 1 ]; then
 fi
 
 online_stream="fa${fixture_id}online"
-env TMP="$ipc_root" MIST_CONTROL=1 ATHEIST=1 "$buffer_binary" -s "$online_stream" \
+env TMP="$ipc_root" MIST_CONTROL=1 ATHEIST=1 "$buffer_binary" -g 4 -s "$online_stream" \
   "push://INTERNAL_ONLY:test" >"$fixture_dir/buffer.log" 2>&1 &
 buffer_pid=$!
 

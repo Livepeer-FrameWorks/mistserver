@@ -412,7 +412,13 @@ namespace Mist{
     Util::sanitizeName(streamName);
     Util::setStreamName(streamName);
 
-    if (targetParams.count("noinput") || (config->hasOption("noinput") && config->getBool("noinput"))) {
+    // Processing readers must be able to drain a live buffer after its finite
+    // feeder has ended. Waiting for READY there would block the very producers
+    // the buffer is keeping its input data alive for.
+    const uint8_t processingBufferState = Util::getStreamStatus(streamName);
+    const bool attachProcessingBuffer = DTSC::trackValidMask == TRACK_VALID_INT_PROCESS && processingControlledRealtime() &&
+      (processingBufferState == STRMSTAT_WAIT || processingBufferState == STRMSTAT_READY) && Util::streamAlive(streamName);
+    if (attachProcessingBuffer || targetParams.count("noinput") || (config->hasOption("noinput") && config->getBool("noinput"))) {
       if (!Util::streamAlive(streamName)){
         onFail("Stream not active already, aborting");
         return;
@@ -2065,6 +2071,7 @@ namespace Mist{
           ++prepFalse;
           continue;
         }
+        if (!keepGoing()) { break; }
         if (!sought){initialSeek();}
         if (!sentHeader && keepGoing()) {
           DONTEVEN_MSG("sendHeader");
