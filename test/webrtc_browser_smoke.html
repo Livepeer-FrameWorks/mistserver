@@ -16,6 +16,8 @@
       const channel = peer.createDataChannel("JSON", { protocol: "JSON" });
       const websocket = new WebSocket("ws://127.0.0.1:18080/webrtc/demo");
       const started = performance.now();
+      let channelOpenedAt = 0;
+      let framesWhenChannelOpened = 0;
 
       peer.addEventListener("track", ({ streams, track }) => {
         video.srcObject = streams[0] || new MediaStream([track]);
@@ -39,13 +41,19 @@
           (entry) => entry.type === "inbound-rtp" && (entry.kind || entry.mediaType) === "video"
         );
         const transport = stats.find((entry) => entry.type === "transport");
+        const framesDecoded = inbound?.framesDecoded || 0;
+        if (channel.readyState === "open" && !channelOpenedAt) {
+          channelOpenedAt = performance.now();
+          framesWhenChannelOpened = framesDecoded;
+        }
         const state = {
           result: "RUNNING",
           connectionState: peer.connectionState,
           iceConnectionState: peer.iceConnectionState,
           dtlsState: transport?.dtlsState,
           channelState: channel.readyState,
-          framesDecoded: inbound?.framesDecoded || 0,
+          framesDecoded,
+          framesAfterChannelOpen: framesDecoded - framesWhenChannelOpened,
           packetsReceived: inbound?.packetsReceived || 0,
           bytesReceived: inbound?.bytesReceived || 0,
           videoWidth: video.videoWidth,
@@ -56,7 +64,8 @@
           state.connectionState === "connected" &&
           state.dtlsState === "connected" &&
           state.channelState === "open" &&
-          state.framesDecoded > 0 &&
+          performance.now() - channelOpenedAt >= 2000 &&
+          state.framesAfterChannelOpen >= 10 &&
           state.videoWidth > 0 &&
           state.videoHeight > 0 &&
           state.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA
@@ -66,6 +75,7 @@
           state.result = "FAIL";
         }
         result.textContent = JSON.stringify(state);
+        document.title = `${state.result} frames=${state.framesDecoded} sustained=${state.framesAfterChannelOpen} packets=${state.packetsReceived}`;
         if (state.result === "RUNNING") setTimeout(finish, 250);
       };
       setTimeout(finish, 250);
