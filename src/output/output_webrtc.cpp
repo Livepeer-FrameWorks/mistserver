@@ -1938,8 +1938,8 @@ namespace Mist{
         }
         if (!sctpSockets.count(wSock.udpSock->getSock())) {
           int s = wSock.udpSock->getSock();
-          rtpSockets.erase(s);
-          if (currentRTPSocket == s) { currentRTPSocket = -1; }
+          // BUNDLE carries SRTP and SCTP over the same DTLS association. Receiving
+          // data-channel traffic does not make this socket ineligible for media.
           sctpSockets.insert(s);
           if (packetLog.is_open()) {
             packetLog << "[" << Util::bootMS() << "] " << sockNo

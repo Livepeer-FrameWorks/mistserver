@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>MistServer WebRTC smoke test</title>
+  </head>
+  <body>
+    <pre id="result">{"result":"RUNNING"}</pre>
+    <video id="video" autoplay muted></video>
+    <script>
+      const result = document.querySelector("#result");
+      const video = document.querySelector("#video");
+      const peer = new RTCPeerConnection();
+      peer.addTransceiver("audio", { direction: "recvonly" });
+      peer.addTransceiver("video", { direction: "recvonly" });
+      const channel = peer.createDataChannel("JSON", { protocol: "JSON" });
+      const websocket = new WebSocket("ws://127.0.0.1:18080/webrtc/demo");
+      const started = performance.now();
+
+      peer.addEventListener("track", ({ streams, track }) => {
+        video.srcObject = streams[0] || new MediaStream([track]);
+        video.play().catch(() => {});
+      });
+      websocket.addEventListener("open", async () => {
+        const offer = await peer.createOffer();
+        await peer.setLocalDescription(offer);
+        websocket.send(JSON.stringify({ type: "offer_sdp", offer_sdp: offer.sdp }));
+      });
+      websocket.addEventListener("message", async ({ data }) => {
+        const message = JSON.parse(data);
+        if (message.type !== "on_answer_sdp") return;
+        await peer.setRemoteDescription({ type: "answer", sdp: message.answer_sdp });
+        websocket.send(JSON.stringify({ type: "play" }));
+      });
+
+      const finish = async () => {
+        const stats = [...(await peer.getStats()).values()];
+        const inbound = stats.find(
+          (entry) => entry.type === "inbound-rtp" && (entry.kind || entry.mediaType) === "video"
+        );
+        const transport = stats.find((entry) => entry.type === "transport");
+        const state = {
+          result: "RUNNING",
+          connectionState: peer.connectionState,
+          iceConnectionState: peer.iceConnectionState,
+          dtlsState: transport?.dtlsState,
+          channelState: channel.readyState,
+          framesDecoded: inbound?.framesDecoded || 0,
+          packetsReceived: inbound?.packetsReceived || 0,
+          bytesReceived: inbound?.bytesReceived || 0,
+          videoWidth: video.videoWidth,
+          videoHeight: video.videoHeight,
+          readyState: video.readyState,
+        };
+        if (
+          state.connectionState === "connected" &&
+          state.dtlsState === "connected" &&
+          state.channelState === "open" &&
+          state.framesDecoded > 0 &&
+          state.videoWidth > 0 &&
+          state.videoHeight > 0 &&
+          state.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA
+        ) {
+          state.result = "PASS";
+        } else if (performance.now() - started >= 20000) {
+          state.result = "FAIL";
+        }
+        result.textContent = JSON.stringify(state);
+        if (state.result === "RUNNING") setTimeout(finish, 250);
+      };
+      setTimeout(finish, 250);
+    </script>
+  </body>
+</html>

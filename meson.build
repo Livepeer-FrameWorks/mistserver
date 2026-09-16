@@ -137,9 +137,16 @@ if ccpp.has_header('sys/wait.h')
 endif
 
 if usessl
-  mbedtls = ccpp.find_library('mbedtls', required: false)
-  mbedx509 = ccpp.find_library('mbedx509', required: false)
-  mbedcrypto = ccpp.find_library('mbedcrypto', required: false)
+  mbedtls = dependency('mbedtls', required: false, fallback: ['mbedtls', 'mbedtls_dep'])
+  if mbedtls.type_name() == 'internal'
+    mbedtls_proj = subproject('mbedtls')
+    mbedtls = mbedtls_proj.get_variable('mbedtls_dep')
+    mbedx509 = mbedtls_proj.get_variable('mbedx509_dep')
+    mbedcrypto = mbedtls_proj.get_variable('mbedcrypto_dep')
+  else
+    mbedx509 = ccpp.find_library('mbedx509', required: false)
+    mbedcrypto = ccpp.find_library('mbedcrypto', required: false)
+  endif
 
   ##This currently only works for MbedTLS < 3
   code_upstream = '''
@@ -163,21 +170,24 @@ if usessl
   }
   '''
 
-  have_upstream_mbedtls_srtp = ccpp.compiles(code_upstream, dependencies: [mbedtls, mbedx509, mbedcrypto], name: 'MbedTLS SRTP is upstream')
-  if not have_upstream_mbedtls_srtp
-    ddvtech_mbedtls = ccpp.compiles(code_ddvtech, dependencies: [mbedtls, mbedx509, mbedcrypto], name: 'MbedTLS is DDVTech fork')
-    if not mbedtls.found() or not ddvtech_mbedtls
-      have_upstream_mbedtls_srtp = true
-      mbedtls_proj = subproject('mbedtls')
-      mbedtls = mbedtls_proj.get_variable('mbedtls_dep')
-      mbedx509 = mbedtls_proj.get_variable('mbedx509_dep')
-      mbedcrypto = mbedtls_proj.get_variable('mbedcrypto_dep')
-      # Make nested fallbacks such as libsrtp2 consume the same bundled MbedTLS.
-      # Otherwise they may rediscover the system MbedTLS and put both versions
-      # on every executable's link line, causing duplicate symbols.
-      meson.override_dependency('mbedtls', mbedtls)
+  if mbedtls.type_name() == 'internal'
+    have_upstream_mbedtls_srtp = true
+  else
+    have_upstream_mbedtls_srtp = ccpp.compiles(code_upstream, dependencies: [mbedtls, mbedx509, mbedcrypto], name: 'MbedTLS SRTP is upstream')
+    if not have_upstream_mbedtls_srtp
+      ddvtech_mbedtls = ccpp.compiles(code_ddvtech, dependencies: [mbedtls, mbedx509, mbedcrypto], name: 'MbedTLS is DDVTech fork')
+      if not mbedtls.found() or not ddvtech_mbedtls
+        have_upstream_mbedtls_srtp = true
+        mbedtls_proj = subproject('mbedtls')
+        mbedtls = mbedtls_proj.get_variable('mbedtls_dep')
+        mbedx509 = mbedtls_proj.get_variable('mbedx509_dep')
+        mbedcrypto = mbedtls_proj.get_variable('mbedcrypto_dep')
+        # Make nested fallbacks such as libsrtp2 consume the same bundled MbedTLS.
+        # Otherwise they may rediscover the system MbedTLS and put both versions
+        # on every executable's link line, causing duplicate symbols.
+        meson.override_dependency('mbedtls', mbedtls)
+      endif
     endif
-
   endif
   option_defines += int_opt.format('HAVE_UPSTREAM_MBEDTLS_SRTP', have_upstream_mbedtls_srtp.to_int())
   mist_deps += [mbedtls, mbedx509, mbedcrypto]

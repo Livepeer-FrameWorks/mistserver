@@ -367,6 +367,11 @@ if usessl
   tlssetuptest = executable('tlssetuptest', 'tls_setup_unit.cpp', header_tgts,
                             dependencies: libmist_dep)
   test('TLS key logging follows the active setup context', tlssetuptest, suite: 'Sockets')
+
+  dtlsloopbacktest = executable('dtlsloopbacktest', 'dtls_loopback_unit.cpp', header_tgts,
+                                dependencies: libmist_dep)
+  test('WebRTC DTLS-SRTP loopback handshake', dtlsloopbacktest, suite: ['Sockets', 'WebRTC'],
+       timeout: 15)
 endif
 
 proctest = executable('proctest', 'procs.cpp', header_tgts, dependencies: libmist_dep)

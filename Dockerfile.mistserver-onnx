@@ -63,6 +63,7 @@ ENV PKG_CONFIG_PATH=/opt/mist-onnx/lib/pkgconfig
 ENV CMAKE_PREFIX_PATH=/opt/mist-onnx
 RUN export LD_LIBRARY_PATH="/opt/mist-onnx/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
     && meson setup /build /src \
+      --force-fallback-for=mbedtls \
       -DDOCKERRUN=true \
       -DNOUPDATE=true \
       -DDEBUG=${DEBUG} \
@@ -77,6 +78,7 @@ RUN export LD_LIBRARY_PATH="/opt/mist-onnx/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PA
     && grep -qE "ONNX AI processing:[[:space:]]+YES \(profile=${ONNX_PROFILE}\)" /build/meson-logs/meson-log.txt \
     && grep -qE 'NDI:[[:space:]]+COMPILED' /build/meson-logs/meson-log.txt \
     && grep -qE 'ONVIF camera discovery:[[:space:]]+YES' /build/meson-logs/meson-log.txt \
+    && grep -qE 'Dependency mbedtls for host machine from subproject .* found: YES' /build/meson-logs/meson-log.txt \
     && ninja -C /build \
     && if [ "${ONNX_RUN_PROVIDER_TEST}" = true ]; then \
          /src/scripts/ONNX/prepare_models.sh --dir /tmp/onnx-models yolo26n; \
@@ -126,7 +128,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY --from=mist_build /usr/local/ /usr/local/
 COPY --from=mist_build /opt/mist-onnx/ /opt/mist-onnx/
 RUN echo '/opt/mist-onnx/lib' > /etc/ld.so.conf.d/mist-onnx.conf \
-    && ldconfig
+    && ldconfig \
+    && linkage="$(ldd /usr/local/bin/MistOutWebRTC)" \
+    && echo "$linkage" \
+    && for library in mbedtls mbedx509 mbedcrypto; do \
+         echo "$linkage" | grep -E "lib${library}\\.so.*=> /usr/local/lib/"; \
+       done
 
 LABEL org.opencontainers.image.authors="Livepeer FrameWorks"
 EXPOSE 4242 8080 1935 5554 8889/udp 18203/udp

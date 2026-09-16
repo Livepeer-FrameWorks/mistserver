@@ -123,6 +123,11 @@ jobs:
           capability=$(docker run --rm --entrypoint MistProcONNX "$IMAGE" -j 2>/dev/null || true)
           printf '%s' "$capability" | grep -F "This binary packages the 'cpu' profile"
 
+      - name: Verify WebRTC playback in Chrome
+        env:
+          IMAGE: ${{ env.REGISTRY_GHCR }}/mistserver:${{ steps.version.outputs.tag }}-amd64
+        run: test/webrtc_browser_smoke.sh "$IMAGE"
+
       - name: Save digest
         run: |
           mkdir -p release-metadata
@@ -384,13 +389,13 @@ jobs:
           PKG_CONFIG_PATH: ${{ github.workspace }}/.deps/onnx/cpu/lib/pkgconfig:/tmp/dav1d-static/lib/pkgconfig:/tmp/dav1d-static/lib64/pkgconfig:/tmp/svt-av1-static/lib/pkgconfig:/tmp/svt-av1-static/lib64/pkgconfig
           CMAKE_PREFIX_PATH: ${{ github.workspace }}/.deps/onnx/cpu
         run: |
-          # MbedTLS is intentionally not forced: the top-level find_library and
-          # nested libsrtp dependency must resolve the same implementation.
+          # WebRTC DTLS-SRTP is release-critical. Keep native artifacts on the
+          # same pinned MbedTLS implementation as the container builds.
           meson setup build \
             --default-library=static \
             --wrap-mode=default \
             --prefer-static \
-            --force-fallback-for=usrsctp,libavcodec,libavfilter,libavformat,libavutil,libswscale,libswresample,x264 \
+            --force-fallback-for=mbedtls,usrsctp,libavcodec,libavfilter,libavformat,libavutil,libswscale,libswresample,x264 \
             -DWITH_AV=true \
             -DONNX=enabled \
             -DONNX_STATIC=false \
@@ -403,8 +408,9 @@ jobs:
           grep -qE 'NDI:[[:space:]]+COMPILED' build/meson-logs/meson-log.txt || { echo "::error::NDI support was not compiled"; exit 1; }
           grep -qE 'ONVIF camera discovery:[[:space:]]+YES' build/meson-logs/meson-log.txt || { echo "::error::ONVIF support was not built"; exit 1; }
           grep -qE 'ONNX AI processing:[[:space:]]+YES \(profile=cpu\)' build/meson-logs/meson-log.txt || { echo "::error::ONNX CPU support was not built"; exit 1; }
+          grep -qE 'Dependency mbedtls for host machine from subproject .* found: YES' build/meson-logs/meson-log.txt || { echo "::error::Pinned MbedTLS was not used"; exit 1; }
           ninja -C build
-          meson test -C build "Pinned FFmpeg codec registry contract" --print-errorlogs
+          meson test -C build "Pinned FFmpeg codec registry contract" "WebRTC DTLS-SRTP loopback handshake" --print-errorlogs
           scripts/ONNX/prepare_models.sh --dir "$RUNNER_TEMP/onnx-models" yolo26n
           ffmpeg -hide_banner -loglevel error -y -f lavfi -i testsrc2=size=640x640 -frames:v 1 "$RUNNER_TEMP/onnx-test.jpg"
           scripts/ONNX/verify_release.sh --build-dir build --allow-shared \
@@ -574,13 +580,13 @@ jobs:
           PKG_CONFIG_PATH: ${{ github.workspace }}/.deps/onnx/cpu/lib/pkgconfig:/tmp/dav1d-static/lib/pkgconfig:/tmp/dav1d-static/lib64/pkgconfig:/tmp/svt-av1-static/lib/pkgconfig:/tmp/svt-av1-static/lib64/pkgconfig
           CMAKE_PREFIX_PATH: ${{ github.workspace }}/.deps/onnx/cpu
         run: |
-          # MbedTLS is intentionally not forced: the top-level find_library and
-          # nested libsrtp dependency must resolve the same implementation.
+          # WebRTC DTLS-SRTP is release-critical. Keep native artifacts on the
+          # same pinned MbedTLS implementation as the container builds.
           meson setup build \
             --default-library=static \
             --wrap-mode=default \
             --prefer-static \
-            --force-fallback-for=usrsctp,libavcodec,libavfilter,libavformat,libavutil,libswscale,libswresample,x264 \
+            --force-fallback-for=mbedtls,usrsctp,libavcodec,libavfilter,libavformat,libavutil,libswscale,libswresample,x264 \
             -DWITH_AV=true \
             -DONNX=enabled \
             -DONNX_STATIC=false \
@@ -593,8 +599,9 @@ jobs:
           grep -qE 'NDI:[[:space:]]+COMPILED' build/meson-logs/meson-log.txt || { echo "::error::NDI support was not compiled"; exit 1; }
           grep -qE 'ONVIF camera discovery:[[:space:]]+YES' build/meson-logs/meson-log.txt || { echo "::error::ONVIF support was not built"; exit 1; }
           grep -qE 'ONNX AI processing:[[:space:]]+YES \(profile=cpu\)' build/meson-logs/meson-log.txt || { echo "::error::ONNX CPU support was not built"; exit 1; }
+          grep -qE 'Dependency mbedtls for host machine from subproject .* found: YES' build/meson-logs/meson-log.txt || { echo "::error::Pinned MbedTLS was not used"; exit 1; }
           ninja -C build
-          meson test -C build "Pinned FFmpeg codec registry contract" --print-errorlogs
+          meson test -C build "Pinned FFmpeg codec registry contract" "WebRTC DTLS-SRTP loopback handshake" --print-errorlogs
           scripts/ONNX/prepare_models.sh --dir "$RUNNER_TEMP/onnx-models" yolo26n
           ffmpeg -hide_banner -loglevel error -y -f lavfi -i testsrc2=size=640x640 -frames:v 1 "$RUNNER_TEMP/onnx-test.jpg"
           scripts/ONNX/verify_release.sh --build-dir build --allow-shared \
