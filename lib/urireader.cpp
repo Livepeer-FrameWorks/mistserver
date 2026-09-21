@@ -265,7 +265,8 @@ namespace HTTP{
 
   /// Sets binary mode on the reader for more efficient reading of non-text content
   void URIReader::binaryMode() {
-    downer.getSocket().Received().splitter.clear();
+    // HTTP still needs newline-delimited headers, even when its body is binary.
+    if (stateType != HTTP::HTTP) { downer.getSocket().Received().splitter.clear(); }
   }
 
   // seek to pos, return true if succeeded.

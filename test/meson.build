@@ -27,6 +27,10 @@ urireaderregressiontest = executable('urireaderregressiontest', 'urireader_regre
                                      dependencies: libmist_dep)
 test('terminal ranged response can be reopened', urireaderregressiontest, suite: 'URIReader')
 
+urireaderbinarytest = executable('urireaderbinarytest', 'urireader_binary.cpp', header_tgts,
+                                 dependencies: libmist_dep)
+test('binary mode preserves HTTP response framing', urireaderbinarytest, suite: 'URIReader', timeout: 15)
+
 externalwritertest = executable('externalwritertest', 'external_writer_unit.cpp', header_tgts,
                                 dependencies: libmist_dep)
 test('External DTSC writers finish uploads before closing', externalwritertest, suite: 'Writers')
