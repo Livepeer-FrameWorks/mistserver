@@ -1,13 +1,16 @@
-#include "auth.h"
 #include "comms.h"
-#include "defines.h"
-#include "stream.h"
-#include "procs.h"
-#include "timing.h"
-#include <fcntl.h>
-#include <string.h>
-#include <sstream>
+
+#include "auth.h"
 #include "config.h"
+#include "defines.h"
+#include "procs.h"
+#include "stream.h"
+#include "timing.h"
+
+#include <ctype.h>
+#include <fcntl.h>
+#include <sstream>
+#include <string.h>
 
 namespace Comms{
   uint8_t sessionViewerMode = SESS_BUNDLE_DEFAULT_VIEWER;
@@ -352,9 +355,14 @@ namespace Comms{
   /// \param protocol: Protocol currently in use for this connection
   /// \param _master: If True, we are reading from this page. If False, we are writing (to our entry) on this page
   /// \param reIssue: If True, claim a new entry on this page
-  void Connections::reload(const std::string & streamName, const std::string & ip, const std::string & tkn, const std::string & protocol, const std::string & reqUrl, bool _master, bool reIssue){
+  void Connections::reload(const std::string & streamName, const std::string & ip, const std::string & tkn,
+                           const std::string & protocol, const std::string & reqUrl, bool _master, bool reIssue,
+                           const std::string & origin, const std::string & referer) {
     initialTkn = tkn;
     uint8_t sessMode = sessionViewerMode;
+    // USER_NEW decides a viewer session once, including its origin, so requests from a
+    // different site must not join a session another site's request opened.
+    const std::string sessOrigin = viewerSessionOrigin(origin, referer);
     // Generate a unique session ID for each viewer, input or output
     if (protocol.size() >= 6 && protocol.substr(0, 6) == "INPUT:"){
       sessMode = sessionInputMode;
@@ -366,7 +374,7 @@ namespace Comms{
       // If the session only contains the HTTP connector, check sessionStreamInfoMode
       if (protocol.size() == 4 && protocol == "HTTP"){
         if (sessionStreamInfoMode == SESS_HTTP_AS_VIEWER){
-          sessionId = generateSession(streamName, ip, tkn, protocol, sessMode);
+          sessionId = generateSession(streamName, ip, tkn, protocol, sessMode, sessOrigin);
         }else if (sessionStreamInfoMode == SESS_HTTP_AS_OUTPUT){
           sessMode = sessionOutputMode;
           sessionId = "O" + generateSession(streamName, ip, tkn, protocol, sessMode);
@@ -375,12 +383,12 @@ namespace Comms{
         }else if (sessionStreamInfoMode == SESS_HTTP_AS_UNSPECIFIED){
           // Set sessMode to include all variables when determining the session ID
           sessMode = sessionUnspecifiedMode;
-          sessionId = "U" + generateSession(streamName, ip, tkn, protocol, sessMode);
+          sessionId = "U" + generateSession(streamName, ip, tkn, protocol, sessMode, sessOrigin);
         }else{
-          sessionId = generateSession(streamName, ip, tkn, protocol, sessMode);
+          sessionId = generateSession(streamName, ip, tkn, protocol, sessMode, sessOrigin);
         }
       }else{
-        sessionId = generateSession(streamName, ip, tkn, protocol, sessMode);
+        sessionId = generateSession(streamName, ip, tkn, protocol, sessMode, sessOrigin);
       }
     }
     char userPageName[NAME_BUFFER_SIZE];
@@ -430,6 +438,8 @@ namespace Comms{
           args.push_back(JSON::Value(Util::printDebugLevel).asString());
         }
         setenv("SESSION_REQURL", reqUrl.c_str(), 1);
+        setenv("SESSION_ORIGIN", origin.c_str(), 1);
+        setenv("SESSION_REFERER", referer.c_str(), 1);
         int err = fileno(stderr);
         thisPid = Util::Procs::StartPiped(args, 0, 0, &err);
         Util::Procs::forget(thisPid);
@@ -438,6 +448,8 @@ namespace Comms{
         unsetenv("SESSION_TKN");
         unsetenv("SESSION_PROTOCOL");
         unsetenv("SESSION_REQURL");
+        unsetenv("SESSION_ORIGIN");
+        unsetenv("SESSION_REFERER");
       }else{
         INFO_MSG("Connecting to existing session %s", sessionId.c_str());
       }
@@ -626,9 +638,32 @@ namespace Comms{
 
   /// \brief Generates a session ID which is unique per viewer
   /// \return generated session ID as string
-  std::string Connections::generateSession(const std::string & streamName, const std::string & ip, const std::string & tkn, const std::string & connector, uint64_t sessionMode){
+  std::string viewerSessionOrigin(const std::string & origin, const std::string & referer) {
+    const std::string & source = (origin.size() && origin != "null") ? origin : referer;
+    size_t schemeEnd = source.find("://");
+    if (schemeEnd == std::string::npos || !schemeEnd) { return ""; }
+    size_t hostEnd = source.find_first_of("/?#", schemeEnd + 3);
+    std::string result = source.substr(0, hostEnd);
+    for (size_t i = 0; i < result.size(); ++i) { result[i] = tolower(result[i]); }
+    return result;
+  }
+
+  std::string userNewPayload(const std::string & streamName, const std::string & host, const std::string & token,
+                             const std::string & protocol, const std::string & reqUrl, const std::string & sessionId,
+                             bool validToken, const std::string & origin, const std::string & referer) {
+    return streamName + "\n" + host + "\n" + token + "\n" + protocol + "\n" + reqUrl + "\n" + sessionId + "\n" +
+      (validToken ? "true" : "false") + "\n" + origin + "\n" + referer + "\n";
+  }
+
+  std::string Connections::generateSession(const std::string & streamName, const std::string & ip, const std::string & tkn,
+                                           const std::string & connector, uint64_t sessionMode, const std::string & viewerOrigin) {
     std::string concat;
     std::string debugMsg = "Generating session id based on";
+    // A viewer's origin always participates: it is part of what USER_NEW admitted.
+    if (viewerOrigin.size()) {
+      concat += viewerOrigin + "\n";
+      debugMsg += " origin '" + viewerOrigin + "'";
+    }
     // First bit defines whether to include stream name
     if (sessionMode & 0x08){
       concat += streamName;

@@ -35,6 +35,14 @@ namespace Comms{
   extern uint8_t tknMode;
   extern uint8_t defaultCommFlags;
   void sessionConfigCache(uint64_t bootMs = 0);
+  /// Returns the scheme://host[:port] a viewer request comes from: its Origin header, or the origin
+  /// part of its Referer when Origin is empty or "null". Empty when neither names one.
+  std::string viewerSessionOrigin(const std::string & origin, const std::string & referer);
+  /// Builds the USER_NEW trigger payload. Lines 8 and 9 are the viewer request's Origin and Referer,
+  /// written even when empty, and the payload ends with a newline so empty trailing lines survive.
+  std::string userNewPayload(const std::string & streamName, const std::string & host, const std::string & token,
+                             const std::string & protocol, const std::string & reqUrl, const std::string & sessionId,
+                             bool validToken, const std::string & origin, const std::string & referer);
 
   class Comms{
   public:
@@ -76,11 +84,14 @@ namespace Comms{
 
   class Connections : public Comms{
   public:
-    void reload(const std::string & streamName, const std::string & ip, const std::string & tkn, const std::string & protocol, const std::string & reqUrl, bool _master = false, bool reIssue = false);
+    void reload(const std::string & streamName, const std::string & ip, const std::string & tkn,
+                const std::string & protocol, const std::string & reqUrl, bool _master = false, bool reIssue = false,
+                const std::string & origin = "", const std::string & referer = "");
     void reload(const std::string & sessId, bool _master = false, bool reIssue = false);
     void unload();
     operator bool() const{return dataPage.mapped && (master || index != INVALID_RECORD_INDEX);}
-    std::string generateSession(const std::string & streamName, const std::string & ip, const std::string & tkn, const std::string & connector, uint64_t sessionMode);
+    std::string generateSession(const std::string & streamName, const std::string & ip, const std::string & tkn,
+                                const std::string & connector, uint64_t sessionMode, const std::string & viewerOrigin = "");
     std::string sessionId;
     std::string initialTkn;
 

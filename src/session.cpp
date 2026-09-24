@@ -182,6 +182,22 @@ int main(int argc, char **argv){
   option["default"] = tmpStr?tmpStr:"";
   config.addOption("requrl", option);
 
+  option.null();
+  option["long"] = "origin";
+  option["arg"] = "string";
+  option["help"] = "Origin header of the viewer request. May also be passed as SESSION_ORIGIN";
+  tmpStr = getenv("SESSION_ORIGIN");
+  option["default"] = tmpStr ? tmpStr : "";
+  config.addOption("origin", option);
+
+  option.null();
+  option["long"] = "referer";
+  option["arg"] = "string";
+  option["help"] = "Referer header of the viewer request. May also be passed as SESSION_REFERER";
+  tmpStr = getenv("SESSION_REFERER");
+  option["default"] = tmpStr ? tmpStr : "";
+  config.addOption("referer", option);
+
   config.activate();
   if (!(config.parseArgs(argc, argv))){
     config.printHelp(std::cout);
@@ -195,6 +211,8 @@ int main(int argc, char **argv){
   const std::string thisToken = config.getString("tkn");
   const std::string thisProtocol = config.getString("protocol");
   const std::string thisReqUrl = config.getString("requrl");
+  const std::string thisOrigin = config.getString("origin");
+  const std::string thisReferer = config.getString("referer");
   const std::string thisSessionId = config.getString("sessionid");
   std::string thisHost = Socket::getBinForms(config.getString("ip"));
   if (thisHost.size() > 16){thisHost = thisHost.substr(0, 16);}
@@ -276,8 +294,8 @@ int main(int argc, char **argv){
 
       // Do a USER_NEW trigger if it is defined for this stream and the JWT is not present or invalid
       if (!validToken && Triggers::shouldTrigger("USER_NEW", thisStreamName)) {
-        std::string payload = thisStreamName + "\n" + config.getString("ip") + "\n" + thisToken + "\n" + thisProtocol +
-          "\n" + thisReqUrl + "\n" + thisSessionId + "\n" + ((validToken) ? "true" : "false");
+        std::string payload = Comms::userNewPayload(thisStreamName, config.getString("ip"), thisToken, thisProtocol,
+                                                    thisReqUrl, thisSessionId, validToken, thisOrigin, thisReferer);
         if (!Triggers::doTrigger("USER_NEW", payload, thisStreamName)) {
           Util::logExitReason(ER_TRIGGER, "Session rejected by USER_NEW");
           connections.setExit();
@@ -375,9 +393,8 @@ int main(int argc, char **argv){
         Socket::hostBytesToStr(thisHost.data(), 16, host);
         if (!validToken && Triggers::shouldTrigger("USER_NEW", thisStreamName)) {
           INFO_MSG("Triggering USER_NEW for stream %s", thisStreamName.c_str());
-          std::string payload = thisStreamName + "\n" + host + "\n" +
-                                thisToken + "\n" + thisProtocol +
-                                "\n" + thisReqUrl + "\n" + thisSessionId;
+          std::string payload = Comms::userNewPayload(thisStreamName, host, thisToken, thisProtocol, thisReqUrl,
+                                                      thisSessionId, validToken, thisOrigin, thisReferer);
           if (!Triggers::doTrigger("USER_NEW", payload, thisStreamName)){
             INFO_MSG("USER_NEW rejected stream %s", thisStreamName.c_str());
             Util::logExitReason(ER_TRIGGER, "Session (re-sync) rejected by USER_NEW");

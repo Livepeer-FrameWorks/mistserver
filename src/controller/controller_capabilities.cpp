@@ -595,9 +595,10 @@ namespace Controller{
     trgs["PLAY_REWRITE"]["response_action"] = "Output is connected to the returned stream name instead of the requested stream name.";
     trgs["USER_NEW"]["when"] = "Every time a new session is added to the session cache";
     trgs["USER_NEW"]["stream_specific"] = true;
-    trgs["USER_NEW"]["payload"] =
-        "stream name (string)\nconnection address (string)\nconnection identifier "
-        "(integer)\nconnector (string)\nrequest url (string)\nsession identifier (integer)";
+    trgs["USER_NEW"]["payload"] = "stream name (string)\nconnection address (string)\nconnection identifier "
+                                  "(integer)\nconnector (string)\nrequest url (string)\nsession identifier (integer)\n"
+                                  "token valid (boolean)\nrequest Origin header (string, may be empty)\n"
+                                  "request Referer header (string, may be empty)";
     trgs["USER_NEW"]["response"] = "always";
     trgs["USER_NEW"]["response_action"] =
         "If false, denies the session while it remains in the cache. If true, accepts the session "

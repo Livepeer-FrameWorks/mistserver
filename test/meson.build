@@ -266,6 +266,9 @@ forktriggercapabilitiestest = executable('forktriggercapabilitiestest', 'fork_tr
                                          header_tgts, dependencies: libmist_dep)
 test('Fork trigger capabilities match runtime contracts', forktriggercapabilitiestest, suite: 'Triggers')
 
+userneworigintest = executable('userneworigintest', 'user_new_origin_unit.cpp', header_tgts, dependencies: libmist_dep)
+test('USER_NEW carries viewer origin and binds sessions to it', userneworigintest, suite: 'Triggers')
+
 uuidtest = executable('uuidtest', 'uuid_unit.cpp', header_tgts, dependencies: libmist_dep)
 test('UUID generation format and entropy bounds', uuidtest, suite: 'Util')
 

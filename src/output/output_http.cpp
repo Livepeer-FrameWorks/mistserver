@@ -384,6 +384,9 @@ namespace Mist{
 
       if (!isFollowUp) {
 
+        // The playback policy's allowed origins are checked against these in USER_NEW.
+        viewerOrigin = H.GetHeader("Origin");
+        viewerReferer = H.GetHeader("Referer");
         tkn.clear();
         // Read the session token
         if (Comms::tknMode & 0x01) {

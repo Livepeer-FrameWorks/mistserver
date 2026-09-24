@@ -172,6 +172,8 @@ namespace Mist{
     Comms::Connections statComm;
     bool isBlocking; ///< If true, indicates that myConn is blocking.
     std::string tkn;    ///< Random identifier used to split connections into sessions
+    std::string viewerOrigin; ///< Origin header of the viewer's request, for USER_NEW
+    std::string viewerReferer; ///< Referer header of the viewer's request, for USER_NEW
     uint64_t nextKeyTime();
 
     // Read/write status variables

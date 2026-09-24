@@ -3003,7 +3003,7 @@ namespace Mist{
     if (!tkn.size()){ tkn = JSON::Value(getpid()).asString(); }
 
     if (!statComm){
-      statComm.reload(streamName, getConnectedBinHost(), tkn, getStatsName(), reqUrl);
+      statComm.reload(streamName, getConnectedBinHost(), tkn, getStatsName(), reqUrl, false, false, viewerOrigin, viewerReferer);
     }
     if (!statComm){
       Util::logExitReason(ER_SHM_LOST, "could not connect to session %s", statComm.sessionId.c_str());
