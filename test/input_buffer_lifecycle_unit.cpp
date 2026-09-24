@@ -325,8 +325,8 @@ int main() {
     }
     JSON::Value inhibited = av;
     inhibited["track_inhibit"] = "video=JPEG";
-    if (completed.matchesSource(inhibited)) {
-      return fail("an existing derived track must inhibit a new process just as it does in the supervisor");
+    if (!completed.matchesSource(inhibited)) {
+      return fail("a derived track must not inhibit a process; only source tracks do, as in the supervisor");
     }
   }
 

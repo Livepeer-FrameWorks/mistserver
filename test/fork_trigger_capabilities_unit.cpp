@@ -57,6 +57,13 @@ int main() {
       !hasLine(triggers["PROCESS_EXIT"], "machine-readable exit reason (string)")) {
     return fail("PROCESS_EXIT does not publish its lifecycle contract");
   }
+  if (!expectEvent(triggers, "PROCESS_REPLACE", "when-blocking") ||
+      !hasLine(triggers["PROCESS_REPLACE"], "failed process config (JSON string)") ||
+      !hasLine(triggers["PROCESS_REPLACE"], "human-readable exit reason (string)") ||
+      triggers["PROCESS_REPLACE"]["actions"].size() != 1 ||
+      Triggers::actionFromString(triggers["PROCESS_REPLACE"]["actions"][0u].asStringRef()) != Triggers::ACT_VALUE) {
+    return fail("PROCESS_REPLACE does not publish its replacement contract");
+  }
   if (!hasLine(triggers["RECORDING_END"], "recorded track and processing speed summary (JSON object, optional)")) {
     return fail("RECORDING_END does not publish its structured diagnostics tail");
   }

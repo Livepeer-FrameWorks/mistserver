@@ -1247,6 +1247,10 @@ int main(int argc, char *argv[]){
   JSON::Value pl;
   pl["name"] = Mist::opt["source"];
   pl["profiles"] = Mist::opt["target_profiles"];
+  // Profiles that survive their track inhibitor; built separately so the loop never removes while iterating.
+  JSON::Value keptProfiles;
+  keptProfiles.append(JSON::Value());
+  keptProfiles.shrink(0);
   jsonForEach(pl["profiles"], prof){
     if (!prof->isMember("gop")){(*prof)["gop"] = "0.0";}
     //no or automatic framerate? default to source rate, if set, or 25 otherwise
@@ -1283,22 +1287,21 @@ int main(int argc, char *argv[]){
     }
 
     if (prof->isMember("track_inhibit")){
-      std::set<size_t> wouldSelect = Util::wouldSelect(
-          M, std::string("audio=none&video=none&subtitle=none&") + (*prof)["track_inhibit"].asStringRef());
-      if (wouldSelect.size()){
+      // Only the source tracks decide: renditions, previews and meta tracks never inhibit a profile.
+      if (Util::inhibitorMatchesSource(M, (*prof)["track_inhibit"].asStringRef())) {
         if (prof->isMember("name")){
           INFO_MSG("Removing profile because track inhibitor matches: %s", (*prof)["name"].asStringRef().c_str());
         }else{
           INFO_MSG("Removing profile because track inhibitor matches: %s", prof->toString().c_str());
         }
-        prof.remove();
         continue;
-      }else{
-        prof->removeMember("track_inhibit");
       }
+      prof->removeMember("track_inhibit");
     }
     INFO_MSG("Profile parsed: %s", prof->toString().c_str());
+    keptProfiles.append(*prof);
   }
+  pl["profiles"] = keptProfiles;
   Mist::opt["target_profiles"] = pl["profiles"];
 
   //Connect to livepeer API

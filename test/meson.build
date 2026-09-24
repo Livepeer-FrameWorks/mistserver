@@ -334,6 +334,14 @@ inputbufferlifecycletest = executable('inputbufferlifecycletest',
                                       dependencies: libmist_dep)
 test('Input buffer producer EOF lifecycle', inputbufferlifecycletest, suite: 'Processing')
 
+inputbufferprocesstest = executable('inputbufferprocesstest',
+                                    files('input_buffer_process_unit.cpp', '../src/input/input.cpp',
+                                          '../src/input/input_buffer.cpp', '../src/io.cpp'),
+                                    header_tgts,
+                                    dependencies: libmist_dep)
+test('Input buffer source-only inhibitors and PROCESS_REPLACE', inputbufferprocesstest, suite: 'Processing',
+     timeout: 60)
+
 if get_option('WITH_AV')
   avcodecregistrytest = executable('avcodecregistrytest', 'av_codec_registry.cpp', header_tgts, dependencies: av_libs)
   test('Pinned FFmpeg codec registry contract', avcodecregistrytest, suite: 'AV')

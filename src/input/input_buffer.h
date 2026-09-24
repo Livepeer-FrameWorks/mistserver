@@ -68,11 +68,21 @@ namespace Mist{
 
     uint64_t findTrack(const std::string &trackVal);
     void checkProcesses(const JSON::Value &procs); // LTS
+    JSON::Value applyProcessReplacements(const JSON::Value & procs) const;
+    void replaceFailedProcess(const std::string & config, const std::string & procType, int exitCode,
+                              const std::string & shortReason, const std::string & longReason);
+    virtual bool requestProcessReplacement(const std::string & payload, std::string & response);
     void updateProcessingRate();
     std::map<std::string, pid_t> runningProcs;     // LTS
     std::map<std::string, uint32_t> procBoots;
     std::map<std::string, uint64_t> procNextBoot;
     std::set<std::string> procHardFailed; // configs that hit unrecoverable error
+    // Replacement layer from PROCESS_REPLACE, applied on top of processOverride or the stream config:
+    // keyed failed config -> the process configs that take its place.
+    std::map<std::string, JSON::Value> processReplacements;
+    // Keyed configs that may no longer fire PROCESS_REPLACE: every config that already fired it,
+    // and every replacement config, so a failing replacement cannot start a replacement loop.
+    std::set<std::string> replaceAttempted;
 
     // Generic proc-authored rate and output-contract state (ProcState v4).
     uint64_t effectiveSpeed;

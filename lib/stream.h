@@ -47,6 +47,7 @@ namespace Util{
                                const JSON::Value &capa = empty, const std::string &UA = "");
   std::set<size_t> wouldSelect(const DTSC::Meta &M, const std::map<std::string, std::string> &targetParams,
                                const JSON::Value &capa = empty, const std::string &UA = "", uint64_t seekTarget = 0);
+  bool inhibitorMatchesSource(const DTSC::Meta & M, const std::string & inhibit);
 
   enum trackSortOrder {
     TRKSORT_DEFAULT = 0,

@@ -40,6 +40,22 @@ namespace Controller {
     processExit["response"] = "ignored";
     processExit["response_action"] = "None.";
 
+    JSON::Value & processReplace = triggers["PROCESS_REPLACE"];
+    processReplace["when"] =
+      "After PROCESS_EXIT, when a process exited unrecoverably (exit code 2) and its restart was disabled. Fires at "
+      "most once per distinct failed process config per stream buffer, and never for a config that is itself a "
+      "replacement.";
+    processReplace["stream_specific"] = true;
+    processReplace["payload"] = "stream name (string)\nprocess type (string)\nfailed process config (JSON string)\n"
+                                "exit code (integer)\nmachine-readable exit reason (string)\nhuman-readable exit "
+                                "reason (string)";
+    processReplace["response"] = "when-blocking";
+    processReplace["response_action"] =
+      "A JSON array of process objects replaces the failed process for this stream buffer: the failed config stays "
+      "disabled and the replacements are started and supervised like configured processes. An empty or invalid "
+      "response leaves the failed process disabled without a replacement.";
+    setTriggerActions(processReplace, {"value"});
+
     triggers["RECORDING_END"]["payload"] =
       "stream name (string)\npush target (string)\nconnector / filetype (string)\nbytes recorded "
       "(integer)\nseconds spent recording (integer)\nunix time recording started (integer)\nunix "

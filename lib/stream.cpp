@@ -1591,6 +1591,18 @@ std::set<size_t> Util::wouldSelect(const DTSC::Meta &M, const std::string &track
   return wouldSelect(M, parsedVariables, capa, UA);
 }
 
+/// True when the track inhibitor selects at least one original (ingest) track of the stream.
+/// Tracks produced by processes (renditions, previews, meta tracks, outputs of an earlier run)
+/// never inhibit: a rendition or transcode is only skipped because of what the source itself is.
+/// All track types default to none, so the inhibitor only selects what it explicitly names.
+bool Util::inhibitorMatchesSource(const DTSC::Meta & M, const std::string & inhibit) {
+  std::set<size_t> tracks = wouldSelect(M, "audio=none&video=none&subtitle=none&meta=none&" + inhibit);
+  for (std::set<size_t>::const_iterator it = tracks.begin(); it != tracks.end(); ++it) {
+    if (M.getSourceTrack(*it) == INVALID_TRACK_ID) { return true; }
+  }
+  return false;
+}
+
 std::set<size_t> Util::getSupportedTracks(const DTSC::Meta &M, const JSON::Value &capa,
                                           const std::string &type, const std::string &UA){
   std::set<size_t> validTracks = M.getValidTracks(true);

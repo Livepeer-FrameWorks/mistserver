@@ -787,6 +787,7 @@ namespace Mist{
         } else {
           configuredProcesses = streamCfg.getMember("processes").asJSON();
         }
+        if (processReplacements.size()) { configuredProcesses = applyProcessReplacements(configuredProcesses); }
         /*LTS-END*/
         processControlledRealtime = streamCfg.getMember("process_controlled_realtime").asBool();
         checkProcesses(configuredProcesses);
@@ -915,19 +916,8 @@ namespace Mist{
       std::set<size_t> tracks = Util::wouldSelect(M, proc["track_select"].asStringRef());
       if (!tracks.size()) { return false; }
     }
-    if (proc.isMember("track_inhibit")) {
-      std::set<size_t> tracks = Util::wouldSelect(
-        M, std::string("audio=none&video=none&subtitle=none&meta=none&") + proc["track_inhibit"].asStringRef());
-      if (!tracks.empty()) {
-        JSON::Value keyed = proc;
-        keyed["source"] = streamName;
-        const auto running = runningProcs.find(keyed.toString());
-        if (running == runningProcs.end()) { return false; }
-        const std::set<size_t> ownTracks = M.getMySourceTracks(running->second);
-        for (const size_t track : tracks) {
-          if (!ownTracks.count(track)) { return false; }
-        }
-      }
+    if (proc.isMember("track_inhibit") && Util::inhibitorMatchesSource(M, proc["track_inhibit"].asStringRef())) {
+      return false;
     }
     return true;
   }
@@ -1058,17 +1048,8 @@ namespace Mist{
       if (procName == "Livepeer" && it->isMember("target_profiles") && (*it)["target_profiles"].isArray()) {
         jsonForEachConst ((*it)["target_profiles"], prof) {
           if (!prof->isObject()) { continue; }
-          if (prof->isMember("track_inhibit")) {
-            std::set<size_t> tracks = Util::wouldSelect(
-              M, std::string("audio=none&video=none&subtitle=none&meta=none&") + (*prof)["track_inhibit"].asStringRef());
-            bool hasOriginalTrack = false;
-            for (std::set<size_t>::const_iterator trackIt = tracks.begin(); trackIt != tracks.end(); ++trackIt) {
-              if (M.getSourceTrack(*trackIt) == INVALID_TRACK_ID) {
-                hasOriginalTrack = true;
-                break;
-              }
-            }
-            if (hasOriginalTrack) { continue; }
+          if (prof->isMember("track_inhibit") && Util::inhibitorMatchesSource(M, (*prof)["track_inhibit"].asStringRef())) {
+            continue;
           }
           ++producerExpected;
         }
@@ -1381,26 +1362,11 @@ namespace Mist{
           }
         }
       }
-      if (tmp.isMember("track_inhibit")){
-        std::set<size_t> wouldSelect = Util::wouldSelect(
-            M, std::string("audio=none&video=none&subtitle=none&meta=none&") + tmp["track_inhibit"].asStringRef());
-        if (wouldSelect.size()){
-          // Inhibit if there is a match and we're not already running.
-          if (!runningProcs.count(key)) {
-            skipReasons[key] = "track_inhibit '" + tmp["track_inhibit"].asString() + "' matches existing tracks";
-            continue;
-          }
-          bool inhibited = false;
-          std::set<size_t> myTracks = M.getMySourceTracks(runningProcs[key]);
-          // Also inhibit if there is a match with not-the-currently-running-process
-          for (std::set<size_t>::iterator it = wouldSelect.begin(); it != wouldSelect.end(); ++it){
-            if (!myTracks.count(*it)){inhibited = true;}
-          }
-          if (inhibited) {
-            skipReasons[key] = "track_inhibit '" + tmp["track_inhibit"].asString() + "' matches tracks from another producer";
-            continue;
-          }
-        }
+      // Only original (ingest) tracks inhibit a process. Outputs of this or any other process,
+      // including those left behind by an earlier run, never do.
+      if (tmp.isMember("track_inhibit") && Util::inhibitorMatchesSource(M, tmp["track_inhibit"].asStringRef())) {
+        skipReasons[key] = "track_inhibit '" + tmp["track_inhibit"].asString() + "' matches source tracks";
+        continue;
       }
       // Mark process as should-be-active
       newProcs.insert(key);
@@ -1456,8 +1422,9 @@ namespace Mist{
 
     // Clean up procHardFailed entries for configs no longer in the process list
     // (prevents sticky suppression when a config is removed and re-added)
+    // A replaced config left the effective list on purpose and stays hard-failed.
     for (auto hfIt = procHardFailed.begin(); hfIt != procHardFailed.end();) {
-      if (!newProcs.count(*hfIt)) {
+      if (!newProcs.count(*hfIt) && !processReplacements.count(*hfIt)) {
         hfIt = procHardFailed.erase(hfIt);
       } else {
         ++hfIt;
@@ -1511,6 +1478,7 @@ namespace Mist{
           procHardFailed.insert(config);
           processPidsWithUsers.erase(deadPid);
           runningProcs.erase(config);
+          replaceFailedProcess(config, procType, exitCode, shortReason, longReason);
           continue;
         }
         processPidsWithUsers.erase(deadPid);
@@ -1576,6 +1544,59 @@ namespace Mist{
       // Remove the delayed start counter
       procNextBoot.erase(config);
     }
+  }
+
+  /// Returns procs with every replaced config swapped for its PROCESS_REPLACE replacements.
+  /// Keys are built the same way checkProcesses builds them, so lookups match.
+  JSON::Value InputBuffer::applyProcessReplacements(const JSON::Value & procs) const {
+    if (!procs.isArray()) { return procs; }
+    JSON::Value effective;
+    effective.append(JSON::Value());
+    effective.shrink(0);
+    jsonForEachConst (procs, it) {
+      JSON::Value keyed = *it;
+      keyed["source"] = streamName;
+      std::map<std::string, JSON::Value>::const_iterator replaced = processReplacements.find(keyed.toString());
+      if (replaced == processReplacements.end()) {
+        effective.append(*it);
+        continue;
+      }
+      jsonForEachConst (replaced->second, rIt) { effective.append(*rIt); }
+    }
+    return effective;
+  }
+
+  /// Fires PROCESS_REPLACE for a config that just exited unrecoverably and, on a usable response,
+  /// layers the replacement configs over the effective process list. The next checkProcesses pass
+  /// starts and supervises them like any configured process.
+  void InputBuffer::replaceFailedProcess(const std::string & config, const std::string & procType, int exitCode,
+                                         const std::string & shortReason, const std::string & longReason) {
+    if (replaceAttempted.count(config)) { return; }
+    replaceAttempted.insert(config);
+    std::string response;
+    const std::string payload = processReplaceTriggerPayload(streamName, procType, config, exitCode, shortReason, longReason);
+    if (!requestProcessReplacement(payload, response)) { return; }
+    JSON::Value replacements = processReplacementConfigs(response);
+    if (!replacements.size()) {
+      WARN_MSG("PROCESS_REPLACE returned no usable replacement for process `%s`; it stays disabled", procType.c_str());
+      return;
+    }
+    jsonForEachConst (replacements, it) {
+      JSON::Value keyed = *it;
+      keyed["source"] = streamName;
+      replaceAttempted.insert(keyed.toString());
+    }
+    WARN_MSG("Replacing failed process `%s` with %zu replacement process(es)", procType.c_str(), (size_t)replacements.size());
+    processReplacements[config] = replacements;
+  }
+
+  bool InputBuffer::requestProcessReplacement(const std::string & payload, std::string & response) {
+    if (!Triggers::shouldTrigger("PROCESS_REPLACE", streamName)) { return false; }
+    Triggers::Result result;
+    Triggers::doTrigger("PROCESS_REPLACE", payload, streamName, false, result);
+    if (result.handlerFailed || result.action != Triggers::ACT_VALUE || !result.response.size()) { return false; }
+    response = result.response;
+    return true;
   }
   /*LTS-END*/
 
