@@ -18,6 +18,8 @@ namespace Util{
   std::string getTmpFolder();
   void sanitizeName(std::string &streamname);
   bool streamAlive(std::string &streamname);
+  bool streamPullAlive(const std::string & streamname);
+  pid_t streamInputPid(const std::string & streamname);
   std::set<std::string> streamTags(const std::string &streamname);
   bool checkStreamKey(std::string & streamName);
   bool startInput(std::string streamname, std::string filename = "", bool forkFirst = true, bool isProvider = false,

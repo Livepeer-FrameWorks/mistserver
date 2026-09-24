@@ -1,8 +1,9 @@
+#include "controller_streams.h"
+
+#include "controller_always_on_policy.h"
 #include "controller_capabilities.h"
 #include "controller_storage.h"
-#include "controller_streams.h"
-#include <mist/timing.h>
-#include <map>
+
 #include <mist/config.h>
 #include <mist/defines.h>
 #include <mist/dtsc.h>
@@ -11,11 +12,16 @@
 #include <mist/stream.h>
 #include <mist/timing.h>
 #include <mist/triggers.h> //LTS
+
+#include <map>
+#include <set>
 #include <sys/stat.h>
 
 ///\brief Holds everything unique to the controller.
 namespace Controller{
   std::map<std::string, pid_t> inputProcesses;
+  // Always-on streams served by an input whose PID could not be read; warned about once each.
+  static std::set<std::string> alwaysOnUnadopted;
 
   /// Internal list of currently active processes
   class procInfo{
@@ -170,14 +176,34 @@ namespace Controller{
       if (program){inputProcesses[name] = program;}
     }
     // new style always on
-    if (data.isMember("always_on") && data["always_on"].asBool() &&
-        (!inputProcesses.count(name) || !Util::Procs::isRunning(inputProcesses[name]))){
-      INFO_MSG("Starting always-on input %s: %s", name.c_str(), URL.c_str());
-      std::map<std::string, std::string> overrides;
-      overrides["throughboot"] = "";
-      pid_t program = 0;
-      Util::startInput(name, URL, true, false, overrides, &program);
-      if (program){inputProcesses[name] = program;}
+    if (data.isMember("always_on") && data["always_on"].asBool()) {
+      const bool tracked = inputProcesses.count(name) && Util::Procs::isRunning(inputProcesses[name]);
+      AlwaysOnAction action = ALWAYS_ON_NONE;
+      pid_t runningPid = 0;
+      if (!tracked) {
+        const bool inputLock = Util::streamAlive(name);
+        const bool pullLock = Util::streamPullAlive(name);
+        if (inputLock || pullLock) { runningPid = Util::streamInputPid(name); }
+        action = alwaysOnAction(false, Util::getStreamStatus(name), inputLock, pullLock, runningPid);
+      }
+      if (action == ALWAYS_ON_START) {
+        alwaysOnUnadopted.erase(name);
+        INFO_MSG("Starting always-on input %s: %s", name.c_str(), URL.c_str());
+        std::map<std::string, std::string> overrides;
+        overrides["throughboot"] = "";
+        pid_t program = 0;
+        Util::startInput(name, URL, true, false, overrides, &program);
+        if (program) { inputProcesses[name] = program; }
+      } else if (action == ALWAYS_ON_ADOPT) {
+        alwaysOnUnadopted.erase(name);
+        WARN_MSG("Adopting already-running always-on input for stream %s (PID %d), likely left by a rolling restart",
+                 name.c_str(), (int)runningPid);
+        inputProcesses[name] = runningPid;
+      } else if (action == ALWAYS_ON_SKIP && !alwaysOnUnadopted.count(name)) {
+        alwaysOnUnadopted.insert(name);
+        WARN_MSG("Always-on input for stream %s is already running but its PID is not readable; not starting another",
+                 name.c_str());
+      }
     }
     // non-VoD stream
     if (URL.substr(0, 1) != "/"){return;}

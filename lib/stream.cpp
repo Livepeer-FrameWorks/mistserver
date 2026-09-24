@@ -506,6 +506,39 @@ bool Util::streamAlive(std::string &streamname){
   }
 }
 
+/// Checks if a singular pull input (for example an always-on SRT listener) holds the pull lock of
+/// the given streamname. Such an input does not hold SEM_INPUT and may not have a stream state page
+/// until data arrives, so streamAlive() alone cannot see it.
+/// Assumes the streamname has already been through sanitizeName()!
+bool Util::streamPullAlive(const std::string & streamname) {
+  std::string semName = "/MstSemPull_" + streamname;
+  IPC::semaphore pullLock(semName.c_str(), O_RDWR, ACCESSPERMS, 0, true);
+  if (!pullLock) { return false; }
+  if (!pullLock.tryWait()) {
+    pullLock.close();
+    return true;
+  }
+  pullLock.post();
+  pullLock.close();
+  return false;
+}
+
+/// Returns the PID an active input or pull process published for the given streamname,
+/// preferring the input PID over the pull PID. Returns 0 when neither page exists or the
+/// published process is no longer running.
+pid_t Util::streamInputPid(const std::string & streamname) {
+  const char *pages[] = {SHM_STREAM_IPID, SHM_STREAM_PPID};
+  for (size_t i = 0; i < sizeof(pages) / sizeof(*pages); ++i) {
+    char pageName[NAME_BUFFER_SIZE];
+    snprintf(pageName, NAME_BUFFER_SIZE, pages[i], streamname.c_str());
+    IPC::sharedPage pidPage(pageName, 8, false, false);
+    if (!pidPage) { continue; }
+    const uint64_t pid = *(uint64_t *)(pidPage.mapped);
+    if (pid > 1 && pid <= INT32_MAX && Util::Procs::isRunning((pid_t)pid)) { return (pid_t)pid; }
+  }
+  return 0;
+}
+
 /// Returns active tags for an exact-matching (already sanitized) streamname
 std::set<std::string> Util::streamTags(const std::string &streamname){
   std::set<std::string> ret;

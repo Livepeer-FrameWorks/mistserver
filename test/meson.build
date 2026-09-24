@@ -342,6 +342,11 @@ inputbufferprocesstest = executable('inputbufferprocesstest',
 test('Input buffer source-only inhibitors and PROCESS_REPLACE', inputbufferprocesstest, suite: 'Processing',
      timeout: 60)
 
+controlleralwaysontest = executable('controlleralwaysontest', 'controller_always_on_unit.cpp', header_tgts,
+                                    dependencies: libmist_dep)
+test('Always-on inputs are adopted, not duplicated, after a rolling restart', controlleralwaysontest,
+     suite: 'Controller')
+
 if get_option('WITH_AV')
   avcodecregistrytest = executable('avcodecregistrytest', 'av_codec_registry.cpp', header_tgts, dependencies: av_libs)
   test('Pinned FFmpeg codec registry contract', avcodecregistrytest, suite: 'AV')
