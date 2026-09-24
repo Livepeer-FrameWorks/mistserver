@@ -391,6 +391,10 @@ test('Check piped process with good/bad file descriptors', proctest, suite: 'Pro
 shellsplittest = executable('shellsplittest', 'shellsplit.cpp', header_tgts, dependencies: libmist_dep)
 test('Shell argument splitter', shellsplittest, args: ['hi "a banana" "" sauce    pudding "miauw"\'"\' "a"\'\'"z"'], env: {'OUTC':'7', 'OUT1':'hi', 'OUT2':'a banana', 'OUT3':'', 'OUT4':'sauce', 'OUT5':'pudding', 'OUT6':'miauw"', 'OUT7':'az'})
 
+jsoniterremovetest = executable('jsoniterremovetest', 'json_iter_remove_unit.cpp', header_tgts,
+                                dependencies: libmist_dep)
+test('Iterator remove visits every remaining element once', jsoniterremovetest, suite: 'JSON parser / printer')
+
 jsontest = executable('jsontest', 'json.cpp', header_tgts, dependencies: libmist_dep)
 test('Empty array', jsontest, suite: 'JSON parser / printer', env : {'JSON_STRING':'[]', 'JSON_RESULT':'[]'})
 test('Empty object', jsontest, suite: 'JSON parser / printer', env : {'JSON_STRING':'{}', 'JSON_RESULT':'{}'})

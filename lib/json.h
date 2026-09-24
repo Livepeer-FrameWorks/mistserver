@@ -159,6 +159,7 @@ namespace JSON{
     ValueType myType;
     Value *r;
     uint32_t i;
+    bool skipNext; ///< Set by remove(): the iterator already points at the successor, so the next ++ is a no-op.
     std::deque<Value *>::iterator aIt;
     std::map<std::string, Value *>::iterator oIt;
   };

@@ -20,6 +20,7 @@ const JSON::Value nullObj;
 JSON::Iter::Iter(Value &root){
   myType = root.myType;
   i = 0;
+  skipNext = false;
   r = &root;
   if (!root.size()) { myType = JSON::UNSET; }
   if (myType == JSON::ARRAY){aIt = root.arrVal.begin();}
@@ -50,6 +51,10 @@ JSON::Iter::operator bool() const{
 
 /// Go to next iteration.
 JSON::Iter &JSON::Iter::operator++(){
+  if (skipNext) {
+    skipNext = false;
+    return *this;
+  }
   if (*this){
     ++i;
     if (myType == JSON::ARRAY){++aIt;}
@@ -72,19 +77,20 @@ uint32_t JSON::Iter::num() const{
 }
 
 /// Delete the current indice from the parent JSON::Value.
-/// Resets the iterator to restart from the beginning
+/// The iterator moves onto the element that followed the removed one and the next ++ is skipped,
+/// so a jsonForEach loop that removes elements still visits every remaining element exactly once.
+/// num() keeps returning the index the successor now occupies.
 void JSON::Iter::remove(){
-  if (*this){
-    i = 0;
-    if (myType == JSON::ARRAY){
-      r->removeMember(aIt);
-      aIt = r->arrVal.begin();
-    }
-    if (myType == JSON::OBJECT){
-      r->removeMember(oIt);
-      oIt = r->objVal.begin();
-    }
+  if (!*this) { return; }
+  if (myType == JSON::ARRAY) {
+    delete (*aIt);
+    aIt = r->arrVal.erase(aIt);
   }
+  if (myType == JSON::OBJECT) {
+    delete oIt->second;
+    r->objVal.erase(oIt++);
+  }
+  skipNext = true;
 }
 
 /// Construct from a root Value to iterate over.
