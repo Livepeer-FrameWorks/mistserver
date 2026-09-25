@@ -4,6 +4,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <string>
 
 namespace Mist {
   enum ProcessingSourceEofAction {
@@ -15,6 +16,25 @@ namespace Mist {
 
   inline bool retainDisconnectedSourceTrack(bool resumeMode, bool processControlledRealtime, bool hasDrainConsumer, bool rawHls) {
     return resumeMode || processControlledRealtime || hasDrainConsumer || rawHls;
+  }
+
+  /// A publisher's tracks can outlive its disconnect: resume keeps them for
+  /// the next session, attached processes drain them. The next session either
+  /// resumes a track (same id) or registers a new one, for example when its
+  /// codec init differs. A retained track of the same type that was not
+  /// resumed is stale from that moment: outputs only reselect when a track
+  /// disappears, so it must go then rather than at idle eviction, or a DVR
+  /// push keeps reading it and never splits. Process-controlled and raw-HLS
+  /// tracks continue with their producer instead.
+  inline bool retainedSourceTrackGoesStale(bool processControlledRealtime, bool rawHls) {
+    return !processControlledRealtime && !rawHls;
+  }
+
+  /// Whether a retained track is replaced by the track a new publisher session
+  /// just registered.
+  inline bool dropRetainedSourceTrack(size_t retainedTrack, const std::string & retainedType, size_t newSourceTrack,
+                                      const std::string & newType) {
+    return retainedTrack != newSourceTrack && retainedType == newType;
   }
 
   inline ProcessingSourceEofAction processingSourceEofAction(bool active, bool hasPush, bool everHadPush, bool resumeMode,

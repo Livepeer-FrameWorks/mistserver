@@ -45,6 +45,7 @@ namespace Mist{
     processOverrideResolved = false;
     effectiveSpeed = 0;
     startupSeedApplied = false;
+    outputsResolved = false;
     lastRateUpdateMs = 0;
     rateJitterMs = (uint32_t)(((uint64_t)getpid() * 1103515245u + 12345u) % 251u);
     rampLockoutTicks = 0;
@@ -364,6 +365,10 @@ namespace Mist{
       if (fragments.getValidCount() < 5){return false;}
       // ensure we have each fragment buffered for at least the whole bufferTime
       if ((M.getLastms(tid) - M.getFirstms(tid)) < bufferTime){return false;}
+      // A process-controlled recorder still needs this key: the feed waits for it instead.
+      uint64_t minHeldKey = 0;
+      bool held = processControlledRealtime && bufferHolds.held(tid, minHeldKey);
+      if (!keyRemovalAllowed(keys.getFirstValid(), held, minHeldKey)) { return false; }
       uint32_t firstFragment = fragments.getFirstValid();
       uint32_t endFragment = fragments.getEndValid();
       if (endFragment - firstFragment > 2){
@@ -398,6 +403,8 @@ namespace Mist{
   }
 
   void InputBuffer::removeTrack(size_t tid){
+    // A removed track's index can be reused by the next session's tracks.
+    retainedSourceTracks.erase(tid);
     size_t lastUser = users.recordCount();
     for (size_t i = 0; i < lastUser; ++i){
       if (users.getStatus(i) == COMM_STATUS_INVALID){continue;}
@@ -695,6 +702,7 @@ namespace Mist{
     rateInput.regularSlow = anyRegularSlow;
     rateInput.nodeSlow = nodeSlow;
     rateInput.nodeHold = nodeHold;
+    rateInput.consumerHold = consumerLag.held();
     rateInput.freshVoteRound = (sawFresh || unconstrained) && allReady;
     rateInput.contractsReady = allContractsReady;
     rateInput.rampLocked = rampLockoutTicks;
@@ -722,9 +730,9 @@ namespace Mist{
 
     if (previous != effectiveSpeed) {
       INFO_MSG("Processing rate changed: %" PRIu64 "x -> %" PRIu64 "x (target=%" PRIu64
-               "x, ready=%zu/%zu, hard=%d, slow=%d, nodeHold=%d, lockout=%u)",
+               "x, ready=%zu/%zu, hard=%d, slow=%d, nodeHold=%d, consumerHold=%d, lockout=%u)",
                previous, effectiveSpeed, targetSpeed, readyVoteCount, requiredCount, anyHardSlow,
-               anyRegularSlow || nodeSlow, nodeHold, rampLockoutTicks);
+               anyRegularSlow || nodeSlow, nodeHold, consumerLag.held(), rampLockoutTicks);
     }
 
     ProcessStreamStateTick diagnosticTick;
@@ -811,6 +819,7 @@ namespace Mist{
     /*LTS-END*/
     connectedUsers = 0;
     drainConsumerUsers = 0;
+    bufferHolds.beginScan();
 
     //Store child process PIDs in generatePids.
     //These are controlled by the buffer (usually processes) and should not count towards incoming pushes
@@ -829,7 +838,24 @@ namespace Mist{
         processUsers[id] = users.getTrack(id);
         processPidsWithUsers.insert(users.getPid(id));
       } else {
-        sourceUsers[id] = users.getTrack(id);
+        const size_t newTrack = users.getTrack(id);
+        if (!sourceUsers.count(id) && retainedSourceTracks.size()) {
+          // A new publisher session: a retained track it did not resume is stale.
+          retainedSourceTracks.erase(newTrack);
+          const std::string newType = M.getType(newTrack);
+          const std::set<size_t> retainedTracks = retainedSourceTracks;
+          for (const size_t retained : retainedTracks) {
+            if (!M.trackValid(retained)) {
+              retainedSourceTracks.erase(retained);
+              continue;
+            }
+            if (!dropRetainedSourceTrack(retained, M.getType(retained), newTrack, newType)) { continue; }
+            INFO_MSG("Removing track %zu retained from the previous publisher session", retained);
+            meta.reloadReplacedPagesIfNeeded();
+            removeTrack(retained);
+          }
+        }
+        sourceUsers[id] = newTrack;
       }
       // GeneratePids holds the pids of the process that generate data, so ignore those for determining if a push is ingested.
       if (!isProcess && M.trackValid(users.getTrack(id))) { hasPush = true; }
@@ -838,6 +864,9 @@ namespace Mist{
     if (!(users.getStatus(id) & COMM_STATUS_DONOTTRACK)) {
       ++connectedUsers;
       if (!(users.getStatus(id) & COMM_STATUS_SOURCE)) { ++drainConsumerUsers; }
+    }
+    if (processControlledRealtime && (users.getStatus(id) & COMM_STATUS_HOLDBUFFER) && !(users.getStatus(id) & COMM_STATUS_SOURCE)) {
+      bufferHolds.observe(id, users.getPid(id), users.getTrack(id), users.getKeyNum(id), Util::bootMS());
     }
   }
   void InputBuffer::userOnDisconnect(size_t id){
@@ -860,6 +889,9 @@ namespace Mist{
         meta.reloadReplacedPagesIfNeeded();
         removeTrack(sourceUsers[id]);
       } else {
+        if (retainedSourceTrackGoesStale(processControlledRealtime, M.getCodec(sourceUsers[id]) == "rawhls")) {
+          retainedSourceTracks.insert(sourceUsers[id]);
+        }
         if (meta.isClaimed(sourceUsers[id])) {
           INFO_MSG("Track %zu lost its source, but is still claimed! Reclaiming for resume...", sourceUsers[id]);
           meta.breakClaim(sourceUsers[id]);
@@ -1088,9 +1120,15 @@ namespace Mist{
       }
       JSON::Value keyed = *it;
       keyed["source"] = streamName;
-      size_t producerReady = 0;
       const auto running = runningProcs.find(keyed.toString());
-      if (running != runningProcs.end() && running->second) {
+      const bool producerRunning = running != runningProcs.end() && running->second && Util::Procs::isActive(running->second);
+      // A producer that exited after the source ended (Thumbs completing its
+      // VOD sheet) has nothing left to produce: what it made is still in the
+      // stream and counted above, but its released tracks no longer carry its
+      // pid, so counting its outputs as missing would hold the header forever.
+      if (!producerRunning && everHadPush && !hasPush) { continue; }
+      size_t producerReady = 0;
+      if (producerRunning) {
         for (const size_t track : M.getMySourceTracks(running->second)) {
           if (readyOutputs.count(track)) { ++producerReady; }
         }
@@ -1104,7 +1142,8 @@ namespace Mist{
     if (!streamStatus || streamStatus.len < 16) { return; }
     auto publish = [this](bool resolved, uint16_t expected) {
       streamStatus.mapped[STRMSTATE_PROCESS_OUTPUTS_RESOLVED_OFFSET] = resolved;
-      streamStatus.mapped[STRMSTATE_PROCESS_FEED_PAUSED_OFFSET] = processControlledRealtime && !resolved;
+      outputsResolved = resolved;
+      publishFeedPaused();
       memcpy(streamStatus.mapped + STRMSTATE_PROCESS_OUTPUTS_EXPECTED_OFFSET, &expected, sizeof(uint16_t));
     };
     if (!M.getValidTracks().size()) {
@@ -1119,6 +1158,47 @@ namespace Mist{
     }
     if (expected > 0xFFFF) { expected = 0xFFFF; }
     publish(true, (uint16_t)expected);
+  }
+
+  void InputBuffer::publishFeedPaused() {
+    if (!streamStatus || streamStatus.len < 16) { return; }
+    streamStatus.mapped[STRMSTATE_PROCESS_FEED_PAUSED_OFFSET] =
+      processControlledRealtime && (!outputsResolved || consumerLag.held());
+  }
+
+  /// How far the source leads the slowest HOLDBUFFER recorder (see
+  /// recorderLeadMs for how one recorder's tracks combine). targetDurationMs
+  /// receives the largest target duration among the held tracks (the biggest
+  /// fragment, rounded up to whole seconds).
+  uint64_t InputBuffer::holdingReaderLeadMs(uint64_t & targetDurationMs) const {
+    targetDurationMs = 0;
+    std::map<uint64_t, std::map<size_t, uint64_t>> recorders;
+    const std::vector<BufferHoldTracker::Position> & positions = bufferHolds.positions();
+    for (const BufferHoldTracker::Position & p : positions) {
+      if (!M.trackValid(p.track)) { continue; }
+      uint64_t lastMs = M.getLastms(p.track);
+      uint64_t readerMs = lastMs;
+      if (!BufferHoldTracker::atLivePoint(p.keyNum)) {
+        DTSC::Keys keys(M.keys(p.track));
+        if (!keys.getValidCount()) { continue; }
+        if (p.keyNum <= keys.getFirstValid()) {
+          readerMs = keys.getTime(keys.getFirstValid());
+        } else if (p.keyNum < keys.getEndValid()) {
+          readerMs = keys.getTime(p.keyNum);
+        }
+        uint64_t target = (M.biggestFragment(p.track) / 1000 + 1) * 1000;
+        if (target > targetDurationMs) { targetDurationMs = target; }
+      }
+      uint64_t trackLead = lastMs > readerMs ? lastMs - readerMs : 0;
+      std::map<size_t, uint64_t> & leads = recorders[p.reader];
+      if (!leads.count(p.track) || trackLead < leads[p.track]) { leads[p.track] = trackLead; }
+    }
+    uint64_t lead = 0;
+    for (std::map<uint64_t, std::map<size_t, uint64_t>>::const_iterator it = recorders.begin(); it != recorders.end(); ++it) {
+      uint64_t recorderLead = recorderLeadMs(it->second);
+      if (recorderLead > lead) { lead = recorderLead; }
+    }
+    return lead;
   }
 
   void InputBuffer::userLeadOut() {
@@ -1155,6 +1235,22 @@ namespace Mist{
       }
     }
     if (hasPush) { everHadPush = true; }
+
+    bufferHolds.endScan(Util::bootMS());
+    if (processControlledRealtime) {
+      uint64_t targetDurationMs = 0;
+      uint64_t lead = holdingReaderLeadMs(targetDurationMs);
+      bool wasHeld = consumerLag.held();
+      uint64_t threshold = bufferHolds.heldTracks().size() ? consumerHoldThreshold(bufferTime, targetDurationMs) : 0;
+      if (consumerLag.update(lead, threshold) != wasHeld) {
+        INFO_MSG("Processing feed %s: source leads the slowest recorder by %" PRIu64 "ms (hold at %" PRIu64 "ms)",
+                 wasHeld ? "resumed" : "paused", lead, threshold);
+      }
+    } else {
+      consumerLag.reset();
+    }
+    publishFeedPaused();
+
     ProcessingSourceEofAction eofAction = processingSourceEofAction(config->is_active, hasPush, everHadPush, resumeMode,
                                                                     processControlledRealtime, hasProcessDrainConsumers());
     if (eofAction != PROCESSING_EOF_NONE) {

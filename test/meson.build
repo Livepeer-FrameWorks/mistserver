@@ -148,6 +148,14 @@ if get_option('b_sanitize') == 'none' and ffmpeg_program.found() and ffprobe_pro
               exec_tgts.get('MistSession'), exec_tgts.get('MistUtilLog'),
               exec_tgts.get('MistUtilNuke')],
        suite: 'MP4', timeout: 90, is_parallel: false)
+  if startup_timeout_program.found()
+    bootingsegmenttest = find_program('booting_buffer_segment_integration.sh')
+    test('Segmented recordings started before the buffer begin with a whole first segment', bootingsegmenttest,
+         args: [ffmpeg_program, ffprobe_program, exec_tgts.get('MistController'),
+                exec_tgts.get('MistInEBML'), exec_tgts.get('MistInBuffer'),
+                exec_tgts.get('MistOutHTTPTS'), exec_tgts.get('MistUtilNuke'), startup_timeout_program],
+         suite: 'Streams', timeout: 60, is_parallel: false)
+  endif
   liveebmlrecordingtest = find_program('live_ebml_recording_integration.sh')
   test('Live EBML recordings finalize complete clusters', liveebmlrecordingtest,
        args: [ffmpeg_program, ffprobe_program, exec_tgts.get('MistController'),
@@ -205,6 +213,16 @@ if get_option('b_sanitize') == 'none' and ffmpeg_program.found() and ffprobe_pro
          env: {'MIST_PROCESS_EXPECT_EOF': '1', 'MIST_PROCESS_SOURCE_DURATION': '8',
                'MIST_PROCESS_SOURCE_BFRAMES': '2'},
          suite: 'Processing', timeout: 120, is_parallel: false)
+    python_program = find_program('python3', required: false)
+    if python_program.found()
+      processingholdtest = find_program('processing_hold_integration.sh')
+      test('Processing recordings keep the whole source through a slow sink', processingholdtest,
+           args: [ffmpeg_program, ffprobe_program, exec_tgts.get('MistController'),
+                  exec_tgts.get('MistInMP4'), exec_tgts.get('MistInBuffer'),
+                  exec_tgts.get('MistProcThumbs'), exec_tgts.get('MistOutEBML'),
+                  exec_tgts.get('MistUtilNuke'), timeout_program, python_program],
+           suite: 'Processing', timeout: 240, is_parallel: false)
+    endif
     thumbnailvodtest = find_program('thumbnail_vod_integration.sh')
     test('Thumbnail VOD publishes JPEG, VTT, trigger, and HTTP artifacts', thumbnailvodtest,
          args: [ffmpeg_program, ffprobe_program, exec_tgts.get('MistController'),
@@ -328,6 +346,13 @@ test('Offline stream state preserves the diagnostics ABI', offlinestreamstatetes
 outputstartpolicytest = executable('outputstartpolicytest', 'output_start_policy_unit.cpp', header_tgts,
                                    dependencies: libmist_dep)
 test('Output startup routes offline and rewrite states once', outputstartpolicytest, suite: 'Streams')
+
+bufferholdtest = executable('bufferholdtest', 'buffer_hold_unit.cpp', header_tgts, dependencies: libmist_dep)
+test('Processing recorders pin the buffer and pace the feed', bufferholdtest, suite: 'Processing')
+
+recordingsummarytest = executable('recordingsummarytest', 'recording_summary_unit.cpp', header_tgts,
+                                  dependencies: libmist_dep)
+test('Recording summary names the source of derived tracks', recordingsummarytest, suite: 'Processing')
 
 offlineattempttest = executable('offlineattempttest', 'offline_attempt_unit.cpp', header_tgts,
                                 dependencies: libmist_dep)

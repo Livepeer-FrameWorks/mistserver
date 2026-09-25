@@ -235,6 +235,13 @@ if [ "$(sed -n '1p' "$recording_trigger_file")" != "RECORDING_END" ]; then
 fi
 trigger_summary=$(sed -n '14p' "$recording_trigger_file")
 case "$trigger_summary" in
+  *'"written_firstms"'*'"written_lastms"'*) ;;
+  *)
+    echo "RECORDING_END omitted the per-track written span: $trigger_summary" >&2
+    exit 1
+    ;;
+esac
+case "$trigger_summary" in
   *'"speed"'*'"ticks"'*) ;;
   *)
     echo "RECORDING_END omitted processing speed diagnostics: $trigger_summary" >&2

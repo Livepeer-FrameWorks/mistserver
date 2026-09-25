@@ -336,6 +336,7 @@ static inline void show_stackframe(){}
 #define COMM_STATUS_DISCONNECT 0x20 // Disconnected
 #define COMM_STATUS_REQDISCONNECT 0x10 // Other side requests disconnect
 #define COMM_STATUS_NOKILL 0x8 // Do not send kill command to this PID on shutdown
+#define COMM_STATUS_HOLDBUFFER 0x2 // The buffer must not evict keys this reader has not consumed yet
 #define COMM_STATUS_ACTIVE 0x1
 #define COMM_STATUS_INVALID 0x0
 #define COMM_STATUS_ACTSOURCEDNT (uint8_t)(COMM_STATUS_ACTIVE | COMM_STATUS_SOURCE | COMM_STATUS_DONOTTRACK)
@@ -359,6 +360,7 @@ static inline void show_stackframe(){}
 #define ER_CLEAN_RESTART "CLEAN_RESTART"
 #define ER_READ_START_FAILURE "READ_START_FAILURE"
 #define ER_PROCESS_SPECIFIC "PROCESS_SPECIFIC"
+#define ER_PROCESS_TRACKS_CHANGED "PROCESS_TRACKS_CHANGED"
 #define ER_FORMAT_SPECIFIC "FORMAT_SPECIFIC"
 #define ER_INTERNAL_ERROR "INTERNAL_ERROR"
 #define ER_WRITE_FAILURE "WRITE_FAILURE"

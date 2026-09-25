@@ -20,6 +20,22 @@ int main() {
     return fail("resume, process drain, and raw-HLS sources must retain disconnected tracks");
   }
 
+  // A retained publisher track goes stale when a new session registers a
+  // track of its type that is not the retained one (resume did not apply).
+  if (!retainedSourceTrackGoesStale(false, false)) {
+    return fail("a live track kept after its publisher left must be remembered as stale-able");
+  }
+  if (retainedSourceTrackGoesStale(true, false) || retainedSourceTrackGoesStale(false, true)) {
+    return fail("process-controlled and raw-HLS tracks continue with their producer");
+  }
+  if (!dropRetainedSourceTrack(0, "video", 8, "video")) {
+    return fail("a new video track from the next session must replace the unresumed retained video track");
+  }
+  if (dropRetainedSourceTrack(1, "audio", 8, "video")) {
+    return fail("a retained audio track stays until the next session registers its own audio");
+  }
+  if (dropRetainedSourceTrack(0, "video", 0, "video")) { return fail("a resumed track is never dropped"); }
+
   if (processingSourceEofAction(false, false, true, false, true, false) != PROCESSING_EOF_NONE ||
       processingSourceEofAction(true, true, true, false, true, false) != PROCESSING_EOF_NONE ||
       processingSourceEofAction(true, false, false, false, true, false) != PROCESSING_EOF_NONE) {

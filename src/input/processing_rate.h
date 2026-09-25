@@ -37,6 +37,9 @@ namespace Mist {
       bool regularSlow = false;
       bool nodeSlow = false;
       bool nodeHold = false;
+      /// The feed already leads its slowest holding recorder by nearly the
+      /// whole buffer window; going faster only widens the gap.
+      bool consumerHold = false;
       bool freshVoteRound = false;
       bool contractsReady = false;
       bool rampLocked = false;
@@ -56,7 +59,7 @@ namespace Mist {
       speed = std::max((uint64_t)1, (uint64_t)((double)speed * 0.8));
     } else if (in.target < speed) {
       speed = std::max((uint64_t)1, in.target);
-    } else if (in.freshVoteRound && in.contractsReady && !in.nodeHold && !in.rampLocked && speed < in.target) {
+    } else if (in.freshVoteRound && in.contractsReady && !in.nodeHold && !in.consumerHold && !in.rampLocked && speed < in.target) {
       // A complete vote round may add at most 50%; this keeps equal jobs from
       // all leaping to their individual maximum on the same node-pressure tick.
       uint64_t raised = std::max(speed + 1, (speed * 3 + 1) / 2);

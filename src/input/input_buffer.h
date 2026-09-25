@@ -1,3 +1,4 @@
+#include "buffer_hold.h"
 #include "input.h"
 
 #include <mist/dtsc.h>
@@ -63,6 +64,8 @@ namespace Mist{
     bool processingProcessRetired(const JSON::Value & proc) const;
     size_t expectedProcessingOutputTracks(const JSON::Value & procs, bool & resolved) const;
     void publishProcessingOutputExpectation(const JSON::Value & procs);
+    void publishFeedPaused();
+    uint64_t holdingReaderLeadMs(uint64_t & targetDurationMs) const;
     // This is used for an ugly fix to prevent metadata from disappearing in some cases.
     std::map<size_t, std::string> initData;
 
@@ -105,8 +108,18 @@ namespace Mist{
     // can attach them to RECORDING_END.
     ProcessStreamState speedStats;
 
+    // Process-controlled streams only: recorders mark their reads HOLDBUFFER,
+    // eviction stops at their lowest unconsumed key, and the feed pauses while
+    // it leads them by nearly the whole buffer window.
+    BufferHoldTracker bufferHolds;
+    ConsumerLagHold consumerLag;
+    bool outputsResolved;
+
     std::set<size_t> generatePids;
     std::map<size_t, size_t> sourceUsers;
+    // Tracks kept after their publisher disconnected, dropped once a new
+    // publisher session registers (see retainedSourceTrackGoesStale).
+    std::set<size_t> retainedSourceTracks;
     std::map<size_t, size_t> processUsers;
     std::set<pid_t> processPidsWithUsers;
     size_t drainConsumerUsers;

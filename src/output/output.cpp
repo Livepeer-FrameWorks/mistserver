@@ -2,6 +2,7 @@
 
 #include "../processing_lifecycle.h"
 #include "dtsc.h"
+#include "recording_summary.h"
 
 #include <mist/bitfields.h>
 #include <mist/defines.h>
@@ -488,8 +489,11 @@ namespace Mist{
     //Connect to stream metadata
     meta.setTrackInvalidateCallback([this](size_t trkIdx) { invalidateTrackPage(trkIdx); });
     meta.reInit(streamName, false);
-    unsigned int attempts = 0;
-    while (!meta && ++attempts < 20 && Util::streamAlive(streamName)){
+    uint64_t metaWaitStart = Util::bootMS();
+    while (config->is_active &&
+           outputWaitsForMetaPage(!!meta, Util::streamAlive(streamName), Util::getStreamStatus(streamName),
+                                  Util::bootMS() - metaWaitStart)) {
+      Util::wait(100);
       meta.reInit(streamName, false);
     }
     //Abort if this step failed
@@ -617,6 +621,7 @@ namespace Mist{
         userSelect.erase(*it);
         continue;
       }
+      markBufferHold(*it);
     }
 
     newSelects.clear();
@@ -2242,6 +2247,15 @@ namespace Mist{
             sendHeader();
           } // reachedPlannedStop
 
+          if (isRecordingToFile && thisPacket) {
+            std::map<size_t, std::pair<uint64_t, uint64_t>>::iterator span = writtenSpans.find(thisIdx);
+            if (span == writtenSpans.end()) {
+              writtenSpans[thisIdx] = std::make_pair(thisTime, thisTime);
+            } else {
+              if (thisTime < span->second.first) { span->second.first = thisTime; }
+              if (thisTime > span->second.second) { span->second.second = thisTime; }
+            }
+          }
           sendNext();
         }
         if (!meta){
@@ -3125,17 +3139,10 @@ namespace Mist{
         if (snapshot) { T = recordedTrackDetails[trackIdx]; }
         T["idx"] = trackIdx;
         T["selected"] = (bool)(selectedTracks.count(trackIdx) || recordedTracks.count(trackIdx));
-        if (liveMeta) {
-          T["id"] = M.getID(trackIdx);
-          T["type"] = M.getType(trackIdx);
-          T["codec"] = M.getCodec(trackIdx);
-          T["firstms"] = M.getFirstms(trackIdx);
-          T["lastms"] = M.getLastms(trackIdx);
-          T["bps"] = M.getBps(trackIdx);
-          T["rate"] = M.getRate(trackIdx);
-          if (M.getWidth(trackIdx)) { T["width"] = M.getWidth(trackIdx); }
-          if (M.getHeight(trackIdx)) { T["height"] = M.getHeight(trackIdx); }
-          if (M.getChannels(trackIdx)) { T["channels"] = M.getChannels(trackIdx); }
+        if (liveMeta) { describeRecordedTrack(M, trackIdx, T); }
+        if (writtenSpans.count(trackIdx)) {
+          T["written_firstms"] = writtenSpans[trackIdx].first;
+          T["written_lastms"] = writtenSpans[trackIdx].second;
         }
       }
       JSON::Value trackSummary;
@@ -3373,8 +3380,20 @@ namespace Mist{
     std::set<size_t> tracks = getSupportedTracks();
     for (std::set<size_t>::iterator it = tracks.begin(); it != tracks.end(); it++){
       userSelect[*it].reload(streamName, *it);
+      markBufferHold(*it);
     }
     trackSelectionChanged();
+  }
+
+  /// A processing recording pins the buffer: the input keeps every key this
+  /// reader has not written yet and paces its feed to it, instead of evicting
+  /// the start of the recording while the header waits or the writer lags.
+  void Output::markBufferHold(size_t trackIdx) {
+    if (!(isRecordingToFile || isRecording())) { return; }
+    std::map<size_t, Comms::Users>::iterator it = userSelect.find(trackIdx);
+    if (it == userSelect.end() || !it->second) { return; }
+    if (!processingControlledRealtime()) { return; }
+    it->second.setStatus(it->second.getStatus() | COMM_STATUS_HOLDBUFFER);
   }
 
   bool Output::processingControlledRealtime() const {
@@ -3393,17 +3412,7 @@ namespace Mist{
     recordedTracks.insert(trackIdx);
     if (recordedTrackDetails.count(trackIdx) || !M) { return; }
     if (!(M.trackValid(trackIdx) || M.getCodec(trackIdx).size())) { return; }
-    JSON::Value & T = recordedTrackDetails[trackIdx];
-    T["id"] = M.getID(trackIdx);
-    T["type"] = M.getType(trackIdx);
-    T["codec"] = M.getCodec(trackIdx);
-    T["firstms"] = M.getFirstms(trackIdx);
-    T["lastms"] = M.getLastms(trackIdx);
-    T["bps"] = M.getBps(trackIdx);
-    T["rate"] = M.getRate(trackIdx);
-    if (M.getWidth(trackIdx)) { T["width"] = M.getWidth(trackIdx); }
-    if (M.getHeight(trackIdx)) { T["height"] = M.getHeight(trackIdx); }
-    if (M.getChannels(trackIdx)) { T["channels"] = M.getChannels(trackIdx); }
+    describeRecordedTrack(M, trackIdx, recordedTrackDetails[trackIdx]);
   }
 
   void Output::refreshProcessStreamState() {

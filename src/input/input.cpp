@@ -1311,6 +1311,7 @@ namespace Mist{
       }
     }
     int64_t bootMsOffset = liveMeta.getBootMsOffset();
+    uint64_t pacedSpeed = 0;
     validTracks.clear();
 
     seek(0);/// \TODO Is this actually needed?
@@ -1352,6 +1353,7 @@ namespace Mist{
         while (processControlledRealtime && streamStatus && streamStatus.len >= 16 &&
                streamStatus.mapped[STRMSTATE_PROCESS_FEED_PAUSED_OFFSET] && config->is_active && userSelect[idx]) {
           if (!pauseStartedMs) { pauseStartedMs = Util::bootMS(); }
+          activityCounter = Util::bootSecs();
           Util::sleep(10);
         }
         if (pauseStartedMs) {
@@ -1372,6 +1374,17 @@ namespace Mist{
         if (activeSpeed < 1) { activeSpeed = 1; }
         uint64_t readaheadMs = simulatedLiveReadaheadMs(processControlledRealtime, SIMULATED_LIVE_BUFFER);
         uint64_t packetSourceMs = (thisTime + timeOffset);
+        // A speed change applies from this packet on: re-anchor the clock so
+        // this packet keeps the deadline the previous speed gave it. Without
+        // that, a higher speed makes the whole stretch between the old and the
+        // new schedule overdue at once and the feed bursts tens of seconds of
+        // media ahead of its readers in a single buffer tick.
+        if (processControlledRealtime && pacedSpeed && activeSpeed != pacedSpeed) {
+          int64_t continuing = bootMsOffset + (int64_t)(packetSourceMs / pacedSpeed);
+          bootMsOffset = continuing - (int64_t)(packetSourceMs / activeSpeed);
+          liveMeta.setBootMsOffset(bootMsOffset);
+        }
+        pacedSpeed = activeSpeed;
         int64_t scaledDeadline = bootMsOffset + (int64_t)(packetSourceMs / activeSpeed);
         while (config->is_active && userSelect[idx] && (int64_t)(Util::bootMS() + readaheadMs) < scaledDeadline) {
           int64_t remaining = scaledDeadline - (int64_t)(Util::bootMS() + readaheadMs);
@@ -1389,7 +1402,10 @@ namespace Mist{
         thisPacket.getString("data", data, dataLen);
         bufferLivePacket(thisTime+timeOffset, thisPacket.getInt("offset"), idx, data, dataLen, 0, thisPacket.getFlag("keyframe"), liveMeta);
       }
-
+      // Feeding the buffer is this input's activity: its own stream has no
+      // viewers, and a paced or paused feed can easily outlast the inactivity
+      // timeout that the source reads check through keepRunning().
+      activityCounter = Util::bootSecs();
 
       if (Util::bootSecs() - statTimer > 1){
         // Connect to stats for INPUT detection

@@ -64,6 +64,28 @@ int main() {
     if (Mist::outputWaitsForBootingBuffer(state, 0, false)) { return fail("only booting states make an output wait"); }
   }
 
+  // An output that reaches a starting stream before the buffer has created its
+  // meta page keeps polling for it, instead of giving up within milliseconds
+  // and never reaching the booting-buffer wait above.
+  if (!Mist::outputWaitsForMetaPage(false, true, STRMSTAT_OFF, 0) ||
+      !Mist::outputWaitsForMetaPage(false, true, STRMSTAT_OFF, Mist::OUTPUT_BUFFER_BOOT_WAIT_MS - 1)) {
+    return fail("an output must wait for the meta page of an alive stream");
+  }
+  for (uint8_t state : bootingStates) {
+    if (!Mist::outputWaitsForMetaPage(false, false, state, 500)) {
+      return fail("an output must wait for the meta page while the stream is booting");
+    }
+  }
+  if (Mist::outputWaitsForMetaPage(true, true, STRMSTAT_BOOT, 0)) { return fail("a present meta page ends the wait"); }
+  if (Mist::outputWaitsForMetaPage(false, true, STRMSTAT_BOOT, Mist::OUTPUT_BUFFER_BOOT_WAIT_MS)) {
+    return fail("the meta page wait must be bounded");
+  }
+  for (uint8_t state : settledStates) {
+    if (Mist::outputWaitsForMetaPage(false, false, state, 0)) {
+      return fail("a stream that is neither alive nor booting has no meta page to wait for");
+    }
+  }
+
   if (!Util::streamStatusIsTerminal(STRMSTAT_OFF) || !Util::streamStatusIsTerminal(STRMSTAT_OFFLINE) ||
       Util::streamStatusIsTerminal(STRMSTAT_SHUTDOWN)) {
     return fail("OFF and deliberate OFFLINE must be the only terminal shutdown states");

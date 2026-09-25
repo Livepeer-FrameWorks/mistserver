@@ -85,6 +85,7 @@ namespace Mist{
 
     void selectAllTracks();
     bool processingControlledRealtime() const;
+    void markBufferHold(size_t trackIdx);
     bool processingControlledRealtimeSelectionEnded();
     bool processingRecordingTracksReady();
 
@@ -147,6 +148,9 @@ namespace Mist{
     // is remembered, with its metadata, at the moment it is dropped.
     std::set<size_t> recordedTracks; ///< every track this recording selected and wrote
     std::map<size_t, JSON::Value> recordedTrackDetails; ///< metadata snapshot per recorded track, taken when it was dropped
+    /// First and last timestamp this recording wrote per track. The buffer's
+    /// firstms moves on as it evicts, so only these say what the file holds.
+    std::map<size_t, std::pair<uint64_t, uint64_t>> writtenSpans;
     void rememberRecordedTrack(size_t trackIdx);
     void refreshProcessStreamState();
 

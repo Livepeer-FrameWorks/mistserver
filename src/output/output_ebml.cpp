@@ -283,6 +283,13 @@ namespace Mist{
       std::stringstream reason;
       reason << "EBML track " << thisIdx << " (" << M.getCodec(thisIdx) << ") was not declared in the recording header; declared:";
       for (const size_t track : declaredTracks) { reason << " " << track; }
+      // An EBML header cannot be extended. A processing output that appears
+      // after it (a producer replaced mid-job) makes this recording
+      // unfinishable, but a fresh attempt would declare the new track: say so
+      // with a reason callers can tell apart from a broken recording.
+      if (M.getSourceTrack(thisIdx) != INVALID_TRACK_ID && processingControlledRealtime()) {
+        Util::logExitReason(ER_PROCESS_TRACKS_CHANGED, "%s", reason.str().c_str());
+      }
       onFail(reason.str(), true);
       return;
     }
