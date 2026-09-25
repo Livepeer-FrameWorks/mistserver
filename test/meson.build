@@ -87,6 +87,11 @@ inputebmltest = executable('inputebmltest', ['input_ebml_unit.cpp', '../src/inpu
                            header_tgts, dependencies: libmist_dep)
 test('Live EBML timestamps follow the server clock', inputebmltest, suite: 'EBML')
 
+inputebmlseektest = executable('inputebmlseektest', ['input_ebml_seek_unit.cpp', '../src/input/input.cpp',
+                                                    '../src/input/input_ebml.cpp', io_cpp],
+                               header_tgts, dependencies: libmist_dep)
+test('EBML seek starts every track at its own first data', inputebmlseektest, suite: 'EBML')
+
 inputhlstest = executable('inputhlstest', ['input_hls_unit.cpp', '../src/input/input.cpp',
                                           '../src/input/input_hls.cpp', io_cpp],
                           header_tgts, dependencies: libmist_dep)
@@ -150,6 +155,9 @@ if get_option('b_sanitize') == 'none' and ffmpeg_program.found() and ffprobe_pro
               exec_tgts.get('MistOutEBML'), exec_tgts.get('MistSession'),
               exec_tgts.get('MistUtilLog'), exec_tgts.get('MistUtilNuke')],
        suite: 'EBML', timeout: 90, is_parallel: false)
+  ebmlseekintegrationtest = find_program('ebml_seek_integration.sh')
+  test('EBML audio ahead of video loads from its first packet', ebmlseekintegrationtest,
+       args: [ffmpeg_program, inputebmlseektest], suite: 'EBML', timeout: 60)
   timeout_program = find_program('timeout', 'gtimeout', required: false)
   if timeout_program.found()
     staledtshtest = find_program('stale_dtsh_integration.sh')

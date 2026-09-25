@@ -1,5 +1,7 @@
 #include "input_ebml.h"
 
+#include "ebml_seek_policy.h"
+
 #include <mist/bitfields.h>
 #include <mist/defines.h>
 #include <mist/ebml_socketglue.h>
@@ -325,18 +327,28 @@ namespace Mist{
 
   void InputEBML::seek(uint64_t seekTime, size_t idx){
     parser.flush();
-    uint64_t mainTrack = M.mainTrack();
-
-    DTSC::Keys keys(M.keys(mainTrack));
-    DTSC::Parts parts(M.parts(mainTrack));
-    uint64_t seekPos = keys.getBpos(0);
-    // Replay the parts of the previous keyframe, so the timestamps match up
-    for (size_t i = 0; i < keys.getEndValid(); i++){
-      if (keys.getTime(i) > seekTime){break;}
-      DONTEVEN_MSG("Seeking to %" PRIu64 ", found %" PRIu64 "...", seekTime, keys.getTime(i));
-      seekPos = keys.getBpos(i);
+    // Seek by the keys of the track being loaded (all tracks for a full read),
+    // not the main track: a track whose data starts before the main track's
+    // first key (audio ahead of video) must still be read from its own start.
+    std::set<size_t> seekTracks;
+    if (idx != INVALID_TRACK_ID) {
+      seekTracks.insert(idx);
+    } else {
+      seekTracks = M.getValidTracks();
     }
-
+    if (seekTracks.empty()) { seekTracks.insert(M.mainTrack()); }
+    std::vector<EBMLSeekTrack> indexes;
+    for (size_t tid : seekTracks) {
+      DTSC::Keys keys(M.keys(tid));
+      EBMLSeekTrack t;
+      for (size_t i = keys.getFirstValid(); i < keys.getEndValid(); i++) {
+        t.keyTimes.push_back(keys.getTime(i));
+        t.keyBpos.push_back(keys.getBpos(i));
+      }
+      indexes.push_back(t);
+    }
+    uint64_t seekPos = ebmlSeekPosition(indexes, seekTime);
+    DONTEVEN_MSG("Seeking to %" PRIu64 " for %zu track(s): byte position %" PRIu64, seekTime, seekTracks.size(), seekPos);
 
     firstRead = true;
     if (readPos > seekPos || seekPos > readPos + readBuffer.size() + 4*1024*1024){
