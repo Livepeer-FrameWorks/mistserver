@@ -37,6 +37,15 @@ namespace Mist {
     return retainedTrack != newSourceTrack && retainedType == newType;
   }
 
+  /// Process configs from STREAM_PROCESS can carry credentials bound to one
+  /// publisher session (a Livepeer job token names the ingest session). When
+  /// every publisher of a resumed live buffer left and a new one registers,
+  /// the buffer asks again so its processes run on the new session's config.
+  /// Process-controlled buffers have one producer for their whole life.
+  inline bool publisherLeftEndsProcessSession(bool processControlledRealtime, size_t remainingSourceUsers) {
+    return !processControlledRealtime && !remainingSourceUsers;
+  }
+
   inline ProcessingSourceEofAction processingSourceEofAction(bool active, bool hasPush, bool everHadPush, bool resumeMode,
                                                              bool processControlledRealtime, bool hasDrainConsumer) {
     if (!active || hasPush || !everHadPush) { return PROCESSING_EOF_NONE; }

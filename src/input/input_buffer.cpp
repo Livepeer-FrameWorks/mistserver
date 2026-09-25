@@ -43,6 +43,7 @@ namespace Mist{
     lastProcTime = 0;
     allProcsRunning = false;
     processOverrideResolved = false;
+    publisherSessionEnded = false;
     effectiveSpeed = 0;
     startupSeedApplied = false;
     outputsResolved = false;
@@ -839,6 +840,13 @@ namespace Mist{
         processPidsWithUsers.insert(users.getPid(id));
       } else {
         const size_t newTrack = users.getTrack(id);
+        if (!sourceUsers.count(id) && publisherSessionEnded) {
+          // The override answered for the previous session; a failed trigger
+          // keeps it, since only an answer replaces processOverride.
+          INFO_MSG("New publisher session; re-resolving stream processes");
+          publisherSessionEnded = false;
+          processOverrideResolved = false;
+        }
         if (!sourceUsers.count(id) && retainedSourceTracks.size()) {
           // A new publisher session: a retained track it did not resume is stale.
           retainedSourceTracks.erase(newTrack);
@@ -905,6 +913,9 @@ namespace Mist{
         activityCounter = Util::bootSecs();
       }
       sourceUsers.erase(id);
+      if (publisherLeftEndsProcessSession(processControlledRealtime, sourceUsers.size())) {
+        publisherSessionEnded = true;
+      }
     }
   }
   bool InputBuffer::hasProcessDrainConsumers() const {

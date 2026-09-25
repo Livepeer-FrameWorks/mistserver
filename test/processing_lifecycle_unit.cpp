@@ -36,6 +36,16 @@ int main() {
   }
   if (dropRetainedSourceTrack(0, "video", 0, "video")) { return fail("a resumed track is never dropped"); }
 
+  if (!publisherLeftEndsProcessSession(false, 0)) {
+    return fail("a live buffer whose last publisher left must re-resolve processes for the next session");
+  }
+  if (publisherLeftEndsProcessSession(false, 1)) {
+    return fail("a publisher leaving while another still publishes keeps the current session");
+  }
+  if (publisherLeftEndsProcessSession(true, 0)) {
+    return fail("process-controlled buffers keep their process config for their whole life");
+  }
+
   if (processingSourceEofAction(false, false, true, false, true, false) != PROCESSING_EOF_NONE ||
       processingSourceEofAction(true, true, true, false, true, false) != PROCESSING_EOF_NONE ||
       processingSourceEofAction(true, false, false, false, true, false) != PROCESSING_EOF_NONE) {
