@@ -37,6 +37,21 @@ namespace Mist {
     return retainedTrack != newSourceTrack && retainedType == newType;
   }
 
+  /// Whether a buffer track was produced by a process from another track
+  /// (renditions, thumbnails, detections) rather than published as source.
+  inline bool bufferTrackIsDerived(uint64_t sourceTrack) {
+    return sourceTrack != INVALID_TRACK_ID;
+  }
+
+  /// The fragment count that decides when a buffer is playable. The source
+  /// tracks alone decide it: viewers can play the source while derived tracks
+  /// are still waiting on their process, which can take seconds (a remote
+  /// transcoder) or never happen. A buffer with no source media tracks falls
+  /// back to all tracks.
+  inline uint64_t bufferReadinessFragments(uint64_t sourceFrags, uint64_t allFrags, bool hasSourceMedia) {
+    return hasSourceMedia ? sourceFrags : allFrags;
+  }
+
   /// Process configs from STREAM_PROCESS can carry credentials bound to one
   /// publisher session (a Livepeer job token names the ingest session). When
   /// every publisher of a resumed live buffer left and a new one registers,

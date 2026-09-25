@@ -274,6 +274,8 @@ namespace Mist{
     uint64_t firstms = 0xFFFFFFFFFFFFFFFFull;
     uint64_t lastms = 0;
     uint64_t fragCount = 0xFFFFull;
+    uint64_t sourceFragCount = 0xFFFFull;
+    bool hasSourceMedia = false;
     std::set<size_t> validTracks = M.getValidTracks();
     for (std::set<size_t>::iterator it = validTracks.begin(); it != validTracks.end(); it++){
       size_t i = *it;
@@ -286,11 +288,11 @@ namespace Mist{
       }else{
         if (initData.count(i)){meta.setInit(i, initData[i]);}
       }
-      if (M.hasEmbeddedFrames(i)){
-        fragCount = FRAG_BOOT;
-      }else{
-        DTSC::Fragments fragments(M.fragments(i));
-        if (fragments.getEndValid() < fragCount){fragCount = fragments.getEndValid();}
+      const uint64_t trackFrags = M.hasEmbeddedFrames(i) ? FRAG_BOOT : DTSC::Fragments(M.fragments(i)).getEndValid();
+      if (trackFrags < fragCount) { fragCount = trackFrags; }
+      if (!bufferTrackIsDerived(M.getSourceTrack(i))) {
+        hasSourceMedia = true;
+        if (trackFrags < sourceFragCount) { sourceFragCount = trackFrags; }
       }
       if (M.getFirstms(i) < firstms){firstms = M.getFirstms(i);}
       if (M.getLastms(i) > lastms){lastms = M.getLastms(i);}
@@ -312,6 +314,7 @@ namespace Mist{
         }
       }
     }
+    fragCount = bufferReadinessFragments(sourceFragCount, fragCount, hasSourceMedia);
     if (fragCount >= FRAG_BOOT && fragCount != 0xFFFFull){
       JSON::Value stream_details;
       M.getHealthJSON(stream_details);

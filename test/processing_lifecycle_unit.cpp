@@ -36,6 +36,17 @@ int main() {
   }
   if (dropRetainedSourceTrack(0, "video", 0, "video")) { return fail("a resumed track is never dropped"); }
 
+  if (!bufferTrackIsDerived(3) || bufferTrackIsDerived(INVALID_TRACK_ID)) {
+    return fail("a track with a source track is derived; a published track is not");
+  }
+  if (bufferReadinessFragments(3, 0, true) != 3) {
+    return fail("a buffer whose source is ready is playable while its renditions have no fragments yet");
+  }
+  if (bufferReadinessFragments(0, 3, true) != 0) { return fail("a buffer whose source is not ready stays unplayable"); }
+  if (bufferReadinessFragments(0xFFFFull, 3, false) != 3) {
+    return fail("a buffer without source media tracks is judged by all its tracks");
+  }
+
   if (!publisherLeftEndsProcessSession(false, 0)) {
     return fail("a live buffer whose last publisher left must re-resolve processes for the next session");
   }
