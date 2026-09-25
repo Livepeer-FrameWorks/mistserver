@@ -44,6 +44,26 @@ int main() {
     return fail("attempt-local offline result must override only that status response");
   }
 
+  // An output attached to a buffer that is still booting (no valid track yet)
+  // waits instead of selecting nothing and ending; a processing reader and a
+  // buffer that already has tracks never take this wait.
+  const uint8_t bootingStates[] = {STRMSTAT_INIT, STRMSTAT_BOOT, STRMSTAT_WAIT};
+  for (uint8_t state : bootingStates) {
+    if (!Mist::outputWaitsForBootingBuffer(state, 0, false)) {
+      return fail("an output must wait for a booting buffer that has no valid tracks yet");
+    }
+    if (Mist::outputWaitsForBootingBuffer(state, 0, true)) {
+      return fail("a processing reader must never wait for a booting buffer");
+    }
+    if (Mist::outputWaitsForBootingBuffer(state, 2, false)) {
+      return fail("a buffer with valid tracks is left to the readiness check");
+    }
+  }
+  const uint8_t settledStates[] = {STRMSTAT_READY, STRMSTAT_OFF, STRMSTAT_SHUTDOWN, STRMSTAT_OFFLINE, STRMSTAT_INVALID};
+  for (uint8_t state : settledStates) {
+    if (Mist::outputWaitsForBootingBuffer(state, 0, false)) { return fail("only booting states make an output wait"); }
+  }
+
   if (!Util::streamStatusIsTerminal(STRMSTAT_OFF) || !Util::streamStatusIsTerminal(STRMSTAT_OFFLINE) ||
       Util::streamStatusIsTerminal(STRMSTAT_SHUTDOWN)) {
     return fail("OFF and deliberate OFFLINE must be the only terminal shutdown states");

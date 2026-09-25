@@ -505,10 +505,14 @@ namespace Mist{
     //push inputs do not need to wait for stream to be ready for playback
     if (isPushing()){return;}
 
+    auto bufferStillBooting = [&]() {
+      return outputWaitsForBootingBuffer(Util::getStreamStatus(streamName), M ? M.getValidTracks().size() : 0, attachProcessingBuffer);
+    };
+
     //live streams that are no push outputs (recordings), wait for stream to be ready
-    if (M && M.getLive() && !isReadyForPlay()){
+    if ((M && M.getLive() && !isReadyForPlay()) || bufferStillBooting()) {
       uint64_t waitUntil = Util::bootSecs() + 45;
-      while (M && M.getLive() && !isReadyForPlay()){
+      while ((M && M.getLive() && !isReadyForPlay()) || bufferStillBooting()) {
         if (Util::bootSecs() > waitUntil){
           INFO_MSG("Giving up waiting for playable tracks. IP: %s", getConnectedHost().c_str());
           break;
