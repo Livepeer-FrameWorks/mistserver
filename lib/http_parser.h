@@ -60,6 +60,9 @@ namespace HTTP{
     std::string body;
     std::string method;
     std::string url;
+    /// url already is a percent-encoded request target (e.g. composed from an
+    /// HTTP::URL); BuildRequest then sends it verbatim instead of encoding it again.
+    bool urlEncoded;
     std::string protocol;
     size_t length;
     bool knownLength;

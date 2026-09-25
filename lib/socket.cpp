@@ -1651,8 +1651,11 @@ void Socket::Connection::send(const char *data, size_t len) {
 /// Sends (potentially chunked) data immediately if blocking, buffers it for later (if needed) when non-blocking.
 void Socket::Connection::SendNow(const char *data, size_t len) {
   if (chunkedMode) {
-    // No length? Send end-of-chunked-mode, and exit chunked mode
+    // SendNow(0, 0) ends the chunked body. Any other zero-length write (an
+    // empty string field, e.g. the init data of an image track) carries no
+    // data and must not terminate the body early.
     if (!len) {
+      if (data) { return; }
       send("0\r\n\r\n", 5);
       chunkedMode = false;
       return;

@@ -136,6 +136,9 @@ namespace HTTP{
       H.method = conn.getError();
       return; // socket is closed
     }
+    // Both targets below are percent-encoded here, from the decoded HTTP::URL
+    // path; BuildRequest must send them as-is, not encode them a second time.
+    H.urlEncoded = true;
     if (proxied && !ssl){
       H.url = link.getProxyUrl();
       if (link.port.size()){

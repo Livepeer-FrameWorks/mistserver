@@ -3793,8 +3793,32 @@ namespace DTSC{
     }
   }
 
+  /// Collects the many small field writes of a DTSH header into blocks, so a
+  /// chunked HTTP upload carries a few large chunks instead of one per field.
+  class DTSHBlockWriter {
+    public:
+      explicit DTSHBlockWriter(Socket::Connection & sock) : sock(sock) {}
+      ~DTSHBlockWriter() { flush(); }
+      void SendNow(const char *data, size_t len) {
+        buffer.append(data, len);
+        if (buffer.size() >= 65536) { flush(); }
+      }
+      void SendNow(const char *data) { SendNow(data, strlen(data)); }
+      void SendNow(const std::string & data) { SendNow(data.data(), data.size()); }
+      void flush() {
+        if (!buffer.size()) { return; }
+        sock.SendNow(buffer);
+        buffer.clear();
+      }
+
+    private:
+      Socket::Connection & sock;
+      std::string buffer;
+  };
+
   /// Sends the current Meta object through a socket in DTSH format
-  void Meta::send(Socket::Connection &conn, bool skipDynamic, std::set<size_t> selectedTracks, bool reID) const{
+  void Meta::send(Socket::Connection & sock, bool skipDynamic, std::set<size_t> selectedTracks, bool reID) const {
+    DTSHBlockWriter conn(sock);
     std::string lVars;
     size_t lVarSize = 0;
     if (inputLocalVars.size()){
@@ -3854,7 +3878,7 @@ namespace DTSC{
         conn.SendNow("\000\004keys\002", 7);
         conn.SendNow(c32(keyCount * DTSH_KEY_SIZE), 4);
         for (size_t i = 0; i < keyCount; i++){
-          conn.SendNow(c64(keys.getInt("bpos", i + fragBegin)), 8);
+          conn.SendNow(c64(keys.getInt("bpos", i + keyBegin)), 8);
           conn.SendNow(c24(keys.getInt("duration", i + keyBegin)), 3);
           conn.SendNow(c32(keys.getInt("number", i + keyBegin)), 4);
           conn.SendNow(c16(keys.getInt("parts", i + keyBegin)), 2);

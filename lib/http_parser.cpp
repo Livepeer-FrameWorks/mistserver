@@ -46,6 +46,7 @@ void HTTP::Parser::CleanPreserveHeaders(){
   bufferChunks = false;
   method = "GET";
   url = "/";
+  urlEncoded = false;
   protocol = "HTTP/1.1";
   body.clear();
   length = 0;
@@ -155,6 +156,11 @@ static std::string encodeRequestTarget(const std::string & url) {
   return Encodings::URL::encode(url.substr(0, qmark), "/:=@[]") + url.substr(qmark);
 }
 
+/// The request target as sent on the wire: percent-encoded exactly once.
+static std::string requestTarget(const std::string & url, bool urlEncoded) {
+  return urlEncoded ? url : encodeRequestTarget(url);
+}
+
 /// Returns a string containing a valid HTTP 1.0 or 1.1 request, ready for sending.
 /// The request is build from internal variables set before this call is made.
 /// To be precise, method, url, protocol, headers and body are used.
@@ -163,10 +169,11 @@ std::string &HTTP::Parser::BuildRequest(){
   /// \todo Include POST variable handling for vars?
   std::map<std::string, std::string>::iterator it;
   if (protocol.size() < 5 || protocol[4] != '/'){protocol = "HTTP/1.0";}
+  const std::string target = requestTarget(url, urlEncoded);
   if (!(method == "POST" && GetHeader("Content-Type") == "application/x-www-form-urlencoded") && vars.size() && url.find('?') == std::string::npos){
-    builder = method + " " + encodeRequestTarget(url) + allVars() + " " + protocol + "\r\n";
+    builder = method + " " + target + allVars() + " " + protocol + "\r\n";
   }else{
-    builder = method + " " + encodeRequestTarget(url) + " " + protocol + "\r\n";
+    builder = method + " " + target + " " + protocol + "\r\n";
   }
   for (it = headers.begin(); it != headers.end(); it++){
     if ((*it).first != "" && (*it).second != ""){
@@ -193,9 +200,9 @@ void HTTP::Parser::sendRequest(Socket::Connection &conn, const void *reqbody,
     std::map<std::string, std::string>::iterator it;
     if (protocol.size() < 5 || protocol[4] != '/'){protocol = "HTTP/1.0";}
     if (!(method == "POST" && GetHeader("Content-Type") == "application/x-www-form-urlencoded") && vars.size() && url.find('?') == std::string::npos){
-      builder = method + " " + encodeRequestTarget(url) + allVars() + " " + protocol + "\r\n";
+      builder = method + " " + requestTarget(url, urlEncoded) + allVars() + " " + protocol + "\r\n";
     }else{
-      builder = method + " " + encodeRequestTarget(url) + " " + protocol + "\r\n";
+      builder = method + " " + requestTarget(url, urlEncoded) + " " + protocol + "\r\n";
     }
     if (reqbodyLen){SetHeader("Content-Length", reqbodyLen);}
     for (it = headers.begin(); it != headers.end(); it++){
@@ -216,9 +223,9 @@ void HTTP::Parser::sendRequest(Socket::Connection &conn, const void *reqbody,
   if (protocol.size() < 5 || protocol[4] != '/'){protocol = "HTTP/1.0";}
   if (!(method == "POST" && GetHeader("Content-Type") == "application/x-www-form-urlencoded") && vars.size() &&
       url.find('?') == std::string::npos) {
-    builder = method + " " + encodeRequestTarget(url) + allVars() + " " + protocol + "\r\n";
+    builder = method + " " + requestTarget(url, urlEncoded) + allVars() + " " + protocol + "\r\n";
   } else {
-    builder = method + " " + encodeRequestTarget(url) + " " + protocol + "\r\n";
+    builder = method + " " + requestTarget(url, urlEncoded) + " " + protocol + "\r\n";
   }
   conn.SendNow(builder);
   if (reqbodyLen){SetHeader("Content-Length", reqbodyLen);}
@@ -884,7 +891,8 @@ void HTTP::Parser::Chunkify(const char *data, unsigned int size, Socket::Connect
   }
   if (sendingChunks){
     conn.setChunkedMode(true);
-    conn.SendNow(data, size);
+    // An empty part ends the response: SendNow(0, 0) is the chunked terminator.
+    conn.SendNow(size ? data : 0, size);
     // End of response: reset the parser so a kept-alive connection can parse the next
     // request. Without this, the stale Transfer-Encoding header makes the parser wait
     // for a chunked request body that never comes.
