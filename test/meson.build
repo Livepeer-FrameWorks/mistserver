@@ -177,6 +177,15 @@ if get_option('b_sanitize') == 'none' and ffmpeg_program.found() and ffprobe_pro
                 exec_tgts.get('MistUtilNuke'), livepeerstub, timeout_program,
                 livepeerprocstateprobe],
          suite: 'Processing', timeout: 120, is_parallel: false)
+    test('Livepeer re-sends a rejected segment to the same broadcaster', livepeervodtest,
+         args: [ffmpeg_program, ffprobe_program, exec_tgts.get('MistController'),
+                exec_tgts.get('MistInEBML'), exec_tgts.get('MistInBuffer'),
+                exec_tgts.get('MistProcLivepeer'), exec_tgts.get('MistOutEBML'),
+                exec_tgts.get('MistSession'), exec_tgts.get('MistUtilLog'),
+                exec_tgts.get('MistUtilNuke'), livepeerstub, timeout_program,
+                livepeerprocstateprobe],
+         env: ['LIVEPEER_STUB_REJECT_FIRST=1'],
+         suite: 'Processing', timeout: 150, is_parallel: false)
   endif
   if get_option('WITH_AV') and timeout_program.found()
     processrecordingtest = find_program('process_recording_integration.sh')

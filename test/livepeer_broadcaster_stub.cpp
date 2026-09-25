@@ -6,6 +6,7 @@
 #include <cstring>
 #include <mutex>
 #include <netinet/in.h>
+#include <set>
 #include <string>
 #include <sys/socket.h>
 #include <thread>
@@ -15,6 +16,12 @@ namespace {
   volatile sig_atomic_t active = 1;
   int serverFd = -1;
   std::mutex logMutex;
+  // With LIVEPEER_STUB_REJECT_FIRST=1 the first upload of every segment is
+  // answered 422, the way a gateway rejects segments of a manifest it is still
+  // setting up; the re-sent segment is transcoded normally.
+  bool rejectFirst = false;
+  std::mutex rejectedMutex;
+  std::set<uint64_t> rejectedOnce;
 
   void stop(int) {
     active = 0;
@@ -93,6 +100,25 @@ namespace {
       return;
     }
 
+    const uint64_t segment = segmentNumber(request);
+    if (rejectFirst) {
+      bool reject = false;
+      {
+        std::lock_guard<std::mutex> guard(rejectedMutex);
+        reject = rejectedOnce.insert(segment).second;
+      }
+      if (reject) {
+        const std::string response =
+          "HTTP/1.1 422 Unprocessable Entity\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
+        sendAll(fd, response.data(), response.size());
+        close(fd);
+        std::lock_guard<std::mutex> logGuard(logMutex);
+        fprintf(stdout, "rejected %llu\n", (unsigned long long)segment);
+        fflush(stdout);
+        return;
+      }
+    }
+
     const std::string prefix = "--mist-audit\r\nContent-Type: video/mp2t\r\nRendition-Name: audit\r\n\r\n";
     const std::string suffix = "\r\n--mist-audit--\r\n";
     const size_t responseSize = prefix.size() + bodySize + suffix.size();
@@ -102,7 +128,6 @@ namespace {
     // Return odd segments first. The processor must serialize insertion by
     // segment number even when parallel broadcaster responses complete out of
     // order. Slow even responses also exercise external backpressure.
-    const uint64_t segment = segmentNumber(request);
     usleep(segment % 2 ? 100000 : 1800000);
     sendAll(fd, responseHeaders.data(), responseHeaders.size());
     sendAll(fd, prefix.data(), prefix.size());
@@ -128,6 +153,8 @@ int main(int argc, char **argv) {
     fprintf(stderr, "invalid port\n");
     return 2;
   }
+  const char *rejectFirstEnv = getenv("LIVEPEER_STUB_REJECT_FIRST");
+  rejectFirst = rejectFirstEnv && !strcmp(rejectFirstEnv, "1");
   signal(SIGINT, stop);
   signal(SIGTERM, stop);
 

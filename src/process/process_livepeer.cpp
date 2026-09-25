@@ -658,6 +658,19 @@ void segmentRejectedTrigger(size_t myNum, Mist::preparedSegment & mySeg, const s
   }
 }
 
+/// Gives up a segment every broadcaster rejected. Returns true when the job was
+/// stopped instead (VOD processing), in which case the upload thread must exit.
+bool rejectSegment(size_t myNum, Mist::preparedSegment & mySeg, const std::string & bc1, const std::string & bc2) {
+  if (Mist::livepeerRejectedSegmentStopsJob(Mist::opt, Util::streamName)) {
+    procExit.log(ER_FORMAT_SPECIFIC, 2, "Livepeer rejected segment %s (422); stopping so the local fallback transcodes the whole source",
+                 JSON::Value(mySeg.keyNo).asString().c_str());
+    requestLivepeerStop();
+    return true;
+  }
+  segmentRejectedTrigger(myNum, mySeg, bc1, bc2);
+  return false;
+}
+
 void uploadThread(size_t myNum){
   Util::setStreamName(livepeerThreadStreamName);
   Mist::preparedSegment & mySeg = Mist::presegs[myNum];
@@ -685,6 +698,7 @@ void uploadThread(size_t myNum){
       return;
     } // Exit early on shutdown
     size_t attempts = 0;
+    uint32_t rejectionsHere = 0;
     do{
       HTTP::URL target;
       {
@@ -815,9 +829,13 @@ void uploadThread(size_t myNum){
           }
           break;//Success: no need to retry
         }else if (upper.getStatusCode() == 422){
-          //segment rejected by broadcaster node; try a different broadcaster at most once and keep track
+          // Segment rejected by the broadcaster: re-send it there a few times
+          // with backoff, then try one other broadcaster, then give it up.
           ++statFailN200;
-          ++consecutive422;
+          ++rejectionsHere;
+          // Same-broadcaster re-sends don't count towards the fallback
+          // threshold; each broadcaster's first rejection does.
+          if (rejectionsHere == 1) { ++consecutive422; }
           WARN_MSG("Rejected upload of %zu bytes to %s after %.2f ms: %" PRIu32 " %s", mySeg.data.size(), target.getUrl().c_str(), uplTime/1000.0, upper.getStatusCode(), upper.getStatusText().c_str());
           if (Mist::livepeerShouldFallback(consecutive422)) {
             procExit.log(ER_FORMAT_SPECIFIC, 2,
@@ -825,16 +843,21 @@ void uploadThread(size_t myNum){
             requestLivepeerStop();
             return;
           }
-          if (was422){
-            //second error in a row, fire off LIVEPEER_SEGMENT_REJECTED trigger
-            segmentRejectedTrigger(myNum, mySeg, prevURL, target.getUrl());
+          Mist::LivepeerRejectionStep step = Mist::livepeerRejectionStep(rejectionsHere, was422);
+          if (step == Mist::LivepeerRejectionStep::RetrySame) {
+            WARN_MSG("Re-sending rejected seg %s to the same broadcaster (%" PRIu32 "/%" PRIu32 ")",
+                     JSON::Value(mySeg.keyNo).asString().c_str(), rejectionsHere, Mist::LIVEPEER_SAME_BROADCASTER_422_RETRIES);
+            Util::sleep(Mist::livepeerRejectionBackoffMs(rejectionsHere));
+            continue;
+          }
+          if (step == Mist::LivepeerRejectionStep::RejectSegment) {
+            if (rejectSegment(myNum, mySeg, prevURL, target.getUrl())) { return; }
             was422 = false;
             prevURL.clear();
             break;
-          }else{
-            prevURL = target.getUrl();
-            was422 = true;
           }
+          prevURL = target.getUrl();
+          was422 = true;
         }else{
           //Failure due to non-200/422 status code
           ++statFailN200;
@@ -889,14 +912,15 @@ void uploadThread(size_t myNum){
         if (Mist::currBroadAddr != prevBroadAddr){
           ++statSwitches;
           switchSuccess = true;
+          rejectionsHere = 0;
           WARN_MSG("Switched to new broadcaster: %s", Mist::currBroadAddr.c_str());
         }else{
           WARN_MSG("Cannot switch broadcaster; only a single option is available");
         }
       }
       if (!switchSuccess && was422){
-        //no switch possible, fire off LIVEPEER_SEGMENT_REJECTED trigger
-        segmentRejectedTrigger(myNum, mySeg, prevURL, "N/A");
+        // No other broadcaster to try after the same-broadcaster re-sends.
+        if (rejectSegment(myNum, mySeg, prevURL, "N/A")) { return; }
         was422 = false;
         prevURL.clear();
         break;

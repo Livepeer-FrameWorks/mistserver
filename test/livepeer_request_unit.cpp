@@ -39,6 +39,25 @@ int main() {
   assert(Mist::livepeerShouldFallback(5));
   assert(Mist::livepeerShouldFallback(6));
 
+  assert(Mist::livepeerRejectionStep(1, false) == Mist::LivepeerRejectionStep::RetrySame);
+  assert(Mist::livepeerRejectionStep(2, false) == Mist::LivepeerRejectionStep::RetrySame);
+  assert(Mist::livepeerRejectionStep(2, true) == Mist::LivepeerRejectionStep::RetrySame);
+  assert(Mist::livepeerRejectionStep(3, false) == Mist::LivepeerRejectionStep::SwitchBroadcaster);
+  assert(Mist::livepeerRejectionStep(3, true) == Mist::LivepeerRejectionStep::RejectSegment);
+  assert(Mist::livepeerRejectionBackoffMs(1) == 250);
+  assert(Mist::livepeerRejectionBackoffMs(2) == 500);
+  assert(Mist::livepeerRejectionBackoffMs(3) == 1000);
+  assert(Mist::livepeerRejectionBackoffMs(9) == 2000);
+
+  JSON::Value vodOptions;
+  vodOptions["workload"] = "vod";
+  JSON::Value liveOptions;
+  assert(Mist::livepeerRejectedSegmentStopsJob(vodOptions, "live+abc"));
+  assert(Mist::livepeerRejectedSegmentStopsJob(liveOptions, "processing+abc"));
+  assert(!Mist::livepeerRejectedSegmentStopsJob(liveOptions, "live+abc"));
+  liveOptions["workload"] = "live";
+  assert(!Mist::livepeerRejectedSegmentStopsJob(liveOptions, "live+abc"));
+
   assert(Mist::livepeerShouldRetryCurrentBroadcaster(false, true));
   assert(!Mist::livepeerShouldRetryCurrentBroadcaster(false, false));
   assert(!Mist::livepeerShouldRetryCurrentBroadcaster(true, true));

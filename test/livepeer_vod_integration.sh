@@ -211,4 +211,21 @@ if [ "$first_response" != "1" ]; then
   echo "broadcaster did not complete segment 1 before segment 0; ordering path was not exercised" >&2
   exit 1
 fi
+if [ "${LIVEPEER_STUB_REJECT_FIRST:-}" = "1" ]; then
+  # Every segment was rejected once; each must be re-sent to the same
+  # broadcaster and transcoded rather than skipped.
+  rejected=$(grep -c '^rejected ' "$work/broadcaster.log" || true)
+  if [ "$rejected" -lt 10 ]; then
+    echo "broadcaster rejected only $rejected segments; the 422 path was not exercised" >&2
+    exit 1
+  fi
+  if ! grep -q 'Re-sending rejected seg' "$work/input.log"; then
+    echo "Livepeer did not re-send a rejected segment to the same broadcaster" >&2
+    exit 1
+  fi
+  if grep -q 'Segment could not be transcoded\|consecutive segment rejections\|Livepeer rejected segment' "$work/input.log"; then
+    echo "Livepeer gave up a segment the broadcaster accepts on re-send" >&2
+    exit 1
+  fi
+fi
 echo "Livepeer loopback recording retained the processed video tail through $video_tail seconds"
