@@ -1206,11 +1206,10 @@ namespace Mist{
       // streamStatus during the common startup path. Map the buffer-owned page
       // here so the pacing loop below can actually consume effectiveSpeed.
       if (!streamStatus || streamStatus.len < 16) {
-        std::string stateStream = streamName;
-        Util::sanitizeName(stateStream);
-        stateStream = stateStream.substr(0, stateStream.find_first_of("+ "));
+        // Same name the buffer creates the page under: the full stream name,
+        // wildcard suffix included, not the configured base stream.
         char stateName[NAME_BUFFER_SIZE];
-        snprintf(stateName, sizeof(stateName), SHM_STREAM_STATE, stateStream.c_str());
+        snprintf(stateName, sizeof(stateName), SHM_STREAM_STATE, streamName.c_str());
         streamStatus.init(stateName, STRMSTATE_PAGE_LEN, false, true);
         streamStatus.master = false;
         if (!streamStatus || streamStatus.len < 16) {

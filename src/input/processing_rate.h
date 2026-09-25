@@ -23,6 +23,11 @@ namespace Mist {
     return PROC_FEED_ALLOW;
   }
 
+  /// Feed-rate ceiling when no consequential process constrains the stream
+  /// (only inconsequential ones, e.g. Thumbs, run). Node CPU pressure still
+  /// holds or slows the ramp toward it.
+  static const uint64_t PROCESSING_UNCONSTRAINED_SPEED = 32;
+
   /// Inputs to the generic feed-rate transition. Proc-specific knowledge stays
   /// on the ProcState page; this only combines normalized contract signals.
   struct ProcessingRateInput {

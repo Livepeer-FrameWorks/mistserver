@@ -623,6 +623,14 @@ test('SRT non-default port and resource path', urltest, suite: 'URL parser',
 dtsc_sizing_test = executable('dtsc_sizing_test', 'dtsc_sizing.cpp', header_tgts, dependencies: libmist_dep)
 test('DTSC Sizing Test', dtsc_sizing_test)
 
+chunked_empty_write_test = executable('chunked_empty_write_test', 'chunked_empty_write_unit.cpp', header_tgts,
+  dependencies: libmist_dep)
+test('Chunked uploads keep going past empty writes', chunked_empty_write_test, suite: 'DTSC')
+
+iolivepageflip_test = executable('iolivepageflip_test', ['io_live_page_flip_unit.cpp', io_cpp], header_tgts,
+  dependencies: libmist_dep)
+test('Live page flips read the meta being buffered into', iolivepageflip_test, suite: 'DTSC')
+
 dtsc_part_time_test = executable('dtsc_part_time_test', 'dtsc_part_time_unit.cpp', header_tgts, dependencies: libmist_dep)
 test('DTSC part time skips deleted keys', dtsc_part_time_test)
 

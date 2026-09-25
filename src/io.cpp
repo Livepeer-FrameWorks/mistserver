@@ -484,9 +484,11 @@ namespace Mist{
           if ((tPages.getEndPos() - tPages.getDeleted()) >= tPages.getRCount()){
             aMeta.resizeTrack(packTrack, aMeta.fragments(packTrack).getRCount(), aMeta.keys(packTrack).getRCount(), aMeta.parts(packTrack).getRCount(), tPages.getRCount() * 2, "not enough pages");
           }
-          // Finalize part count of the previous live page
+          // Finalize part count of the previous live page. packTrack indexes
+          // aMeta, which differs from M when a provider input buffers into
+          // the stream's live meta.
           uint64_t newPartCount = 0;
-          DTSC::Keys keys = M.getKeys(packTrack);
+          DTSC::Keys keys = aMeta.getKeys(packTrack);
           uint64_t lastKey = tPages.getInt("firstkey", curPage) + tPages.getInt("keycount", curPage);
           for (uint32_t i = tPages.getInt("firstkey", curPage); i < lastKey; i++){
             newPartCount += keys.getParts(i);

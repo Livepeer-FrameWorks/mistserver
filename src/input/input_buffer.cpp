@@ -655,12 +655,17 @@ namespace Mist{
       }
     }
 
+    // Without a consequential process nothing votes on the feed rate, and
+    // nothing needs the source paced: ramp toward the operator cap (or the
+    // unconstrained ceiling) under node pressure instead of pinning 1x.
+    bool unconstrained = !requiredCount;
+    if (unconstrained) { targetSpeed = operatorCap ? operatorCap : PROCESSING_UNCONSTRAINED_SPEED; }
     if (!targetSpeed) { targetSpeed = 1; }
     if (operatorCap) { targetSpeed = std::min(targetSpeed, operatorCap); }
     if (!allContractsReady) { targetSpeed = 1; }
 
     bool nodeHold = false, nodeSlow = false;
-    if (anyCpuPrimary) {
+    if (anyCpuPrimary || unconstrained) {
       IPC::sharedPage nodePage(SHM_NODE_PRESSURE, 0, false, false);
       NodePressureState node;
       if (NodePressureState::readSnapshot(nodePage, node) && node.lastUpdateMs && now >= node.lastUpdateMs &&
@@ -675,20 +680,22 @@ namespace Mist{
     uint64_t previous = effectiveSpeed;
     if (rampLockoutTicks) { --rampLockoutTicks; }
     size_t readyVoteCount = procsReadyForSpeedUp.size();
-    bool allReady = requiredCount && readyVoteCount >= requiredCount;
+    bool allReady = unconstrained || (requiredCount && readyVoteCount >= requiredCount);
     ProcessingRateInput rateInput;
     // The first complete, unpressured contract set is the proc-authored
     // bootstrap seed, not a ramp destination. Before it arrives the feeder
     // runs at its normal 1x fallback. This avoids losing several seconds to
     // 1->2->3->... merely because InputBuffer observed the BOOTING page first.
-    bool applyStartupSeed = !startupSeedApplied && allContractsReady && !anyHardSlow && !anyRegularSlow && !nodeHold && !nodeSlow;
-    rateInput.current = applyStartupSeed ? 0 : effectiveSpeed;
+    // An unconstrained stream has no proc-authored seed; it ramps up from 1x.
+    bool applyStartupSeed = !startupSeedApplied && !unconstrained && allContractsReady && !anyHardSlow &&
+      !anyRegularSlow && !nodeHold && !nodeSlow;
+    rateInput.current = applyStartupSeed ? 0 : (unconstrained && !effectiveSpeed ? 1 : effectiveSpeed);
     rateInput.target = targetSpeed;
     rateInput.hardSlow = anyHardSlow;
     rateInput.regularSlow = anyRegularSlow;
     rateInput.nodeSlow = nodeSlow;
     rateInput.nodeHold = nodeHold;
-    rateInput.freshVoteRound = sawFresh && allReady;
+    rateInput.freshVoteRound = (sawFresh || unconstrained) && allReady;
     rateInput.contractsReady = allContractsReady;
     rateInput.rampLocked = rampLockoutTicks;
     ProcessingRateResult rateResult = decideProcessingRate(rateInput);

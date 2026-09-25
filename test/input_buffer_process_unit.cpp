@@ -3,10 +3,12 @@
 #include "../src/input/input_buffer.h"
 #undef protected
 #undef private
+#include "../src/input/processing_rate.h"
 
 #include <mist/stream.h>
 #include <mist/timing.h>
 
+#include <csignal>
 #include <cstdio>
 #include <cstring>
 #include <fstream>
@@ -14,6 +16,7 @@
 #include <string>
 #include <sys/mman.h>
 #include <sys/stat.h>
+#include <sys/wait.h>
 #include <unistd.h>
 #include <vector>
 
@@ -202,6 +205,56 @@ namespace {
     }
   }
 
+  /// Runs rate-controller ticks with the given procs registered as running
+  /// and returns the effective speed after each tick.
+  std::vector<uint64_t> rampSpeeds(Util::Config & config, const std::string & name, const JSON::Value & proc) {
+    std::vector<uint64_t> speeds;
+    pid_t child = fork();
+    if (child == 0) {
+      sleep(30);
+      _exit(0);
+    }
+    if (child < 0) {
+      check(false, "could not fork a stand-in process");
+      return speeds;
+    }
+    {
+      InputBufferProbe input(&config);
+      input.initMetadata(name);
+      input.runningProcs[proc.toString()] = child;
+      for (int i = 0; i < 12; ++i) {
+        input.lastRateUpdateMs = 0;
+        input.updateProcessingRate();
+        speeds.push_back(input.effectiveSpeed);
+      }
+      input.runningProcs.clear();
+    }
+    kill(child, SIGKILL);
+    waitpid(child, 0, 0);
+    return speeds;
+  }
+
+  void testUnconstrainedRamp(Util::Config & config) {
+    // Only an inconsequential proc (Thumbs) runs, as for chapter finalization:
+    // nothing constrains the feed, so the speed ramps up instead of staying 1x.
+    JSON::Value thumbs;
+    thumbs["process"] = "Thumbs";
+    thumbs["inconsequential"] = true;
+    std::vector<uint64_t> speeds = rampSpeeds(config, "unconstrained-ramp-test", thumbs);
+    check(speeds.size() == 12, "rate controller must run every tick");
+    if (speeds.size() == 12) {
+      check(speeds.front() <= 2, "unconstrained feed must ramp from 1x, got " + std::to_string(speeds.front()));
+      check(speeds.back() > 8, "unconstrained feed must ramp well past 1x, got " + std::to_string(speeds.back()));
+      check(speeds.back() <= Mist::PROCESSING_UNCONSTRAINED_SPEED, "unconstrained feed must respect its ceiling");
+    }
+
+    // A consequential proc that has not published its contract still holds 1x.
+    JSON::Value transcode;
+    transcode["process"] = "AV";
+    speeds = rampSpeeds(config, "constrained-hold-test", transcode);
+    check(speeds.size() == 12 && speeds.back() == 1, "a consequential proc without a contract must hold 1x");
+  }
+
   void testSupervisor(Util::Config & config) {
     const std::string suffix = std::to_string(getpid());
     const std::string failName = "UnitReplaceFail" + suffix;
@@ -336,6 +389,7 @@ namespace {
 int main() {
   Util::Config config("input-buffer-process-unit");
   testInhibitors(config);
+  testUnconstrainedRamp(config);
   testSupervisor(config);
   if (failures) {
     std::cerr << failures << " failure(s)" << std::endl;
