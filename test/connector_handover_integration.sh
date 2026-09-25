@@ -72,8 +72,10 @@ new_bound() {
 }
 until new_bound && accepts; do
   waited=$((waited + 1))
-  if [ "$waited" -gt 50 ]; then
-    echo "the replaced HTTP connector did not bind within 5 s" >&2
+  # The controller kills a listener that outlives its 5 s grace and retries on
+  # its 3 s check cycle, so the port must be rebound within 10 s.
+  if [ "$waited" -gt 100 ]; then
+    echo "the replaced HTTP connector did not bind within 10 s" >&2
     grep -E 'connector|Binding|did not stop' "$work/controller.log" >&2 || true
     exit 1
   fi
