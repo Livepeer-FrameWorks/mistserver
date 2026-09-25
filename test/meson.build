@@ -347,6 +347,18 @@ outputstartpolicytest = executable('outputstartpolicytest', 'output_start_policy
                                    dependencies: libmist_dep)
 test('Output startup routes offline and rewrite states once', outputstartpolicytest, suite: 'Streams')
 
+connectorhandovertest = executable('connectorhandovertest', 'connector_handover_unit.cpp', header_tgts,
+                                   dependencies: libmist_dep)
+test('Replaced connectors wait for the previous listener to release its port', connectorhandovertest,
+     suite: 'Controller')
+
+if get_option('b_sanitize') == 'none'
+  connectorhandoverintegration = find_program('connector_handover_integration.sh')
+  test('An idle HTTP listener releases its port when its settings change', connectorhandoverintegration,
+       args: [exec_tgts.get('MistController'), exec_tgts.get('MistOutHTTP'), exec_tgts.get('MistUtilNuke')],
+       suite: 'Controller', timeout: 60, is_parallel: false)
+endif
+
 bufferholdtest = executable('bufferholdtest', 'buffer_hold_unit.cpp', header_tgts, dependencies: libmist_dep)
 test('Processing recorders pin the buffer and pace the feed', bufferholdtest, suite: 'Processing')
 

@@ -544,8 +544,6 @@ bool Util::Config::setupServerSocket(Socket::Server & s) {
     FAIL_MSG("Failed to open listening socket");
     return false;
   }
-  serv_sock_fd = s.getSocket();
-  activate();
   if (s.getSocket()) {
     int oldSock = s.getSocket();
     if (!dup2(oldSock, 0)){
@@ -553,6 +551,10 @@ bool Util::Config::setupServerSocket(Socket::Server & s) {
       close(oldSock);
     }
   }
+  // Recorded after the move to fd 0: the stop handler must reach the socket
+  // that actually listens, not the descriptor it was opened on.
+  serv_sock_fd = s.getSocket();
+  activate();
   Util::Procs::socketList.insert(s.getSocket());
   boundServer = s.getBoundAddr();
   return true;
@@ -589,13 +591,18 @@ bool Util::Config::serveCallbackSocket(std::function<void(Socket::Connection &, 
   if (!setupServerSocket(server_socket)) { return false; }
   Event::Loop evLp;
   evLp.setup();
-  evLp.addSocket(0, server_socket.getSocket());
+  // Event id 0 means "timed out" to Event::Loop::await, so the listening socket
+  // needs its own id; the socket is nonblocking so an accept never parks the
+  // loop where it can no longer see a stop request. await retries through
+  // signals, and not every platform wakes it when the socket is shut down, so
+  // the short wait bounds how long a stop request goes unnoticed.
+  static const size_t LISTEN_EVENT = 1;
+  server_socket.setBlocking(false);
+  evLp.addSocket(LISTEN_EVENT, server_socket.getSocket());
   while (is_active && server_socket.connected()) {
-    int ret = evLp.await(10000);
-    if (ret == 0) {
-      Socket::Connection S = server_socket.accept();
-      if (S.connected()) { callback(S, server_socket); }
-    }
+    if (evLp.await(1000) != LISTEN_EVENT) { continue; }
+    Socket::Connection S = server_socket.accept();
+    if (S.connected()) { callback(S, server_socket); }
   }
   Util::Procs::socketList.erase(server_socket.getSocket());
   if (!is_restarting) { server_socket.close(); }
@@ -670,7 +677,10 @@ void Util::Config::signal_handler(int signum, siginfo_t *sigInfo, void *ignore){
     case SIGINT: // these three signals will set is_active to false.
     case SIGTERM:
       if (!mutabort || mutabort->try_lock()) {
-        if (serv_sock_fd != -1) { close(serv_sock_fd); }
+        // Shutting the listener down wakes a waiting accept loop at once and
+        // refuses new connections; the loop closes the descriptor itself, so
+        // the handler never closes a number that may already be reused.
+        if (serv_sock_fd != -1) { shutdown(serv_sock_fd, SHUT_RDWR); }
         if (mutabort) { mutabort->unlock(); }
       }
     case SIGHUP:

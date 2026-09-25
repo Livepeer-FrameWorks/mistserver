@@ -2215,9 +2215,11 @@ Socket::Connection Socket::Server::accept(bool nonblock){
     return Socket::Connection();
   }
 
-  if (nonblock){
+  // BSD-derived systems copy O_NONBLOCK from a nonblocking listener to the
+  // accepted socket; set the requested mode explicitly on every platform.
+  {
     int flags = fcntl(r, F_GETFL, 0);
-    flags |= O_NONBLOCK;
+    flags = nonblock ? (flags | O_NONBLOCK) : (flags & ~O_NONBLOCK);
     fcntl(r, F_SETFL, flags);
   }
   int optval = 1;

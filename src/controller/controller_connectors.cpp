@@ -1,5 +1,6 @@
 #include "controller_connectors.h"
 
+#include "connector_handover.h"
 #include "controller_storage.h"
 
 #include <mist/config.h>
@@ -24,6 +25,12 @@ namespace Controller{
 
   static std::set<size_t> needsReload; ///< List of connector indices that needs a reload
   static std::map<std::string, pid_t> currentConnectors; ///< The currently running connectors.
+  struct StoppingConnector {
+      std::string bindKey;
+      uint64_t stoppedAt;
+  };
+  /// Connectors sent SIGTERM that have not exited yet, by PID.
+  static std::map<pid_t, StoppingConnector> stoppingConnectors;
 
   void reloadProtocol(size_t indice){needsReload.insert(indice);}
 
@@ -183,6 +190,9 @@ namespace Controller{
             LOG_MSG("CONF", "Stopping connector %s", it->first.c_str());
             action = true;
             Util::Procs::Stop(it->second);
+            JSON::Value stopped(PARSEJSON, it->first);
+            stoppingConnectors[it->second] = {
+              connectorBindKey(stopped, capabilities["connectors"][stopped["connector"].asStringRef()]), Util::bootMS()};
             Triggers::doTrigger("OUTPUT_STOP", it->first); // LTS
           }
           currentConnectors.erase(it);
@@ -192,11 +202,40 @@ namespace Controller{
       }
     }
 
+    // Forget stopped connectors that exited; kill those past their grace period.
+    // A listener normally exits within milliseconds of SIGTERM; waiting briefly
+    // lets its replacement start in this pass instead of the next one.
+    for (auto sIt = stoppingConnectors.begin(); sIt != stoppingConnectors.end();) {
+      while (Util::Procs::isActive(sIt->first) && Util::bootMS() - sIt->second.stoppedAt < 500) { Util::sleep(10); }
+      const bool active = Util::Procs::isActive(sIt->first);
+      const uint64_t since = Util::bootMS() - sIt->second.stoppedAt;
+      switch (connectorHandoverStep(active, since)) {
+        case ConnectorHandoverStep::Start: sIt = stoppingConnectors.erase(sIt); continue;
+        case ConnectorHandoverStep::Kill:
+          WARN_MSG("Connector PID %d did not stop within %" PRIu64 " ms; killing it", sIt->first, since);
+          Util::Procs::Murder(sIt->first);
+          break;
+        case ConnectorHandoverStep::Wait: break;
+      }
+      ++sIt;
+    }
+
     // start up new/changed connectors
     for (const std::string & C : runningConns) {
       if (currentConnectors.count(C) && Util::Procs::isActive(currentConnectors[C])) { continue; }
 
       JSON::Value cnf(PARSEJSON, C);
+      const std::string bindKey = connectorBindKey(cnf, capabilities["connectors"][cnf["connector"].asStringRef()]);
+      bool bindHeld = false;
+      if (bindKey.size()) {
+        for (const auto & stopping : stoppingConnectors) {
+          if (stopping.second.bindKey == bindKey) { bindHeld = true; }
+        }
+      }
+      if (bindHeld) {
+        INFO_MSG("Waiting for the previous %s listener to release %s", cnf["connector"].asStringRef().c_str(), bindKey.c_str());
+        continue;
+      }
       std::string bin = Util::getMyPath() + "MistOut" + cnf["connector"].asStringRef();
 
       // Abort if binary not found
