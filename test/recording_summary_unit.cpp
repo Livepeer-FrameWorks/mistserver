@@ -42,5 +42,22 @@ int main() {
   if (out["height"].asInt() != 480 || out["lastms"].asInt() != 29933) {
     return fail("the rendition's dimensions and span must be reported");
   }
+
+  // Livepeer masks the source for VOD and the buffer tears it down when the
+  // input ends. The rendition must still name the source the recording saw
+  // while writing it, or it is taken for the source and judged missing.
+  DTSC::Meta masked("", true);
+  const size_t goneSource = addVideo(masked, 720, 20000);
+  const size_t sameHeight = addVideo(masked, 720, 20000);
+  masked.setSourceTrack(sameHeight, goneSource);
+  const std::string remembered = masked.getTrackIdentifier(goneSource);
+  masked.removeTrack(goneSource);
+  JSON::Value late;
+  Mist::describeRecordedTrack(masked, sameHeight, late);
+  if (late.isMember("source")) { return fail("an invalid source must not be resolved from live metadata"); }
+  Mist::describeRecordedTrack(masked, sameHeight, late, remembered);
+  if (!late.isMember("source") || late["source"].asStringRef() != remembered) {
+    return fail("a rendition must keep the source name remembered while it was written");
+  }
   return 0;
 }

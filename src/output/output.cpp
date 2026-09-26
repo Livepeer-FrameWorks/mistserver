@@ -2251,6 +2251,8 @@ namespace Mist{
             std::map<size_t, std::pair<uint64_t, uint64_t>>::iterator span = writtenSpans.find(thisIdx);
             if (span == writtenSpans.end()) {
               writtenSpans[thisIdx] = std::make_pair(thisTime, thisTime);
+              const size_t src = M.getSourceTrack(thisIdx);
+              if (src != INVALID_TRACK_ID && M.trackValid(src)) { writtenSources[thisIdx] = M.getTrackIdentifier(src); }
             } else {
               if (thisTime < span->second.first) { span->second.first = thisTime; }
               if (thisTime > span->second.second) { span->second.second = thisTime; }
@@ -3139,7 +3141,9 @@ namespace Mist{
         if (snapshot) { T = recordedTrackDetails[trackIdx]; }
         T["idx"] = trackIdx;
         T["selected"] = (bool)(selectedTracks.count(trackIdx) || recordedTracks.count(trackIdx));
-        if (liveMeta) { describeRecordedTrack(M, trackIdx, T); }
+        const std::string knownSource = writtenSources.count(trackIdx) ? writtenSources[trackIdx] : std::string();
+        if (liveMeta) { describeRecordedTrack(M, trackIdx, T, knownSource); }
+        if (!T.isMember("source") && knownSource.size()) { T["source"] = knownSource; }
         if (writtenSpans.count(trackIdx)) {
           T["written_firstms"] = writtenSpans[trackIdx].first;
           T["written_lastms"] = writtenSpans[trackIdx].second;

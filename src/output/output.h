@@ -151,6 +151,9 @@ namespace Mist{
     /// First and last timestamp this recording wrote per track. The buffer's
     /// firstms moves on as it evicts, so only these say what the file holds.
     std::map<size_t, std::pair<uint64_t, uint64_t>> writtenSpans;
+    /// Source identifier of each derived track, taken when its first packet
+    /// was written: by exit the buffer may have torn the source down.
+    std::map<size_t, std::string> writtenSources;
     void rememberRecordedTrack(size_t trackIdx);
     void refreshProcessStreamState();
 
