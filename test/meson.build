@@ -362,6 +362,9 @@ endif
 bufferholdtest = executable('bufferholdtest', 'buffer_hold_unit.cpp', header_tgts, dependencies: libmist_dep)
 test('Processing recorders pin the buffer and pace the feed', bufferholdtest, suite: 'Processing')
 
+segmentclocktest = executable('segmentclocktest', 'segment_clock_unit.cpp', header_tgts)
+test('Recording segments never start before the previous one ended', segmentclocktest, suite: 'Processing')
+
 recordingsummarytest = executable('recordingsummarytest', 'recording_summary_unit.cpp', header_tgts,
                                   dependencies: libmist_dep)
 test('Recording summary names the source of derived tracks', recordingsummarytest, suite: 'Processing')

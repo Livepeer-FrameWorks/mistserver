@@ -3,6 +3,7 @@
 #include "../processing_lifecycle.h"
 #include "dtsc.h"
 #include "recording_summary.h"
+#include "segment_clock.h"
 
 #include <mist/bitfields.h>
 #include <mist/defines.h>
@@ -1735,6 +1736,7 @@ namespace Mist{
     std::string playlistLocationString;
     std::string playlistBuffer;
     uint64_t currentStartTime = 0;
+    SegmentClock segmentClock;
     uint64_t maxEntries = 0;
     uint64_t targetAge = 0;
     std::string targetDuration;
@@ -2152,7 +2154,8 @@ namespace Mist{
               }
               std::string segment = HTTP::localURIResolver().link(currentTarget).getLinkFrom(playlistLocation);
               {
-                uint64_t unixMs = M.packetTimeToUnixMs(currentStartTime, systemBoot);
+                uint64_t unixMs =
+                  segmentClock.stamp(M.packetTimeToUnixMs(currentStartTime, systemBoot), lastPacketTime - currentStartTime);
                 if (unixMs){
                   INFO_MSG("Adding segment #%" PRIu64 " @ %" PRIu64 " => %s", segmentCount, currentStartTime, Util::getUTCStringMillis(unixMs).c_str());
                   playlistBuffer += "#EXT-X-PROGRAM-DATE-TIME:" + Util::getUTCStringMillis(unixMs) + "\n";
@@ -2285,7 +2288,8 @@ namespace Mist{
           std::string segment = HTTP::localURIResolver().link(currentTarget).getLinkFrom(playlistLocation);
           INFO_MSG("Adding final segment `%s` of %" PRIu64 "ms to playlist '%s'", segment.c_str(), lastPacketTime - currentStartTime, playlistLocationString.c_str());
           {
-            uint64_t unixMs = M.packetTimeToUnixMs(currentStartTime, systemBoot);
+            uint64_t unixMs =
+              segmentClock.stamp(M.packetTimeToUnixMs(currentStartTime, systemBoot), lastPacketTime - currentStartTime);
             if (unixMs){playlistBuffer += "#EXT-X-PROGRAM-DATE-TIME:" + Util::getUTCStringMillis(unixMs) + "\n";}
           }
           // Append duration & TS filename to playlist file
