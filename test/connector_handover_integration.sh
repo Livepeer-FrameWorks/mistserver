@@ -66,11 +66,11 @@ sleep 3
 printf '%s' "{\"updateprotocol\":[$old_http,$new_http]}" >"/dev/udp/127.0.0.1/$udp_port"
 
 waited=0
+# Connectors run at their default log level, so their "Socket bound" line is
+# not guaranteed in the controller log; the replacement process and a
+# connectable port are.
 new_bound() {
-  awk -v port="$http_port" '
-    /Started connector: \{"connector":"HTTP"/ && /edge:8082/ { started = 1 }
-    started && /MistOutHTTP/ && /Socket bound to/ && index($0, ":" port) { found = 1 }
-    END { exit !found }' "$work/controller.log"
+  pgrep -f "$output_http --port $http_port --public-address http://edge:8082/" >/dev/null 2>&1
 }
 until new_bound && accepts; do
   waited=$((waited + 1))
