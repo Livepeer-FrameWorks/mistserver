@@ -46,5 +46,22 @@ int main() {
   selected = Util::pickTracks(meta, tracks, "PNG", "<100kbps");
   if (selected != std::set<size_t>{png}) { return fail("an explicit PNG comparator must still select PNG tracks"); }
 
+  // Before a track's first fragment closes its bitrate is unknown (0). maxbps
+  // must still select it, or processes selecting video=maxbps stall until the
+  // next keyframe (a long-GOP short VOD ends first).
+  DTSC::Meta fresh;
+  fresh.reInit("", true);
+  const size_t unrated = addVideoTrack(fresh, 1, "H264", 1280, 720, 0);
+  const std::set<size_t> freshTracks = {unrated};
+  if (Util::pickTracks(fresh, freshTracks, "video", "maxbps") != std::set<size_t>{unrated}) {
+    return fail("maxbps must select a video track whose bitrate is not known yet");
+  }
+  // A known bitrate still wins over an unrated track.
+  const size_t rated = addVideoTrack(fresh, 2, "H264", 640, 360, 100000);
+  const std::set<size_t> mixed = {unrated, rated};
+  if (Util::pickTracks(fresh, mixed, "video", "maxbps") != std::set<size_t>{rated}) {
+    return fail("maxbps must prefer a track with a known bitrate");
+  }
+
   return 0;
 }

@@ -1338,14 +1338,20 @@ std::set<size_t> Util::pickTracks(const DTSC::Meta &M, const std::set<size_t> tr
   if (trackLow == "highbps" || trackLow == "bestbps" || trackLow == "maxbps"){
     size_t currVal = INVALID_TRACK_ID;
     uint32_t currRate = 0;
+    // A track's bitrate is only known once its first fragment closes. When no
+    // candidate has one yet, the first candidate is the best available answer;
+    // selecting nothing would stall consumers until the next keyframe.
+    size_t firstUnrated = INVALID_TRACK_ID;
     for (std::set<size_t>::iterator it = trackList.begin(); it != trackList.end(); it++){
       if (!trackType.size() || M.getType(*it) == trackType || M.getCodec(*it) == trackType){
+        if (firstUnrated == INVALID_TRACK_ID && !M.getBps(*it)) { firstUnrated = *it; }
         if (currRate < M.getBps(*it)){
           currVal = *it;
           currRate = M.getBps(*it);
         }
       }
     }
+    if (currVal == INVALID_TRACK_ID) { currVal = firstUnrated; }
     if (currVal != INVALID_TRACK_ID){result.insert(currVal);}
     return result;
   }
