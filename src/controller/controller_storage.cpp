@@ -342,6 +342,8 @@ namespace Controller{
     shmStrm = 0;
   }
 
+  std::atomic<bool> logReaderStop{false};
+
   void handleMsg(int logFd) {
     Util::nameThread("logHandler");
 
@@ -416,7 +418,8 @@ namespace Controller{
         rlxLogs->addRecords(1);
       }
       logCounter++;
-    });
+    },
+                    &logReaderStop);
   }
 
   void getConfigAsWritten(JSON::Value & conf){

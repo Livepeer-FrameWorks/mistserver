@@ -3,6 +3,7 @@
 #include <mist/json.h>
 #include <mist/util.h>
 
+#include <atomic>
 #include <mutex>
 #include <string>
 
@@ -46,6 +47,8 @@ namespace Controller{
   void writeConfigToDisk(bool forceWrite = false);
   void readConfigFromDisk();
 
+  /// Set to make handleMsg return; the controller's LogThread sets it on stop.
+  extern std::atomic<bool> logReaderStop;
   void handleMsg(int errFd);
 
   void initStorage();

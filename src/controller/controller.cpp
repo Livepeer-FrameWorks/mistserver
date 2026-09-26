@@ -497,7 +497,8 @@ int main_loop(int argc, char **argv){
   }
   // Start reading log messages
   Util::Procs::socketList.insert(logInput); // Mark this FD as needing to be closed before forking
-  Controller::LogThread logThread(std::thread(Controller::handleMsg, logInput), logInput, STDERR_FILENO);
+  Controller::logReaderStop = false;
+  Controller::LogThread logThread(std::thread(Controller::handleMsg, logInput), logInput, STDERR_FILENO, &Controller::logReaderStop);
   setenv("MIST_CONTROL", "1", 0); // Signal in the environment that the controller handles all children
 
 #ifdef __CYGWIN__

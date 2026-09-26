@@ -16,6 +16,7 @@
 #include <errno.h> // errno, ENOENT, EEXIST
 #include <iomanip>
 #include <iostream>
+#include <poll.h>
 #include <sstream>
 #include <stdio.h>
 #include <sys/stat.h> // stat
@@ -742,7 +743,8 @@ namespace Util{
   /// Parses log messages from the given file descriptor in, printing them to out, optionally
   /// calling the given callback for each valid message. Closes the file descriptor on read error
   void logParser(int in, int out, bool colored,
-                 std::function<void(const std::string &, const std::string &, const std::string &, uint64_t, const std::string &, const std::string &)> callback) {
+                 std::function<void(const std::string &, const std::string &, const std::string &, uint64_t, const std::string &, const std::string &)> callback,
+                 const std::atomic<bool> *stop) {
     if (getenv("MIST_COLOR")) { colored = true; }
     bool sysd_log = getenv("MIST_LOG_SYSTEMD");
     char *color_time, *color_msg, *color_end, *color_strm, *CONF_msg, *FAIL_msg, *ERROR_msg,
@@ -776,9 +778,18 @@ namespace Util{
     }
 
     Socket::Connection O(-1, in);
-    O.setBlocking(true);
+    // With a stop flag the read cannot block indefinitely: closing the
+    // descriptor from another thread does not wake a blocked read.
+    O.setBlocking(!stop);
     Util::ResizeablePointer buf;
-    while (O){
+    while (O && !(stop && stop->load())) {
+      if (stop) {
+        struct pollfd pfd;
+        pfd.fd = in;
+        pfd.events = POLLIN;
+        pfd.revents = 0;
+        if (poll(&pfd, 1, 250) <= 0) { continue; }
+      }
       if (O.spool()){
         while (O.Received().size()){
           std::string & t = O.Received().get();

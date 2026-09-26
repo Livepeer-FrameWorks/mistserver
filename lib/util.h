@@ -1,6 +1,7 @@
 #pragma once
 #include "defines.h"
 
+#include <atomic>
 #include <deque>
 #include <functional>
 #include <map>
@@ -95,9 +96,13 @@ namespace Util{
     bool ro;
   };
 
+  /// A non-null stop makes the parser return once *stop is set, without
+  /// waiting for end-of-file: a reader whose writers outlive it (the
+  /// controller's log FIFO is every child's stderr) never sees one.
   void logParser(
     int in, int out, bool colored,
-    std::function<void(const std::string &, const std::string &, const std::string &, uint64_t, const std::string &, const std::string &)> callback = 0);
+    std::function<void(const std::string &, const std::string &, const std::string &, uint64_t, const std::string &, const std::string &)> callback = 0,
+    const std::atomic<bool> *stop = 0);
   void redirectLogsIfNeeded();
   pid_t startConverted(const std::deque<std::string> & args, Socket::Connection & conn);
   void logConverter(int inErr, int inOut, int out, const char *progName, pid_t pid);
