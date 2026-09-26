@@ -3,6 +3,7 @@
 #include "../input/input.h"
 #include "../output/output.h"
 #include "process.hpp"
+#include "process_av_bitrate.h"
 
 #include <mist/h264.h>
 #include <mist/mp4_generic.h>
@@ -17,6 +18,7 @@
 #include <condition_variable>
 #include <cstdarg> //for libav log handling
 #include <cstring>
+#include <exception>
 #include <mutex>
 #include <ostream>
 #include <sys/stat.h> //for stat
@@ -274,8 +276,8 @@ namespace Mist{
           totalOutputBytes += ptr.size();
         }
       }
-      if (autoUpdateFps) {
-        if (inFpks != M.getFpks(thisIdx)) { meta.setFpks(thisIdx, inFpks); }
+      if (autoUpdateFps && trkIdx != INVALID_TRACK_ID) {
+        if (inFpks != M.getFpks(trkIdx)) { meta.setFpks(trkIdx, inFpks); }
       }
     }
 
@@ -283,16 +285,17 @@ namespace Mist{
     void bufferAudio(){
       // Init audio track
       setAudioInit();
+      if (trkIdx == INVALID_TRACK_ID) { return; }
       VERYHIGH_MSG("Buffering %iB audio packet @%" PRIu64 "ms", packet_out->size, thisTime);
-      // Set init data
-      if (context_out->extradata_size && !M.getInit(thisIdx).size()){
-        meta.setInit(thisIdx, (char*)context_out->extradata, context_out->extradata_size);
+      // The init belongs to the output track. thisIdx is not that track until the
+      // first packet is buffered, and may name a source track a republish removed.
+      if (context_out->extradata_size && !M.getInit(trkIdx).size()) {
+        meta.setInit(trkIdx, (char *)context_out->extradata, context_out->extradata_size);
       }
       // Get pointers to buffer
       const char* ptr = (char*)packet_out->data;
       uint64_t ptrSize = packet_out->size;
       // Buffer packet
-      if (trkIdx == INVALID_TRACK_ID){return;}
       if (resumeFrom && thisTime <= resumeFrom) { return; }
       thisIdx = trkIdx;
       bufferLivePacket(thisTime, 0, thisIdx, ptr, ptrSize, 0, true);
@@ -864,7 +867,15 @@ namespace Mist{
       }
     }
 
-    void allocateAudioEncoder(){
+    /// An encoder that cannot open for this track will not open on a restart either,
+    /// so the process reports an unrecoverable exit instead of crash-looping.
+    void failAudioEncoder() {
+      procExit.log(ER_FORMAT_SPECIFIC, 2, "Could not open a %s encoder for this audio track", codecOut.c_str());
+      config->is_active = false;
+    }
+
+    /// Returns false when this configuration can never produce an audio encoder.
+    bool allocateAudioEncoder() {
       if (codec_out && !context_out) {
         AVDictionary *avDict = NULL;
         INFO_MSG("Allocating %s encoder", codecOut.c_str());
@@ -955,12 +966,10 @@ namespace Mist{
         }else if (codecOut == "opus"){
           tmpCtx->sample_fmt = AV_SAMPLE_FMT_S16;
           tmpCtx->sample_rate = 48000;
-          if (tmpCtx->bit_rate < 500){
-            WARN_MSG("Opus does not support a bitrate of %" PRId64 ", clipping to 500", tmpCtx->bit_rate);
-            tmpCtx->bit_rate = 500;
-          } else if (tmpCtx->bit_rate > 256000) {
-            WARN_MSG("Opus does not support a bitrate of %" PRId64 ", clipping to 128000", tmpCtx->bit_rate);
-            tmpCtx->bit_rate = 128000;
+          const int64_t clamped = opusBitrate(tmpCtx->bit_rate);
+          if (clamped != tmpCtx->bit_rate) {
+            WARN_MSG("Opus does not support a bitrate of %" PRId64 ", clipping to %" PRId64, (int64_t)tmpCtx->bit_rate, clamped);
+            tmpCtx->bit_rate = clamped;
           }
           depth = 16;
         }else if (codecOut == "PCM"){
@@ -968,8 +977,9 @@ namespace Mist{
           depth = 32;
         }else{
           avcodec_free_context(&tmpCtx);
+          av_dict_free(&avDict);
           ERROR_MSG("Unsupported audio codec %s.", codecOut.c_str());
-          return;
+          return false;
         }
 
         // Timestamp base MUST match the FINAL output sample rate (set here, after all
@@ -982,15 +992,17 @@ namespace Mist{
         outAudioDepth = depth;
 
         int ret = avcodec_open2(tmpCtx, codec_out, &avDict);
+        av_dict_free(&avDict);
         if (ret < 0) {
           avcodec_free_context(&tmpCtx);
           printError("Could not open codec context", ret);
-          return;
+          return false;
         }
         context_out = tmpCtx;
         INFO_MSG("%s encoder allocated", codecOut.c_str());
       }
-    }
+      return context_out != 0;
+      }
 
     /// \brief Tries to open a given encoder. On success immediately configures it
     bool tryDecoder(std::string decoder, AVHWDeviceType hwDev, AVPixelFormat pixFmt, AVPixelFormat softFmt){
@@ -1965,7 +1977,10 @@ namespace Mist{
           sendPacketTime += statSourceMs - (sendPacketTime + (((size_t)inputFrameCount) * 1000) / M.getRate(sourceTrackIdx));
         }
         uint64_t transformStart = Util::getMicros();
-        allocateAudioEncoder();
+        if (!allocateAudioEncoder()) {
+          failAudioEncoder();
+          break;
+        }
         if (!transformAudioFrame()) { break; }
         uint64_t encodeStart = Util::getMicros();
         encodeAudio();
@@ -2159,7 +2174,11 @@ namespace Mist{
         if (sendPacketTime + (((size_t)inputFrameCount)*1000)/M.getRate(thisIdx) < thisTime){
           sendPacketTime += thisTime - (sendPacketTime + (((size_t)inputFrameCount)*1000)/M.getRate(thisIdx));
         }
-        allocateAudioEncoder();
+        if (!allocateAudioEncoder()) {
+          failAudioEncoder();
+          lastSendNextEnd = Util::getMicros();
+          return;
+        }
         if (!transformAudioFrame()) {
           lastSendNextEnd = Util::getMicros();
           return;
@@ -2442,13 +2461,27 @@ void fireVirtualSegmentTrigger(bool isFinal) {
   lastTriggerTime = Util::bootSecs();
 }
 
+/// An exception escaping a worker thread terminates the process on SIGABRT without
+/// a reason, and the buffer restarts it into the same failure. It is reported as
+/// an unrecoverable exit instead, so the buffer stops restarting this process.
+static void logThreadException(const char *thread, const std::exception & e) {
+  FAIL_MSG("%s thread failed: %s", thread, e.what());
+  procExit.log(ER_INTERNAL_ERROR, 2, "%s thread failed: %s", thread, e.what());
+}
+
 void sinkThread(){
   Util::nameThread("sinkThread");
   Mist::ProcessSink in(&co);
   Mist::sinkClass = &in;
   co.getOption("output", true).append("-");
   MEDIUM_MSG("Running sink thread...");
-  int rc = in.run();
+  int rc;
+  try {
+    rc = in.run();
+  } catch (const std::exception & e) {
+    logThreadException("Sink", e);
+    rc = 2;
+  }
   if (rc == 0) {
     procExit.log(ER_CLEAN_EOF, 0, "Sink thread finished");
   } else {
@@ -2477,11 +2510,17 @@ void sourceThread(){
   Socket::Connection S;
   Mist::ProcessSource out(S, conf, capa);
   MEDIUM_MSG("Running source thread...");
-  int rc = out.run();
-  out.flushVideoDecoder();
-  out.flushVideoEncoder();
-  out.flushAudioDecoder();
-  out.flushAudioEncoder();
+  int rc;
+  try {
+    rc = out.run();
+    out.flushVideoDecoder();
+    out.flushVideoEncoder();
+    out.flushAudioDecoder();
+    out.flushAudioEncoder();
+  } catch (const std::exception & e) {
+    logThreadException("Source", e);
+    rc = 2;
+  }
   if (rc == 0) {
     procExit.log(ER_CLEAN_EOF, 0, "Source thread finished");
   } else {
@@ -2889,10 +2928,6 @@ int main(int argc, char *argv[]){
     Mist::opt["gopsize"] = 40;
   }
 
-  if (!Mist::opt.isMember("bitrate") || !Mist::opt["bitrate"].asInt()){
-    Mist::opt["bitrate"] = 2000000;
-  }
-
   if (!Mist::opt.isMember("quality") || !Mist::opt["quality"].asInt()){
     Mist::opt["quality"] = 20;
   }
@@ -2950,6 +2985,10 @@ int main(int argc, char *argv[]){
     FAIL_MSG("Unknown codec: %s", Mist::opt["codec"].asStringRef().c_str());
     procExit.log(ER_FORMAT_SPECIFIC, 2, "Unknown codec: %s", Mist::opt["codec"].asStringRef().c_str());
     return procExit.flush(procStatsPage);
+  }
+
+  if (!Mist::opt.isMember("bitrate") || !Mist::opt["bitrate"].asInt()) {
+    Mist::opt["bitrate"] = Mist::defaultAVBitrate(isVideo);
   }
 
   // The proc owns its bootstrap recommendation. Publish it immediately after

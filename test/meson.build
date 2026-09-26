@@ -213,6 +213,12 @@ if get_option('b_sanitize') == 'none' and ffmpeg_program.found() and ffprobe_pro
          env: {'MIST_PROCESS_EXPECT_EOF': '1', 'MIST_PROCESS_SOURCE_DURATION': '8',
                'MIST_PROCESS_SOURCE_BFRAMES': '2'},
          suite: 'Processing', timeout: 120, is_parallel: false)
+    processavrepublishtest = find_program('process_av_republish_integration.sh')
+    test('Audio ProcAV survives a live republish that replaces track 0', processavrepublishtest,
+         args: [ffmpeg_program, exec_tgts.get('MistController'), exec_tgts.get('MistInBuffer'),
+                exec_tgts.get('MistOutRTMP'), exec_tgts.get('MistProcAV'),
+                exec_tgts.get('MistSession'), exec_tgts.get('MistUtilNuke'), timeout_program],
+         suite: 'Processing', timeout: 120, is_parallel: false)
     python_program = find_program('python3', required: false)
     if python_program.found()
       processingholdtest = find_program('processing_hold_integration.sh')
@@ -328,6 +334,9 @@ test('ONNX processing output drain lifecycle', onnxlifecycletest, suite: 'Proces
 processinglifecycletest = executable('processinglifecycletest', 'processing_lifecycle_unit.cpp', header_tgts,
                                      dependencies: libmist_dep)
 test('Process-controlled producer EOF and output drain policy', processinglifecycletest, suite: 'Processing')
+
+processavbitratetest = executable('processavbitratetest', 'process_av_bitrate_unit.cpp')
+test('ProcAV audio bitrate defaults and Opus limits', processavbitratetest, suite: 'Processing')
 
 processsupervisortest = executable('processsupervisortest', 'process_supervisor_unit.cpp', header_tgts,
                                    dependencies: libmist_dep)
