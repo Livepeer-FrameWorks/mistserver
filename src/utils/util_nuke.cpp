@@ -83,7 +83,7 @@ bool tryLock() {
 
 int main(int argc, char **argv){
   Util::redirectLogsIfNeeded();
-  if (argc < 1){
+  if (argc < 2) {
     FAIL_MSG("Usage: %s STREAM_NAME", argv[0]);
     return 1;
   }
