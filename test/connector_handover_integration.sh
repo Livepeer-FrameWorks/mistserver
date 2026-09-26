@@ -49,9 +49,11 @@ controller_pid=$!
 accepts() { (exec 3<>"/dev/tcp/127.0.0.1/$http_port") 2>/dev/null; }
 
 waited=0
+# Setup only: the controller starts connectors a few seconds after it boots,
+# later on a loaded host.
 until accepts; do
   waited=$((waited + 1))
-  if [ "$waited" -gt 100 ]; then
+  if [ "$waited" -gt 300 ]; then
     echo "the initial HTTP connector never listened" >&2
     exit 1
   fi
