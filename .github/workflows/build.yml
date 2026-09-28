@@ -418,6 +418,11 @@ jobs:
             --model "$RUNNER_TEMP/onnx-models/yolo26n.onnx" \
             --image "$RUNNER_TEMP/onnx-test.jpg"
           ninja -C build install
+          # Static archives, headers and pkg-config files from fallback subprojects are
+          # build inputs; the native artifact ships only what runs.
+          find /tmp/mistserver-install \( -name '*.a' -o -name '*.la' \) -delete
+          rm -rf /tmp/mistserver-install/include
+          find /tmp/mistserver-install/lib -type d -name pkgconfig -prune -exec rm -rf {} +
           cp -a '${{ github.workspace }}/.deps/onnx/cpu/lib/'*.so* \
             /tmp/mistserver-install/lib/
           patchelf --set-rpath '$ORIGIN/../lib:$ORIGIN/../lib/x86_64-linux-gnu' \
@@ -458,6 +463,27 @@ jobs:
             echo "Native artifact has non-system runtime dependencies" >&2
             exit 1
           fi
+
+      # The runner image moves with ubuntu-latest; the native artifact promises the pinned
+      # host in accelerator-images.json, so its binaries must load and start there.
+      - name: Verify native artifact on its host contract
+        run: |
+          set -euo pipefail
+          case "$(uname -m)" in x86_64) platform=linux/amd64 ;; aarch64) platform=linux/arm64 ;; esac
+          host=$(jq -re --arg p "$platform" \
+            '.native_deployment.platforms[$p] | "\(.distribution):\(.release)"' scripts/ONNX/accelerator-images.json)
+          docker run --rm -v /tmp/mistserver-install:/opt/mist:ro "$host" /bin/sh -ec '
+            failed=0
+            for bin in /opt/mist/bin/Mist*; do
+              [ -x "$bin" ] || continue
+              if ldd "$bin" 2>&1 | grep -E "not found|version .* not found"; then
+                echo "$(basename "$bin") does not load on the host contract" >&2
+                failed=1
+              fi
+            done
+            /opt/mist/bin/MistController -v
+            exit $failed
+          '
 
       - name: Extract debug symbols
         run: |
@@ -609,6 +635,11 @@ jobs:
             --model "$RUNNER_TEMP/onnx-models/yolo26n.onnx" \
             --image "$RUNNER_TEMP/onnx-test.jpg"
           ninja -C build install
+          # Static archives, headers and pkg-config files from fallback subprojects are
+          # build inputs; the native artifact ships only what runs.
+          find /tmp/mistserver-install \( -name '*.a' -o -name '*.la' \) -delete
+          rm -rf /tmp/mistserver-install/include
+          find /tmp/mistserver-install/lib -type d -name pkgconfig -prune -exec rm -rf {} +
           cp -a '${{ github.workspace }}/.deps/onnx/cpu/lib/'*.so* \
             /tmp/mistserver-install/lib/
           patchelf --set-rpath '$ORIGIN/../lib:$ORIGIN/../lib/aarch64-linux-gnu' \
@@ -649,6 +680,27 @@ jobs:
             echo "Native artifact has non-system runtime dependencies" >&2
             exit 1
           fi
+
+      # The runner image moves with ubuntu-latest; the native artifact promises the pinned
+      # host in accelerator-images.json, so its binaries must load and start there.
+      - name: Verify native artifact on its host contract
+        run: |
+          set -euo pipefail
+          case "$(uname -m)" in x86_64) platform=linux/amd64 ;; aarch64) platform=linux/arm64 ;; esac
+          host=$(jq -re --arg p "$platform" \
+            '.native_deployment.platforms[$p] | "\(.distribution):\(.release)"' scripts/ONNX/accelerator-images.json)
+          docker run --rm -v /tmp/mistserver-install:/opt/mist:ro "$host" /bin/sh -ec '
+            failed=0
+            for bin in /opt/mist/bin/Mist*; do
+              [ -x "$bin" ] || continue
+              if ldd "$bin" 2>&1 | grep -E "not found|version .* not found"; then
+                echo "$(basename "$bin") does not load on the host contract" >&2
+                failed=1
+              fi
+            done
+            /opt/mist/bin/MistController -v
+            exit $failed
+          '
 
       - name: Extract debug symbols
         run: |
