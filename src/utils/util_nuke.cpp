@@ -81,6 +81,51 @@ bool tryLock() {
   return mainSem.locked() && pullSem.locked();
 }
 
+/// The input and pull processes this nuke found or stopped: the generation it tears down.
+std::set<pid_t> generation;
+
+/// Adds the processes the stream's input and pull PID pages name to the generation.
+void recordGeneration() {
+  const char *pidPages[] = {SHM_STREAM_IPID, SHM_STREAM_PPID};
+  for (const char *pidPage : pidPages) {
+    uint64_t pid = getPidFromPage(pidPage);
+    if (pid > 1) { generation.insert((pid_t)pid); }
+  }
+}
+
+/// Whether a newer generation of the stream has started since this nuke began. A new input writes its
+/// PID to the stream's input or pull PID page as soon as it holds the stream's lock, and the locks
+/// this nuke holds cannot keep it out once an exiting input has unlinked their names. A running
+/// process there that is not part of the generation means every page named after the stream now
+/// belongs to that newer generation. A dead one is a leftover this nuke still has to clean.
+bool newerGenerationStarted() {
+  const char *pidPages[] = {SHM_STREAM_IPID, SHM_STREAM_PPID};
+  for (const char *pidPage : pidPages) {
+    uint64_t pid = getPidFromPage(pidPage);
+    if (pid > 1 && !generation.count((pid_t)pid) && Util::Procs::isRunning((pid_t)pid)) { return true; }
+  }
+  return false;
+}
+
+/// Ends the nuke without touching the newer generation. Processes of the torn-down generation that
+/// still run are stopped and then killed, since they are this nuke's by construction; every page
+/// and semaphore named after the stream is left alone, and the lock names are released rather than
+/// unlinked, since they now name the newer generation's locks.
+int leaveNewerGeneration(const char *step) {
+  WARN_MSG("Stream %s restarted during the nuke (before %s); leaving the new generation alone", Util::streamName, step);
+  std::set<pid_t> leftovers;
+  for (pid_t pid : generation) {
+    if (Util::Procs::isRunning(pid)) {
+      Util::Procs::Stop(pid);
+      leftovers.insert(pid);
+    }
+  }
+  killProcesses(leftovers, "previous generation");
+  mainSem.close();
+  pullSem.close();
+  return 0;
+}
+
 int main(int argc, char **argv){
   Util::redirectLogsIfNeeded();
   if (argc < 2) {
@@ -95,6 +140,7 @@ int main(int argc, char **argv){
   // Write stream name into mainSemName / pullSemName
   snprintf(mainSemName, NAME_BUFFER_SIZE, SEM_INPUT, Util::streamName);
   snprintf(pullSemName, NAME_BUFFER_SIZE, "/MstSemPull_%s", Util::streamName);
+  recordGeneration();
   tryLock();
 
   uint8_t state = Util::getStreamStatus(Util::streamName);
@@ -102,16 +148,19 @@ int main(int argc, char **argv){
   uint64_t startTime = Util::bootMS();
   if (!Util::streamStatusIsTerminal(state)) { INFO_MSG("Attempting clean shutdown..."); }
   while (!Util::streamStatusIsTerminal(state) && Util::bootMS() < startTime + 5000) {
+    if (newerGenerationStarted()) { return leaveNewerGeneration("stopping its input"); }
     uint64_t pid;
     pid = getPidFromPage(SHM_STREAM_IPID);
     if (pid > 1) {
       Util::Procs::Stop(pid);
       checkPids.insert(pid);
+      generation.insert(pid);
     }
     pid = getPidFromPage(SHM_STREAM_PPID);
     if (pid > 1) {
       Util::Procs::Stop(pid);
       checkPids.insert(pid);
+      generation.insert(pid);
     }
     if (!tryLock()) {
       Util::wait(1);
@@ -143,6 +192,7 @@ int main(int argc, char **argv){
     }
   }
 
+  if (newerGenerationStarted()) { return leaveNewerGeneration("stopping its inputs"); }
   INFO_MSG("Detecting running inputs...");
   // Scoping to clear up metadata and track providers
   {
@@ -162,6 +212,7 @@ int main(int argc, char **argv){
             if (pid > 1) {
               Util::Procs::Stop(pid);
               checkPids.insert(pid);
+              generation.insert(pid);
             }
           }
         }
@@ -174,14 +225,17 @@ int main(int argc, char **argv){
     if (pid > 1) {
       Util::Procs::Stop(pid);
       checkPids.insert(pid);
+      generation.insert(pid);
     }
     pid = getPidFromPage(SHM_STREAM_PPID);
     if (pid > 1) {
       Util::Procs::Stop(pid);
       checkPids.insert(pid);
+      generation.insert(pid);
     }
   }
   killProcesses(checkPids, "input");
+  if (newerGenerationStarted()) { return leaveNewerGeneration("wiping its shared memory"); }
   INFO_MSG("Detecting and wiping leftovers in shared memory...");
   // Scoping to clear up metadata and track providers
   {
@@ -201,6 +255,7 @@ int main(int argc, char **argv){
             if (pid > 1){
               Util::Procs::Stop(pid);
               checkPids.insert(pid);
+              generation.insert(pid);
             }
             if (trackPage){
               Util::RelAccX track(trackPage.mapped, false);
@@ -226,6 +281,7 @@ int main(int argc, char **argv){
   nukePage(SHM_STREAM_STATE);
   nukePage(SHM_STREAM_IPID);
   nukePage(SHM_STREAM_PPID);
+  if (newerGenerationStarted()) { return leaveNewerGeneration("stopping its users"); }
   // Scoping to clear up users page
   {
     Comms::Users cleanUsers;
@@ -245,6 +301,7 @@ int main(int argc, char **argv){
     cleanUsers.setMaster(true);
   }
   killProcesses(checkPids, "output");
+  if (newerGenerationStarted()) { return leaveNewerGeneration("removing its semaphores"); }
   nukePage(COMMS_USERS);
   nukeSem(SEM_USERS);
   nukeSem(SEM_LIVE);
