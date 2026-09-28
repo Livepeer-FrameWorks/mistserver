@@ -144,6 +144,11 @@ if get_option('b_sanitize') == 'none' and startup_timeout_program.found()
        args: [exec_tgts.get('MistController'), exec_tgts.get('MistInBuffer'),
               exec_tgts.get('MistUtilNuke'), startup_timeout_program],
        suite: 'Inputs', timeout: 30, is_parallel: false)
+  nukerestartwaittest = find_program('nuke_restart_wait_integration.sh')
+  test('A nuke holds its stream at shutting down until it is done', nukerestartwaittest,
+       args: [exec_tgts.get('MistController'), exec_tgts.get('MistInBuffer'),
+              exec_tgts.get('MistUtilNuke'), startup_timeout_program],
+       suite: 'Inputs', timeout: 30, is_parallel: false)
 endif
 if get_option('b_sanitize') == 'none' and ffmpeg_program.found() and ffprobe_program.found()
   bframecliptest = find_program('bframe_clip_integration.sh')

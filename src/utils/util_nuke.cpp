@@ -107,6 +107,24 @@ bool newerGenerationStarted() {
   return false;
 }
 
+/// The stream's status page while this nuke cleans up after the stopped generation. It reads
+/// "shutting down" until the nuke is done: Util::startInput waits while a stream's status is
+/// anything but off, offline or ready, so a restart requested mid-nuke boots once the nuke has
+/// released the stream's locks instead of being refused by the input lock the nuke still holds.
+IPC::sharedPage shutdownState;
+
+void holdShutdownState() {
+  char pageName[NAME_BUFFER_SIZE];
+  snprintf(pageName, NAME_BUFFER_SIZE, SHM_STREAM_STATE, Util::streamName);
+  shutdownState.init(pageName, STRMSTATE_PAGE_LEN, false, false);
+  if (!shutdownState) { shutdownState.init(pageName, STRMSTATE_PAGE_LEN, true, false); }
+  if (shutdownState) {
+    memset(shutdownState.mapped, 0, shutdownState.len);
+    shutdownState.mapped[0] = STRMSTAT_SHUTDOWN;
+  }
+  shutdownState.master = false;
+}
+
 /// Ends the nuke without touching the newer generation. Processes of the torn-down generation that
 /// still run are stopped and then killed, since they are this nuke's by construction; every page
 /// and semaphore named after the stream is left alone, and the lock names are released rather than
@@ -175,6 +193,8 @@ int main(int argc, char **argv){
     Util::wait(10);
     tryLock();
   }
+  if (newerGenerationStarted()) { return leaveNewerGeneration("marking it shutting down"); }
+  holdShutdownState();
 
   // Ensure we have the input lock, one way or another
   if (!tryLock()) {
@@ -277,8 +297,7 @@ int main(int argc, char **argv){
       }
     }
   }
-  //Wipe relevant pages
-  nukePage(SHM_STREAM_STATE);
+  // Wipe relevant pages; the state page stays "shutting down" until the locks are released below.
   nukePage(SHM_STREAM_IPID);
   nukePage(SHM_STREAM_PPID);
   if (newerGenerationStarted()) { return leaveNewerGeneration("stopping its users"); }
@@ -306,9 +325,12 @@ int main(int argc, char **argv){
   nukeSem(SEM_USERS);
   nukeSem(SEM_LIVE);
   nukeSem(SEM_TRACKLIST);
-  // Finally, remove the input and pull lock semaphores
+  // Finally, remove the input and pull lock semaphores, then the state page, which releases any
+  // restart waiting for the nuke to finish.
   pullSem.unlink();
   mainSem.unlink();
+  shutdownState.master = true;
+  shutdownState.close();
   INFO_MSG("Completed cleanup");
   return 0;
 }
