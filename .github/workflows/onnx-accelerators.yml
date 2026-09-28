@@ -87,6 +87,8 @@ jobs:
               and all(.include[];
                 (.dependency_jobs | type == "number" and . > 0)
                 and (.runtime_distribution | type == "string" and length > 0)
+                and (.runtime_packages | type == "string")
+                and (.nvidia_driver_capabilities | type == "string")
                 and (.nvcc_threads | type == "number" and . > 0)
                 and (.swap_gb | type == "number" and . >= 0))
               and any($deployment.targets[];
@@ -209,6 +211,8 @@ jobs:
           build-args: |
             BUILD_BASE=${{ matrix.build_base }}
             RUNTIME_BASE=${{ matrix.runtime_base }}
+            RUNTIME_PACKAGES=${{ matrix.runtime_packages }}
+            NVIDIA_DRIVER_CAPABILITIES=${{ matrix.nvidia_driver_capabilities }}
             ONNX_PROFILE=${{ matrix.profile }}
             ONNX_STATIC=false
             ONNX_RUN_PROVIDER_TEST=false
@@ -242,69 +246,7 @@ jobs:
           RUNTIME_DISTRIBUTION: ${{ matrix.runtime_distribution }}
         shell: bash
         run: |
-          capability=$(docker run --rm --entrypoint MistProcONNX "$IMAGE" -j 2>/dev/null || true)
-          printf '%s' "$capability" | grep -F "This binary packages the '$PROFILE' profile"
-          docker run --rm -e PROFILE="$PROFILE" \
-            -e RUNTIME_DISTRIBUTION="$RUNTIME_DISTRIBUTION" \
-            --entrypoint /bin/sh "$IMAGE" -ec '
-            lib=$(find /usr/local/lib -name libmistonnx.so -print -quit)
-            test -n "$lib"
-            ldd "$lib" > /tmp/libmistonnx.ldd
-            ! grep -F "not found" /tmp/libmistonnx.ldd
-            grep -F "libonnxruntime" /tmp/libmistonnx.ldd
-            test -x /opt/mist-onnx/libexec/onnxmodelprobe
-            ldd /opt/mist-onnx/libexec/onnxmodelprobe > /tmp/onnxmodelprobe.ldd
-            ! grep -F "not found" /tmp/onnxmodelprobe.ldd
-            for dependency in /opt/mist-onnx/lib/*.so /opt/mist-onnx/lib/*.so.*; do
-              [ -e "$dependency" ] || continue
-              ldd "$dependency" >> /tmp/provider-libs.ldd
-            done
-            if grep -F "not found" /tmp/provider-libs.ldd > /tmp/provider-libs.missing; then
-              case "$PROFILE" in
-                cuda|tensorrt)
-                  grep -Ev "^[[:space:]]*libcuda\.so\.1 => not found$" \
-                    /tmp/provider-libs.missing > /tmp/provider-libs.unexpected || true
-                  if [ -s /tmp/provider-libs.unexpected ]; then
-                    cat /tmp/provider-libs.unexpected >&2
-                    exit 1
-                  fi
-                  ;;
-                *) cat /tmp/provider-libs.missing >&2; exit 1 ;;
-              esac
-            fi
-            case "$PROFILE" in
-              cuda)
-                test -f /opt/mist-onnx/lib/libonnxruntime_providers_cuda.so
-                test ! -e /opt/mist-onnx/lib/libonnxruntime_providers_tensorrt.so
-                ffmpeg -hide_banner -encoders 2>/dev/null | grep -F h264_nvenc
-                ffmpeg -hide_banner -encoders 2>/dev/null | grep -F av1_nvenc
-                ffmpeg -hide_banner -decoders 2>/dev/null | grep -F h264_cuvid
-                ffmpeg -hide_banner -decoders 2>/dev/null | grep -F av1_cuvid
-                ;;
-              tensorrt)
-                test -f /opt/mist-onnx/lib/libonnxruntime_providers_cuda.so
-                test -f /opt/mist-onnx/lib/libonnxruntime_providers_tensorrt.so
-                ffmpeg -hide_banner -encoders 2>/dev/null | grep -F h264_nvenc
-                ffmpeg -hide_banner -encoders 2>/dev/null | grep -F av1_nvenc
-                ffmpeg -hide_banner -decoders 2>/dev/null | grep -F h264_cuvid
-                ffmpeg -hide_banner -decoders 2>/dev/null | grep -F av1_cuvid
-                ;;
-              openvino)
-                test -f /opt/mist-onnx/lib/libonnxruntime_providers_openvino.so
-                ;;
-            esac
-            test -f /opt/mist-onnx/share/licenses/onnxruntime/ThirdPartyNotices.txt
-            test -d /opt/mist-onnx/share/licenses/opencv5
-            grep -F "/$PROFILE/onnxruntime-" /opt/mist-onnx/.mist-onnx-dependencies
-            if [ "$RUNTIME_DISTRIBUTION" = source ]; then
-              ! grep -F "/distribution-" /opt/mist-onnx/.mist-onnx-dependencies
-            else
-              grep -F "/distribution-$RUNTIME_DISTRIBUTION-" \
-                /opt/mist-onnx/.mist-onnx-dependencies
-            fi
-            test -f /opt/mist-onnx/share/mistserver/onnx/dependencies.lock.tsv
-            test -f /opt/mist-onnx/share/mistserver/onnx/models.manifest.tsv
-          '
+          scripts/ONNX/audit_accelerator_image.sh "$IMAGE" "$PROFILE" "$RUNTIME_DISTRIBUTION"
 
       - name: Record platform bundle metadata
         env:

@@ -101,7 +101,13 @@ RUN export LD_LIBRARY_PATH="/opt/mist-onnx/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PA
          install -D -m 0755 /build/test/onnxmodelprobe \
            /opt/mist-onnx/libexec/onnxmodelprobe; \
        fi \
-    && ninja -C /build install \
+    && DESTDIR=/mist-install ninja -C /build install \
+    && mkdir -p /mist-install/usr/local/share/mistserver \
+    && (cd /mist-install/usr/local && find . \( -type f -o -type l \) ! -name '*.a' ! -name '*.la' \
+          ! -path './include/*' ! -path './lib/pkgconfig/*' ! -path './lib/*/pkgconfig/*' | sort) \
+         > /mist-install/usr/local/share/mistserver/installed-files.txt \
+    && echo ./share/mistserver/installed-files.txt >> /mist-install/usr/local/share/mistserver/installed-files.txt \
+    && cp -a /mist-install/usr/local/. /usr/local/ \
     && test -x /usr/local/bin/MistProcONNX
 
 ARG OUTPUT_DBG
@@ -111,21 +117,38 @@ RUN if [ -n "${OUTPUT_DBG+x}" ]; then \
 
 # A static profile has already absorbed ONNX Runtime and OpenCV into libmistonnx. Keep only
 # their notices in the runtime layer; shared accelerator profiles retain the provider libs.
-RUN if [ "${ONNX_STATIC}" = true ]; then \
-      rm -rf /opt/mist-onnx/include /opt/mist-onnx/lib; \
+# Headers are build inputs only.
+RUN rm -rf /opt/mist-onnx/include \
+    && if [ "${ONNX_STATIC}" = true ]; then \
+      rm -rf /opt/mist-onnx/lib; \
     fi
+
+# Only MistServer's own installed files reach the runtime layer. The build base's
+# /usr/local also holds its toolchain (the devel CUDA toolkit, pip build tools).
+RUN tar -C /mist-install/usr/local -cf /mist-runtime.tar \
+      -T /mist-install/usr/local/share/mistserver/installed-files.txt \
+    && mkdir -p /mist-runtime/usr/local \
+    && tar -C /mist-runtime/usr/local -xf /mist-runtime.tar
 
 FROM ${RUNTIME_BASE}
 
 USER root
 ENV DEBIAN_FRONTEND=noninteractive
+# RUNTIME_PACKAGES adds a profile's vendor runtime libraries (TensorRT) on top of a runtime
+# base instead of shipping the vendor's development container.
+ARG RUNTIME_PACKAGES=
 RUN apt-get update && apt-get install -y --no-install-recommends \
       ca-certificates curl ffmpeg \
       libcjson1 libmbedtls14t64 libmbedx509-1t64 libmbedcrypto7t64 \
       libxml2 librist4 libsrt1.5-openssl libsrtp2-1 libusrsctp2 \
+      ${RUNTIME_PACKAGES} \
     && rm -rf /var/lib/apt/lists/*
+# NVIDIA profiles also need the driver's video libraries mounted: MistProcAV encodes with
+# NVENC there. Other profiles leave this empty and the NVIDIA toolkit ignores it.
+ARG NVIDIA_DRIVER_CAPABILITIES=
+ENV NVIDIA_DRIVER_CAPABILITIES=${NVIDIA_DRIVER_CAPABILITIES}
 
-COPY --from=mist_build /usr/local/ /usr/local/
+COPY --from=mist_build /mist-runtime/usr/local/ /usr/local/
 COPY --from=mist_build /opt/mist-onnx/ /opt/mist-onnx/
 RUN echo '/opt/mist-onnx/lib' > /etc/ld.so.conf.d/mist-onnx.conf \
     && ldconfig \

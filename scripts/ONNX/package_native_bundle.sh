@@ -65,8 +65,11 @@ trap cleanup EXIT
 mkdir -p "$stage/bin" "$stage/lib" "$stage/opt/mist-onnx" \
   "$stage/share/mistserver/onnx"
 container=$(docker create --entrypoint /bin/true "$image")
-docker cp "$container:/usr/local/bin/." "$stage/bin/"
-docker cp "$container:/usr/local/lib/." "$stage/lib/"
+# The image's /usr/local also holds its base image's software; only the files
+# MistServer installed (recorded at build time) belong in the bundle.
+docker run --rm --entrypoint /bin/sh "$image" -ec '
+  tar -C /usr/local -cf - -T /usr/local/share/mistserver/installed-files.txt
+' | tar -C "$stage" -xf -
 docker cp "$container:/opt/mist-onnx/." "$stage/opt/mist-onnx/"
 
 jq -e \
