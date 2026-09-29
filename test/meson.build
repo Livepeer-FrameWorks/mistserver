@@ -77,6 +77,9 @@ embeddedframetest = executable('embeddedframetest', 'dtsc_embedded_frames_unit.c
                                dependencies: libmist_dep)
 test('Embedded frame storage fills and wraps safely', embeddedframetest, suite: 'DTSC')
 
+dtscresumetest = executable('dtscresumetest', 'dtsc_resume_unit.cpp', header_tgts, dependencies: libmist_dep)
+test('A reconnect resumes the tracks it left', dtscresumetest, suite: 'DTSC')
+
 inputtstest = executable('inputtstest', ['input_ts_unit.cpp', '../src/input/input.cpp',
                                         '../src/input/input_ts.cpp', io_cpp],
                          header_tgts, dependencies: libmist_dep)

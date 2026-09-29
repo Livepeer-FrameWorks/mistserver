@@ -2011,8 +2011,88 @@ namespace DTSC{
     return addTrack(fragCount, keyCount, partCount, pageCount, false);
   }
 
+  /// A track description in the form a track stores it. Meta::setInit derives the
+  /// video size of H264 and HEVC from the init when none is given, stores H264
+  /// Annex B init as avcC, and takes the rate and channels of AAC, Opus and FLAC
+  /// from the init. Inputs that describe tracks from container headers give other
+  /// values: FLV without onMetaData has no video size and fixed 44100 Hz stereo
+  /// flags for AAC. Resuming compares, and creating stores, this form, so a
+  /// publisher that reconnects with the same stream finds the track it left.
+  static TrackMetadata storedTrackForm(const TrackMetadata & input) {
+    TrackMetadata trk = input;
+    if (!trk.init.size()) { return trk; }
+    if (trk.codec == "H264") {
+      const char *init = trk.init.data();
+      size_t initLen = trk.init.size();
+      bool annexB = initLen >= 3 && !init[0] && !init[1] && (init[2] == 1 || (initLen >= 4 && !init[2] && init[3] == 1));
+      if (annexB) { trk.init = h264::initFromAnnexB(init, initLen); }
+      h264::initData iData(trk.init);
+      if (iData) {
+        if (!trk.width || !trk.height) {
+          trk.width = iData.width;
+          trk.height = iData.height;
+        }
+        if (iData.fps >= 1 && !trk.fpks) { trk.fpks = iData.fps * 1000.0; }
+      }
+    }
+    if (trk.codec == "HEVC") {
+      h265::initData iData(trk.init);
+      h265::metaInfo mInfo = iData.getMeta();
+      if (!trk.width || !trk.height) {
+        trk.width = mInfo.width;
+        trk.height = mInfo.height;
+      }
+      if (mInfo.fps >= 1 && !trk.fpks) { trk.fpks = mInfo.fps * 1000.0; }
+    }
+    if (trk.codec == "AAC") {
+      trk.rate = aac::AudSpecConf::rate(trk.init);
+      trk.channels = aac::AudSpecConf::channels(trk.init);
+    }
+    if (trk.codec == "opus") {
+      trk.rate = 48000;
+      trk.size = 16;
+      trk.channels = trk.init.size() >= 10 ? trk.init[9] : 2;
+    }
+    if (trk.codec == "FLAC" && trk.init.size() >= 13) {
+      const char *init = trk.init.data();
+      trk.rate = Bit::btoh24(init + 10) >> 4;
+      trk.channels = ((init[12] & 0x0e) >> 1) + 1;
+      trk.size = ((init[12] & 0x01) << 4) + ((init[13] & 0xf0) >> 4) + 1;
+    }
+    return trk;
+  }
+
+  /// Why an unclaimed track cannot be resumed by the described track; empty when it can.
+  std::string Meta::resumeMismatch(size_t T, const TrackMetadata & trkDta) const {
+    if (getType(T) != trkDta.type) { return "type"; }
+    if (getCodec(T) != trkDta.codec) { return "codec"; }
+    if (getInit(T) != trkDta.init) { return "init"; }
+    if (trkDta.type == "audio") {
+      if (getRate(T) != trkDta.rate) {
+        return "rate " + std::to_string(getRate(T)) + " != " + std::to_string(trkDta.rate);
+      }
+      if (getSize(T) != trkDta.size) {
+        return "sample size " + std::to_string(getSize(T)) + " != " + std::to_string(trkDta.size);
+      }
+      if (getChannels(T) != trkDta.channels) {
+        return "channels " + std::to_string(getChannels(T)) + " != " + std::to_string(trkDta.channels);
+      }
+    }
+    // Frame rate may vary between sessions of one stream; the init and size decide.
+    if (trkDta.type == "video") {
+      if (getWidth(T) != trkDta.width) {
+        return "width " + std::to_string(getWidth(T)) + " != " + std::to_string(trkDta.width);
+      }
+      if (getHeight(T) != trkDta.height) {
+        return "height " + std::to_string(getHeight(T)) + " != " + std::to_string(trkDta.height);
+      }
+    }
+    return "";
+  }
+
   /// Either adds a track or resumes an existing track, if it can match track metadata to an unclaimed track.
-  size_t Meta::addOrResumeTrack(const TrackMetadata & trkDta) {
+  size_t Meta::addOrResumeTrack(const TrackMetadata & input) {
+    const TrackMetadata trkDta = storedTrackForm(input);
     // Attempt to find an existing unclaimed track to resume
     uint8_t oldMask = trackValidMask;
     trackValidMask = TRACK_VALID_ALL;
@@ -2025,33 +2105,11 @@ namespace DTSC{
     uint64_t loop_start = Util::bootSecs();
     do {
       for (const size_t & T : V) {
-        if (getType(T) != trkDta.type) {
-          INFO_MSG("T%zu: Type mismatch", T);
+        const std::string mismatch = resumeMismatch(T, trkDta);
+        if (mismatch.size()) {
+          INFO_MSG("T%zu: not resumed by this %s %s track: %s mismatch", T, trkDta.codec.c_str(), trkDta.type.c_str(),
+                   mismatch.c_str());
           continue;
-        }
-        if (getCodec(T) != trkDta.codec) {
-          INFO_MSG("T%zu: Codec mismatch", T);
-          continue;
-        }
-        if (getInit(T) != trkDta.init) {
-          INFO_MSG("T%zu: Init mismatch", T);
-          continue;
-        }
-        if (trkDta.type == "audio") {
-          if (getRate(T) != trkDta.rate) { continue; }
-          if (getSize(T) != trkDta.size) { continue; }
-          if (getChannels(T) != trkDta.channels) { continue; }
-        }
-        if (trkDta.type == "video") {
-          if (getWidth(T) != trkDta.width) {
-            INFO_MSG("T%zu: Width mismatch", T);
-            continue;
-          }
-          if (getHeight(T) != trkDta.height) {
-            INFO_MSG("T%zu: Height mismatch", T);
-            continue;
-          }
-          // We don't care about fpks since it can vary sometimes, as long as the init data is the same we're fine with it
         }
 
         hasCandidate = true;
@@ -2110,23 +2168,17 @@ namespace DTSC{
   }
 
   /// Either adds a track or resumes an existing track, if it can match track metadata to an unclaimed track.
-  size_t Meta::addOrResumeDelayedTrack(const TrackMetadata & trkDta) {
+  size_t Meta::addOrResumeDelayedTrack(const TrackMetadata & input) {
+    const TrackMetadata trkDta = storedTrackForm(input);
     // Attempt to find an existing unclaimed track to resume
     std::set<size_t> V = getValidTracks();
     for (const auto & T : V) {
       if (isClaimed(T)) { continue; }
-      if (getType(T) != trkDta.type) { continue; }
-      if (getCodec(T) != trkDta.codec) { continue; }
-      if (getInit(T) != trkDta.init) { continue; }
-      if (trkDta.type == "audio") {
-        if (getRate(T) != trkDta.rate) { continue; }
-        if (getSize(T) != trkDta.size) { continue; }
-        if (getChannels(T) != trkDta.channels) { continue; }
-      }
-      if (trkDta.type == "video") {
-        if (getWidth(T) != trkDta.width) { continue; }
-        if (getHeight(T) != trkDta.height) { continue; }
-        // We don't care about fpks since it can vary sometimes, as long as the init data is the same we're fine with it
+      const std::string mismatch = resumeMismatch(T, trkDta);
+      if (mismatch.size()) {
+        INFO_MSG("T%zu: not resumed by this %s %s track: %s mismatch", T, trkDta.codec.c_str(), trkDta.type.c_str(),
+                 mismatch.c_str());
+        continue;
       }
       if (!claimTrack(T)) {
         WARN_MSG("Failed to claim track %zu (%s %s) for resuming! Creating instead...", T, trkDta.codec.c_str(),

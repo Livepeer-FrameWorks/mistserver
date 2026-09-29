@@ -221,17 +221,17 @@ namespace DTSC{
       std::string codec; ///< Codec
       std::string lang; ///< Language code
       std::string init; ///< Init data (AKA CodecPrivateData)
-      size_t id; ///< track id
+      size_t id{0}; ///< track id
 
-      // Audio specific
-      size_t rate; ///< sample rate
-      size_t size; ///< sample size
-      uint8_t channels; ///< channel count
+      // Audio specific; 0 when the input does not say
+      size_t rate{0}; ///< sample rate
+      size_t size{0}; ///< sample size
+      uint8_t channels{0}; ///< channel count
 
-      // Video specific
-      size_t width; ///< Video width
-      size_t height; ///< Video height
-      size_t fpks; ///< Frames per 1000 seconds (fps * 1000)
+      // Video specific; 0 when the input does not say
+      size_t width{0}; ///< Video width
+      size_t height{0}; ///< Video height
+      size_t fpks{0}; ///< Frames per 1000 seconds (fps * 1000)
   };
 
   class Track{
@@ -396,6 +396,7 @@ namespace DTSC{
                     bool setValid = true, size_t frameSize = 0);
     size_t addOrResumeTrack(const TrackMetadata & trkDta);
     size_t addOrResumeDelayedTrack(const TrackMetadata & trkDta);
+    std::string resumeMismatch(size_t trackIdx, const TrackMetadata & trkDta) const;
     void resizeTrack(size_t source, size_t fragCount = DEFAULT_FRAGMENT_COUNT, size_t keyCount = DEFAULT_KEY_COUNT,
                      size_t partCount = DEFAULT_PART_COUNT, size_t pageCount = DEFAULT_PAGE_COUNT, const char * reason = "",
                      size_t frameSize = 0);
