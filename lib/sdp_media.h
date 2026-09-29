@@ -155,6 +155,7 @@ namespace SDP{
                         ///< Used with WebRTC and STUN when calculating the message-integrity.
     std::string iceUFrag; ///< From `a=ice-ufag`, this property can be session-wide or media specific. Used
                           ///< with WebRTC and STUN when calculating the message-integrity.
+    std::string setupMethod; ///< Session-level `a=setup`; media without their own inherit it.
     std::set<Socket::Address> candidates;
   };
 
@@ -162,6 +163,7 @@ namespace SDP{
   public:
     Answer();
     bool parseOffer(const std::string &sdp);
+    bool negotiateSetup(std::string & error);
     bool hasVideo(); ///< Check if the offer has video.
     bool hasAudio(); ///< Check if the offer has audio.
     bool enableMedia(const std::string & type, const std::string & codecName, const std::string & localIceUfrag,
@@ -192,6 +194,9 @@ namespace SDP{
     uint16_t port;
     std::string fingerprint;
     std::string direction; ///< The direction used when generating the answer SDP string.
+    /// Our DTLS role, the `a=setup` value of the answer: "passive" (DTLS
+    /// server) unless the offerer declared itself passive, then "active".
+    std::string setup;
     uint8_t videoLossPrevention; ///< See the SDP_LOSS_PREVENTION_* values at the top of this header.
   };
 

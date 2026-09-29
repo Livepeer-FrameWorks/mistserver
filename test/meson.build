@@ -197,6 +197,15 @@ if get_option('b_sanitize') == 'none' and ffmpeg_program.found() and ffprobe_pro
                 exec_tgts.get('MistOutHTTPTS'), exec_tgts.get('MistUtilNuke'), timeout_program],
          env: {'MIST_REPUBLISH_RESOLUTION': '640x360'},
          suite: 'Streams', timeout: 90, is_parallel: false)
+    curl_program = find_program('curl', required: false)
+    if curl_program.found() and exec_tgts.has_key('MistOutWebRTC')
+      webrtcwhipsetuptest = find_program('webrtc_whip_setup_integration.sh')
+      test('WHIP offers get an answer or a logged refusal, and a passive offerer can publish', webrtcwhipsetuptest,
+           args: [ffmpeg_program, curl_program, exec_tgts.get('MistController'),
+                  exec_tgts.get('MistOutHTTP'), exec_tgts.get('MistOutWebRTC'),
+                  exec_tgts.get('MistUtilNuke'), timeout_program],
+           suite: 'WebRTC', timeout: 90, is_parallel: false)
+    endif
     livepeerstub = executable('livepeerbroadcasterstub', 'livepeer_broadcaster_stub.cpp')
     livepeervodtest = find_program('livepeer_vod_integration.sh')
     test('Livepeer VOD processing drains its recorded tail', livepeervodtest,

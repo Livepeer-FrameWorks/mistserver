@@ -4,6 +4,7 @@
 #include "timing.h"
 
 #include <algorithm>
+#include <cctype>
 #include <sstream>
 
 namespace SDP{
@@ -298,6 +299,11 @@ namespace SDP{
       return false;
     }
 
+    // m=<media> <port> <proto> <fmt> ...
+    if (words.size() < 3) {
+      ERROR_MSG("Invalid media line without port and protocol: `%s`.", line.c_str());
+      return false;
+    }
     // proto: UDP/TLS/RTP/SAVP
     proto = words[2];
 
@@ -646,6 +652,7 @@ namespace SDP{
         // set properties which can be global and may be overwritten per stream
         currMedia->iceUFrag = iceUFrag;
         currMedia->icePwd = icePwd;
+        currMedia->setupMethod = setupMethod;
       }
 
       if (!currMedia) {
@@ -654,6 +661,8 @@ namespace SDP{
           sdp_get_attribute_value(line, iceUFrag);
         } else if (line.substr(0, 9) == "a=ice-pwd") {
           sdp_get_attribute_value(line, icePwd);
+        } else if (line.substr(0, 7) == "a=setup") {
+          sdp_get_attribute_value(line, setupMethod);
         }
         continue;
       }
@@ -801,8 +810,8 @@ namespace SDP{
   }
 
   Answer::Answer()
-      : isAudioEnabled(false), isVideoEnabled(false), isMetaEnabled(false), port(0),
-        videoLossPrevention(SDP_LOSS_PREVENTION_NONE){}
+    : isAudioEnabled(false), isVideoEnabled(false), isMetaEnabled(false), port(0), setup("passive"),
+      videoLossPrevention(SDP_LOSS_PREVENTION_NONE) {}
 
   bool Answer::parseOffer(const std::string &sdp){
 
@@ -811,6 +820,38 @@ namespace SDP{
       return false;
     }
 
+    return true;
+  }
+
+  /// Picks our DTLS role from the offer's `a=setup` attributes (RFC 5763,
+  /// RFC 8842): an offerer that is "actpass", "active" or silent gets a
+  /// passive answer (we are the DTLS server); an offerer that is "passive"
+  /// gets an active answer (we start the handshake as DTLS client). All media
+  /// share one bundled DTLS association, so they must agree on one role.
+  /// Returns false with a reason for "holdconn", unknown values and
+  /// conflicting media.
+  bool Answer::negotiateSetup(std::string & error) {
+    std::string chosen;
+    for (size_t i = 0; i < sdpOffer.medias.size(); ++i) {
+      const SDP::Media & media = sdpOffer.medias[i];
+      std::string offered = media.setupMethod;
+      for (size_t c = 0; c < offered.size(); ++c) { offered[c] = tolower(offered[c]); }
+      std::string ours;
+      if (offered.empty() || offered == "actpass" || offered == "active") {
+        ours = "passive";
+      } else if (offered == "passive") {
+        ours = "active";
+      } else {
+        error = "unsupported a=setup:" + media.setupMethod + " on " + media.type + " media";
+        return false;
+      }
+      if (!chosen.empty() && chosen != ours) {
+        error = "media offer conflicting a=setup roles for one bundled DTLS association";
+        return false;
+      }
+      chosen = ours;
+    }
+    setup = chosen.empty() ? "passive" : chosen;
     return true;
   }
 
@@ -994,7 +1035,7 @@ namespace SDP{
       if (!isEnabled) { continue; }
 
       o << "a=rtcp:9\r\n";
-      o << "a=setup:passive\r\n";
+      o << "a=setup:" << setup << "\r\n";
       o << "a=fingerprint:sha-256 " << fingerprint << "\r\n";
       o << "a=ice-ufrag:" << mFmt->iceUFrag << "\r\n";
       o << "a=ice-pwd:" << mFmt->icePwd << "\r\n";

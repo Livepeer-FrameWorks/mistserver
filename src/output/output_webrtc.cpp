@@ -147,6 +147,7 @@ namespace Mist{
     sctpConnected = false;
 #endif
     useCandidate = false;
+    dtlsStarted = false;
     lastStunCheck = 0;
     udpSock = 0;
     lastRecv = Util::bootMS();
@@ -302,6 +303,7 @@ namespace Mist{
     sctpInited = false;
 #endif
     controlling = false;
+    dtlsClient = false;
     rtpIsFlowing = false;
     currentRTPSocket = -1;
     noSignalling = false;
@@ -900,6 +902,9 @@ namespace Mist{
     H.headerOnly = false;
   }
 
+  // Responses here are buffered so they carry a Content-Length: WHIP/WHEP
+  // clients (ffmpeg) send Connection: close and reject a body that only ends
+  // when the connection closes.
   void OutWebRTC::respondHTTP(const HTTP::Parser & req, bool headersOnly){
     // Generic header/parameter handling
     HTTPOutput::respondHTTP(req, headersOnly);
@@ -909,7 +914,7 @@ namespace Mist{
     // Check for WHIP/WHEP payload
     if (headersOnly){
       // Options can be used to get the ICE config, so we should include it in the response
-      H.StartResponse("200", "All good, have some ICE config", req, myConn);
+      H.StartResponse("200", "All good, have some ICE config", req, myConn, true);
       H.Chunkify(0, 0, myConn);
       return;
     }
@@ -918,7 +923,7 @@ namespace Mist{
       if (path.find('/')){ path.erase(0, path.rfind('/')+1); }
       if (path.size() != 10){
         H.setCORSHeaders();
-        H.StartResponse("404", "Invalid URL", req, myConn);
+        H.StartResponse("404", "Invalid URL", req, myConn, true);
         H.Chunkify("URL format invalid, ignored command", myConn);
         H.Chunkify(0, 0, myConn);
       }else{
@@ -926,7 +931,7 @@ namespace Mist{
           std::deque<Socket::Address> mcAddrs = Socket::getAddrs("224.0.0.224", config->getInteger("port"), AF_INET);
           if (!mcAddrs.size()){
             H.setCORSHeaders();
-            H.StartResponse("500", "Internal communication error", req, myConn);
+            H.StartResponse("500", "Internal communication error", req, myConn, true);
             H.Chunkify("Could not relay command due to internal communication error", myConn);
             H.Chunkify(0, 0, myConn);
             return;
@@ -936,7 +941,7 @@ namespace Mist{
           sndr.SendNow(path);
         }
         H.setCORSHeaders();
-        H.StartResponse("200", "Deleted", req, myConn);
+        H.StartResponse("200", "Deleted", req, myConn, true);
         H.Chunkify("If your stream existed, it was deleted.", myConn);
         H.Chunkify(0, 0, myConn);
       }
@@ -961,21 +966,29 @@ namespace Mist{
                     << std::endl;
         }
         if (!sdpParser.parseSDP(offerStr) || !sdpAnswer.parseOffer(offerStr)){
-          H.setCORSHeaders();
-          H.StartResponse("400", "Could not parse", req, myConn);
-          H.Chunkify("Failed to parse offer SDP", myConn);
-          H.Chunkify(0, 0, myConn);
+          respondOfferError(req, "400", "Could not parse", "the offer SDP could not be parsed");
           return;
         }
+        std::string setupError;
+        if (!sdpAnswer.negotiateSetup(setupError)) {
+          respondOfferError(req, "400", "Unsupported DTLS setup", setupError);
+          return;
+        }
+        dtlsClient = (sdpAnswer.setup == "active");
 
         bool ret = false;
+        std::string refusal = "the stream refused the offer";
         if (sdpParser.hasSendOnlyMedia()){
           if (req.url.size() >= 6 && req.url.substr(0, 6) != "/whep/"){
             ret = handleSignalingCommandRemoteOfferForInput(sdpParser);
+          } else {
+            refusal = "a publishing (sendonly) offer was sent to a WHEP endpoint";
           }
         }else{
           if (req.url.size() >= 6 && req.url.substr(0, 6) != "/whip/"){
             ret = handleSignalingCommandRemoteOfferForOutput(sdpParser);
+          } else {
+            refusal = "a playback offer was sent to a WHIP endpoint";
           }
         }
         if (ret){
@@ -1007,16 +1020,13 @@ namespace Mist{
             H.SetHeader("Playhead-millis", playhead.millis);
             if (playhead.exposeUTC) { H.SetHeader("Playhead-UTC", Util::getUTCStringMillis(playhead.unixMillis)); }
           }
-          H.StartResponse("201", "Created", req, myConn);
+          H.StartResponse("201", "Created", req, myConn, true);
           H.Chunkify(sdpAnswer.toString(), myConn);
           H.Chunkify(0, 0, myConn);
           closeMyConn();
           return;
         }else{
-          H.setCORSHeaders();
-          H.StartResponse("403", "Not allowed", req, myConn);
-          H.Chunkify("Request not allowed", myConn);
-          H.Chunkify(0, 0, myConn);
+          respondOfferError(req, "403", "Not allowed", refusal);
           return;
         }
       }
@@ -1025,7 +1035,7 @@ namespace Mist{
     // We don't implement PATCH requests
     if (req.method == "PATCH"){
       H.setCORSHeaders();
-      H.StartResponse("405", "PATCH not supported", req, myConn);
+      H.StartResponse("405", "PATCH not supported", req, myConn, true);
       H.Chunkify("This endpoint only supports WHIP/WHEP/WISH POST requests or WebSocket connections", myConn);
       H.Chunkify(0, 0, myConn);
       return;
@@ -1033,8 +1043,18 @@ namespace Mist{
 
     //Generic response handler
     H.setCORSHeaders();
-    H.StartResponse("405", "Must POST or use websocket", req, myConn);
+    H.StartResponse("405", "Must POST or use websocket", req, myConn, true);
     H.Chunkify("This endpoint only supports WHIP/WHEP/WISH POST requests or WebSocket connections", myConn);
+    H.Chunkify(0, 0, myConn);
+  }
+
+  /// Refuses a WHIP/WHEP offer with an HTTP error that carries its reason,
+  /// and logs the reason.
+  void OutWebRTC::respondOfferError(const HTTP::Parser & req, const char *code, const char *status, const std::string & reason) {
+    WARN_MSG("Rejecting WebRTC offer to %s from %s: %s", req.url.c_str(), getConnectedHost().c_str(), reason.c_str());
+    H.setCORSHeaders();
+    H.StartResponse(code, status, req, myConn, true);
+    H.Chunkify(reason, myConn);
     H.Chunkify(0, 0, myConn);
   }
 
@@ -1097,9 +1117,16 @@ namespace Mist{
       }
       if (!sdpParser.parseSDP(offerStr) || !sdpAnswer.parseOffer(offerStr)){
         sendSignalingError("offer_sdp", "Failed to parse the offered SDP");
-        WARN_MSG("offer parse failed");
+        WARN_MSG("Rejecting WebRTC offer from %s: the offer SDP could not be parsed", getConnectedHost().c_str());
         return;
       }
+      std::string setupError;
+      if (!sdpAnswer.negotiateSetup(setupError)) {
+        sendSignalingError("offer_sdp", setupError);
+        WARN_MSG("Rejecting WebRTC offer from %s: %s", getConnectedHost().c_str(), setupError.c_str());
+        return;
+      }
+      dtlsClient = (sdpAnswer.setup == "active");
 
       bool ret = false;
       if (sdpParser.hasSendOnlyMedia()){
@@ -1417,7 +1444,10 @@ namespace Mist{
     char *rawStream = getenv("stream_raw");
     if (rawStream) { streamName = rawStream; }
     if (checkStreamKey()) {
-      if (!streamName.size()) { return false; }
+      if (!streamName.size()) {
+        WARN_MSG("Push from %s to URL %s rejected: the stream key matches no stream", getConnectedHost().c_str(), reqUrl.c_str());
+        return false;
+      }
     } else {
       if (Triggers::shouldTrigger("PUSH_REWRITE")) {
         std::string payload = reqUrl + "\n" + getConnectedHost() + "\n" + streamName + "\n" + capa["name"].asStringRef();
@@ -1464,10 +1494,13 @@ namespace Mist{
 
       SDP::MediaFormat *fmtRED = sdpSession.getMediaFormatByEncodingName("video", "RED");
       SDP::MediaFormat *fmtULPFEC = sdpSession.getMediaFormatByEncodingName("video", "ULPFEC");
-      if (fmtRED || fmtULPFEC){
-        trk.ULPFECPayloadType = fmtULPFEC->payloadType;
+      // An offer may carry RED without ULPFEC or the other way around.
+      if (fmtRED) {
         trk.REDPayloadType = fmtRED->payloadType;
         payloadTypeToWebRTCTrack[fmtRED->payloadType] = trk.payloadType;
+      }
+      if (fmtULPFEC) {
+        trk.ULPFECPayloadType = fmtULPFEC->payloadType;
         payloadTypeToWebRTCTrack[fmtULPFEC->payloadType] = trk.payloadType;
       }
       sdpAnswer.videoLossPrevention = SDP_LOSS_PREVENTION_NACK;
@@ -1615,6 +1648,18 @@ namespace Mist{
 
     Util::Procs::socketList.insert(mainSocket.getSock());
 
+    // As DTLS client we send the first flight, so a lost flight is only
+    // retransmitted when the handshake is driven while no reply arrives; the
+    // DTLS timers decide whether this call resends anything.
+    evLp.addInterval([this]() {
+      if (!dtlsClient) { return 100; }
+      for (auto & it : sockets) {
+        if (!it.second.dtlsStarted || !it.second.udpSock || !*(it.second.udpSock)) { continue; }
+        if (!it.second.udpSock->handshakeComplete()) { it.second.udpSock->handshake(); }
+      }
+      return 100;
+    }, 100);
+
     // Add STUN send timer
     evLp.addInterval([this]() {
       uint64_t nowMs = Util::bootMS();
@@ -1711,7 +1756,8 @@ namespace Mist{
           continue;
         }
 
-        s->initDTLS(&(cert.cert), &(cert.key));
+        // As DTLS client the handshake starts once ICE answered on this pair.
+        if (!dtlsClient) { s->initDTLS(&(cert.cert), &(cert.key)); }
         int sockNo = s->getSock();
         WebRTCSocket & wSock = sockets[sockNo];
         wSock.udpSock = s;
@@ -1737,6 +1783,7 @@ namespace Mist{
     }
 
     controlling = true;
+    dtlsClient = true;
     udpPort = mainSocket.bind(0);
     if (!udpPort) {
       FAIL_MSG("Cannot bind to unused port: aborting");
@@ -2028,7 +2075,7 @@ namespace Mist{
 
     // After reading packets, error if we couldn't init the SRTP session
     if (!wasInited && wSock.udpSock->cipher.size()) {
-      if (controlling) {
+      if (dtlsClient) {
         if (wSock.srtpReader.init(wSock.udpSock->cipher, wSock.udpSock->local_key, wSock.udpSock->local_salt) != 0) {
           FAIL_MSG("Failed to initialize the SRTP reader.");
         }
@@ -2140,6 +2187,15 @@ namespace Mist{
     wSock.udpSock->sendPaced(stunReply.data, stunReply.data.size(), false);
     myConn.addUp(stunReply.data.size());
     if (packetLog.is_open()) { packetLog << "[" << Util::bootMS() << "]->STUN " << stunReply.toString() << std::endl; }
+
+    // An offerer that declared a=setup:passive waits for our ClientHello. It
+    // follows the binding response, so the peer already considers this pair
+    // connected when the ClientHello arrives.
+    if (dtlsClient && !controlling && !wSock.dtlsStarted) {
+      wSock.dtlsStarted = true;
+      INFO_MSG("Starting DTLS as client towards %s (the offer's a=setup is passive)", remoteAddr.toString().c_str());
+      wSock.udpSock->initDTLS(&(cert.cert), &(cert.key), true);
+    }
   }
 
   void OutWebRTC::ackNACK(uint32_t pSSRC, uint16_t seq){

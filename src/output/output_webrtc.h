@@ -71,6 +71,7 @@ namespace Mist{
     WebRTCSocket();
     uint64_t lastRecv;
     bool useCandidate;
+    bool dtlsStarted; ///< DTLS client handshake started on this socket
     uint64_t lastStunCheck;
 #ifdef WITH_DATACHANNELS
     bool sctpInited;
@@ -123,6 +124,7 @@ namespace Mist{
   private:
     bool noSignalling;
     bool controlling;
+    bool dtlsClient; ///< We are the DTLS client (a=setup:active), not the server
     uint64_t lastRecv;
     uint64_t lastPackMs;
     uint64_t totalPkts;
@@ -138,6 +140,7 @@ namespace Mist{
     void handleReceivedSTUNPacket(WebRTCSocket &wSock);
     void handleReceivedRTPOrRTCPPacket(WebRTCSocket &wSock);
     bool handleSignalingCommandRemoteOfferForInput(SDP::Session &sdpSession);
+    void respondOfferError(const HTTP::Parser & req, const char *code, const char *status, const std::string & reason);
     bool handleSignalingCommandRemoteOfferForOutput(SDP::Session &sdpSession);
     void sendSignalingError(const std::string &commandType, const std::string &errorMessage);
     void handleUDPPacket(WebRTCSocket & wSock, int sockNo);
