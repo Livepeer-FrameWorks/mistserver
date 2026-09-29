@@ -1,0 +1,42 @@
+# syntax=docker/dockerfile:1.7
+
+# Builds one locked ONNX dependency prefix (/opt/mist-onnx: ONNX Runtime and OpenCV) and
+# publishes it alone in a scratch image. Dockerfile.mistserver-onnx and the native release
+# builds consume it by digest instead of rebuilding it. scripts/ONNX/dependency_image.sh
+# hashes this file into the image tag, so any change here names a new image.
+
+ARG BUILD_BASE=ubuntu:24.04
+
+FROM ${BUILD_BASE} AS build
+
+USER root
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      build-essential ca-certificates curl git patch \
+      python3 python3-pip ninja-build pkg-config cmake \
+    && python3 -m pip install --break-system-packages 'cmake>=3.28' \
+    && rm -rf /var/lib/apt/lists/*
+
+ARG ONNX_PROFILE=cpu
+ARG ONNX_DEP_JOBS=4
+ARG ONNX_RUNTIME_DISTRIBUTION=source
+ARG ONNX_NVCC_THREADS=1
+ARG CUDA_HOME
+ARG CUDNN_HOME
+ARG TENSORRT_HOME
+ARG ONNX_CUDA_ARCHITECTURES
+ARG OpenVINO_DIR
+ARG ONNX_OPENVINO_DEVICE=AUTO:GPU,CPU
+
+COPY scripts/ONNX/build_dependencies.sh scripts/ONNX/dependencies.lock.tsv /src/scripts/ONNX/
+RUN /src/scripts/ONNX/build_dependencies.sh \
+      --prefix /opt/mist-onnx \
+      --work-dir /deps/onnx/${ONNX_PROFILE} \
+      --profile ${ONNX_PROFILE} \
+      --jobs ${ONNX_DEP_JOBS} \
+      --runtime-distribution ${ONNX_RUNTIME_DISTRIBUTION} \
+      --nvcc-threads ${ONNX_NVCC_THREADS} \
+    && rm -rf /deps
+
+FROM scratch
+COPY --from=build /opt/mist-onnx/ /opt/mist-onnx/

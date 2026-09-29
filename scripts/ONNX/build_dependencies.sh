@@ -16,6 +16,7 @@ Options:
                       Locked ONNX Runtime binary distribution, or source (default)
   --nvcc-threads COUNT
                       Threads used internally by each NVCC compilation (default: 1)
+  --verify-only       Only check that the prefix already holds this exact locked build
 
 Provider SDK environment:
   CUDA_HOME, CUDNN_HOME                       cuda and tensorrt
@@ -35,6 +36,7 @@ profile=cpu
 jobs=
 runtime_distribution=source
 nvcc_threads=1
+verify_only=0
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
@@ -45,6 +47,7 @@ while [ "$#" -gt 0 ]; do
     --lock) [ "$#" -ge 2 ] || usage; lock_file=$2; shift 2 ;;
     --runtime-distribution) [ "$#" -ge 2 ] || usage; runtime_distribution=$2; shift 2 ;;
     --nvcc-threads) [ "$#" -ge 2 ] || usage; nvcc_threads=$2; shift 2 ;;
+    --verify-only) verify_only=1; shift ;;
     -h|--help) usage ;;
     *) usage ;;
   esac
@@ -170,6 +173,10 @@ if [ -f "$prefix/.mist-onnx-dependencies" ]; then
   fi
   echo "Dependency prefix contains a different build: $prefix" >&2
   echo "Use an empty profile-specific prefix instead of overwriting it." >&2
+  exit 1
+fi
+if [ "$verify_only" -eq 1 ]; then
+  echo "Dependency prefix does not hold the locked build $stamp: $prefix" >&2
   exit 1
 fi
 

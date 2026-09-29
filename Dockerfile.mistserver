@@ -42,7 +42,7 @@ ARG DEBUG=3
 ARG VERSION=Unknown
 ARG TARGETPLATFORM
 ARG RELEASE=Docker_${TARGETPLATFORM}
-RUN mkdir /build/ && cd /build && meson setup /src -DDOCKERRUN=true -DNOUPDATE=true -DDEBUG=${DEBUG} -DVERSION=${VERSION} -DRELEASE=${RELEASE} -DWITH_AV=true -Dstrip=true ${MIST_OPTS} && ninja install
+RUN mkdir /build/ && cd /build && meson setup /src --buildtype=debugoptimized -DDOCKERRUN=true -DNOUPDATE=true -DDEBUG=${DEBUG} -DVERSION=${VERSION} -DRELEASE=${RELEASE} -DWITH_AV=true -Dstrip=true ${MIST_OPTS} && ninja install
 
 # Upload debug symbols if requested
 ARG OUTPUT_DBG

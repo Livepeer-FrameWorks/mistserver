@@ -322,7 +322,15 @@ TensorRT, and OpenVINO images on
 ordinary GitHub-hosted CPU runners. Linux arm64 GPU-provider artifacts are intentionally outside
 the first release matrix because upstream publishes no equivalent generic ARM64 GPU archive.
 `accelerator-images.json` pins the vendor build and runtime image digests, SDK paths,
-and dependency strategy. A manual workflow can select one
+and dependency strategy. Each Linux dependency prefix (`/opt/mist-onnx`) is built once by
+`Dockerfile.onnx-deps` and published as
+`ghcr.io/livepeer-frameworks/mist-onnx-deps:<profile>-<arch>-<hash>`, where
+`dependency_image.sh` hashes that Dockerfile, `build_dependencies.sh`, the lock file and the
+target's build base, runtime distribution and SDK settings. Accelerator images, the CPU
+images and the native Linux builds consume it by digest and run
+`build_dependencies.sh --verify-only` against it; a release rebuilds it only when one of
+those inputs changed. `build_accelerator_local.sh` builds the same image into the local
+Docker image store under that tag and reuses it on later runs. A manual workflow can select one
 architecture for non-publishing diagnosis; publishing requires the complete architecture set so
 an incomplete multi-arch manifest cannot replace a release tag. Those jobs run the
 ONNX unit, capability, dependency, loader, notice, and package checks without claiming that a

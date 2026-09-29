@@ -28,16 +28,27 @@ env:
   SVT_AV1_REF: v3.1.2
 
 jobs:
+  # Every Linux build below consumes its locked ONNX Runtime/OpenCV prefix from one
+  # content-addressed GHCR image, built only when its inputs change.
+  onnx-dependencies:
+    name: Locked ONNX dependency images
+    uses: ./.github/workflows/onnx-dependencies.yml
+    permissions:
+      contents: read
+      packages: write
+
   # Linux accelerator images are built on ordinary GitHub-hosted CPU runners. The
   # vendor SDK images provide compilers and userspace runtimes; physical hardware is
   # only needed by the separately opt-in execution tests.
   build-onnx-accelerators:
     name: Build Linux ONNX accelerator images and native bundles
+    needs: onnx-dependencies
     uses: ./.github/workflows/onnx-accelerators.yml
     with:
       profile: all
       publish: ${{ github.event_name != 'workflow_dispatch' || inputs.publish }}
       run_hardware_tests: false
+      dependency_images: ${{ needs.onnx-dependencies.outputs.images }}
     secrets: inherit
     permissions:
       contents: read
@@ -48,6 +59,7 @@ jobs:
   # ---------------------------------------------------------------------------
   build-image-amd64:
     name: Build Docker Image (linux/amd64)
+    needs: onnx-dependencies
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -69,11 +81,20 @@ jobs:
             echo "tag=development-${SHORT_SHA}" >> "$GITHUB_OUTPUT"
           fi
 
+      - name: Select locked ONNX dependency image
+        id: deps
+        env:
+          IMAGES: ${{ needs.onnx-dependencies.outputs.images }}
+        run: |
+          echo "image=$(jq -re '.["cpu-amd64"]' <<<"$IMAGES")" >> "$GITHUB_OUTPUT"
+          echo "build_base=$(jq -re '.dependency_images.cpu[] | select(.arch == "amd64") | .build_base' \
+            scripts/ONNX/accelerator-images.json)" >> "$GITHUB_OUTPUT"
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
 
+      # Always needed: the dependency image is pulled from GHCR even when nothing is published.
       - name: Log in to GHCR
-        if: github.event_name != 'workflow_dispatch' || inputs.publish
         uses: docker/login-action@v4
         with:
           registry: ghcr.io
@@ -101,16 +122,14 @@ jobs:
           provenance: ${{ github.event_name != 'workflow_dispatch' || inputs.publish }}
           sbom: ${{ github.event_name != 'workflow_dispatch' || inputs.publish }}
           build-args: |
+            ONNX_DEPS_IMAGE=${{ steps.deps.outputs.image }}
+            BUILD_BASE=${{ steps.deps.outputs.build_base }}
             ONNX_PROFILE=cpu
             ONNX_STATIC=false
             ONNX_RUNTIME_DISTRIBUTION=onnxruntime-linux-x64
           tags: |
             ${{ env.REGISTRY_GHCR }}/mistserver:${{ steps.version.outputs.tag }}-amd64
             ${{ env.REGISTRY_DOCKERHUB }}/mistserver:${{ steps.version.outputs.tag }}-amd64
-          cache-from: |
-            type=gha,scope=mistserver-amd64
-            type=registry,ref=${{ env.REGISTRY_GHCR }}/mistserver:latest
-          cache-to: type=gha,mode=max,ignore-error=true,scope=mistserver-amd64
 
       - name: Pull published image for verification
         if: github.event_name != 'workflow_dispatch' || inputs.publish
@@ -145,6 +164,7 @@ jobs:
   # ---------------------------------------------------------------------------
   build-image-arm64:
     name: Build Docker Image (linux/arm64)
+    needs: onnx-dependencies
     runs-on: ubuntu-24.04-arm
     permissions:
       contents: read
@@ -166,11 +186,20 @@ jobs:
             echo "tag=development-${SHORT_SHA}" >> "$GITHUB_OUTPUT"
           fi
 
+      - name: Select locked ONNX dependency image
+        id: deps
+        env:
+          IMAGES: ${{ needs.onnx-dependencies.outputs.images }}
+        run: |
+          echo "image=$(jq -re '.["cpu-arm64"]' <<<"$IMAGES")" >> "$GITHUB_OUTPUT"
+          echo "build_base=$(jq -re '.dependency_images.cpu[] | select(.arch == "arm64") | .build_base' \
+            scripts/ONNX/accelerator-images.json)" >> "$GITHUB_OUTPUT"
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
 
+      # Always needed: the dependency image is pulled from GHCR even when nothing is published.
       - name: Log in to GHCR
-        if: github.event_name != 'workflow_dispatch' || inputs.publish
         uses: docker/login-action@v4
         with:
           registry: ghcr.io
@@ -196,15 +225,14 @@ jobs:
           provenance: ${{ github.event_name != 'workflow_dispatch' || inputs.publish }}
           sbom: ${{ github.event_name != 'workflow_dispatch' || inputs.publish }}
           build-args: |
+            ONNX_DEPS_IMAGE=${{ steps.deps.outputs.image }}
+            BUILD_BASE=${{ steps.deps.outputs.build_base }}
             ONNX_PROFILE=cpu
             ONNX_STATIC=false
             ONNX_RUNTIME_DISTRIBUTION=onnxruntime-linux-aarch64
           tags: |
             ${{ env.REGISTRY_GHCR }}/mistserver:${{ steps.version.outputs.tag }}-arm64
             ${{ env.REGISTRY_DOCKERHUB }}/mistserver:${{ steps.version.outputs.tag }}-arm64
-          cache-from: |
-            type=gha,scope=mistserver-arm64
-          cache-to: type=gha,mode=max,ignore-error=true,scope=mistserver-arm64
 
       - name: Pull published image for verification
         if: github.event_name != 'workflow_dispatch' || inputs.publish
@@ -317,9 +345,11 @@ jobs:
   # ---------------------------------------------------------------------------
   build-binaries-amd64:
     name: Build Native Binaries (linux/amd64)
+    needs: onnx-dependencies
     runs-on: ubuntu-latest
     permissions:
       contents: read
+      packages: read
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
@@ -344,15 +374,46 @@ jobs:
             build-essential git python3 python3-pip ninja-build pkg-config nasm yasm cmake \
             libmbedtls-dev libcjson-dev zlib1g-dev liblzma-dev libxml2-dev libmp3lame-dev \
             libopus-dev libvpx-dev libx265-dev libnuma-dev libaom-dev \
-            libjpeg-dev libpng-dev ffmpeg
+            libjpeg-dev libpng-dev ffmpeg patchelf lld ccache
           python3 -m pip install --break-system-packages 'meson>=1.6.0' 'cmake>=3.28'
 
-      - uses: ./.github/actions/setup-onnx-dependencies
+      - name: Log in to GHCR
+        uses: docker/login-action@v4
         with:
-          profile: cpu
-          prefix: ${{ github.workspace }}/.deps/onnx/cpu
-          work-dir: ${{ runner.temp }}/onnx-build/cpu
-          runtime-distribution: onnxruntime-linux-x64
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract locked ONNX dependency prefix
+        env:
+          IMAGES: ${{ needs.onnx-dependencies.outputs.images }}
+        run: |
+          set -euo pipefail
+          image=$(jq -re '.["cpu-amd64"]' <<<"$IMAGES")
+          docker pull "$image"
+          container=$(docker create "$image" /none)
+          docker cp "$container:/opt/mist-onnx" - | sudo tar -x -C /opt
+          docker rm "$container"
+          scripts/ONNX/build_dependencies.sh --verify-only \
+            --prefix /opt/mist-onnx \
+            --work-dir "$RUNNER_TEMP/onnx-deps-verify" \
+            --profile cpu \
+            --runtime-distribution onnxruntime-linux-x64
+
+      # FFmpeg, x264 and the other fallback subprojects compile identically across tags;
+      # MistServer's own objects carry the version define and always rebuild.
+      - name: Locate compiler cache
+        id: ccache
+        run: |
+          echo "CCACHE_DIR=$HOME/.cache/ccache" >> "$GITHUB_ENV"
+          echo "CCACHE_MAXSIZE=2G" >> "$GITHUB_ENV"
+          echo "compiler=gcc-$(gcc -dumpfullversion)" >> "$GITHUB_OUTPUT"
+
+      - name: Restore compiler cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ccache
+          key: ccache-native-${{ runner.os }}-${{ runner.arch }}-${{ steps.ccache.outputs.compiler }}-${{ hashFiles('subprojects/*.wrap', 'subprojects/packagefiles/**') }}
 
       - name: Build static dav1d
         run: |
@@ -386,12 +447,17 @@ jobs:
 
       - name: Build MistServer
         env:
-          PKG_CONFIG_PATH: ${{ github.workspace }}/.deps/onnx/cpu/lib/pkgconfig:/tmp/dav1d-static/lib/pkgconfig:/tmp/dav1d-static/lib64/pkgconfig:/tmp/svt-av1-static/lib/pkgconfig:/tmp/svt-av1-static/lib64/pkgconfig
-          CMAKE_PREFIX_PATH: ${{ github.workspace }}/.deps/onnx/cpu
+          PKG_CONFIG_PATH: /opt/mist-onnx/lib/pkgconfig:/tmp/dav1d-static/lib/pkgconfig:/tmp/dav1d-static/lib64/pkgconfig:/tmp/svt-av1-static/lib/pkgconfig:/tmp/svt-av1-static/lib64/pkgconfig
+          CMAKE_PREFIX_PATH: /opt/mist-onnx
+          # Linking ~420 static targets, each carrying FFmpeg with debug info, dominated
+          # this step under ld.bfd; lld links the same objects in a fraction of that.
+          CC_LD: lld
+          CXX_LD: lld
         run: |
           # WebRTC DTLS-SRTP is release-critical. Keep native artifacts on the
           # same pinned MbedTLS implementation as the container builds.
           meson setup build \
+            --buildtype=debugoptimized \
             --default-library=static \
             --wrap-mode=default \
             --prefer-static \
@@ -410,6 +476,7 @@ jobs:
           grep -qE 'ONNX AI processing:[[:space:]]+YES \(profile=cpu\)' build/meson-logs/meson-log.txt || { echo "::error::ONNX CPU support was not built"; exit 1; }
           grep -qE 'Dependency mbedtls for host machine from subproject .* found: YES' build/meson-logs/meson-log.txt || { echo "::error::Pinned MbedTLS was not used"; exit 1; }
           ninja -C build
+          ccache --show-stats
           meson test -C build "Pinned FFmpeg codec registry contract" "WebRTC DTLS-SRTP loopback handshake" --print-errorlogs
           scripts/ONNX/prepare_models.sh --dir "$RUNNER_TEMP/onnx-models" yolo26n
           ffmpeg -hide_banner -loglevel error -y -f lavfi -i testsrc2=size=640x640 -frames:v 1 "$RUNNER_TEMP/onnx-test.jpg"
@@ -423,8 +490,7 @@ jobs:
           find /tmp/mistserver-install \( -name '*.a' -o -name '*.la' \) -delete
           rm -rf /tmp/mistserver-install/include
           find /tmp/mistserver-install/lib -type d -name pkgconfig -prune -exec rm -rf {} +
-          cp -a '${{ github.workspace }}/.deps/onnx/cpu/lib/'*.so* \
-            /tmp/mistserver-install/lib/
+          cp -a /opt/mist-onnx/lib/*.so* /tmp/mistserver-install/lib/
           patchelf --set-rpath '$ORIGIN/../lib:$ORIGIN/../lib/x86_64-linux-gnu' \
             /tmp/mistserver-install/bin/MistProcONNX
           find /tmp/mistserver-install/lib -type f -name '*.so*' -exec \
@@ -501,7 +567,7 @@ jobs:
         run: |
           cd /tmp/mistserver-install
           mkdir -p share/mistserver/onnx share/licenses
-          cp -a '${{ github.workspace }}/.deps/onnx/cpu/share/licenses/.' share/licenses/
+          cp -a /opt/mist-onnx/share/licenses/. share/licenses/
           cp '${{ github.workspace }}/scripts/ONNX/prepare_models.sh' \
              '${{ github.workspace }}/scripts/ONNX/models.manifest.tsv' \
              '${{ github.workspace }}/scripts/ONNX/dependencies.lock.tsv' \
@@ -534,9 +600,11 @@ jobs:
   # ---------------------------------------------------------------------------
   build-binaries-arm64:
     name: Build Native Binaries (linux/arm64)
+    needs: onnx-dependencies
     runs-on: ubuntu-24.04-arm
     permissions:
       contents: read
+      packages: read
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
@@ -561,15 +629,46 @@ jobs:
             build-essential git python3 python3-pip ninja-build pkg-config nasm yasm cmake \
             libmbedtls-dev libcjson-dev zlib1g-dev liblzma-dev libxml2-dev libmp3lame-dev \
             libopus-dev libvpx-dev libx265-dev libnuma-dev libaom-dev \
-            libjpeg-dev libpng-dev ffmpeg patchelf
+            libjpeg-dev libpng-dev ffmpeg patchelf lld ccache
           python3 -m pip install --break-system-packages 'meson>=1.6.0' 'cmake>=3.28'
 
-      - uses: ./.github/actions/setup-onnx-dependencies
+      - name: Log in to GHCR
+        uses: docker/login-action@v4
         with:
-          profile: cpu
-          prefix: ${{ github.workspace }}/.deps/onnx/cpu
-          work-dir: ${{ runner.temp }}/onnx-build/cpu
-          runtime-distribution: onnxruntime-linux-aarch64
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract locked ONNX dependency prefix
+        env:
+          IMAGES: ${{ needs.onnx-dependencies.outputs.images }}
+        run: |
+          set -euo pipefail
+          image=$(jq -re '.["cpu-arm64"]' <<<"$IMAGES")
+          docker pull "$image"
+          container=$(docker create "$image" /none)
+          docker cp "$container:/opt/mist-onnx" - | sudo tar -x -C /opt
+          docker rm "$container"
+          scripts/ONNX/build_dependencies.sh --verify-only \
+            --prefix /opt/mist-onnx \
+            --work-dir "$RUNNER_TEMP/onnx-deps-verify" \
+            --profile cpu \
+            --runtime-distribution onnxruntime-linux-aarch64
+
+      # FFmpeg, x264 and the other fallback subprojects compile identically across tags;
+      # MistServer's own objects carry the version define and always rebuild.
+      - name: Locate compiler cache
+        id: ccache
+        run: |
+          echo "CCACHE_DIR=$HOME/.cache/ccache" >> "$GITHUB_ENV"
+          echo "CCACHE_MAXSIZE=2G" >> "$GITHUB_ENV"
+          echo "compiler=gcc-$(gcc -dumpfullversion)" >> "$GITHUB_OUTPUT"
+
+      - name: Restore compiler cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ccache
+          key: ccache-native-${{ runner.os }}-${{ runner.arch }}-${{ steps.ccache.outputs.compiler }}-${{ hashFiles('subprojects/*.wrap', 'subprojects/packagefiles/**') }}
 
       - name: Build static dav1d
         run: |
@@ -603,12 +702,17 @@ jobs:
 
       - name: Build MistServer
         env:
-          PKG_CONFIG_PATH: ${{ github.workspace }}/.deps/onnx/cpu/lib/pkgconfig:/tmp/dav1d-static/lib/pkgconfig:/tmp/dav1d-static/lib64/pkgconfig:/tmp/svt-av1-static/lib/pkgconfig:/tmp/svt-av1-static/lib64/pkgconfig
-          CMAKE_PREFIX_PATH: ${{ github.workspace }}/.deps/onnx/cpu
+          PKG_CONFIG_PATH: /opt/mist-onnx/lib/pkgconfig:/tmp/dav1d-static/lib/pkgconfig:/tmp/dav1d-static/lib64/pkgconfig:/tmp/svt-av1-static/lib/pkgconfig:/tmp/svt-av1-static/lib64/pkgconfig
+          CMAKE_PREFIX_PATH: /opt/mist-onnx
+          # Linking ~420 static targets, each carrying FFmpeg with debug info, dominated
+          # this step under ld.bfd; lld links the same objects in a fraction of that.
+          CC_LD: lld
+          CXX_LD: lld
         run: |
           # WebRTC DTLS-SRTP is release-critical. Keep native artifacts on the
           # same pinned MbedTLS implementation as the container builds.
           meson setup build \
+            --buildtype=debugoptimized \
             --default-library=static \
             --wrap-mode=default \
             --prefer-static \
@@ -627,6 +731,7 @@ jobs:
           grep -qE 'ONNX AI processing:[[:space:]]+YES \(profile=cpu\)' build/meson-logs/meson-log.txt || { echo "::error::ONNX CPU support was not built"; exit 1; }
           grep -qE 'Dependency mbedtls for host machine from subproject .* found: YES' build/meson-logs/meson-log.txt || { echo "::error::Pinned MbedTLS was not used"; exit 1; }
           ninja -C build
+          ccache --show-stats
           meson test -C build "Pinned FFmpeg codec registry contract" "WebRTC DTLS-SRTP loopback handshake" --print-errorlogs
           scripts/ONNX/prepare_models.sh --dir "$RUNNER_TEMP/onnx-models" yolo26n
           ffmpeg -hide_banner -loglevel error -y -f lavfi -i testsrc2=size=640x640 -frames:v 1 "$RUNNER_TEMP/onnx-test.jpg"
@@ -640,8 +745,7 @@ jobs:
           find /tmp/mistserver-install \( -name '*.a' -o -name '*.la' \) -delete
           rm -rf /tmp/mistserver-install/include
           find /tmp/mistserver-install/lib -type d -name pkgconfig -prune -exec rm -rf {} +
-          cp -a '${{ github.workspace }}/.deps/onnx/cpu/lib/'*.so* \
-            /tmp/mistserver-install/lib/
+          cp -a /opt/mist-onnx/lib/*.so* /tmp/mistserver-install/lib/
           patchelf --set-rpath '$ORIGIN/../lib:$ORIGIN/../lib/aarch64-linux-gnu' \
             /tmp/mistserver-install/bin/MistProcONNX
           find /tmp/mistserver-install/lib -type f -name '*.so*' -exec \
@@ -718,7 +822,7 @@ jobs:
         run: |
           cd /tmp/mistserver-install
           mkdir -p share/mistserver/onnx share/licenses
-          cp -a '${{ github.workspace }}/.deps/onnx/cpu/share/licenses/.' share/licenses/
+          cp -a /opt/mist-onnx/share/licenses/. share/licenses/
           cp '${{ github.workspace }}/scripts/ONNX/prepare_models.sh' \
              '${{ github.workspace }}/scripts/ONNX/models.manifest.tsv' \
              '${{ github.workspace }}/scripts/ONNX/dependencies.lock.tsv' \
@@ -794,6 +898,7 @@ jobs:
           export PKG_CONFIG_PATH="${ONNX_DEP_PREFIX}/lib/pkgconfig:${LIBXML2_PREFIX}/lib/pkgconfig:${PKG_CONFIG_PATH:-}"
           export CMAKE_PREFIX_PATH="${ONNX_DEP_PREFIX}:${CMAKE_PREFIX_PATH:-}"
           meson setup build-darwin-arm64 \
+            --buildtype=debugoptimized \
             --default-library=static \
             --wrap-mode=default \
             --force-fallback-for=mbedtls,usrsctp \

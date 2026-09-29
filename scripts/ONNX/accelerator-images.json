@@ -107,6 +107,43 @@
       {"profile": "openvino", "platform": "linux/amd64"}
     ]
   },
+  "dependency_images": {
+    "repository": "ghcr.io/livepeer-frameworks/mist-onnx-deps",
+    "cpu": [
+      {
+        "profile": "cpu",
+        "runner": "ubuntu-latest",
+        "platform": "linux/amd64",
+        "arch": "amd64",
+        "build_base": "ubuntu:24.04@sha256:008173c23f95b170204355c12626cb5a965d779a7e1283b09e9cffbb1bf33ca3",
+        "cuda_home": "",
+        "cudnn_home": "",
+        "tensorrt_home": "",
+        "openvino_dir": "",
+        "dependency_jobs": 4,
+        "runtime_distribution": "onnxruntime-linux-x64",
+        "nvcc_threads": 1,
+        "swap_gb": 0,
+        "cuda_architectures": ""
+      },
+      {
+        "profile": "cpu",
+        "runner": "ubuntu-24.04-arm",
+        "platform": "linux/arm64",
+        "arch": "arm64",
+        "build_base": "ubuntu:24.04@sha256:008173c23f95b170204355c12626cb5a965d779a7e1283b09e9cffbb1bf33ca3",
+        "cuda_home": "",
+        "cudnn_home": "",
+        "tensorrt_home": "",
+        "openvino_dir": "",
+        "dependency_jobs": 4,
+        "runtime_distribution": "onnxruntime-linux-aarch64",
+        "nvcc_threads": 1,
+        "swap_gb": 0,
+        "cuda_architectures": ""
+      }
+    ]
+  },
   "include": [
     {
       "profile": "cuda",

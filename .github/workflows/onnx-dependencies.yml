@@ -1,0 +1,195 @@
+name: Build locked ONNX dependency images
+
+# Each locked ONNX Runtime/OpenCV prefix is published once as a content-addressed scratch
+# image, ghcr.io/livepeer-frameworks/mist-onnx-deps:<profile>-<arch>-<hash>. The hash
+# (scripts/ONNX/dependency_image.sh) covers every input that decides the prefix, so a
+# release or accelerator build reuses the existing image and only a dependency change
+# builds a new one. Pushes to master that touch those inputs build ahead of the next tag.
+
+on:
+  workflow_call:
+    outputs:
+      images:
+        description: JSON object from <profile>-<arch> to the digest-pinned dependency image
+        value: ${{ jobs.resolve.outputs.images }}
+  workflow_dispatch:
+  push:
+    branches: [master, main]
+    paths:
+      - Dockerfile.onnx-deps
+      - scripts/ONNX/build_dependencies.sh
+      - scripts/ONNX/dependencies.lock.tsv
+      - scripts/ONNX/accelerator-images.json
+      - scripts/ONNX/dependency_image.sh
+      - .github/workflows/onnx-dependencies.yml
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  plan:
+    name: Plan dependency images
+    runs-on: ubuntu-latest
+    outputs:
+      plan: ${{ steps.plan.outputs.plan }}
+      build_matrix: ${{ steps.plan.outputs.build_matrix }}
+      build_count: ${{ steps.plan.outputs.build_count }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: docker/setup-buildx-action@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Find dependency images that are not published yet
+        id: plan
+        shell: bash
+        run: |
+          plan=$(scripts/ONNX/dependency_image.sh plan)
+          missing='[]'
+          while IFS= read -r entry; do
+            ref=$(jq -r .ref <<<"$entry")
+            if docker buildx imagetools inspect "$ref" >/dev/null 2>"$RUNNER_TEMP/inspect.log"; then
+              echo "Reusing $ref"
+            elif grep -qiE 'not found|manifest unknown|name unknown' "$RUNNER_TEMP/inspect.log"; then
+              echo "Building $ref"
+              missing=$(jq -c --argjson entry "$entry" '. + [$entry]' <<<"$missing")
+            else
+              cat "$RUNNER_TEMP/inspect.log" >&2
+              echo "Cannot tell whether $ref exists" >&2
+              exit 1
+            fi
+          done < <(jq -c '.[]' <<<"$plan")
+          {
+            echo "plan=${plan}"
+            echo "build_matrix={\"include\":${missing}}"
+            echo "build_count=$(jq length <<<"$missing")"
+          } >> "$GITHUB_OUTPUT"
+
+  build:
+    name: Build ${{ matrix.tag }}
+    needs: plan
+    if: needs.plan.outputs.build_count != '0'
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.plan.outputs.build_matrix) }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 350
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: docker/setup-buildx-action@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # A concurrent run (a master push and the tag that follows it) may have published the
+      # same content-addressed image while this job was queued.
+      - name: Check for a concurrently published image
+        id: existing
+        env:
+          REF: ${{ matrix.ref }}
+        shell: bash
+        run: |
+          if docker buildx imagetools inspect "$REF" >/dev/null 2>&1; then
+            echo "Already published: $REF"
+            echo "published=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "published=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Reclaim runner space for provider SDKs
+        if: steps.existing.outputs.published != 'true'
+        shell: bash
+        run: |
+          sudo rm -rf /usr/local/lib/android
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /opt/ghc
+
+      - name: Provision swap for source-built NVIDIA runtime
+        if: steps.existing.outputs.published != 'true' && matrix.swap_gb > 0
+        shell: bash
+        run: |
+          swap_file="$RUNNER_TEMP/onnx-provider.swap"
+          sudo fallocate -l '${{ matrix.swap_gb }}G' "$swap_file"
+          sudo chmod 600 "$swap_file"
+          sudo mkswap "$swap_file"
+          sudo swapon "$swap_file"
+          free -h
+
+      - name: Build and publish dependency image
+        if: steps.existing.outputs.published != 'true'
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: Dockerfile.onnx-deps
+          platforms: ${{ matrix.platform }}
+          push: true
+          provenance: false
+          sbom: false
+          build-args: |
+            BUILD_BASE=${{ matrix.build_base }}
+            ONNX_PROFILE=${{ matrix.profile }}
+            ONNX_DEP_JOBS=${{ matrix.dependency_jobs }}
+            ONNX_RUNTIME_DISTRIBUTION=${{ matrix.runtime_distribution }}
+            ONNX_NVCC_THREADS=${{ matrix.nvcc_threads }}
+            ONNX_CUDA_ARCHITECTURES=${{ matrix.cuda_architectures }}
+            CUDA_HOME=${{ matrix.cuda_home }}
+            CUDNN_HOME=${{ matrix.cudnn_home }}
+            TENSORRT_HOME=${{ matrix.tensorrt_home }}
+            OpenVINO_DIR=${{ matrix.openvino_dir }}
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.base.name=${{ matrix.build_base }}
+          tags: ${{ matrix.ref }}
+
+  resolve:
+    name: Resolve dependency image digests
+    needs: [plan, build]
+    if: ${{ !cancelled() && needs.plan.result == 'success' && (needs.build.result == 'success' || needs.build.result == 'skipped') }}
+    runs-on: ubuntu-latest
+    outputs:
+      images: ${{ steps.resolve.outputs.images }}
+    steps:
+      - uses: docker/setup-buildx-action@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Pin every dependency image by digest
+        id: resolve
+        env:
+          PLAN: ${{ needs.plan.outputs.plan }}
+        shell: bash
+        run: |
+          images='{}'
+          while IFS= read -r entry; do
+            key=$(jq -r .key <<<"$entry")
+            ref=$(jq -r .ref <<<"$entry")
+            arch=$(jq -r .arch <<<"$entry")
+            digest=$(docker buildx imagetools inspect "$ref" --format '{{json .Manifest}}' | jq -re .digest)
+            architecture=$(docker buildx imagetools inspect "$ref@$digest" --format '{{json .Image}}' |
+              jq -re .architecture)
+            if [ "$architecture" != "$arch" ]; then
+              echo "$ref is $architecture, expected $arch" >&2
+              exit 1
+            fi
+            echo "$key: $ref@$digest"
+            images=$(jq -c --arg key "$key" --arg image "$ref@$digest" '. + {($key): $image}' <<<"$images")
+          done < <(jq -c '.[]' <<<"$PLAN")
+          echo "images=${images}" >> "$GITHUB_OUTPUT"

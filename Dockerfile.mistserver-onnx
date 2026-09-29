@@ -2,6 +2,12 @@
 
 ARG BUILD_BASE=ubuntu:24.04
 ARG RUNTIME_BASE=ubuntu:24.04
+# The locked ONNX Runtime/OpenCV prefix, built by Dockerfile.onnx-deps for the same
+# profile, platform and BUILD_BASE. CI passes the content-addressed GHCR image by digest
+# (scripts/ONNX/dependency_image.sh); build_accelerator_local.sh builds it locally.
+ARG ONNX_DEPS_IMAGE
+
+FROM ${ONNX_DEPS_IMAGE} AS onnx_deps
 
 FROM ${BUILD_BASE} AS mist_build
 
@@ -41,14 +47,18 @@ ARG RELEASE=Docker_${TARGETPLATFORM}
 # Those profiles use shared ONNX/OpenCV dependencies, must set ONNX_STATIC=false, and
 # require a matching SDK-equipped RUNTIME_BASE. CPU is static on Linux amd64; Linux arm64
 # uses Microsoft's checksum-pinned shared CPU runtime to avoid rebuilding ORT from source.
+# The prefix comes prebuilt from ONNX_DEPS_IMAGE; --verify-only refuses one whose stamp is
+# not this platform, profile, lock and runtime distribution instead of rebuilding it.
+COPY --from=onnx_deps /opt/mist-onnx/ /opt/mist-onnx/
 COPY scripts/ONNX/build_dependencies.sh scripts/ONNX/dependencies.lock.tsv /src/scripts/ONNX/
-RUN /src/scripts/ONNX/build_dependencies.sh \
+RUN /src/scripts/ONNX/build_dependencies.sh --verify-only \
       --prefix /opt/mist-onnx \
-      --work-dir /deps/onnx/${ONNX_PROFILE} \
+      --work-dir /tmp/onnx-deps-verify \
       --profile ${ONNX_PROFILE} \
       --jobs ${ONNX_DEP_JOBS} \
       --runtime-distribution ${ONNX_RUNTIME_DISTRIBUTION} \
-      --nvcc-threads ${ONNX_NVCC_THREADS}
+      --nvcc-threads ${ONNX_NVCC_THREADS} \
+    && rm -rf /tmp/onnx-deps-verify
 
 COPY . /src
 RUN mkdir -p /opt/mist-onnx/share/mistserver/onnx \
@@ -63,6 +73,7 @@ ENV PKG_CONFIG_PATH=/opt/mist-onnx/lib/pkgconfig
 ENV CMAKE_PREFIX_PATH=/opt/mist-onnx
 RUN export LD_LIBRARY_PATH="/opt/mist-onnx/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
     && meson setup /build /src \
+      --buildtype=debugoptimized \
       --force-fallback-for=mbedtls \
       -DDOCKERRUN=true \
       -DNOUPDATE=true \
@@ -112,7 +123,7 @@ RUN export LD_LIBRARY_PATH="/opt/mist-onnx/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PA
 
 ARG OUTPUT_DBG
 RUN if [ -n "${OUTPUT_DBG+x}" ]; then \
-      tar cf - /build /src /deps | gzip -6 | curl --upload-file - "${OUTPUT_DBG}"; \
+      tar cf - /build /src /opt/mist-onnx | gzip -6 | curl --upload-file - "${OUTPUT_DBG}"; \
     fi
 
 # A static profile has already absorbed ONNX Runtime and OpenCV into libmistonnx. Keep only

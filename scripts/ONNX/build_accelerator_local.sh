@@ -5,6 +5,11 @@
 # matrix entry and build arguments), then runs the same image audit and native
 # bundle packaging. Needs Docker, not a GPU. Run it for every profile before
 # tagging a release.
+#
+# The locked dependency prefix is built into a local image named by the same
+# content-addressed tag CI publishes (scripts/ONNX/dependency_image.sh), and is
+# reused while that image exists in the local Docker image store. The accelerator
+# build resolves that local image, so it needs the default docker-driver builder.
 set -euo pipefail
 profile=${1:?usage: build_accelerator_local.sh PROFILE [OUTPUT_DIR]}
 output_dir=${2:-build-accelerators}
@@ -20,11 +25,33 @@ field() { jq -r --arg key "$1" '.[$key] // ""' <<<"$entry"; }
 version=$(git -C "$root" describe --tags --always --dirty)
 revision=$(git -C "$root" rev-parse HEAD)
 image="mistserver-local:$version-onnx-$profile-$(field arch)"
+deps_image="mist-onnx-deps-local:$("$root/scripts/ONNX/dependency_image.sh" tag "$profile" "$(field arch)")"
+
+if docker image inspect "$deps_image" >/dev/null 2>&1; then
+  echo "Reusing $deps_image"
+else
+  docker buildx build --load \
+    --platform "$(field platform)" \
+    --file "$root/Dockerfile.onnx-deps" \
+    --tag "$deps_image" \
+    --build-arg BUILD_BASE="$(field build_base)" \
+    --build-arg ONNX_PROFILE="$profile" \
+    --build-arg ONNX_DEP_JOBS="$(field dependency_jobs)" \
+    --build-arg ONNX_RUNTIME_DISTRIBUTION="$(field runtime_distribution)" \
+    --build-arg ONNX_NVCC_THREADS="$(field nvcc_threads)" \
+    --build-arg ONNX_CUDA_ARCHITECTURES="$(field cuda_architectures)" \
+    --build-arg CUDA_HOME="$(field cuda_home)" \
+    --build-arg CUDNN_HOME="$(field cudnn_home)" \
+    --build-arg TENSORRT_HOME="$(field tensorrt_home)" \
+    --build-arg OpenVINO_DIR="$(field openvino_dir)" \
+    "$root"
+fi
 
 docker buildx build --load \
   --platform "$(field platform)" \
   --file "$root/Dockerfile.mistserver-onnx" \
   --tag "$image" \
+  --build-arg ONNX_DEPS_IMAGE="$deps_image" \
   --build-arg BUILD_BASE="$(field build_base)" \
   --build-arg RUNTIME_BASE="$(field runtime_base)" \
   --build-arg RUNTIME_PACKAGES="$(field runtime_packages)" \
