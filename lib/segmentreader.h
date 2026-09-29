@@ -20,7 +20,7 @@ namespace Mist{
     void setInit(const std::string & initData);
     void reset();
     void close();
-    void initializeMetadata(DTSC::Meta &meta, size_t tid, size_t mappingId);
+    void initializeMetadata(DTSC::Meta & meta, size_t tid, size_t mappingId, size_t sourceTrack = INVALID_TRACK_ID);
 
     virtual void dataCallback(const char *ptr, size_t size);
     virtual size_t getDataCallbackPos() const;

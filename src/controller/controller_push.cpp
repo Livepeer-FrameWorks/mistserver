@@ -26,21 +26,49 @@ namespace Controller{
 
   static bool mustWritePushList = false;
   static bool pushListRead = false;
+  static const uint32_t pushListV2 = 0x4D535432;
+  static std::map<pid_t, uint64_t> inactivePushSince;
+
+  // Output processes send their final status over the local UDP API before
+  // exiting. Keep the push for one check cycle so that status reaches PUSH_END.
+  static bool pushReadyToReap(pid_t id) {
+    if (Util::Procs::isActive(id)) {
+      inactivePushSince.erase(id);
+      return false;
+    }
+    const uint64_t now = Util::bootMS();
+    std::map<pid_t, uint64_t>::iterator seen = inactivePushSince.find(id);
+    if (seen == inactivePushSince.end()) {
+      inactivePushSince[id] = now;
+      return false;
+    }
+    return now >= seen->second + 1000;
+  }
 
   /// Immediately starts a push for the given stream to the given target.
   /// Simply calls Util::startPush and stores the resulting PID in the local activePushes map.
-  void startPush(const std::string &stream, std::string &target){
+  void startPush(const std::string & stream, std::string & target, const JSON::Value & params) {
     std::lock_guard<std::recursive_mutex> actGuard(actPushMut);
-    // Cancel if already active
-    if (isPushActive(stream, target)){return;}
+    if (!params && isPushActive(stream, target)) { return; }
+    for (const auto & active : activePushes) {
+      if (active.second[1u].asStringRef() != stream || active.second[2u].asStringRef() != target ||
+          !Util::Procs::isActive(active.first)) {
+        continue;
+      }
+      const JSON::Value & activeParams = active.second[6u];
+      if (activeParams == params || (!activeParams && !params)) { return; }
+      WARN_MSG("Push already active with different parameters; stop it before starting the replacement");
+      return;
+    }
     std::string originalTarget = target;
-    pid_t ret = Util::startPush(stream, target);
+    pid_t ret = Util::startPush(stream, target, -1, params);
     if (ret){
       JSON::Value push;
       push.append(ret);
       push.append(stream);
       push.append(originalTarget);
       push.append(target);
+      push[6u] = params;
       activePushes[ret] = push;
       mustWritePushList = true;
     }
@@ -139,6 +167,7 @@ namespace Controller{
       p = activePushes[id];
       //actually remove, make sure next pass the new list is written out too
       activePushes.erase(id);
+      inactivePushSince.erase(id);
       mustWritePushList = true;
     }
 
@@ -156,6 +185,10 @@ namespace Controller{
       std::lock_guard<std::recursive_mutex> actGuard(actPushMut);
       std::set<pid_t> toWipe;
       for (std::map<pid_t, JSON::Value>::iterator it = activePushes.begin(); it != activePushes.end(); ++it){
+        if (pushReadyToReap(it->first)) {
+          toWipe.insert(it->first);
+          continue;
+        }
         if (Util::Procs::isActive(it->first)) {
           if (it->second[1u].asStringRef() == streamname){
             // First compare as-is, in case the string is simply identical
@@ -167,8 +200,6 @@ namespace Controller{
             Util::streamVariables(cmpTarget, streamname);
             if (activeTarget == cmpTarget) { return true; }
           }
-        } else {
-          toWipe.insert(it->first);
         }
       }
       while (toWipe.size()){
@@ -186,14 +217,16 @@ namespace Controller{
       std::lock_guard<std::recursive_mutex> actGuard(actPushMut);
       std::set<pid_t> toWipe;
       for (std::map<pid_t, JSON::Value>::iterator it = activePushes.begin(); it != activePushes.end(); ++it){
+        if (pushReadyToReap(it->first)) {
+          toWipe.insert(it->first);
+          continue;
+        }
         if (Util::Procs::isActive(it->first)){
           if (it->second[2u].asStringRef() == target &&
               (it->second[1u].asStringRef() == streamname ||
                (*streamname.rbegin() == '+' && it->second[1u].asStringRef().substr(0, streamname.size()) == streamname))){
             Util::Procs::Stop(it->first);
           }
-        }else{
-          toWipe.insert(it->first);
         }
       }
       while (toWipe.size()){
@@ -266,7 +299,10 @@ namespace Controller{
       // check if the whole entry will fit
       unsigned int entrylen = 4 + 2 + it->second[1u].asStringRef().size() + 2 +
                               it->second[2u].asStringRef().size() + 2 + it->second[3u].asStringRef().size();
-      if (pwo + entrylen >= max){return;}
+      if (pwo + entrylen + 8 >= max) {
+        Bit::htobl(pwo, 0);
+        return;
+      }
       // write the pid as a 32 bits unsigned integer
       Bit::htobl(pwo, it->first);
       pwo += 4;
@@ -278,8 +314,22 @@ namespace Controller{
         pwo += 2 + itm.size();
       }
     }
-    // if it fits, write an ending zero to indicate end of page
-    if (pwo <= max){Bit::htobl(pwo, 0);}
+    // Older controllers stop at this zero and can still recover the active processes.
+    Bit::htobl(pwo, 0);
+    pwo += 4;
+    Bit::htobl(pwo, pushListV2);
+    pwo += 4;
+    for (const auto & active : activePushes) {
+      if (!active.second[6u].isObject()) { continue; }
+      const std::string params = active.second[6u].toString();
+      if (params.size() > 65535 || pwo + 4 + 2 + params.size() >= max) { break; }
+      Bit::htobl(pwo, active.first);
+      pwo += 4;
+      Bit::htobs(pwo, params.size());
+      memcpy(pwo + 2, params.data(), params.size());
+      pwo += 2 + params.size();
+    }
+    Bit::htobl(pwo, 0);
   }
 
   /// Reads the list of pushes from a pointer, assumed to end in four zeroes
@@ -292,6 +342,8 @@ namespace Controller{
       if (pwo){
         pushReadPage.master = true;
         activePushes.clear();
+        const bool version2 = Bit::btohl(pwo) == pushListV2;
+        if (version2) { pwo += 4; }
         uint32_t p = Bit::btohl(pwo);
         while (p > 1){
           JSON::Value push;
@@ -302,12 +354,29 @@ namespace Controller{
             push.append(std::string(pwo + 2, l));
             pwo += 2 + l;
           }
+          if (version2) {
+            uint16_t l = Bit::btohs(pwo);
+            if (l) { push[6u] = JSON::Value(PARSEJSON, std::string(pwo + 2, l)); }
+            pwo += 2 + l;
+          }
           Util::Procs::remember(p);
           mustWritePushList = true;
           activePushes[p] = push;
           ++recoverCount;
           p = Bit::btohl(pwo);
         }
+        if (!version2 && Bit::btohl(pwo + 4) == pushListV2) {
+          pwo += 8;
+          p = Bit::btohl(pwo);
+          while (p > 1) {
+            pwo += 4;
+            uint16_t l = Bit::btohs(pwo);
+            if (l && activePushes.count(p)) { activePushes[p][6u] = JSON::Value(PARSEJSON, std::string(pwo + 2, l)); }
+            pwo += 2 + l;
+            p = Bit::btohl(pwo);
+          }
+        }
+        if (version2) { writePushList(pushReadPage.mapped); }
       }
       pushListRead = true;
     }
@@ -518,7 +587,7 @@ namespace Controller{
     {
       std::lock_guard<std::recursive_mutex> actGuard(actPushMut);
       for (std::map<pid_t, JSON::Value>::iterator it = activePushes.begin(); it != activePushes.end(); ++it){
-        if (!Util::Procs::isActive(it->first)) { toWipe.insert(it->first); }
+        if (pushReadyToReap(it->first)) { toWipe.insert(it->first); }
       }
     }
     while (toWipe.size()) {
@@ -542,10 +611,10 @@ namespace Controller{
       std::lock_guard<std::recursive_mutex> actGuard(actPushMut);
       output.null();
       for (std::map<pid_t, JSON::Value>::iterator it = activePushes.begin(); it != activePushes.end(); ++it){
-        if (Util::Procs::isActive(it->first)){
-          output.append(it->second);
-        }else{
+        if (pushReadyToReap(it->first)) {
           toWipe.insert(it->first);
+        } else if (Util::Procs::isActive(it->first)) {
+          output.append(it->second);
         }
       }
     }

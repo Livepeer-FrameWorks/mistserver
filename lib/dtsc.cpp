@@ -2091,7 +2091,7 @@ namespace DTSC{
   }
 
   /// Either adds a track or resumes an existing track, if it can match track metadata to an unclaimed track.
-  size_t Meta::addOrResumeTrack(const TrackMetadata & input) {
+  size_t Meta::addOrResumeTrack(const TrackMetadata & input, size_t sourceTrack) {
     const TrackMetadata trkDta = storedTrackForm(input);
     // Attempt to find an existing unclaimed track to resume
     uint8_t oldMask = trackValidMask;
@@ -2120,6 +2120,7 @@ namespace DTSC{
           }
           // If we had a track ID, set it (it's never checked)
           if (trkDta.id) { setID(T, trkDta.id); }
+          if (sourceTrack != INVALID_TRACK_ID) { setSourceTrack(T, sourceTrack); }
           markUpdated(T);
           return T;
         }
@@ -2137,10 +2138,10 @@ namespace DTSC{
       size_t staticSize = Util::pixfmtToSize(trkDta.codec, trkDta.width, trkDta.height);
       if (staticSize) {
         // Known static frame sizes: raw track mode
-        T = addTrack(0, 0, 0, 0, true, staticSize);
+        T = addTrack(0, 0, 0, 0, false, staticSize);
       } else {
         // Other cases: standard track mode
-        T = addTrack();
+        T = addDelayedTrack();
       }
       if (T == INVALID_TRACK_ID) {
         FAIL_MSG("Could not create new track %zu: %s %s", T, trkDta.codec.c_str(), trkDta.type.c_str());
@@ -2163,6 +2164,8 @@ namespace DTSC{
         setFpks(T, trkDta.fpks);
       }
       setInit(T, trkDta.init);
+      if (sourceTrack != INVALID_TRACK_ID) { setSourceTrack(T, sourceTrack); }
+      validateTrack(T, trackValidDefault);
       return T;
     }
   }

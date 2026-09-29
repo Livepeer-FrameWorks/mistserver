@@ -653,6 +653,11 @@ namespace Mist {
     opt["arg_num"] = 1;
     opt["help"] = "Target RTMP URL to push out towards.";
     cfg->addOption("target", opt);
+    cfg->addOption("pushparams", R"-({
+      "arg":"string",
+      "long":"pushparams",
+      "help":"Controller-supplied RTMP push track parameters."
+    })-");
     cfg->addOption("streamname", R"-({
       "arg":"string",
       "short":"s",

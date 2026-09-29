@@ -20,11 +20,13 @@
 #include "triggers.h"
 #include "url.h"
 
+#include <algorithm>
 #include <semaphore.h>
 #include <stdlib.h>
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <unistd.h>
+#include <vector>
 
 enum Util::trackSortOrder Util::defaultTrackSortOrder = TRKSORT_DEFAULT;
 
@@ -976,7 +978,7 @@ void Util::sendUDPApi(JSON::Value & cmd){
 /// streamname MUST be pre-sanitized
 /// target gets variables replaced and may be altered by the PUSH_OUT_START trigger response.
 /// Attempts to match the altered target to an output that can push to it.
-pid_t Util::startPush(const std::string &streamname, std::string &target, int debugLvl){
+pid_t Util::startPush(const std::string & streamname, std::string & target, int debugLvl, const JSON::Value & params) {
   if (Triggers::shouldTrigger("PUSH_OUT_START", streamname)){
     std::string payload = streamname + "\n" + target;
     std::string filepath_response = target;
@@ -1105,12 +1107,21 @@ pid_t Util::startPush(const std::string &streamname, std::string &target, int de
   INFO_MSG("Pushing %s to %s through %s", streamname.c_str(), target.c_str(), output_bin.c_str());
   // Start  output.
   std::string dLvl = JSON::Value(debugLvl).asString();
-  char *argv[] ={(char *)output_bin.c_str(), (char *)"--stream", (char *)streamname.c_str(),
-                  (char *)target.c_str(), 0, 0, 0};
-  if (debugLvl != DEBUG){
-    argv[4] = (char*)"-g";
-    argv[5] = (char*)dLvl.c_str();
+  std::string paramsJSON = params.isObject() ? params.toString() : "";
+  char *argv[10] = {0};
+  unsigned int argIdx = 0;
+  argv[argIdx++] = (char *)output_bin.c_str();
+  argv[argIdx++] = (char *)"--stream";
+  argv[argIdx++] = (char *)streamname.c_str();
+  if (paramsJSON.size()) {
+    argv[argIdx++] = (char *)"--pushparams";
+    argv[argIdx++] = (char *)paramsJSON.c_str();
   }
+  if (debugLvl != DEBUG){
+    argv[argIdx++] = (char *)"-g";
+    argv[argIdx++] = (char *)dLvl.c_str();
+  }
+  argv[argIdx++] = (char *)target.c_str();
   int stdErr = 2;
   // Cache return value so we can do some cleaning before we return
   pid_t ret = Util::Procs::StartPiped(argv, 0, 0, &stdErr);
@@ -1742,6 +1753,133 @@ std::set<size_t> Util::wouldSelect(const DTSC::Meta &M, const std::map<std::stri
                                    const JSON::Value &capa, const std::string &UA, uint64_t seekTarget){
   std::set<size_t> result;
 
+  const auto videoMode = targetParams.find("video");
+  if (videoMode != targetParams.end() &&
+      (videoMode->second == "restream_auto" || videoMode->second == "restream_source" || videoMode->second == "restream_processed")) {
+    const auto cap = [&](const char *key) -> uint64_t {
+      const auto found = targetParams.find(key);
+      return found == targetParams.end() ? 0 : strtoull(found->second.c_str(), NULL, 10);
+    };
+    const auto codecAllowed = [&](const char *key, const std::string & codec) -> bool {
+      const auto found = targetParams.find(key);
+      if (found == targetParams.end() || found->second.empty()) { return true; }
+      const std::string & list = found->second;
+      size_t start = 0;
+      while (start < list.size()) {
+        size_t end = list.find(',', start);
+        if (list.substr(start, end == std::string::npos ? end : end - start) == codec) { return true; }
+        if (end == std::string::npos) { break; }
+        start = end + 1;
+      }
+      return false;
+    };
+    std::vector<size_t> sourceVideo, processedVideo, audio;
+    const std::set<size_t> supported = Util::getSupportedTracks(M, capa, "", UA);
+    bool hasAnyVideo = false, hasAnyAudio = false;
+    for (const size_t track : M.getValidTracks(true)) {
+      if (M.getType(track) == "video" && M.getCodec(track) != "JPEG" && M.getCodec(track) != "PNG") {
+        hasAnyVideo = true;
+      }
+      if (M.getType(track) == "audio") { hasAnyAudio = true; }
+    }
+    for (const size_t track : supported) {
+      const std::string type = M.getType(track);
+      if (type == "video") {
+        const std::string codec = M.getCodec(track);
+        if (codec == "JPEG" || codec == "PNG" || !codecAllowed("video_codecs", codec)) { continue; }
+        const bool original = M.getSourceTrack(track) == INVALID_TRACK_ID;
+        const uint64_t width = M.getWidth(track), height = M.getHeight(track);
+        const uint64_t fpks = M.getEfpks(track) ? M.getEfpks(track) : M.getFpks(track);
+        const uint64_t bps = M.getBps(track);
+        if ((cap("max_video_width") && width > cap("max_video_width")) ||
+            (cap("max_video_height") && height > cap("max_video_height")) ||
+            (cap("max_video_fps") && fpks > cap("max_video_fps") * 1000) ||
+            (cap("max_video_bps") && bps > cap("max_video_bps") / 8)) {
+          continue;
+        }
+        if (!original &&
+            ((cap("max_video_width") && !width) || (cap("max_video_height") && !height) ||
+             (cap("max_video_fps") && !fpks) || (cap("max_video_bps") && !bps))) {
+          continue;
+        }
+        (original ? sourceVideo : processedVideo).push_back(track);
+      } else if (type == "audio") {
+        if (!codecAllowed("audio_codecs", M.getCodec(track))) { continue; }
+        const uint64_t bps = M.getBps(track);
+        if ((cap("max_audio_channels") && M.getChannels(track) > cap("max_audio_channels")) ||
+            (cap("max_audio_rate") && M.getRate(track) > cap("max_audio_rate")) ||
+            (cap("max_audio_bps") && bps > cap("max_audio_bps") / 8)) {
+          continue;
+        }
+        audio.push_back(track);
+      }
+    }
+    const auto videoBetter = [&](size_t a, size_t b) -> bool {
+      const uint64_t areaA = M.getWidth(a) * M.getHeight(a);
+      const uint64_t areaB = M.getWidth(b) * M.getHeight(b);
+      if (areaA != areaB) { return areaA > areaB; }
+      const uint64_t fpsA = M.getEfpks(a) ? M.getEfpks(a) : M.getFpks(a);
+      const uint64_t fpsB = M.getEfpks(b) ? M.getEfpks(b) : M.getFpks(b);
+      if (fpsA != fpsB) { return fpsA > fpsB; }
+      if (M.getBps(a) != M.getBps(b)) { return M.getBps(a) > M.getBps(b); }
+      return a < b;
+    };
+    std::sort(sourceVideo.begin(), sourceVideo.end(), videoBetter);
+    std::sort(processedVideo.begin(), processedVideo.end(), videoBetter);
+    std::sort(audio.begin(), audio.end(), [&](size_t a, size_t b) {
+      if (M.getQuality(a) != M.getQuality(b)) { return M.getQuality(a) > M.getQuality(b); }
+      return a < b;
+    });
+    std::vector<size_t> video;
+    if (videoMode->second != "restream_processed") {
+      video.insert(video.end(), sourceVideo.begin(), sourceVideo.end());
+    }
+    if (videoMode->second != "restream_source") {
+      video.insert(video.end(), processedVideo.begin(), processedVideo.end());
+    }
+    const auto preferred = targetParams.find("restream_prefer_index");
+    if (preferred != targetParams.end()) {
+      const size_t preferredIndex = strtoull(preferred->second.c_str(), NULL, 10);
+      const auto found = std::find(video.begin(), video.end(), preferredIndex);
+      if (found != video.end()) {
+        video.erase(found);
+        video.insert(video.begin(), preferredIndex);
+      }
+    }
+    for (const size_t v : video) {
+      for (const size_t a : audio) {
+        std::map<std::string, std::string> exact;
+        exact["video"] = std::to_string(v);
+        exact["audio"] = std::to_string(a);
+        exact["subtitle"] = "none";
+        exact["meta"] = "none";
+        const std::set<size_t> compatible = Util::wouldSelect(M, exact, capa, UA, seekTarget);
+        if (compatible.count(v) && compatible.count(a)) { return {v, a}; }
+      }
+      if (audio.empty() && !hasAnyAudio) {
+        std::map<std::string, std::string> exact;
+        exact["video"] = std::to_string(v);
+        exact["audio"] = "none";
+        exact["subtitle"] = "none";
+        exact["meta"] = "none";
+        const std::set<size_t> compatible = Util::wouldSelect(M, exact, capa, UA, seekTarget);
+        if (compatible.count(v)) { return {v}; }
+      }
+    }
+    if (video.empty() && !hasAnyVideo && videoMode->second == "restream_auto") {
+      for (const size_t a : audio) {
+        std::map<std::string, std::string> exact;
+        exact["video"] = "none";
+        exact["audio"] = std::to_string(a);
+        exact["subtitle"] = "none";
+        exact["meta"] = "none";
+        const std::set<size_t> compatible = Util::wouldSelect(M, exact, capa, UA, seekTarget);
+        if (compatible.count(a)) { return {a}; }
+      }
+    }
+    return result;
+  }
+
   /*LTS-START*/
   bool noSelAudio = false, noSelVideo = false, noSelSub = false, noSelMeta = false;
   // Then, select the tracks we've been asked to select.
@@ -2031,7 +2169,7 @@ void Util::sortTracks(std::set<size_t> & validTracks, const DTSC::Meta & M, Util
     bool inserted = false;
     for (std::list<size_t>::iterator lt = srtTrks.begin(); lt != srtTrks.end(); ++lt){
       if (sorting == TRKSORT_OPTIMAL) {
-        if (M.getQuality(*it) >= M.getQuality(*lt)) {
+        if (M.getQuality(*it) > M.getQuality(*lt)) {
           srtTrks.insert(lt, *it);
           inserted = true;
           break;

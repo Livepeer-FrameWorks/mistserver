@@ -25,7 +25,7 @@ namespace Util{
   bool startInput(std::string streamname, std::string filename = "", bool forkFirst = true, bool isProvider = false,
                   const std::map<std::string, std::string> & overrides = std::map<std::string, std::string>(),
                   pid_t *spawn_pid = NULL, bool *outOffline = NULL);
-  int startPush(const std::string &streamname, std::string &target, int debugLvl = -1);
+  int startPush(const std::string & streamname, std::string & target, int debugLvl = -1, const JSON::Value & params = empty);
   JSON::Value getStreamConfig(const std::string &streamname);
   JSON::Value getGlobalConfig(const std::string & optionName, bool waitForPage = true);
   JSON::Value getInputBySource(const std::string &filename, bool isProvider = false);

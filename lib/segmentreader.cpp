@@ -90,16 +90,16 @@ namespace Mist{
     return true;
   }
 
-  void SegmentReader::initializeMetadata(DTSC::Meta &meta, size_t tid, size_t mappingId){
+  void SegmentReader::initializeMetadata(DTSC::Meta & meta, size_t tid, size_t mappingId, size_t sourceTrack) {
     if (parser == STRM_TS){
-      tsStream.initializeMetadata(meta, tid, mappingId);
+      tsStream.initializeMetadata(meta, tid, mappingId, sourceTrack);
       return;
     }
 
     if (parser == STRM_MP4){
       for (std::deque<MP4::TrackHeader>::iterator it = mp4Headers.begin(); it != mp4Headers.end(); ++it){
         if (it->trackId != tid){continue;}
-        size_t tNumber = meta.addTrack();
+        size_t tNumber = meta.addDelayedTrack();
         INFO_MSG("Found track %zu of type %s -> %s", tNumber, it->sType.c_str(), it->codec.c_str());
         meta.setID(tNumber, mappingId);
         meta.setCodec(tNumber, it->codec);
@@ -116,6 +116,8 @@ namespace Mist{
           meta.setRate(tNumber, it->audRate);
           meta.setSize(tNumber, it->audSize);
         }
+        if (sourceTrack != INVALID_TRACK_ID) { meta.setSourceTrack(tNumber, sourceTrack); }
+        meta.validateTrack(tNumber, DTSC::trackValidDefault);
       }
       return;
     }

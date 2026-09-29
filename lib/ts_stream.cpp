@@ -1065,7 +1065,7 @@ namespace TS{
     }
   }
 
-  void Stream::initializeMetadata(DTSC::Meta &meta, size_t tid, size_t mappingId){
+  void Stream::initializeMetadata(DTSC::Meta & meta, size_t tid, size_t mappingId, size_t sourceTrack) {
     std::lock_guard<std::recursive_mutex> guard(tMutex);
 
     for (std::map<size_t, uint32_t>::const_iterator it = pidToCodec.begin(); it != pidToCodec.end(); it++){
@@ -1265,6 +1265,7 @@ namespace TS{
       }
 
       MEDIUM_MSG("Initialized PID %zu (%s %s) as track %zu", it->first, trkDta.codec.c_str(), trkDta.type.c_str(), idx);
+      if (sourceTrack != INVALID_TRACK_ID) { meta.setSourceTrack(idx, sourceTrack); }
       if (!delayTracks) { meta.validateTrack(idx, DTSC::trackValidDefault); }
       if (tid != INVALID_TRACK_ID){return;}
     }

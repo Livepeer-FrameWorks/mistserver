@@ -65,7 +65,8 @@ namespace TS{
     void getPacket(size_t tid, DTSC::Packet &pack, size_t mappedAs = INVALID_TRACK_ID);
     uint32_t getEarliestPID();
     void getEarliestPacket(DTSC::Packet &pack);
-    void initializeMetadata(DTSC::Meta &meta, size_t tid = INVALID_TRACK_ID, size_t mappingId = INVALID_TRACK_ID);
+    void initializeMetadata(DTSC::Meta & meta, size_t tid = INVALID_TRACK_ID, size_t mappingId = INVALID_TRACK_ID,
+                            size_t sourceTrack = INVALID_TRACK_ID);
     void partialClear();
     void clear();
     void finish();

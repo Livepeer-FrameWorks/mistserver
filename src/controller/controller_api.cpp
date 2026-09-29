@@ -40,6 +40,41 @@ std::set<APIConn *> reggedAccess;
 std::set<APIConn *> reggedStreams;
 std::map<std::string, std::set<APIConn *>> reggedStreamMeta;
 
+static bool validPushTrackParams(const JSON::Value & params) {
+  if (!params.isObject() || !params.isMember("video") || !params["video"].isString() || params.size() > 10) {
+    return false;
+  }
+  const std::string mode = params["video"].asStringRef();
+  if (mode != "restream_auto" && mode != "restream_source" && mode != "restream_processed") { return false; }
+  jsonForEachConst (params, it) {
+    const std::string key = it.key();
+    if (key == "video") { continue; }
+    if (key == "video_codecs" || key == "audio_codecs") {
+      if (!it->isArray() || !it->size() || it->size() > 8) { return false; }
+      jsonForEachConst (*it, codec) {
+        if (!codec->isString() || !codec->asStringRef().size() || codec->asStringRef().size() > 16) { return false; }
+      }
+      continue;
+    }
+    uint64_t maximum = 0;
+    if (key == "max_video_width" || key == "max_video_height") {
+      maximum = 8192;
+    } else if (key == "max_video_fps") {
+      maximum = 240;
+    } else if (key == "max_video_bps" || key == "max_audio_bps") {
+      maximum = 1000000000;
+    } else if (key == "max_audio_channels") {
+      maximum = 16;
+    } else if (key == "max_audio_rate") {
+      maximum = 384000;
+    } else {
+      return false;
+    }
+    if (!it->isInt() || it->asInt() <= 0 || (uint64_t)it->asInt() > maximum) { return false; }
+  }
+  return true;
+}
+
 void Controller::registerLogger(APIConn *aConn) {
   reggedLoggers.insert(aConn);
 }
@@ -2088,12 +2123,18 @@ void Controller::handleAPICommands(JSON::Value &Request, JSON::Value &Response){
   if (Request.isMember("push_start")){
     std::string stream;
     std::string target;
+    JSON::Value params;
     if (Request["push_start"].isArray()){
       stream = Request["push_start"][0u].asStringRef();
       target = Request["push_start"][1u].asStringRef();
     }else{
       stream = Request["push_start"]["stream"].asStringRef();
       target = Request["push_start"]["target"].asStringRef();
+      if (Request["push_start"].isMember("params")) { params = Request["push_start"]["params"]; }
+    }
+    if (Request["push_start"].isObject() && Request["push_start"].isMember("params") && !validPushTrackParams(params)) {
+      Response["push_start"]["error"] = "Invalid RTMP push parameters";
+      return;
     }
     if (stream.size()) {
       if (stream[0] == '#') {
@@ -2107,14 +2148,14 @@ void Controller::handleAPICommands(JSON::Value &Request, JSON::Value &Response){
           for (std::set<std::string>::iterator jt = activeStreams.begin(); jt != activeStreams.end(); ++jt) {
             std::string streamname = *jt;
             std::string target_tmp = target;
-            startPush(streamname, target_tmp);
+            startPush(streamname, target_tmp, params);
           }
         }
       } else {
         Util::sanitizeName(stream);
         if (stream.size()) {
           if (*stream.rbegin() != '+') {
-            startPush(stream, target);
+            startPush(stream, target, params);
           } else {
             std::set<std::string> activeStreams = Controller::getActiveStreams(stream);
             if (activeStreams.size()) {
@@ -2122,7 +2163,7 @@ void Controller::handleAPICommands(JSON::Value &Request, JSON::Value &Response){
                    jt != activeStreams.end(); ++jt) {
                 std::string streamname = *jt;
                 std::string target_tmp = target;
-                startPush(streamname, target_tmp);
+                startPush(streamname, target_tmp, params);
               }
             }
           }
@@ -2130,6 +2171,8 @@ void Controller::handleAPICommands(JSON::Value &Request, JSON::Value &Response){
       }
     }
   }
+
+  if (Request.isMember("push_track_params_v1")) { Response["push_track_params_v1"] = true; }
 
   if (Request.isMember("proc_list")){
     getProcsForStream(Request["proc_list"].asStringRef(), Response["proc_list"]);

@@ -375,9 +375,8 @@ namespace Mist{
                 // the proc is segment-based, so the first packet is always a
                 // keyframe and the rendition is immediately servable. Audio in
                 // returned segments is passthrough we don't publish.
-                S.S.initializeMetadata(meta, thisPacket.getTrackId(), trackId);
+                S.S.initializeMetadata(meta, thisPacket.getTrackId(), trackId, sourceIndex.load(std::memory_order_relaxed));
                 thisIdx = M.trackIDToIndex(trackId, getpid());
-                meta.setSourceTrack(thisIdx, sourceIndex.load(std::memory_order_relaxed));
                 if (M.getType(thisIdx) == "audio") { meta.validateTrack(thisIdx, 0); }
               }
             }

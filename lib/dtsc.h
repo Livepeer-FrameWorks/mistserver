@@ -394,7 +394,7 @@ namespace DTSC{
     size_t addTrack(size_t fragCount = DEFAULT_FRAGMENT_COUNT, size_t keyCount = DEFAULT_KEY_COUNT,
                     size_t partCount = DEFAULT_PART_COUNT, size_t pageCount = DEFAULT_PAGE_COUNT,
                     bool setValid = true, size_t frameSize = 0);
-    size_t addOrResumeTrack(const TrackMetadata & trkDta);
+    size_t addOrResumeTrack(const TrackMetadata & trkDta, size_t sourceTrack = INVALID_TRACK_ID);
     size_t addOrResumeDelayedTrack(const TrackMetadata & trkDta);
     std::string resumeMismatch(size_t trackIdx, const TrackMetadata & trkDta) const;
     void resizeTrack(size_t source, size_t fragCount = DEFAULT_FRAGMENT_COUNT, size_t keyCount = DEFAULT_KEY_COUNT,

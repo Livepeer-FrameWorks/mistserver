@@ -201,6 +201,14 @@ if get_option('b_sanitize') == 'none' and ffmpeg_program.found() and ffprobe_pro
          env: {'MIST_REPUBLISH_RESOLUTION': '640x360'},
          suite: 'Streams', timeout: 90, is_parallel: false)
     curl_program = find_program('curl', required: false)
+    if curl_program.found()
+      restreampushtest = find_program('restream_push_integration.sh')
+      test('RTMP restream source selection and bounded incompatible-track failure', restreampushtest,
+           args: [ffmpeg_program, ffprobe_program, curl_program, exec_tgts.get('MistController'),
+                  exec_tgts.get('MistInBuffer'), exec_tgts.get('MistOutRTMP'),
+                  exec_tgts.get('MistSession'), exec_tgts.get('MistUtilNuke'), timeout_program],
+           suite: 'Streams', timeout: 90, is_parallel: false)
+    endif
     if curl_program.found() and exec_tgts.has_key('MistOutWebRTC')
       webrtcwhipsetuptest = find_program('webrtc_whip_setup_integration.sh')
       test('WHIP offers get an answer or a logged refusal, and a passive offerer can publish', webrtcwhipsetuptest,

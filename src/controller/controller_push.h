@@ -7,7 +7,7 @@ namespace Controller{
   JSON::Value makePushObject(const JSON::Value & input);
 
   // Functions for current pushes, start/stop/list
-  void startPush(const std::string &streamname, std::string &target);
+  void startPush(const std::string & streamname, std::string & target, const JSON::Value & params = JSON::Value());
   void stopPush(unsigned int ID);
   void stopPush(const std::string & stream);
   void stopPushGraceful(unsigned int ID);

@@ -430,16 +430,15 @@ namespace Mist{
 
       // Add a single track and init some metadata
       meta.reInit(streamName, false);
-      trkIdx = meta.addOrResumeTrack(trkDta);
+      size_t lineage = INVALID_TRACK_ID;
+      {
+        std::lock_guard<std::mutex> guard(statsMutex);
+        if (pStat["proc_status_update"]["sink"] == pStat["proc_status_update"]["source"]) { lineage = sourceTrackIdx; }
+      }
+      trkIdx = meta.addOrResumeTrack(trkDta, lineage);
       if (trkIdx == INVALID_TRACK_ID) {
         FAIL_MSG("Could not add track to metadata");
         return;
-      }
-      {
-        std::lock_guard<std::mutex> guard(statsMutex);
-        if (pStat["proc_status_update"]["sink"] == pStat["proc_status_update"]["source"]) {
-          meta.setSourceTrack(trkIdx, sourceTrackIdx);
-        }
       }
       if (!userSelect.count(trkIdx)) { userSelect[trkIdx].reload(streamName, trkIdx, sinkCommState); }
       INFO_MSG("%s track index is %zu", trkDta.codec.c_str(), trkIdx);
@@ -459,16 +458,15 @@ namespace Mist{
 
       // Add a single track and init some metadata
       meta.reInit(streamName, false);
-      trkIdx = meta.addOrResumeTrack(trkDta);
+      size_t lineage = INVALID_TRACK_ID;
+      {
+        std::lock_guard<std::mutex> guard(statsMutex);
+        if (pStat["proc_status_update"]["sink"] == pStat["proc_status_update"]["source"]) { lineage = sourceTrackIdx; }
+      }
+      trkIdx = meta.addOrResumeTrack(trkDta, lineage);
       if (trkIdx == INVALID_TRACK_ID) {
         FAIL_MSG("Could not add track to metadata");
         return;
-      }
-      {
-        std::lock_guard<std::mutex> guard(statsMutex);
-        if (pStat["proc_status_update"]["sink"] == pStat["proc_status_update"]["source"]) {
-          meta.setSourceTrack(trkIdx, sourceTrackIdx);
-        }
       }
       if (!userSelect.count(trkIdx)) { userSelect[trkIdx].reload(streamName, trkIdx, sinkCommState); }
       INFO_MSG("%s track index is %zu", codecOut.c_str(), trkIdx);

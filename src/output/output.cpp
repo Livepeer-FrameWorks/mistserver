@@ -160,10 +160,33 @@ namespace Mist{
     }
 
     /*LTS-START*/
-    // If we have a target, scan for trailing ?, remove it, parse into targetParams
+    // Controller-supplied push parameters leave the destination URI's query intact.
+    bool hasPushParams = config->hasOption("pushparams") && config->getString("pushparams").size();
+    if (hasPushParams) {
+      JSON::Value pushParams(PARSEJSON, config->getString("pushparams"));
+      if (!pushParams.isObject()) {
+        FAIL_MSG("Invalid RTMP push parameters");
+        config->is_active = false;
+        return;
+      }
+      jsonForEachConst (pushParams, param) {
+        if (param->isArray()) {
+          std::string values;
+          jsonForEachConst (*param, item) {
+            if (values.size()) { values += ","; }
+            values += item->asStringRef();
+          }
+          targetParams[param.key()] = values;
+        } else {
+          targetParams[param.key()] = param->asString();
+        }
+      }
+      INFO_MSG("Using controller push video mode %s", targetParams["video"].c_str());
+    }
+    // Legacy target options are parsed from the URI query.
     if (config->hasOption("target")){
       std::string tgt = config->getString("target");
-      if (tgt.rfind('?') != std::string::npos) {
+      if (!hasPushParams && tgt.rfind('?') != std::string::npos) {
         INFO_MSG("Stripping target options: %s", tgt.substr(tgt.rfind('?') + 1).c_str());
         HTTP::parseVars(tgt.substr(tgt.rfind('?') + 1), targetParams);
         config->getOption("target", true).append(tgt.substr(0, tgt.rfind('?')));
@@ -512,6 +535,12 @@ namespace Mist{
     //push inputs do not need to wait for stream to be ready for playback
     if (isPushing()){return;}
 
+    const auto restreamMode = targetParams.find("video");
+    if (isRecording() && restreamMode != targetParams.end() && restreamMode->second.find("restream_") == 0) {
+      selectDefaultTracks();
+      return;
+    }
+
     auto bufferStillBooting = [&]() {
       return outputWaitsForBootingBuffer(Util::getStreamStatus(streamName), M ? M.getValidTracks().size() : 0, attachProcessingBuffer);
     };
@@ -560,8 +589,18 @@ namespace Mist{
 
     bool autoSeek = buffer.size();
     uint64_t seekTarget = buffer.getSyncMode()?thisTime:0;
-    std::set<size_t> newSelects =
-        Util::wouldSelect(M, targetParams, capa, UA, autoSeek ? seekTarget : 0);
+    std::map<std::string, std::string> selectionParams = targetParams;
+    const auto videoMode = targetParams.find("video");
+    if (videoMode != targetParams.end() && videoMode->second.find("restream_") == 0) {
+      const std::set<size_t> validTracks = M.getValidTracks(true);
+      for (const auto & selected : userSelect) {
+        if (validTracks.count(selected.first) && M.getType(selected.first) == "video") {
+          selectionParams["restream_prefer_index"] = std::to_string(selected.first);
+          break;
+        }
+      }
+    }
+    std::set<size_t> newSelects = Util::wouldSelect(M, selectionParams, capa, UA, autoSeek ? seekTarget : 0);
     if (isRecordingToFile && processingControlledRealtime()) {
       refreshProcessStreamState();
       for (std::set<size_t>::const_iterator it = processingDrainedTracks.begin(); it != processingDrainedTracks.end(); ++it) {
@@ -2109,6 +2148,53 @@ namespace Mist{
           continue;
         }
         if (!keepGoing()) { break; }
+        const auto restreamMode = targetParams.find("video");
+        if (restreamMode != targetParams.end() && restreamMode->second.find("restream_") == 0) {
+          if (!M || M.getValidTracks(true).empty()) {
+            restreamSelectionStartedMs = 0;
+          } else if (!restreamSelectionStartedMs) {
+            restreamSelectionStartedMs = thisBootMs;
+          }
+          if (thisBootMs >= restreamSelectionCheckedMs + 250) {
+            if (selectDefaultTracks()) { sentHeader = false; }
+            restreamSelectionCheckedMs = thisBootMs;
+          }
+          bool hasVideo = false, hasAudio = false;
+          for (const auto & selected : userSelect) {
+            if (M.getType(selected.first) == "video") { hasVideo = true; }
+            if (M.getType(selected.first) == "audio") { hasAudio = true; }
+          }
+          const bool needsVideo = restreamMode->second != "restream_auto";
+          if ((!hasVideo && needsVideo) || (!hasVideo && !hasAudio)) {
+            if (restreamSelectionStartedMs && thisBootMs >= restreamSelectionStartedMs + 30000) {
+              JSON::Value failure;
+              failure["push_status_update"]["id"] = getpid();
+              failure["push_status_update"]["stream"] = streamName;
+              failure["push_status_update"]["status"]["reason_code"] = "media_selection_failed";
+              if (config->hasOption("target")) {
+                failure["push_status_update"]["target"] = config->getString("target");
+              }
+              if (getenv("MST_ORIG_TARGET")) {
+                failure["push_status_update"]["orig_target"] = getenv("MST_ORIG_TARGET");
+              }
+              Util::sendUDPApi(failure);
+              onFail("No compatible tracks for restream", true);
+              break;
+            }
+            suggestedWait = 100;
+            continue;
+          }
+          restreamSelectionStartedMs = thisBootMs;
+          if (!sentHeader && hasVideo != hasAudio) {
+            if (!restreamSingleTrackStartedMs) { restreamSingleTrackStartedMs = thisBootMs; }
+            if (thisBootMs < restreamSingleTrackStartedMs + 1000) {
+              suggestedWait = 100;
+              continue;
+            }
+          } else {
+            restreamSingleTrackStartedMs = 0;
+          }
+        }
         if (!sought){initialSeek();}
         if (!sentHeader && keepGoing()) {
           DONTEVEN_MSG("sendHeader");
