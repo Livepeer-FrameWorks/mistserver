@@ -185,6 +185,18 @@ if get_option('b_sanitize') == 'none' and ffmpeg_program.found() and ffprobe_pro
                 exec_tgts.get('MistSession'), exec_tgts.get('MistUtilLog'),
                 exec_tgts.get('MistUtilNuke'), timeout_program],
          suite: 'MP4', timeout: 120, is_parallel: false)
+    recordingtrackreplacedtest = find_program('recording_track_replaced_integration.sh')
+    test('A recording continues across a reconnect that resumes its tracks', recordingtrackreplacedtest,
+         args: [ffmpeg_program, ffprobe_program, exec_tgts.get('MistController'),
+                exec_tgts.get('MistInBuffer'), exec_tgts.get('MistOutRTMP'),
+                exec_tgts.get('MistOutHTTPTS'), exec_tgts.get('MistUtilNuke'), timeout_program],
+         suite: 'Streams', timeout: 90, is_parallel: false)
+    test('A recording ends cleanly when a reconnect replaces its video track', recordingtrackreplacedtest,
+         args: [ffmpeg_program, ffprobe_program, exec_tgts.get('MistController'),
+                exec_tgts.get('MistInBuffer'), exec_tgts.get('MistOutRTMP'),
+                exec_tgts.get('MistOutHTTPTS'), exec_tgts.get('MistUtilNuke'), timeout_program],
+         env: {'MIST_REPUBLISH_RESOLUTION': '640x360'},
+         suite: 'Streams', timeout: 90, is_parallel: false)
     livepeerstub = executable('livepeerbroadcasterstub', 'livepeer_broadcaster_stub.cpp')
     livepeervodtest = find_program('livepeer_vod_integration.sh')
     test('Livepeer VOD processing drains its recorded tail', livepeervodtest,

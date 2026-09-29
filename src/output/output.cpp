@@ -149,6 +149,8 @@ namespace Mist{
     }
     sentHeader = false;
     isRecordingToFile = false;
+    selectedTrackReplaced = false;
+    nextReplacementCheckMs = 0;
     outputFailed = false;
 
     // If we have a streamname option, set internal streamname to that option
@@ -604,6 +606,7 @@ namespace Mist{
       // already wrote — the source track once transcoded outputs appear —
       // so it must stay in the RECORDING_END summary like any dropped track.
       if (isRecordingToFile || isRecording()) { rememberRecordedTrack(*it); }
+      noteSelectedTrackLost(*it);
       userSelect.erase(*it);
       trackSelectionChanged();
     }
@@ -613,6 +616,15 @@ namespace Mist{
     std::set_difference(newSelects.begin(), newSelects.end(), oldSelects.begin(), oldSelects.end(), std::inserter(diffs, diffs.end()));
     if (diffs.size()){MEDIUM_MSG("Adding %zu tracks", diffs.size());}
     for (std::set<size_t>::iterator it = diffs.begin(); it != diffs.end(); it++){
+      if (replacesLostSelectedTrack(*it)) {
+        if (!selectedTrackReplaced) {
+          INFO_MSG("Not adding %s track %zu: it replaces a selected track that left the stream; ending the recording",
+                   M.getType(*it).c_str(), *it);
+        }
+        selectedTrackReplaced = true;
+        newSelects.erase(*it);
+        continue;
+      }
       trackSelectionChanged();
       HIGH_MSG("Adding track %zu", *it);
       userSelect[*it].reload(streamName, *it);
@@ -1671,6 +1683,21 @@ namespace Mist{
 
   /// Called right before sendNext(). Should return true if this is a stopping point.
   bool Output::reachedPlannedStop(){
+    // Outputs reselect tracks on their own schedule (TS every 5 s), so while a
+    // selected track is lost the replacement is also checked here, keeping the
+    // stop close to the point where the old track ended.
+    if (!selectedTrackReplaced && lostSelectedTypes.size() && Util::bootMS() >= nextReplacementCheckMs) {
+      nextReplacementCheckMs = Util::bootMS() + 500;
+      std::set<size_t> wanted = Util::wouldSelect(M, targetParams, capa, UA, 0);
+      for (std::set<size_t>::const_iterator it = wanted.begin(); it != wanted.end(); ++it) {
+        if (userSelect.count(*it) || !replacesLostSelectedTrack(*it)) { continue; }
+        INFO_MSG("New %s track %zu replaces a selected track that left the stream; ending the recording",
+                 M.getType(*it).c_str(), *it);
+        selectedTrackReplaced = true;
+        break;
+      }
+    }
+    if (selectedTrackReplaced) { return true; }
     // If we're recording to file and reached the target position, stop
     if (isRecordingToFile && targetParams.count("recstop") &&
         atoll(targetParams["recstop"].c_str()) <= thisTime){
@@ -2135,8 +2162,13 @@ namespace Mist{
             // Incapable of restarts or this is the final stop? Just stop.
             if (!inlineRestartCapable() || reachedPlannedStop()){
               if (!onFinish()){
-                INFO_MSG("Shutting down because planned stopping point reached");
-                Util::logExitReason(ER_CLEAN_INTENDED_STOP, "planned stopping point reached");
+                if (selectedTrackReplaced) {
+                  INFO_MSG("Shutting down because a selected track was replaced");
+                  Util::logExitReason(ER_CLEAN_INTENDED_STOP, "selected track replaced");
+                } else {
+                  INFO_MSG("Shutting down because planned stopping point reached");
+                  Util::logExitReason(ER_CLEAN_INTENDED_STOP, "planned stopping point reached");
+                }
                 break;
               }
             }
@@ -2396,6 +2428,7 @@ namespace Mist{
     // push_start to a file target sets `pushing`, so isRecording() alone would
     // miss exactly the process-controlled recordings that need this.
     if ((isRecordingToFile || isRecording()) && userSelect.count(trackId)) { rememberRecordedTrack(trackId); }
+    if (userSelect.count(trackId)) { noteSelectedTrackLost(trackId); }
     //We can drop from the buffer without any checks, it's a no-op if no entry exists
     buffer.dropTrack(trackId);
     // depending on whether this is probably bad and the current debug level, print a message
@@ -3411,6 +3444,27 @@ namespace Mist{
     Util::DTSCShmReader rStrmConf(tmpBuf);
     DTSC::Scan streamCfg = rStrmConf.getScan();
     return streamCfg && streamCfg.getMember("process_controlled_realtime").asBool();
+  }
+
+  /// Remembers the type of a selected track that is leaving the selection
+  /// because it left the stream. Tracks deselected while still valid (drained,
+  /// end of a VoD track, a changed selection) are not losses.
+  void Output::noteSelectedTrackLost(size_t trackIdx) {
+    if (!isRecordingToFile || !M || M.trackValid(trackIdx)) { return; }
+    // The type field stays readable after the buffer invalidated the track.
+    const std::string type = M.getType(trackIdx);
+    if (type.empty() || lostSelectedTypes.count(type)) { return; }
+    INFO_MSG("Selected %s track %zu left the stream", type.c_str(), trackIdx);
+    lostSelectedTypes.insert(type);
+  }
+
+  /// True when selecting this track would put a new track in the place of a
+  /// selected track of the same type that left the stream. Process-controlled
+  /// recordings follow their processes' track lifecycle and never qualify.
+  bool Output::replacesLostSelectedTrack(size_t trackIdx) const {
+    if (!isRecordingToFile || lostSelectedTypes.empty() || userSelect.count(trackIdx)) { return false; }
+    if (!lostSelectedTypes.count(M.getType(trackIdx))) { return false; }
+    return !processingControlledRealtime();
   }
 
   /// Records a track this recording wrote, with a snapshot of its metadata,

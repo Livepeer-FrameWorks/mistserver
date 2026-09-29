@@ -99,6 +99,14 @@ namespace Mist{
     uint64_t pageNumForKey(size_t trackId, size_t keyNum);
     uint64_t pageNumMax(size_t trackId);
     bool isRecordingToFile;
+    // A file holds one track set: a selected track that leaves the stream and
+    // a new track of the same type taking its place (a publisher that resumed
+    // with different settings) end the recording instead of joining it.
+    std::set<std::string> lostSelectedTypes; ///< types of selected tracks that left the stream
+    bool selectedTrackReplaced; ///< set once a new track would replace a lost selected track
+    uint64_t nextReplacementCheckMs; ///< bootMS of the next replacement check while a loss is pending
+    void noteSelectedTrackLost(size_t trackIdx);
+    bool replacesLostSelectedTrack(size_t trackIdx) const;
     PlayRewriteGate playRewriteGate;
     uint64_t lastStats; ///< Time of last sending of stats.
     void reinitPlaylist(std::string &playlistBuffer, uint64_t &maxAge, uint64_t &maxEntries,
