@@ -2142,9 +2142,7 @@ namespace Mist{
         // Hold the initial seek as well as the header: seeking before the
         // process output tracks exist would pin the recording start (and its
         // keyframe alignment) to a track set that is still incomplete.
-        // The gate reselects tracks, so it runs only until the header is out: a
-        // track selected after that is one the header does not declare.
-        if (!sentHeader && waitForProcessingRecordingHeader(sentHeader, keepGoing(), processingRecordingTracksReady())) {
+        if (waitForProcessingRecordingHeader(sentHeader, keepGoing(), processingRecordingTracksReady())) {
           suggestedWait = 100;
           ++prepFalse;
           continue;
@@ -3607,12 +3605,17 @@ namespace Mist{
     // resulting artifact. Deliberately only SHUTDOWN — getStreamStatus returns
     // STRMSTAT_OFF while the state page doesn't exist yet, which is exactly the
     // boot window where a recording races the stream and the gate must hold.
+    // After the header the gate only keeps reselecting, which is how a replaced
+    // producer is noticed and the recording retried; waiting on producers to
+    // finish matters only for what the header declares.
+    const bool streamShuttingDown = Util::getStreamStatus(streamName) == STRMSTAT_SHUTDOWN;
     refreshProcessStreamState();
-    const bool gateReleased = processingRecordingGateReleased(Util::getStreamStatus(streamName) == STRMSTAT_SHUTDOWN,
-                                                              processStreamState.processProducersFinished,
-                                                              procSourceEndedSinceMs, Util::bootMS());
+    const bool gateReleased = sentHeader
+      ? streamShuttingDown
+      : processingRecordingGateReleased(streamShuttingDown, processStreamState.processProducersFinished,
+                                        procSourceEndedSinceMs, Util::bootMS());
     if (!processingRecordingNeedsTrackGate(isRecordingToFile, hasMetadata, processControlled, gateReleased)) {
-      if (gateReleased && processControlled) {
+      if (gateReleased && processControlled && !sentHeader) {
         // Nothing more is coming: take every track that exists into the header now,
         // rather than the selection from the previous check.
         meta.reloadReplacedPagesIfNeeded();
@@ -3683,8 +3686,10 @@ namespace Mist{
 
     if (processingRecordingTrackCountsReady(expectationResolved, expectedOutputTracks, readyOutputTracks, selectedOriginalTracks,
                                             readyOriginalTracks, selectedOutputTracks, readySelectedOutputTracks)) {
-      INFO_MSG("Recording header: %zu original tracks and %zu/%zu expected processing outputs ready",
-               readyOriginalTracks, readyOutputTracks, expectedOutputTracks);
+      if (!sentHeader) {
+        INFO_MSG("Recording header: %zu original tracks and %zu/%zu expected processing outputs ready",
+                 readyOriginalTracks, readyOutputTracks, expectedOutputTracks);
+      }
       return true;
     }
     INFO_MSG("Waiting for processing tracks before recording header: %zu/%zu original tracks ready, %zu/%zu expected "
