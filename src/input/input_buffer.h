@@ -124,6 +124,10 @@ namespace Mist{
     std::set<size_t> retainedSourceTracks;
     std::map<size_t, size_t> processUsers;
     std::set<pid_t> processPidsWithUsers;
+    // The process that produced each output track. Kept after the process
+    // releases its claim on the track, which its input side does when it
+    // finishes while the process itself is still running.
+    std::map<size_t, pid_t> processTrackProducers;
     size_t drainConsumerUsers;
     size_t lastBPS; ///< Used for STREAM_BANDWIDTH trigger
   };

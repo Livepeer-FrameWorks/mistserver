@@ -118,6 +118,22 @@ namespace Mist {
     return recordingToFile && hasMetadata && processControlledRealtime && !streamShuttingDown;
   }
 
+  /// Bound on how long a draining stream waits for a still-running producer's
+  /// outputs before the recording header is written with the tracks that exist.
+  const uint64_t PROCESSING_PRODUCER_DRAIN_MS = 30000;
+
+  /// Whether a draining processing stream releases the recording header gate:
+  /// only once no more process output can arrive. The input ending is not that
+  /// point; producers such as thumbnails create their tracks after the source
+  /// ends. A producer still running PROCESSING_PRODUCER_DRAIN_MS after the
+  /// source ended is not waited for any longer.
+  inline bool processingRecordingGateReleased(bool streamShuttingDown, bool producersFinished,
+                                              uint64_t sourceEndedSinceMs, uint64_t nowMs) {
+    if (!streamShuttingDown) { return false; }
+    if (producersFinished) { return true; }
+    return sourceEndedSinceMs && nowMs >= sourceEndedSinceMs + PROCESSING_PRODUCER_DRAIN_MS;
+  }
+
   inline bool processingRecordingTrackCountsReady(bool expectationResolved, size_t expectedOutputTracks, size_t readyOutputTracks,
                                                   size_t selectedOriginalTracks, size_t readyOriginalTracks,
                                                   size_t selectedOutputTracks, size_t readySelectedOutputTracks) {

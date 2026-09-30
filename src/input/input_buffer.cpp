@@ -409,6 +409,7 @@ namespace Mist{
   void InputBuffer::removeTrack(size_t tid){
     // A removed track's index can be reused by the next session's tracks.
     retainedSourceTracks.erase(tid);
+    processTrackProducers.erase(tid);
     size_t lastUser = users.recordCount();
     for (size_t i = 0; i < lastUser; ++i){
       if (users.getStatus(i) == COMM_STATUS_INVALID){continue;}
@@ -841,6 +842,7 @@ namespace Mist{
       if (isProcess) {
         processUsers[id] = users.getTrack(id);
         processPidsWithUsers.insert(users.getPid(id));
+        processTrackProducers[users.getTrack(id)] = users.getPid(id);
       } else {
         const size_t newTrack = users.getTrack(id);
         if (!sourceUsers.count(id) && publisherSessionEnded) {
@@ -1141,10 +1143,17 @@ namespace Mist{
       // stream and counted above, but its released tracks no longer carry its
       // pid, so counting its outputs as missing would hold the header forever.
       if (!producerRunning && everHadPush && !hasPush) { continue; }
+      // A producer's outputs are the tracks it registered as their source, whether
+      // or not it still claims them: its input side releases the claims when it
+      // finishes, while the process keeps running to write its results.
       size_t producerReady = 0;
       if (producerRunning) {
-        for (const size_t track : M.getMySourceTracks(running->second)) {
-          if (readyOutputs.count(track)) { ++producerReady; }
+        for (const size_t track : readyOutputs) {
+          const auto producer = processTrackProducers.find(track);
+          if ((producer != processTrackProducers.end() && producer->second == running->second) ||
+              M.isClaimedBy(track) == (uint64_t)running->second) {
+            ++producerReady;
+          }
         }
       }
       if (producerExpected > producerReady) { expectedOutputTracks += producerExpected - producerReady; }

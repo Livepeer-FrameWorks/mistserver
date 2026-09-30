@@ -140,6 +140,20 @@ int main() {
     return fail("only active process-controlled file recordings may wait for late output tracks");
   }
 
+  if (processingRecordingGateReleased(false, true, 1000, 999999)) {
+    return fail("a stream that is not shutting down keeps its recording header gate");
+  }
+  if (processingRecordingGateReleased(true, false, 1000, 1000 + PROCESSING_PRODUCER_DRAIN_MS - 1) ||
+      processingRecordingGateReleased(true, false, 0, 999999)) {
+    return fail("a shutting-down stream still waits for a running producer's outputs, such as thumbnails made after "
+                "the source ended");
+  }
+  if (!processingRecordingGateReleased(true, true, 0, 0) ||
+      !processingRecordingGateReleased(true, false, 1000, 1000 + PROCESSING_PRODUCER_DRAIN_MS)) {
+    return fail(
+      "a shutting-down stream releases the gate once its producers finished, or stops waiting after the drain bound");
+  }
+
   if (processingRecordingTrackCountsReady(false, 0, 0, 0, 0, 0, 0)) {
     return fail("a process-controlled recording must remain gated during the unresolved boot window");
   }
@@ -147,7 +161,7 @@ int main() {
     return fail("all process-authored outputs must exist before a recording header is written");
   }
   if (processingRecordingTrackCountsReady(true, 2, 2, 2, 1, 1, 1)) {
-    return fail("every selected original track must contain data before recording starts");
+    return fail("every original track must contain data before recording starts");
   }
   if (processingRecordingTrackCountsReady(true, 2, 2, 1, 1, 2, 1)) {
     return fail("every selected processing track must contain data before recording starts");

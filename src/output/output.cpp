@@ -2142,7 +2142,9 @@ namespace Mist{
         // Hold the initial seek as well as the header: seeking before the
         // process output tracks exist would pin the recording start (and its
         // keyframe alignment) to a track set that is still incomplete.
-        if (waitForProcessingRecordingHeader(sentHeader, keepGoing(), processingRecordingTracksReady())) {
+        // The gate reselects tracks, so it runs only until the header is out: a
+        // track selected after that is one the header does not declare.
+        if (!sentHeader && waitForProcessingRecordingHeader(sentHeader, keepGoing(), processingRecordingTracksReady())) {
           suggestedWait = 100;
           ++prepFalse;
           continue;
@@ -3600,13 +3602,29 @@ namespace Mist{
   bool Output::processingRecordingTracksReady() {
     const bool hasMetadata = M;
     const bool processControlled = hasMetadata && processingControlledRealtime();
-    // Stream is draining: no more process output is coming, so record whatever
+    // Stream is draining and no more process output is coming: record whatever
     // exists rather than wedging. Downstream validators own the verdict on the
     // resulting artifact. Deliberately only SHUTDOWN — getStreamStatus returns
     // STRMSTAT_OFF while the state page doesn't exist yet, which is exactly the
     // boot window where a recording races the stream and the gate must hold.
-    const bool streamShuttingDown = Util::getStreamStatus(streamName) == STRMSTAT_SHUTDOWN;
-    if (!processingRecordingNeedsTrackGate(isRecordingToFile, hasMetadata, processControlled, streamShuttingDown)) {
+    refreshProcessStreamState();
+    const bool gateReleased = processingRecordingGateReleased(Util::getStreamStatus(streamName) == STRMSTAT_SHUTDOWN,
+                                                              processStreamState.processProducersFinished,
+                                                              procSourceEndedSinceMs, Util::bootMS());
+    if (!processingRecordingNeedsTrackGate(isRecordingToFile, hasMetadata, processControlled, gateReleased)) {
+      if (gateReleased && processControlled) {
+        // Nothing more is coming: take every track that exists into the header now,
+        // rather than the selection from the previous check.
+        meta.reloadReplacedPagesIfNeeded();
+        selectDefaultTracks();
+        if (processStreamState.processProducersFinished) {
+          INFO_MSG("Recording header: stream drained and its processes finished; recording the tracks that exist");
+        } else {
+          WARN_MSG("Recording header: a process is still running %" PRIu64
+                   " ms after the source ended; recording the tracks that exist",
+                   Util::bootMS() - procSourceEndedSinceMs);
+        }
+      }
       return true;
     }
 
@@ -3644,23 +3662,29 @@ namespace Mist{
       if (M.getSourceTrack(*it) != INVALID_TRACK_ID) { ++readyOutputTracks; }
     }
 
+    // Every original track must have data, not only the selected ones: a
+    // processing stream's originals all come from its one input within moments,
+    // and a selector that names a track with no data yet (by id, say) matches
+    // nothing, so a header written then would leave that track out for good.
     size_t selectedOriginalTracks = 0;
     size_t readyOriginalTracks = 0;
+    for (const size_t track : M.getValidTracks()) {
+      if (M.getSourceTrack(track) != INVALID_TRACK_ID) { continue; }
+      ++selectedOriginalTracks;
+      if (validTracksWithData.count(track)) { ++readyOriginalTracks; }
+    }
     size_t readySelectedOutputTracks = 0;
     size_t selectedOutputTracks = 0;
     for (std::map<size_t, Comms::Users>::iterator it = userSelect.begin(); it != userSelect.end(); ++it) {
-      bool ready = validTracksWithData.count(it->first);
-      if (M.getSourceTrack(it->first) == INVALID_TRACK_ID) {
-        ++selectedOriginalTracks;
-        if (ready) { ++readyOriginalTracks; }
-      } else {
-        ++selectedOutputTracks;
-        if (ready) { ++readySelectedOutputTracks; }
-      }
+      if (M.getSourceTrack(it->first) == INVALID_TRACK_ID) { continue; }
+      ++selectedOutputTracks;
+      if (validTracksWithData.count(it->first)) { ++readySelectedOutputTracks; }
     }
 
     if (processingRecordingTrackCountsReady(expectationResolved, expectedOutputTracks, readyOutputTracks, selectedOriginalTracks,
                                             readyOriginalTracks, selectedOutputTracks, readySelectedOutputTracks)) {
+      INFO_MSG("Recording header: %zu original tracks and %zu/%zu expected processing outputs ready",
+               readyOriginalTracks, readyOutputTracks, expectedOutputTracks);
       return true;
     }
     INFO_MSG("Waiting for processing tracks before recording header: %zu/%zu original tracks ready, %zu/%zu expected "
