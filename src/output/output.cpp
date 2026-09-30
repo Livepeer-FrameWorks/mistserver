@@ -3615,6 +3615,7 @@ namespace Mist{
       : processingRecordingGateReleased(streamShuttingDown, processStreamState.processProducersFinished,
                                         procSourceEndedSinceMs, Util::bootMS());
     if (!processingRecordingNeedsTrackGate(isRecordingToFile, hasMetadata, processControlled, gateReleased)) {
+      recordingHeaderWaitLog.clear();
       if (gateReleased && processControlled && !sentHeader) {
         // Nothing more is coming: take every track that exists into the header now,
         // rather than the selection from the previous check.
@@ -3637,7 +3638,9 @@ namespace Mist{
     const bool expectationResolved =
       processingState && processingState.len >= 16 && processingState.mapped[STRMSTATE_PROCESS_OUTPUTS_RESOLVED_OFFSET];
     if (!expectationResolved) {
-      INFO_MSG("Waiting for processing process expectations before recording header");
+      if (recordingHeaderWaitLog.shouldLog("expectations", Util::bootMS())) {
+        INFO_MSG("Waiting for processing process expectations before recording header");
+      }
       return false;
     }
 
@@ -3690,16 +3693,22 @@ namespace Mist{
 
     if (processingRecordingTrackCountsReady(expectationResolved, expectedOutputTracks, readyOutputTracks, selectedOriginalTracks,
                                             readyOriginalTracks, selectedOutputTracks, readySelectedOutputTracks)) {
+      recordingHeaderWaitLog.clear();
       if (!sentHeader) {
         INFO_MSG("Recording header: %zu original tracks and %zu/%zu expected processing outputs ready",
                  readyOriginalTracks, readyOutputTracks, expectedOutputTracks);
       }
       return true;
     }
-    INFO_MSG("Waiting for processing tracks before recording header: %zu/%zu original tracks ready, %zu/%zu expected "
-             "processing outputs ready (%zu/%zu selected)",
-             readyOriginalTracks, selectedOriginalTracks, readyOutputTracks, expectedOutputTracks,
-             readySelectedOutputTracks, selectedOutputTracks);
+    char waitState[128];
+    snprintf(waitState, sizeof(waitState), "%zu/%zu %zu/%zu %zu/%zu", readyOriginalTracks, selectedOriginalTracks,
+             readyOutputTracks, expectedOutputTracks, readySelectedOutputTracks, selectedOutputTracks);
+    if (recordingHeaderWaitLog.shouldLog(waitState, Util::bootMS())) {
+      INFO_MSG("Waiting for processing tracks before recording header: %zu/%zu original tracks ready, %zu/%zu expected "
+               "processing outputs ready (%zu/%zu selected)",
+               readyOriginalTracks, selectedOriginalTracks, readyOutputTracks, expectedOutputTracks,
+               readySelectedOutputTracks, selectedOutputTracks);
+    }
     return false;
   }
 }// namespace Mist

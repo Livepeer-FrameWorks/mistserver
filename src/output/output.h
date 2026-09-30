@@ -1,6 +1,7 @@
 #pragma once
 #include "../io.h"
 #include "../lookahead_wait_diagnostics.h"
+#include "../processing_lifecycle.h"
 #include "output_start_policy.h"
 
 #include <mist/comms.h>
@@ -108,6 +109,7 @@ namespace Mist{
     void noteSelectedTrackLost(size_t trackIdx);
     bool replacesLostSelectedTrack(size_t trackIdx) const;
     PlayRewriteGate playRewriteGate;
+    ProcessingRecordingWaitLog recordingHeaderWaitLog;
     uint64_t lastStats; ///< Time of last sending of stats.
     void reinitPlaylist(std::string &playlistBuffer, uint64_t &maxAge, uint64_t &maxEntries,
                         uint64_t &segmentCount, uint64_t &segmentsRemoved, uint64_t &curTime,

@@ -190,5 +190,31 @@ int main() {
     return fail("initial seek and header must wait only while an active first header lacks its complete track set");
   }
 
+  {
+    ProcessingRecordingWaitLog waitLog;
+    if (!waitLog.shouldLog("0/1 0/2", 1000)) { return fail("a recording-header wait must be logged when it starts"); }
+    for (uint64_t now = 1100; now < 1000 + PROCESSING_RECORDING_WAIT_LOG_REPEAT_MS; now += 100) {
+      if (waitLog.shouldLog("0/1 0/2", now)) {
+        return fail("an unchanged recording-header wait polled every loop iteration must not be logged again");
+      }
+    }
+    if (!waitLog.shouldLog("0/1 0/2", 1000 + PROCESSING_RECORDING_WAIT_LOG_REPEAT_MS)) {
+      return fail("an unchanged recording-header wait must be logged again after the repeat interval");
+    }
+    if (!waitLog.shouldLog("1/1 0/2", 1000 + PROCESSING_RECORDING_WAIT_LOG_REPEAT_MS + 100)) {
+      return fail("a recording-header wait whose counts change must be logged immediately");
+    }
+    if (waitLog.shouldLog("1/1 0/2", 1000 + PROCESSING_RECORDING_WAIT_LOG_REPEAT_MS + 200)) {
+      return fail("a recording-header wait must not be logged again right after its counts changed");
+    }
+    if (!waitLog.shouldLog("1/1 0/2", 500)) {
+      return fail("a clock that went backwards must not suppress the recording-header wait log");
+    }
+    waitLog.clear();
+    if (!waitLog.shouldLog("1/1 0/2", 600)) {
+      return fail("a new recording-header wait after the previous one ended must be logged when it starts");
+    }
+  }
+
   return 0;
 }

@@ -152,4 +152,32 @@ namespace Mist {
   inline bool waitForProcessingRecordingHeader(bool sentHeader, bool outputActive, bool tracksReady) {
     return !sentHeader && outputActive && !tracksReady;
   }
+
+  /// Interval at which an unchanged processing recording-header wait is logged again.
+  const uint64_t PROCESSING_RECORDING_WAIT_LOG_REPEAT_MS = 10000;
+
+  /// Throttle for the processing recording-header wait log. The gate is polled
+  /// every output loop iteration while it holds, so a wait is logged when it
+  /// starts and whenever its reported state (the track counts) changes, and an
+  /// unchanged wait is repeated at most every intervalMs.
+  class ProcessingRecordingWaitLog {
+    public:
+      bool shouldLog(const std::string & state, uint64_t nowMs, uint64_t intervalMs = PROCESSING_RECORDING_WAIT_LOG_REPEAT_MS) {
+        if (waiting && state == lastState && nowMs >= lastLogMs && nowMs - lastLogMs < intervalMs) { return false; }
+        waiting = true;
+        lastState = state;
+        lastLogMs = nowMs;
+        return true;
+      }
+
+      void clear() {
+        waiting = false;
+        lastState.clear();
+      }
+
+    private:
+      bool waiting = false;
+      std::string lastState;
+      uint64_t lastLogMs = 0;
+  };
 } // namespace Mist
