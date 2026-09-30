@@ -408,6 +408,10 @@ if get_option('b_sanitize') == 'none'
   test('An idle HTTP listener releases its port when its settings change', connectorhandoverintegration,
        args: [exec_tgts.get('MistController'), exec_tgts.get('MistOutHTTP'), exec_tgts.get('MistUtilNuke')],
        suite: 'Controller', timeout: 60, is_parallel: false)
+  controllerenvaccounttest = find_program('controller_env_account_integration.sh')
+  test('The API account from the environment is stored and never reaches child processes', controllerenvaccounttest,
+       args: [exec_tgts.get('MistController'), exec_tgts.get('MistOutHTTP')],
+       suite: 'Controller', timeout: 60, is_parallel: false)
 endif
 
 bufferholdtest = executable('bufferholdtest', 'buffer_hold_unit.cpp', header_tgts, dependencies: libmist_dep)

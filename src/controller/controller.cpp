@@ -25,6 +25,7 @@
 #include <mist/triggers.h>
 #include <mist/util.h>
 
+#include <cstring>
 #include <ctime>
 #include <iostream>
 #include <mutex>
@@ -121,6 +122,66 @@ void createAccount(std::string account){
       Controller::Storage["account"][uname]["password"] = Secure::md5(pword);
     }
   }
+}
+
+/// API account taken from MIST_API_USERNAME / MIST_API_PASSWORD when the controller starts.
+/// Only the controller process holds it; see takeEnvAccount.
+static std::string envAccountUser;
+static std::string envAccountPass;
+
+/// Removes an environment variable and overwrites its value in place, so neither processes
+/// spawned afterwards nor /proc/<pid>/environ of this process can read it. Returns the value.
+static std::string takeEnvVar(const char *name) {
+  char *val = getenv(name);
+  if (!val) { return ""; }
+  std::string ret(val);
+  memset(val, 0, ret.size());
+  unsetenv(name);
+  return ret;
+}
+
+/// Takes the API account from MIST_API_PASSWORD and MIST_API_USERNAME (default "frameworks")
+/// and removes both from the environment. It runs before this process spawns anything, so
+/// no input, output or other child ever inherits the password.
+static void takeEnvAccount() {
+  std::string user = takeEnvVar("MIST_API_USERNAME");
+  std::string pass = takeEnvVar("MIST_API_PASSWORD");
+  size_t first = user.find_first_not_of(" \t\r\n");
+  size_t last = user.find_last_not_of(" \t\r\n");
+  user = (first == std::string::npos) ? "" : user.substr(first, last - first + 1);
+  if (pass.empty()) { return; }
+  envAccountUser = user.size() ? user : "frameworks";
+  envAccountPass = pass;
+}
+
+/// Exports the taken API account again for exactly one controller (re)start by the angel process.
+static void exportEnvAccount() {
+  if (envAccountPass.empty()) { return; }
+  setenv("MIST_API_USERNAME", envAccountUser.c_str(), 1);
+  setenv("MIST_API_PASSWORD", envAccountPass.c_str(), 1);
+}
+
+/// Removes the account exported by exportEnvAccount from the environment again.
+static void unexportEnvAccount() {
+  if (envAccountPass.empty()) { return; }
+  takeEnvVar("MIST_API_USERNAME");
+  takeEnvVar("MIST_API_PASSWORD");
+}
+
+/// Stores the environment API account like `-a user:password` does. An account given with
+/// -a takes precedence, and then the environment account is not applied.
+static void createEnvAccount() {
+  if (envAccountPass.empty()) { return; }
+  if (Controller::conf.getString("account").size()) {
+    WARN_MSG("Ignoring MIST_API_USERNAME/MIST_API_PASSWORD: an account was given with -a");
+    return;
+  }
+  if (envAccountUser.find(':') != std::string::npos) {
+    FAIL_MSG("Ignoring MIST_API_USERNAME/MIST_API_PASSWORD: the username may not contain ':'");
+    return;
+  }
+  Controller::Storage["account"][envAccountUser]["password"] = Secure::md5(envAccountPass);
+  INFO_MSG("API account '%s' set from MIST_API_USERNAME/MIST_API_PASSWORD", envAccountUser.c_str());
 }
 
 /// Bitmask:
@@ -387,7 +448,7 @@ int main_loop(int argc, char **argv){
     "short":"a",
     "arg":"string",
     "default":"",
-    "help":"A username:password string to create a new account with."
+    "help":"A username:password string to create a new account with. Without it, the MIST_API_PASSWORD and MIST_API_USERNAME (default: frameworks) environment variables set the account; the controller removes both from its environment before starting anything."
   })-");
   Controller::conf.addOption("logfile", R"-({
     "long":"logfile",
@@ -519,6 +580,7 @@ int main_loop(int argc, char **argv){
   Controller::writeCapabilities();
   Controller::updateBandwidthConfig();
   createAccount(Controller::conf.getString("account"));
+  createEnvAccount();
   Controller::conf.setMutexAborter(&Controller::configMutex);
   
   // Check initial load stats
@@ -908,6 +970,8 @@ int main(int argc, char **argv){
   }
 #endif
 
+  takeEnvAccount();
+
   Controller::conf = Util::Config(argv[0]);
   Util::Config::binaryType = Util::CONTROLLER;
   Controller::conf.activate();
@@ -954,7 +1018,9 @@ int main(int argc, char **argv){
 
   uint64_t reTimer = 0;
   while (Controller::conf.is_active){
+    exportEnvAccount();
     pid_t pid = Util::Procs::StartPiped(argv);
+    unexportEnvAccount();
 #ifdef __CYGWIN__
     setenv("NO_WIPE_SHM", "1", 1);
 #endif
@@ -984,7 +1050,9 @@ int main(int argc, char **argv){
       WARN_MSG("Refreshing angel process for update");
       unsetenv("CTRL_ATHEIST");
       std::string myFile = Util::getMyPath() + "MistController";
+      exportEnvAccount();
       execvp(myFile.c_str(), argv);
+      unexportEnvAccount();
       FAIL_MSG("Error restarting: %s", strerror(errno));
     }
     Util::Config::is_restarting = false;
