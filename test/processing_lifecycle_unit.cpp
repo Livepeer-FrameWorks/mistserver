@@ -154,6 +154,17 @@ int main() {
       "a shutting-down stream releases the gate once its producers finished, or stops waiting after the drain bound");
   }
 
+  if (!processingOriginalGatesHeader("video", false) || !processingOriginalGatesHeader("audio", false)) {
+    return fail("every original video and audio track must have data before a processing recording header");
+  }
+  if (processingOriginalGatesHeader("meta", false)) {
+    return fail(
+      "an unselected original metadata track, which can stay empty for a whole stream, must not hold the header");
+  }
+  if (!processingOriginalGatesHeader("meta", true)) {
+    return fail("a selected original metadata track must have data before the header");
+  }
+
   if (processingRecordingTrackCountsReady(false, 0, 0, 0, 0, 0, 0)) {
     return fail("a process-controlled recording must remain gated during the unresolved boot window");
   }

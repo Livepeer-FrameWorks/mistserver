@@ -3665,14 +3665,18 @@ namespace Mist{
       if (M.getSourceTrack(*it) != INVALID_TRACK_ID) { ++readyOutputTracks; }
     }
 
-    // Every original track must have data, not only the selected ones: a
-    // processing stream's originals all come from its one input within moments,
-    // and a selector that names a track with no data yet (by id, say) matches
-    // nothing, so a header written then would leave that track out for good.
+    // Every original video and audio track must have data, selected or not: a
+    // processing stream's media originals all come from its one input within
+    // moments, and a selector that names a track with no data yet (by id, say)
+    // matches nothing, so a header written then would leave that track out for
+    // good. Other originals (metadata, subtitles) can stay empty for the whole
+    // stream, so they count only when this output selects them.
     size_t selectedOriginalTracks = 0;
     size_t readyOriginalTracks = 0;
     for (const size_t track : M.getValidTracks()) {
       if (M.getSourceTrack(track) != INVALID_TRACK_ID) { continue; }
+      const std::string type = M.getType(track);
+      if (!processingOriginalGatesHeader(type, userSelect.count(track))) { continue; }
       ++selectedOriginalTracks;
       if (validTracksWithData.count(track)) { ++readyOriginalTracks; }
     }

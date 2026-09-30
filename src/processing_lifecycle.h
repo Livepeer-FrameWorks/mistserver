@@ -134,6 +134,14 @@ namespace Mist {
     return sourceEndedSinceMs && nowMs >= sourceEndedSinceMs + PROCESSING_PRODUCER_DRAIN_MS;
   }
 
+  /// Whether an original (non-process) track must have data before a
+  /// processing recording writes its header: video and audio always, other
+  /// types (metadata, subtitles), which can stay empty for a whole stream,
+  /// only when the recording selects them.
+  inline bool processingOriginalGatesHeader(const std::string & type, bool selected) {
+    return type == "video" || type == "audio" || selected;
+  }
+
   inline bool processingRecordingTrackCountsReady(bool expectationResolved, size_t expectedOutputTracks, size_t readyOutputTracks,
                                                   size_t selectedOriginalTracks, size_t readyOriginalTracks,
                                                   size_t selectedOutputTracks, size_t readySelectedOutputTracks) {
