@@ -142,6 +142,34 @@ namespace Mist {
     return type == "video" || type == "audio" || selected;
   }
 
+  /// Whether a processing recording leaves out an original track that would
+  /// join its selection after the header was written. A recording header
+  /// cannot be extended, so an original metadata or subtitle track that first
+  /// gets data after it (one the header did not wait for) stays out of this
+  /// recording instead of failing it. Original video and audio tracks are
+  /// still added: their header waited for them, so one joining later
+  /// replaces a producer, which the replacement path ends cleanly. Process
+  /// output tracks and every other recording keep their usual selection.
+  inline bool processingRecordingSkipsLateOriginal(bool recordingToFile, bool processControlledRealtime,
+                                                   bool sentHeader, bool derivedTrack, const std::string & type) {
+    return recordingToFile && processControlledRealtime && sentHeader && !derivedTrack &&
+      !processingOriginalGatesHeader(type, false);
+  }
+
+  /// Takes the track-data snapshot a processing recording-header check
+  /// counts, then runs the track selection, and returns the snapshot. Data
+  /// presence only grows, so the selection made afterwards covers every track
+  /// the snapshot saw with data. A track whose first packet lands while the
+  /// selection runs is then selected but not yet counted ready, and the header
+  /// waits one more poll for it. The opposite order can count such a track
+  /// ready while leaving it unselected, and a header written then omits it.
+  template<typename Snapshot, typename Select>
+  auto processingRecordingSnapshotThenSelect(Snapshot snapshot, Select select) -> decltype(snapshot()) {
+    auto taken = snapshot();
+    select();
+    return taken;
+  }
+
   inline bool processingRecordingTrackCountsReady(bool expectationResolved, size_t expectedOutputTracks, size_t readyOutputTracks,
                                                   size_t selectedOriginalTracks, size_t readyOriginalTracks,
                                                   size_t selectedOutputTracks, size_t readySelectedOutputTracks) {

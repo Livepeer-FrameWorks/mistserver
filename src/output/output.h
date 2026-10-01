@@ -155,6 +155,7 @@ namespace Mist{
     uint64_t procSourceEndedSinceMs; ///< bootMS when the buffer first reported producer EOF
     ProcessStreamState processStreamState; ///< last complete snapshot, retained after SHM teardown
     std::set<size_t> processingDrainedTracks; ///< tracks fully consumed after their producer ended
+    std::set<size_t> skippedLateOriginalTracks; ///< original tracks left out because they got data after the header
     // A recording's exit summary describes the tracks it wrote. Tracks leave
     // the selection before exit (drained, end of VoD track, producer ended)
     // and the buffer may have torn their metadata down by then, so each one

@@ -1,6 +1,7 @@
 #include "../src/processing_lifecycle.h"
 
 #include <cstdio>
+#include <set>
 
 namespace {
   int fail(const char *message) {
@@ -163,6 +164,64 @@ int main() {
   }
   if (!processingOriginalGatesHeader("meta", true)) {
     return fail("a selected original metadata track must have data before the header");
+  }
+
+  if (!processingRecordingSkipsLateOriginal(true, true, true, false, "meta") ||
+      !processingRecordingSkipsLateOriginal(true, true, true, false, "subtitle")) {
+    return fail("an original metadata track that gets data after the recording header must stay out of that recording");
+  }
+  if (processingRecordingSkipsLateOriginal(true, true, true, false, "video") ||
+      processingRecordingSkipsLateOriginal(true, true, true, false, "audio")) {
+    return fail("original video and audio joining after the header must reach the producer-replacement path");
+  }
+  if (processingRecordingSkipsLateOriginal(true, true, true, true, "meta")) {
+    return fail("process output tracks joining after the header must keep their usual selection");
+  }
+  if (processingRecordingSkipsLateOriginal(true, true, false, false, "meta")) {
+    return fail("an original metadata track selected before the header is declared by it");
+  }
+  if (processingRecordingSkipsLateOriginal(true, false, true, false, "meta") ||
+      processingRecordingSkipsLateOriginal(false, true, true, false, "meta")) {
+    return fail("live outputs and recordings that are not process-controlled keep their usual selection");
+  }
+
+  {
+    // Track 0 is the original video; tracks 1 and 2 are the two expected
+    // process outputs. The selection takes every track with data, and
+    // track 2's first packet lands while it runs.
+    std::set<size_t> withData = {0, 1};
+    std::set<size_t> selected;
+    size_t landsDuringSelection = 2;
+    const auto select = [&]() {
+      selected = withData;
+      if (landsDuringSelection != INVALID_TRACK_ID) {
+        withData.insert(landsDuringSelection);
+        landsDuringSelection = INVALID_TRACK_ID;
+      }
+    };
+    const auto poll = [&]() {
+      const std::set<size_t> snapshot = processingRecordingSnapshotThenSelect([&]() { return withData; }, select);
+      size_t readyOutputs = 0;
+      for (const size_t track : snapshot) {
+        if (track != 0) { ++readyOutputs; }
+      }
+      size_t selectedOutputs = 0;
+      size_t readySelectedOutputs = 0;
+      for (const size_t track : selected) {
+        if (track == 0) { continue; }
+        ++selectedOutputs;
+        if (snapshot.count(track)) { ++readySelectedOutputs; }
+      }
+      const size_t readyOriginals = snapshot.count(0);
+      return processingRecordingTrackCountsReady(true, 2, readyOutputs, 1, readyOriginals, selectedOutputs, readySelectedOutputs);
+    };
+    if (poll()) {
+      return fail("a process output whose first packet lands during the selection must not complete the recording "
+                  "header's count while it is unselected");
+    }
+    if (!poll() || !selected.count(2)) {
+      return fail("the next header check must release with the late process output selected");
+    }
   }
 
   if (processingRecordingTrackCountsReady(false, 0, 0, 0, 0, 0, 0)) {

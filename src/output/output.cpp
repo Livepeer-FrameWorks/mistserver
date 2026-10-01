@@ -601,7 +601,8 @@ namespace Mist{
       }
     }
     std::set<size_t> newSelects = Util::wouldSelect(M, selectionParams, capa, UA, autoSeek ? seekTarget : 0);
-    if (isRecordingToFile && processingControlledRealtime()) {
+    const bool processControlledRecording = isRecordingToFile && processingControlledRealtime();
+    if (processControlledRecording) {
       refreshProcessStreamState();
       for (std::set<size_t>::const_iterator it = processingDrainedTracks.begin(); it != processingDrainedTracks.end(); ++it) {
         newSelects.erase(*it);
@@ -661,6 +662,15 @@ namespace Mist{
                    M.getType(*it).c_str(), *it);
         }
         selectedTrackReplaced = true;
+        newSelects.erase(*it);
+        continue;
+      }
+      if (processingRecordingSkipsLateOriginal(isRecordingToFile, processControlledRecording, sentHeader,
+                                               M.getSourceTrack(*it) != INVALID_TRACK_ID, M.getType(*it))) {
+        if (skippedLateOriginalTracks.insert(*it).second) {
+          INFO_MSG("Not adding %s track %zu: it got data after the recording header, which does not declare it",
+                   M.getType(*it).c_str(), *it);
+        }
         newSelects.erase(*it);
         continue;
       }
@@ -3656,16 +3666,16 @@ namespace Mist{
     size_t expectedOutputTracks = expected16;
 
     meta.reloadReplacedPagesIfNeeded();
-    selectDefaultTracks();
-
-    std::set<size_t> validTracksWithData = M.getValidTracks(true);
+    const std::set<size_t> validTracksWithData = processingRecordingSnapshotThenSelect(
+      [this]() { return M.getValidTracks(true); }, [this]() { selectDefaultTracks(); });
     // Process output tracks are counted stream-wide, not via userSelect: at
     // header time a narrow selection may legitimately take fewer tracks than
     // the processes produce, but a track can only be selected at all once it
-    // exists — so the stream must be complete per the expectation first.
+    // exists — so the stream must be complete per the expectation first. A
+    // track the selection saw leave the stream no longer counts.
     size_t readyOutputTracks = 0;
     for (std::set<size_t>::iterator it = validTracksWithData.begin(); it != validTracksWithData.end(); ++it) {
-      if (M.getSourceTrack(*it) != INVALID_TRACK_ID) { ++readyOutputTracks; }
+      if (M.getSourceTrack(*it) != INVALID_TRACK_ID && M.trackValid(*it)) { ++readyOutputTracks; }
     }
 
     // Every original video and audio track must have data, selected or not: a
