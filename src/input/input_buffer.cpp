@@ -1142,7 +1142,8 @@ namespace Mist{
       // VOD sheet) has nothing left to produce: what it made is still in the
       // stream and counted above, but its released tracks no longer carry its
       // pid, so counting its outputs as missing would hold the header forever.
-      if (!producerRunning && everHadPush && !hasPush) { continue; }
+      const auto boots = procBoots.find(keyed.toString());
+      if (!producerRunning && everHadPush && !hasPush && boots != procBoots.end() && boots->second) { continue; }
       // A producer's outputs are the tracks it registered as their source, whether
       // or not it still claims them: its input side releases the claims when it
       // finishes, while the process keeps running to write its results.
@@ -1174,7 +1175,10 @@ namespace Mist{
       return;
     }
     bool resolved = false;
-    size_t expected = expectedProcessingOutputTracks(procs, resolved);
+    // checkProcesses may schedule replacements while its caller still holds
+    // the retired producer's list. Keep their output contract in this tick so
+    // a recorder cannot freeze its header before the replacements start.
+    size_t expected = expectedProcessingOutputTracks(applyProcessReplacements(procs), resolved);
     if (!resolved) {
       publish(false, 0);
       return;

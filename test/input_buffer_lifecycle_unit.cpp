@@ -330,6 +330,55 @@ int main() {
     }
   }
 
+  {
+    InputBufferProbe replacing(&config);
+    replacing.initMetadata("replaced-output-expectation-test");
+    if (!replacing.openStatePage(pageName)) { return fail("could not map replacement expectation page"); }
+    replacing.reset(true, false, true, true, 0);
+    JSON::Value keyed = livepeer;
+    keyed["source"] = replacing.streamName;
+    JSON::Value replacement = av;
+    replacement["codec"] = "H264";
+    replacement["resolution"] = "640x360";
+    replacing.processReplacements[keyed.toString()].append(replacement);
+    replacement["resolution"] = "854x480";
+    replacing.processReplacements[keyed.toString()].append(replacement);
+    replacing.retireHard(livepeer);
+    for (size_t i = 0; i < 4; ++i) { replacing.addCompletedOutput(); }
+    JSON::Value original;
+    original.append(livepeer);
+    // checkProcesses has chosen replacements, but its caller still holds the
+    // old effective list until the next supervisor pass starts them.
+    replacing.publishExpected(original);
+    if (!replacing.expectationResolved() || replacing.publishedExpected() != 6) {
+      return fail("the tick retiring Livepeer must still gate a recording on its two scheduled replacement outputs");
+    }
+    replacing.publishExpected(replacing.applyProcessReplacements(original));
+    if (!replacing.expectationResolved() || replacing.publishedExpected() != 6) {
+      return fail("an already replaced process list must not count its replacement contracts twice");
+    }
+    replacing.hasPush = false;
+    replacing.publishExpected(original);
+    if (!replacing.expectationResolved() || replacing.publishedExpected() != 6) {
+      return fail("source EOF must not discard replacement outputs before their producers have started");
+    }
+    jsonForEachConst (replacing.processReplacements[keyed.toString()], process) {
+      JSON::Value replacementKey = *process;
+      replacementKey["source"] = replacing.streamName;
+      replacing.procBoots[replacementKey.toString()] = 1;
+    }
+    replacing.publishExpected(original);
+    if (!replacing.expectationResolved() || replacing.publishedExpected() != 4) {
+      return fail("replacement producers that finished after source EOF must release missing-output requirements");
+    }
+    replacing.processReplacements.clear();
+    replacing.publishExpected(original);
+    if (!replacing.expectationResolved() || replacing.publishedExpected() != 4) {
+      return fail("a retired producer without a replacement must still release its missing-output gate");
+    }
+    replacing.streamStatus.master = false;
+  }
+
   std::deque<std::string> sleeper;
   sleeper.push_back("/bin/sleep");
   sleeper.push_back("30");
