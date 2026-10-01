@@ -1580,7 +1580,7 @@ namespace DTSC{
       if (trackList.getInt(trackValidField, i) == 0){continue;}
       std::map<size_t, Track>::iterator trIt = tracks.find(i);
       bool always_load = (trIt == tracks.end());
-      if (always_load || trIt->second.track.isReload()){
+      if (always_load || trIt->second.track.isReload()) {
         if (always_load){
           VERYHIGH_MSG("Loading track: %s", trackList.getPointer(trackPageField, i));
         }else{
@@ -1674,7 +1674,6 @@ namespace DTSC{
           t.pageFirstKeyField = t.pages.getFieldData("firstkey");
           t.pageFirstTimeField = t.pages.getFieldData("firsttime");
         }
-
       }
     }
     return ret;
