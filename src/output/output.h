@@ -97,6 +97,7 @@ namespace Mist{
   private: // these *should* not be messed with in child classes.
     std::map<size_t, uint32_t> currentPage;
     void loadPageForKey(size_t trackId, size_t keyNum);
+    bool waitForTrackLoaded(size_t trackId);
     uint64_t pageNumForKey(size_t trackId, size_t keyNum);
     uint64_t pageNumMax(size_t trackId);
     bool isRecordingToFile;

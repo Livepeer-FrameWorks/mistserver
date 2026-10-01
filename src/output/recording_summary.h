@@ -6,6 +6,14 @@
 #include <string>
 
 namespace Mist {
+  /// Whether describeRecordedTrack can read this track's metadata. A valid track
+  /// needs its metadata page loaded in this process; a removed track is described
+  /// from what this process still holds of it, as long as its codec is known.
+  inline bool recordedTrackDescribable(const DTSC::Meta & M, size_t trackIdx) {
+    if (M.trackValid(trackIdx)) { return M.trackLoaded(trackIdx); }
+    return M.getCodec(trackIdx).size() > 0;
+  }
+
   /// Describes one recorded track for the RECORDING_END summary. A derived
   /// track names its source the way stream JSON does, so a consumer can tell a
   /// transcode from the source passthrough of the same size: once renditions
@@ -25,7 +33,7 @@ namespace Mist {
     if (M.getHeight(trackIdx)) { T["height"] = M.getHeight(trackIdx); }
     if (M.getChannels(trackIdx)) { T["channels"] = M.getChannels(trackIdx); }
     const size_t src = M.getSourceTrack(trackIdx);
-    if (src != INVALID_TRACK_ID && M.trackValid(src)) {
+    if (src != INVALID_TRACK_ID && M.trackLoaded(src)) {
       T["source"] = M.getTrackIdentifier(src);
     } else if (knownSource.size()) {
       T["source"] = knownSource;

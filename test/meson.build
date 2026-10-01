@@ -743,6 +743,10 @@ iolivepageflip_test = executable('iolivepageflip_test', ['io_live_page_flip_unit
   dependencies: libmist_dep)
 test('Live page flips read the meta being buffered into', iolivepageflip_test, suite: 'DTSC')
 
+dtsc_reload_window_test = executable('dtsc_reload_window_test', 'dtsc_reload_window_unit.cpp', header_tgts,
+  dependencies: libmist_dep)
+test('A track stays readable while its writer replaces its metadata page', dtsc_reload_window_test, suite: 'DTSC')
+
 dtsc_part_time_test = executable('dtsc_part_time_test', 'dtsc_part_time_unit.cpp', header_tgts, dependencies: libmist_dep)
 test('DTSC part time skips deleted keys', dtsc_part_time_test)
 

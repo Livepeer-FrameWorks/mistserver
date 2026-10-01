@@ -63,6 +63,7 @@ namespace IPC{
     operator bool() const;
     void init(const std::string &name_, uint64_t len_, bool master_ = false, bool autoBackoff = true);
     void operator=(sharedFile &rhs);
+    void swap(sharedFile & rhs);
     bool operator<(const sharedFile &rhs) const{return name < rhs.name;}
     void close();
     void unmap();
@@ -89,6 +90,7 @@ namespace IPC{
     operator bool() const;
     void init(const std::string &name_, uint64_t len_, bool master_ = false, bool autoBackoff = true);
     void operator=(sharedPage &rhs);
+    void swap(sharedPage & rhs);
     bool operator<(const sharedPage &rhs) const{return name < rhs.name;}
     void unmap();
     void close();

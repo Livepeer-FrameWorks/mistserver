@@ -1,7 +1,9 @@
-#include "defines.h"
 #include "shared_memory.h"
+
+#include "defines.h"
 #include "stream.h"
 #include "timing.h"
+
 #include <cerrno>
 #include <cstdio>
 #include <cstdlib>
@@ -10,6 +12,7 @@
 #include <sys/mman.h>
 #include <sys/sem.h>
 #include <unistd.h>
+#include <utility>
 
 namespace IPC{
 
@@ -301,6 +304,16 @@ namespace IPC{
     rhs.master = false; // Make sure the memory does not get unlinked
   }
 
+  /// Exchanges the open handle, mapping and ownership of two pages. Neither page is
+  /// closed, unmapped or unlinked in the process.
+  void sharedPage::swap(sharedPage & rhs) {
+    std::swap(handle, rhs.handle);
+    name.swap(rhs.name);
+    std::swap(len, rhs.len);
+    std::swap(master, rhs.master);
+    std::swap(mapped, rhs.mapped);
+  }
+
   ///\brief Initialize a page, de-initialize before if needed
   ///\param name_ The name of the page to be created
   ///\param len_ The size to make the page
@@ -411,6 +424,16 @@ namespace IPC{
   void sharedFile::operator=(sharedFile &rhs){
     init(rhs.name, rhs.len, rhs.master);
     rhs.master = false; // Make sure the memory does not get unlinked
+  }
+
+  /// Exchanges the open handle, mapping and ownership of two files. Neither file is
+  /// closed, unmapped or unlinked in the process.
+  void sharedFile::swap(sharedFile & rhs) {
+    std::swap(handle, rhs.handle);
+    name.swap(rhs.name);
+    std::swap(len, rhs.len);
+    std::swap(master, rhs.master);
+    std::swap(mapped, rhs.mapped);
   }
 
   ///\brief Unmaps a shared file if allowed

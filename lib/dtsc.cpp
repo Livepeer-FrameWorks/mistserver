@@ -1472,6 +1472,12 @@ namespace DTSC{
       if (tracks.count(i)){continue;}
       IPC::sharedPage &p = tM[i];
       p.init(trackList.getPointer(trackPageField, i), SHM_STREAM_TRACK_LEN, false, false);
+      // The page can be missing while its writer replaces it; the track is left
+      // unloaded and the next reloadReplacedPagesIfNeeded call loads it.
+      if (!p.mapped) {
+        tM.erase(i);
+        continue;
+      }
 
       Track &t = tracks[i];
       t.track = Util::RelAccX(p.mapped, true);
@@ -1575,22 +1581,38 @@ namespace DTSC{
       std::map<size_t, Track>::iterator trIt = tracks.find(i);
       bool always_load = (trIt == tracks.end());
       if (always_load || trIt->second.track.isReload()){
-        if (trackInvalidateCallback) { trackInvalidateCallback(i); }
-        ret = true;
-        Track &t = tracks[i];
         if (always_load){
           VERYHIGH_MSG("Loading track: %s", trackList.getPointer(trackPageField, i));
         }else{
           VERYHIGH_MSG("Reloading track: %s", trackList.getPointer(trackPageField, i));
         }
-        IPC::sharedPage &p = tM[i];
-        p.init(trackList.getPointer(trackPageField, i), SHM_STREAM_TRACK_LEN, false, false);
-        if (!p.mapped){
+        // A writer resizing a track unlinks the old page before it creates the
+        // replacement under the same name. The replacement is opened first; while
+        // it does not exist yet the old mapping stays in place, complete as of the
+        // resize and still flagged for reload, so the track stays loaded and the
+        // next call retries.
+        std::map<size_t, IPC::sharedPage>::iterator oldPage = tM.find(i);
+        const bool haveOldPage = !always_load && oldPage != tM.end() && oldPage->second.mapped;
+        IPC::sharedPage fresh;
+        fresh.init(trackList.getPointer(trackPageField, i), SHM_STREAM_TRACK_LEN, false, false);
+        if (!fresh.mapped) {
+          if (haveOldPage) {
+            HIGH_MSG("Replacement page %s not available yet, keeping the current one", trackList.getPointer(trackPageField, i));
+            continue;
+          }
           WARN_MSG("Failed to load page %s, retrying later", trackList.getPointer(trackPageField, i));
+          ret = true;
+          if (trackInvalidateCallback) { trackInvalidateCallback(i); }
           tM.erase(i);
           tracks.erase(i);
           continue;
         }
+        ret = true;
+        if (trackInvalidateCallback) { trackInvalidateCallback(i); }
+        Track & t = tracks[i];
+        IPC::sharedPage & p = tM[i];
+        p.close();
+        p.swap(fresh);
 
         t.track = Util::RelAccX(p.mapped, true);
 

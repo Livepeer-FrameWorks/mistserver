@@ -4,6 +4,7 @@
 #include "dtsc.h"
 #include "recording_summary.h"
 #include "segment_clock.h"
+#include "track_reload.h"
 
 #include <mist/bitfields.h>
 #include <mist/defines.h>
@@ -631,6 +632,14 @@ namespace Mist{
     // Also insert the selected tracks without current seek point, for e.g. HLS playlists
     for (const auto & it : userSelect) { oldSelects.insert(it.first); }
 
+    // A selected track whose metadata page is not loaded in this process is
+    // missing from the selection view until a reload maps it, but it is still
+    // part of the stream and stays selected.
+    for (const size_t trk : oldSelects) {
+      if (newSelects.count(trk) || (processControlledRecording && processingDrainedTracks.count(trk))) { continue; }
+      if (trackAwaitingReload(M, trk)) { newSelects.insert(trk); }
+    }
+
     //No changes? Abort and return false;
     if (oldSelects == newSelects){return false;}
 
@@ -883,6 +892,19 @@ namespace Mist{
     playlistBuffer += newBuffer;
   }
 
+  /// Returns whether the metadata page of the given track is loaded, reloading
+  /// replaced pages first. A track that is valid but not loaded is having its
+  /// page replaced by the writer; this waits up to 5 seconds for the replacement.
+  bool Output::waitForTrackLoaded(size_t trackId) {
+    if (M.trackLoaded(trackId)) { return true; }
+    meta.reloadReplacedPagesIfNeeded();
+    for (size_t tries = 0; tries < 100 && keepGoing() && trackAwaitingReload(M, trackId); ++tries) {
+      Util::wait(50);
+      meta.reloadReplacedPagesIfNeeded();
+    }
+    return M.trackLoaded(trackId);
+  }
+
   /// Loads the page for the given trackId and keyNum into memory.
   /// Overwrites any existing page for the same trackId.
   /// Automatically calls thisPacket.null() if necessary.
@@ -891,7 +913,10 @@ namespace Mist{
       WARN_MSG("Load for track %zu key %zu aborted - track does not exist", trackId, keyNum);
       return;
     }
-    if (!M.trackLoaded(trackId)){meta.reloadReplacedPagesIfNeeded();}
+    if (!waitForTrackLoaded(trackId)) {
+      WARN_MSG("Load for track %zu key %zu aborted - track metadata is not loaded", trackId, keyNum);
+      return;
+    }
     // Note: specifically does not apply the limiter because pages must not be limited-based
     DTSC::Keys keys = M.getKeys(trackId, false);
     if (!keys.getValidCount()){
@@ -988,10 +1013,10 @@ namespace Mist{
     uint64_t nonMetaStart = 0xFFFFFFFFFFFFFFFFull;
     if (userSelect.size()){
       for (std::map<size_t, Comms::Users>::iterator it = userSelect.begin(); it != userSelect.end(); it++){
-        if (M.trackValid(it->first) && start > M.getFirstms(it->first)){
-          start = M.getFirstms(it->first);
-        }
-        if (M.trackValid(it->first) && M.getType(it->first) != "meta" && nonMetaStart > M.getFirstms(it->first)){
+        // A selected track whose metadata page is not loaded has no bounds to read yet.
+        if (!M.trackLoaded(it->first)) { continue; }
+        if (start > M.getFirstms(it->first)) { start = M.getFirstms(it->first); }
+        if (M.getType(it->first) != "meta" && nonMetaStart > M.getFirstms(it->first)) {
           nonMetaStart = M.getFirstms(it->first);
         }
       }
@@ -1010,7 +1035,7 @@ namespace Mist{
     uint64_t end = 0;
     if (userSelect.size()) {
       for (const auto & it : userSelect) {
-        if (M.trackValid(it.first) && end < M.getLastms(it.first)) { end = meta.getLastms(it.first); }
+        if (M.trackLoaded(it.first) && end < M.getLastms(it.first)) { end = meta.getLastms(it.first); }
       }
     } else {
       for (const auto & T : M.getValidTracks()) {
@@ -1103,7 +1128,12 @@ namespace Mist{
       trackSelectionChanged();
       return false;
     }
-    if (!M.trackLoaded(tid)){meta.reloadReplacedPagesIfNeeded();}
+    if (!waitForTrackLoaded(tid)) {
+      WARN_MSG("Aborting seek to %" PRIu64 "ms in track %zu: track metadata is not loaded", pos, tid);
+      userSelect.erase(tid);
+      trackSelectionChanged();
+      return false;
+    }
     if (!userSelect.count(tid) || !userSelect[tid]){
       WARN_MSG("Aborting seek to %" PRIu64 "ms in track %zu: user select failure (%s)", pos, tid, userSelect.count(tid)?"not connected":"not selected");
       userSelect.erase(tid);
@@ -1273,10 +1303,10 @@ namespace Mist{
         // check if all tracks have data for this point in time
         for (std::map<size_t, Comms::Users>::iterator ti = userSelect.begin(); ti != userSelect.end(); ++ti){
           if (mainTrack == ti->first){continue;}// skip self
-          if (!M.trackValid(ti->first)){
+          if (!M.trackLoaded(ti->first)) {
             HIGH_MSG("Skipping track %zu, not in tracks", ti->first);
             continue;
-          }// ignore missing tracks
+          } // ignore missing tracks
           if (meta.getNowms(ti->first) == M.getFirstms(ti->first)){
             HIGH_MSG("Skipping track %zu, last equals first", ti->first);
             continue;
@@ -2383,7 +2413,9 @@ namespace Mist{
             if (span == writtenSpans.end()) {
               writtenSpans[thisIdx] = std::make_pair(thisTime, thisTime);
               const size_t src = M.getSourceTrack(thisIdx);
-              if (src != INVALID_TRACK_ID && M.trackValid(src)) { writtenSources[thisIdx] = M.getTrackIdentifier(src); }
+              if (src != INVALID_TRACK_ID && M.trackLoaded(src)) {
+                writtenSources[thisIdx] = M.getTrackIdentifier(src);
+              }
             } else {
               if (thisTime < span->second.first) { span->second.first = thisTime; }
               if (thisTime > span->second.second) { span->second.second = thisTime; }
@@ -2697,6 +2729,10 @@ namespace Mist{
 
       nxt = *(buffer.begin());
 
+      if (trackAwaitingReload(M, nxt.tid)) {
+        meta.reloadReplacedPagesIfNeeded();
+        if (!M.trackLoaded(nxt.tid)) { return 50; }
+      }
       if (!M.trackLoaded(nxt.tid)){
         dropTrack(nxt.tid, "disappeared from metadata");
         return 1;
@@ -3270,7 +3306,7 @@ namespace Mist{
         // tracks that never left the selection. Reading live metadata for a
         // dropped track risks zeroed dimensions/bounds after buffer teardown.
         const bool snapshot = recordedTrackDetails.count(trackIdx) > 0;
-        const bool liveMeta = !snapshot && M && (M.trackValid(trackIdx) || M.getCodec(trackIdx).size());
+        const bool liveMeta = !snapshot && M && recordedTrackDescribable(M, trackIdx);
         if (snapshot) { T = recordedTrackDetails[trackIdx]; }
         T["idx"] = trackIdx;
         T["selected"] = (bool)(selectedTracks.count(trackIdx) || recordedTracks.count(trackIdx));
@@ -3569,7 +3605,7 @@ namespace Mist{
   void Output::rememberRecordedTrack(size_t trackIdx) {
     recordedTracks.insert(trackIdx);
     if (recordedTrackDetails.count(trackIdx) || !M) { return; }
-    if (!(M.trackValid(trackIdx) || M.getCodec(trackIdx).size())) { return; }
+    if (!recordedTrackDescribable(M, trackIdx)) { return; }
     describeRecordedTrack(M, trackIdx, recordedTrackDetails[trackIdx]);
   }
 
