@@ -1,6 +1,8 @@
 #include "../src/process/livepeer_request.h"
 
 #include <cassert>
+#include <set>
+#include <string>
 
 int main() {
   JSON::Value options;
@@ -66,5 +68,53 @@ int main() {
   assert(Mist::livepeerSocketTimeoutSeconds(3900, 45000) == 50);
   assert(Mist::livepeerDownloaderRetryCount(0) == 2);
   assert(Mist::livepeerDownloaderRetryCount(45000) == 1);
+
+  std::set<std::string> two;
+  two.insert("http://a");
+  two.insert("http://b");
+  std::set<std::string> three = two;
+  three.insert("http://c");
+  for (size_t pick = 0; pick < 6; ++pick) {
+    // Two upload threads fail on the same broadcaster at once. The first one
+    // switches; the second must keep that choice instead of switching back.
+    std::string current = "http://a";
+    std::set<std::string> failedFirst;
+    failedFirst.insert("http://a");
+    assert(Mist::livepeerSwitchBroadcaster(current, "http://a", failedFirst, two, pick) == Mist::LivepeerSwitchOutcome::Switched);
+    assert(current == "http://b");
+    std::set<std::string> failedSecond;
+    failedSecond.insert("http://a");
+    assert(Mist::livepeerSwitchBroadcaster(current, "http://a", failedSecond, two, pick) == Mist::LivepeerSwitchOutcome::AlreadySwitched);
+    assert(current == "http://b");
+
+    // A segment that failed on a and then b moves on to c, never back to a.
+    current = "http://b";
+    std::set<std::string> failedAB;
+    failedAB.insert("http://a");
+    failedAB.insert("http://b");
+    assert(Mist::livepeerSwitchBroadcaster(current, "http://b", failedAB, three, pick) == Mist::LivepeerSwitchOutcome::Switched);
+    assert(current == "http://c");
+
+    // Another thread moved to a broadcaster this segment already failed on.
+    current = "http://a";
+    assert(Mist::livepeerSwitchBroadcaster(current, "http://b", failedAB, three, pick) == Mist::LivepeerSwitchOutcome::Switched);
+    assert(current == "http://c");
+
+    // Every broadcaster failed this segment: nothing changes.
+    current = "http://b";
+    assert(Mist::livepeerSwitchBroadcaster(current, "http://b", failedAB, two, pick) == Mist::LivepeerSwitchOutcome::NoAlternative);
+    assert(current == "http://b");
+
+    std::set<std::string> one;
+    one.insert("http://a");
+    current = "http://a";
+    assert(Mist::livepeerSwitchBroadcaster(current, "http://a", failedFirst, one, pick) == Mist::LivepeerSwitchOutcome::NoAlternative);
+    assert(current == "http://a");
+
+    // Initial selection.
+    current.clear();
+    assert(Mist::livepeerSwitchBroadcaster(current, "", std::set<std::string>(), two, pick) == Mist::LivepeerSwitchOutcome::Switched);
+    assert(two.count(current));
+  }
   return 0;
 }

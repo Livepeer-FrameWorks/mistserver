@@ -4,6 +4,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <set>
 #include <string>
 
 namespace Mist {
@@ -52,6 +53,33 @@ namespace Mist {
       return true;
     }
     return streamName.compare(0, 11, "processing+") == 0;
+  }
+
+  enum class LivepeerSwitchOutcome { Switched, AlreadySwitched, NoAlternative };
+
+  /// Moves the shared broadcaster `current` off `failedAddr`, the broadcaster
+  /// one upload thread just failed a segment on. `failedHere` holds every
+  /// broadcaster that segment already failed on. Upload threads share
+  /// `current` and call this under one lock: when another thread already
+  /// moved `current` to a broadcaster this segment has not failed on, that
+  /// choice stands. Otherwise a broadcaster outside `failedHere` (and other
+  /// than `failedAddr`) is picked from `candidates` using `pick`; when none is
+  /// left, `current` stays as it is.
+  inline LivepeerSwitchOutcome livepeerSwitchBroadcaster(std::string & current, const std::string & failedAddr,
+                                                         const std::set<std::string> & failedHere,
+                                                         const std::set<std::string> & candidates, size_t pick) {
+    if (!current.empty() && current != failedAddr && !failedHere.count(current)) {
+      return LivepeerSwitchOutcome::AlreadySwitched;
+    }
+    std::set<std::string> valid;
+    for (std::set<std::string>::const_iterator it = candidates.begin(); it != candidates.end(); ++it) {
+      if (*it != failedAddr && !failedHere.count(*it)) { valid.insert(*it); }
+    }
+    if (valid.empty()) { return LivepeerSwitchOutcome::NoAlternative; }
+    std::set<std::string>::const_iterator it = valid.begin();
+    for (size_t r = pick % valid.size(); r; --r) { ++it; }
+    current = *it;
+    return LivepeerSwitchOutcome::Switched;
   }
 
   inline bool livepeerShouldRetryCurrentBroadcaster(bool postSucceeded, bool requestWasSent) {

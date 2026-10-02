@@ -93,23 +93,12 @@ namespace Mist{
 
   bool livepeerQueuesDrained();
 
-  void pickRandomBroadcaster(){
-    std::string prevBroad = currBroadAddr;
-    currBroadAddr.clear();
-    std::set<std::string> validAddrs;
-    jsonForEach(lpBroad, bCast){
-      if (bCast->isMember("address")){
-        validAddrs.insert((*bCast)["address"].asStringRef());
-      }
+  std::set<std::string> broadcasterAddresses() {
+    std::set<std::string> addrs;
+    jsonForEach (lpBroad, bCast) {
+      if (bCast->isMember("address")) { addrs.insert((*bCast)["address"].asStringRef()); }
     }
-    if (validAddrs.size() > 1){validAddrs.erase(prevBroad);}
-    if (!validAddrs.size()){
-      FAIL_MSG("Could not select a new random broadcaster!");
-      /// TODO Finish this function.
-    }
-    std::set<std::string>::iterator it = validAddrs.begin();
-    for (size_t r = rand() % validAddrs.size(); r; --r){++it;}
-    currBroadAddr = *it;
+    return addrs;
   }
 
   //Source process, takes data from input stream and sends to livepeer
@@ -698,11 +687,17 @@ void uploadThread(size_t myNum){
     } // Exit early on shutdown
     size_t attempts = 0;
     uint32_t rejectionsHere = 0;
+    // Every attempt for this segment goes to segAddr; it only changes through
+    // the broadcaster switch below, so a re-send meant for the same gateway
+    // never follows another upload thread's switch.
+    std::string segAddr;
+    std::set<std::string> failedHere;
     do{
       HTTP::URL target;
       {
         std::lock_guard<std::mutex> guard(broadcasterMutex);
-        target = HTTP::URL(Mist::currBroadAddr+"/live/"+Mist::lpID+"/"+JSON::Value(mySeg.keyNo).asString()+".ts");
+        if (segAddr.empty()) { segAddr = Mist::currBroadAddr; }
+        target = HTTP::URL(segAddr + "/live/" + Mist::lpID + "/" + JSON::Value(mySeg.keyNo).asString() + ".ts");
         upper.setHeader("Cookie", cookie);
       }
       // Mist's HTTP timeout is "gateway response budget + socket margin", not
@@ -899,22 +894,30 @@ void uploadThread(size_t myNum){
       bool switchSuccess = false;
       {
         std::lock_guard<std::mutex> guard(broadcasterMutex);
-        cookie.clear();
-        std::string prevBroadAddr = Mist::currBroadAddr;
-        Mist::pickRandomBroadcaster();
+        failedHere.insert(segAddr);
+        Mist::LivepeerSwitchOutcome outcome =
+          Mist::livepeerSwitchBroadcaster(Mist::currBroadAddr, segAddr, failedHere, Mist::broadcasterAddresses(), rand());
         if (!Mist::currBroadAddr.size()){
           FAIL_MSG("Cannot switch to new broadcaster: none available");
           procExit.log(ER_FORMAT_SPECIFIC, 2, "no Livepeer broadcasters available");
           requestLivepeerStop();
           return;
         }
-        if (Mist::currBroadAddr != prevBroadAddr){
+        if (outcome == Mist::LivepeerSwitchOutcome::Switched) {
+          cookie.clear();
           ++statSwitches;
+          WARN_MSG("Switched to new broadcaster: %s", Mist::currBroadAddr.c_str());
+        } else if (outcome == Mist::LivepeerSwitchOutcome::AlreadySwitched) {
+          INFO_MSG("Seg %s follows the concurrent switch from %s to %s", JSON::Value(mySeg.keyNo).asString().c_str(),
+                   segAddr.c_str(), Mist::currBroadAddr.c_str());
+        } else {
+          WARN_MSG("Cannot switch broadcaster for seg %s; every available broadcaster failed it",
+                   JSON::Value(mySeg.keyNo).asString().c_str());
+        }
+        if (outcome != Mist::LivepeerSwitchOutcome::NoAlternative) {
           switchSuccess = true;
           rejectionsHere = 0;
-          WARN_MSG("Switched to new broadcaster: %s", Mist::currBroadAddr.c_str());
-        }else{
-          WARN_MSG("Cannot switch broadcaster; only a single option is available");
+          segAddr = Mist::currBroadAddr;
         }
       }
       if (!switchSuccess && was422){
@@ -1364,7 +1367,7 @@ int main(int argc, char *argv[]){
     procExit.log(ER_FORMAT_SPECIFIC, 2, "No Livepeer broadcasters available (invalid response)");
     return procExit.flush(procStatePage);
   }
-  Mist::pickRandomBroadcaster();
+  Mist::livepeerSwitchBroadcaster(Mist::currBroadAddr, "", std::set<std::string>(), Mist::broadcasterAddresses(), rand());
   if (!Mist::currBroadAddr.size()){
     procExit.log(ER_FORMAT_SPECIFIC, 2, "No Livepeer broadcasters available (empty list)");
     return procExit.flush(procStatePage);
