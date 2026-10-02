@@ -4,6 +4,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <fcntl.h>
 #include <mutex>
 #include <netinet/in.h>
 #include <set>
@@ -22,6 +23,26 @@ namespace {
   bool rejectFirst = false;
   std::mutex rejectedMutex;
   std::set<uint64_t> rejectedOnce;
+  // With LIVEPEER_STUB_CLAIM_FILE set, stubs sharing that path decide on their
+  // first upload which of them is the failing gateway: the stub that creates
+  // the file first rejects every upload with 422 after
+  // LIVEPEER_STUB_REJECT_DELAY_MS, the way a gateway answers when its
+  // orchestrators fail; every other stub transcodes normally.
+  const char *claimFile = 0;
+  uint64_t rejectDelayMs = 0;
+  std::mutex claimMutex;
+  int claimed = -1;
+
+  bool failsEverything() {
+    if (!claimFile) { return false; }
+    std::lock_guard<std::mutex> guard(claimMutex);
+    if (claimed < 0) {
+      const int fd = open(claimFile, O_CREAT | O_EXCL | O_WRONLY, 0600);
+      claimed = fd >= 0 ? 1 : 0;
+      if (fd >= 0) { close(fd); }
+    }
+    return claimed == 1;
+  }
 
   void stop(int) {
     active = 0;
@@ -101,6 +122,17 @@ namespace {
     }
 
     const uint64_t segment = segmentNumber(request);
+    if (failsEverything()) {
+      usleep(rejectDelayMs * 1000);
+      const std::string response =
+        "HTTP/1.1 422 Unprocessable Entity\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
+      sendAll(fd, response.data(), response.size());
+      close(fd);
+      std::lock_guard<std::mutex> logGuard(logMutex);
+      fprintf(stdout, "rejected %llu\n", (unsigned long long)segment);
+      fflush(stdout);
+      return;
+    }
     if (rejectFirst) {
       bool reject = false;
       {
@@ -155,6 +187,10 @@ int main(int argc, char **argv) {
   }
   const char *rejectFirstEnv = getenv("LIVEPEER_STUB_REJECT_FIRST");
   rejectFirst = rejectFirstEnv && !strcmp(rejectFirstEnv, "1");
+  claimFile = getenv("LIVEPEER_STUB_CLAIM_FILE");
+  if (claimFile && !*claimFile) { claimFile = 0; }
+  const char *rejectDelayEnv = getenv("LIVEPEER_STUB_REJECT_DELAY_MS");
+  if (rejectDelayEnv) { rejectDelayMs = strtoull(rejectDelayEnv, 0, 10); }
   signal(SIGINT, stop);
   signal(SIGTERM, stop);
 

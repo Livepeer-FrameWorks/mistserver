@@ -44,6 +44,7 @@ stream="livepeervod$$"
 controller_pid=
 input_pid=
 stub_pid=
+stub2_pid=
 output_pid=
 
 cleanup() {
@@ -73,10 +74,10 @@ cleanup() {
     kill -INT "$controller_pid" >/dev/null 2>&1 || true
     wait "$controller_pid" >/dev/null 2>&1 || true
   fi
-  if [ -n "$stub_pid" ]; then
-    kill -TERM "$stub_pid" >/dev/null 2>&1 || true
-    wait "$stub_pid" >/dev/null 2>&1 || true
-  fi
+  for pid in $stub_pid $stub2_pid; do
+    kill -TERM "$pid" >/dev/null 2>&1 || true
+    wait "$pid" >/dev/null 2>&1 || true
+  done
   if [ "${MIST_KEEP_TEST_ARTIFACTS:-}" = "1" ]; then
     echo "preserved test artifacts in $work" >&2
   else
@@ -98,22 +99,37 @@ source_mkv="$work/source.mkv"
 
 controller_port=$((28000 + ($$ % 8000)))
 broadcaster_port=$((38000 + ($$ % 8000)))
+broadcasters="\"http://127.0.0.1:$broadcaster_port\""
+stub_logs="$work/broadcaster.log"
+if [ "${LIVEPEER_TEST_FAILING_GATEWAY:-}" = "1" ]; then
+  # Two gateways; whichever receives the first upload rejects every segment
+  # after a second, so both upload threads fail on it at overlapping times.
+  LIVEPEER_STUB_CLAIM_FILE="$work/failing-gateway"
+  LIVEPEER_STUB_REJECT_DELAY_MS=1000
+  export LIVEPEER_STUB_CLAIM_FILE LIVEPEER_STUB_REJECT_DELAY_MS
+  broadcaster2_port=$((broadcaster_port + 1))
+  "$broadcaster_stub" "$broadcaster2_port" >"$work/broadcaster2.log" 2>&1 &
+  stub2_pid=$!
+  stub_logs="$stub_logs $work/broadcaster2.log"
+  broadcasters="\"[\\\"http://127.0.0.1:$broadcaster_port\\\",\\\"http://127.0.0.1:$broadcaster2_port\\\"]\""
+fi
 "$broadcaster_stub" "$broadcaster_port" >"$work/broadcaster.log" 2>&1 &
 stub_pid=$!
-attempt=0
-while [ "$attempt" -lt 50 ] && ! grep -q '^ready$' "$work/broadcaster.log" 2>/dev/null; do
-  if ! kill -0 "$stub_pid" 2>/dev/null; then break; fi
-  attempt=$((attempt + 1))
-  sleep 0.1
+for log in $stub_logs; do
+  attempt=0
+  while [ "$attempt" -lt 50 ] && ! grep -q '^ready$' "$log" 2>/dev/null; do
+    attempt=$((attempt + 1))
+    sleep 0.1
+  done
+  if ! grep -q '^ready$' "$log"; then
+    echo "loopback Livepeer broadcaster did not become ready ($log)" >&2
+    exit 1
+  fi
 done
-if ! grep -q '^ready$' "$work/broadcaster.log"; then
-  echo "loopback Livepeer broadcaster did not become ready" >&2
-  exit 1
-fi
 
 config="$work/config.json"
 printf '%s\n' \
-  "{\"account\":{\"test\":{\"password\":\"098f6bcd4621d373cade4e832627b4f6\"}},\"auto_push\":null,\"bandwidth\":{\"exceptions\":[\"::1\",\"127.0.0.0/8\"]},\"config\":{\"accesslog\":\"LOG\",\"controller\":{\"interface\":\"127.0.0.1\",\"port\":$controller_port,\"username\":null},\"debug\":4,\"defaultStream\":null,\"prometheus\":\"\",\"protocols\":[],\"serverid\":null,\"sessionInputMode\":15,\"sessionOutputMode\":15,\"sessionStreamInfoMode\":1,\"sessionUnspecifiedMode\":0,\"sessionViewerMode\":14,\"tknMode\":15,\"triggers\":{},\"trustedproxy\":[]},\"extwriters\":null,\"jwks\":null,\"push_settings\":{\"maxspeed\":0,\"wait\":3},\"streamkeys\":null,\"streams\":{\"$stream\":{\"name\":\"$stream\",\"source\":\"$source_mkv\",\"process_controlled_realtime\":true,\"realtime_speed\":4,\"processes\":[{\"process\":\"Livepeer\",\"hardcoded_broadcasters\":\"http://127.0.0.1:$broadcaster_port\",\"target_profiles\":[{\"name\":\"audit\",\"bitrate\":500000,\"width\":320,\"height\":180,\"fps\":10,\"gop\":\"2.0\"}],\"target_mask\":2,\"source_mask\":4,\"restart_type\":\"disabled\"}]}},\"variables\":null}" \
+  "{\"account\":{\"test\":{\"password\":\"098f6bcd4621d373cade4e832627b4f6\"}},\"auto_push\":null,\"bandwidth\":{\"exceptions\":[\"::1\",\"127.0.0.0/8\"]},\"config\":{\"accesslog\":\"LOG\",\"controller\":{\"interface\":\"127.0.0.1\",\"port\":$controller_port,\"username\":null},\"debug\":4,\"defaultStream\":null,\"prometheus\":\"\",\"protocols\":[],\"serverid\":null,\"sessionInputMode\":15,\"sessionOutputMode\":15,\"sessionStreamInfoMode\":1,\"sessionUnspecifiedMode\":0,\"sessionViewerMode\":14,\"tknMode\":15,\"triggers\":{},\"trustedproxy\":[]},\"extwriters\":null,\"jwks\":null,\"push_settings\":{\"maxspeed\":0,\"wait\":3},\"streamkeys\":null,\"streams\":{\"$stream\":{\"name\":\"$stream\",\"source\":\"$source_mkv\",\"process_controlled_realtime\":true,\"realtime_speed\":4,\"processes\":[{\"process\":\"Livepeer\",\"hardcoded_broadcasters\":$broadcasters,\"target_profiles\":[{\"name\":\"audit\",\"bitrate\":500000,\"width\":320,\"height\":180,\"fps\":10,\"gop\":\"2.0\"}],\"target_mask\":2,\"source_mask\":4,\"restart_type\":\"disabled\"}]}},\"variables\":null}" \
   >"$config"
 
 TMP="$ipc_root" MIST_CONTROL=1 "$controller" -c "$config" -C r -L "$work/controller.log" &
@@ -206,7 +222,7 @@ if ! grep -q 'Clean shutdown; joining threads' "$work/input.log"; then
   echo "Livepeer process did not reach deterministic thread shutdown" >&2
   exit 1
 fi
-first_response=$(grep '^responded ' "$work/broadcaster.log" | head -1 | cut -d' ' -f2)
+first_response=$(cat $stub_logs | grep '^responded ' | head -1 | cut -d' ' -f2)
 if [ "$first_response" != "1" ]; then
   echo "broadcaster did not complete segment 1 before segment 0; ordering path was not exercised" >&2
   exit 1
@@ -225,6 +241,28 @@ if [ "${LIVEPEER_STUB_REJECT_FIRST:-}" = "1" ]; then
   fi
   if grep -q 'Segment could not be transcoded\|consecutive segment rejections\|Livepeer rejected segment' "$work/input.log"; then
     echo "Livepeer gave up a segment the broadcaster accepts on re-send" >&2
+    exit 1
+  fi
+fi
+if [ "${LIVEPEER_TEST_FAILING_GATEWAY:-}" = "1" ]; then
+  # Both upload threads fail on the first gateway; one switch moves the stream
+  # to the other and the second thread follows it instead of switching back.
+  rejected=$(cat $stub_logs | grep -c '^rejected ' || true)
+  if [ "$rejected" -lt 6 ]; then
+    echo "the failing gateway rejected only $rejected uploads; both upload threads did not fail on it" >&2
+    exit 1
+  fi
+  switches=$(grep -c 'Switched to new broadcaster' "$work/input.log" || true)
+  if [ "$switches" -ne 1 ]; then
+    echo "Livepeer switched broadcasters $switches times; expected exactly once" >&2
+    exit 1
+  fi
+  if ! grep -q 'follows the concurrent switch' "$work/input.log"; then
+    echo "the second upload thread did not reach its switch after the first one switched; the race was not exercised" >&2
+    exit 1
+  fi
+  if grep -q 'Segment could not be transcoded\|consecutive segment rejections\|Livepeer rejected segment' "$work/input.log"; then
+    echo "Livepeer gave up a segment the other gateway transcodes" >&2
     exit 1
   fi
 fi
