@@ -10,6 +10,7 @@
 #include <deque>
 #include <fcntl.h>
 #include <functional>
+#include <netdb.h>
 #include <stdio.h>
 #include <string.h>
 #include <string>
@@ -100,6 +101,14 @@ namespace Socket{
   bool compareAddress(const sockaddr* A, const sockaddr* B);
   std::string getBinForms(std::string addr);
   std::deque<Socket::Address> getAddrs(std::string addr, uint16_t port, int family = AF_UNSPEC, bool v4MappedResults = true);
+  /// Signature of getaddrinfo(3).
+  typedef int (*AddrInfoResolver)(const char *node, const char *service, const struct addrinfo *hints, struct addrinfo **res);
+  /// getaddrinfo(3) for every socket in this library. A temporary resolver
+  /// failure (EAI_AGAIN) is retried after 100, 250 and 500 ms; any other
+  /// result, including a permanent failure, is returned at once.
+  int getAddrInfo(const char *node, const char *service, const struct addrinfo *hints, struct addrinfo **res);
+  /// Replaces the resolver behind getAddrInfo; null restores getaddrinfo(3).
+  void setAddrInfoResolver(AddrInfoResolver resolver);
   // Returns a list of local addresses
   void getLocal(std::deque<std::string> & addrs);
   /// Returns true if given human-readable address (address, not hostname) is a local address.

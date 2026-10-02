@@ -62,6 +62,24 @@ static const char *gai_strmagic(int errcode){
   }
 }
 
+static Socket::AddrInfoResolver addrInfoResolver = 0;
+
+void Socket::setAddrInfoResolver(AddrInfoResolver resolver) {
+  addrInfoResolver = resolver;
+}
+
+int Socket::getAddrInfo(const char *node, const char *service, const struct addrinfo *hints, struct addrinfo **res) {
+  static const uint32_t retryDelaysMs[] = {100, 250, 500};
+  AddrInfoResolver resolve = addrInfoResolver ? addrInfoResolver : ::getaddrinfo;
+  int ret = resolve(node, service, hints, res);
+  for (size_t i = 0; ret == EAI_AGAIN && i < sizeof(retryDelaysMs) / sizeof(retryDelaysMs[0]); ++i) {
+    WARN_MSG("Temporary failure resolving %s, retrying in %" PRIu32 " ms", node ? node : "(null)", retryDelaysMs[i]);
+    Util::sleep(retryDelaysMs[i]);
+    ret = resolve(node, service, hints, res);
+  }
+  return ret;
+}
+
 /// Internally used call to make an file descriptor blocking or not.
 static void setFDBlocking(int FD, bool blocking) {
   int flags = fcntl(FD, F_GETFL, 0);
@@ -462,7 +480,7 @@ std::string Socket::getBinForms(std::string addr){
   hints.ai_canonname = NULL;
   hints.ai_addr = NULL;
   hints.ai_next = NULL;
-  int s = getaddrinfo(addr.c_str(), 0, &hints, &result);
+  int s = Socket::getAddrInfo(addr.c_str(), 0, &hints, &result);
   if (s != 0){return "";}
   std::string ret;
   for (rp = result; rp != NULL; rp = rp->ai_next){
@@ -491,7 +509,7 @@ std::deque<Socket::Address> Socket::getAddrs(std::string addr, uint16_t port, in
   hints.ai_flags = AI_ADDRCONFIG | AI_PASSIVE;
   if (v4MappedResults) { hints.ai_flags |= AI_V4MAPPED | AI_ALL; }
   hints.ai_protocol = IPPROTO_UDP;
-  int s = getaddrinfo(addr.c_str(), ss.str().c_str(), &hints, &result);
+  int s = Socket::getAddrInfo(addr.c_str(), ss.str().c_str(), &hints, &result);
   if (!s){
     // Store each address in a string and put it in the deque.
     for (rp = result; rp != NULL; rp = rp->ai_next){
@@ -503,7 +521,7 @@ std::deque<Socket::Address> Socket::getAddrs(std::string addr, uint16_t port, in
   // If failed or unspecified, (also) try IPv4
   if (s || family==AF_UNSPEC){
     hints.ai_family = AF_INET;
-    s = getaddrinfo(addr.c_str(), ss.str().c_str(), &hints, &result);
+    s = Socket::getAddrInfo(addr.c_str(), ss.str().c_str(), &hints, &result);
     if (!s){
       // Store each address in a string and put it in the deque.
       for (rp = result; rp != NULL; rp = rp->ai_next){
@@ -567,7 +585,7 @@ std::string Socket::resolveHostToBestExternalAddrGuess(const std::string &host, 
   hints.ai_family = family;
   hints.ai_socktype = 0;
   hints.ai_flags = AI_ADDRCONFIG;
-  int s = getaddrinfo(host.c_str(), 0, &hints, &result);
+  int s = Socket::getAddrInfo(host.c_str(), 0, &hints, &result);
   if (s != 0){
     FAIL_MSG("Could not resolve %s! Error: %s", host.c_str(), gai_strmagic(s));
     return "";
@@ -1382,7 +1400,7 @@ void Socket::Connection::open(std::string host, int port, bool nonblock, bool wi
   hints.ai_family = AF_UNSPEC;
   hints.ai_socktype = SOCK_STREAM;
   hints.ai_flags = AI_ADDRCONFIG;
-  int s = getaddrinfo(host.c_str(), ss.str().c_str(), &hints, &result);
+  int s = Socket::getAddrInfo(host.c_str(), ss.str().c_str(), &hints, &result);
   if (s != 0){
     lastErr = gai_strmagic(s);
     FAIL_MSG("Could not connect to %s:%i! Error: %s", host.c_str(), port, lastErr.c_str());
@@ -1903,7 +1921,7 @@ void Socket::Connection::setHost(std::string host){
   hints.ai_canonname = NULL;
   hints.ai_addr = NULL;
   hints.ai_next = NULL;
-  int s = getaddrinfo(host.c_str(), 0, &hints, &result);
+  int s = Socket::getAddrInfo(host.c_str(), 0, &hints, &result);
   if (s != 0){return;}
   if (result){memcpy(&remoteaddr, result->ai_addr, result->ai_addrlen);}
   freeaddrinfo(result);
@@ -3109,7 +3127,7 @@ uint16_t Socket::UDPConnection::bind(int port, std::string iface, const std::str
 repeatAddressFinding:
 
   if (iface == "0.0.0.0" || iface.length() == 0){
-    if ((addr_ret = getaddrinfo(0, ss.str().c_str(), &hints, &addr_result)) != 0){
+    if ((addr_ret = Socket::getAddrInfo(0, ss.str().c_str(), &hints, &addr_result)) != 0) {
       FAIL_MSG("Could not resolve %s for UDP: %s", iface.c_str(), gai_strmagic(addr_ret));
       if (repeatWithIPv4 && hints.ai_family != AF_INET){
         hints.ai_family = AF_INET;
@@ -3118,7 +3136,7 @@ repeatAddressFinding:
       return 0;
     }
   }else{
-    if ((addr_ret = getaddrinfo(iface.c_str(), ss.str().c_str(), &hints, &addr_result)) != 0){
+    if ((addr_ret = Socket::getAddrInfo(iface.c_str(), ss.str().c_str(), &hints, &addr_result)) != 0) {
       FAIL_MSG("Could not resolve %s for UDP: %s", iface.c_str(), gai_strmagic(addr_ret));
       if (repeatWithIPv4 && hints.ai_family != AF_INET){
         hints.ai_family = AF_INET;
@@ -3216,7 +3234,7 @@ repeatAddressFinding:
     memset(&mreq4, 0, sizeof(mreq4));
     memset(&mreq6, 0, sizeof(mreq6));
     struct addrinfo *reslocal, *resmulti;
-    if ((addr_ret = getaddrinfo(iface.c_str(), 0, &hints, &resmulti)) != 0){
+    if ((addr_ret = Socket::getAddrInfo(iface.c_str(), 0, &hints, &resmulti)) != 0) {
       WARN_MSG("Unable to parse multicast address: %s", gai_strmagic(addr_ret));
       close();
       return 0;
@@ -3255,7 +3273,7 @@ repeatAddressFinding:
         }
         if (family == AF_INET6){
           INFO_MSG("Registering for IPv6 multicast on interface %s", curIface.c_str());
-          if ((addr_ret = getaddrinfo(curIface.c_str(), 0, &hints, &reslocal)) != 0){
+          if ((addr_ret = Socket::getAddrInfo(curIface.c_str(), 0, &hints, &reslocal)) != 0) {
             WARN_MSG("Unable to resolve IPv6 interface address %s: %s", curIface.c_str(), gai_strmagic(addr_ret));
             continue;
           }
@@ -3270,7 +3288,7 @@ repeatAddressFinding:
           }
         }else{
           INFO_MSG("Registering for IPv4 multicast on interface %s", curIface.c_str());
-          if ((addr_ret = getaddrinfo(curIface.c_str(), 0, &hints, &reslocal)) != 0){
+          if ((addr_ret = Socket::getAddrInfo(curIface.c_str(), 0, &hints, &reslocal)) != 0) {
             WARN_MSG("Unable to resolve IPv4 interface address %s: %s", curIface.c_str(), gai_strmagic(addr_ret));
             continue;
           }

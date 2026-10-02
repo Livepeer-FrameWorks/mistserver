@@ -23,6 +23,10 @@ downloaderregressiontest = executable('downloaderregressiontest', 'downloader_re
                                       dependencies: libmist_dep)
 test('connection reuse and POST phase classification', downloaderregressiontest, suite: 'Downloader')
 
+socketresolvetest = executable('socketresolvetest', 'socket_resolve_unit.cpp', header_tgts,
+                               dependencies: libmist_dep)
+test('Socket name resolution retries temporary resolver failures', socketresolvetest, suite: 'Sockets')
+
 urireaderregressiontest = executable('urireaderregressiontest', 'urireader_regression.cpp', header_tgts,
                                      dependencies: libmist_dep)
 test('terminal ranged response can be reopened', urireaderregressiontest, suite: 'URIReader')

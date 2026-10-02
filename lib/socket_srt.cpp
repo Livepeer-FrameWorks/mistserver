@@ -90,10 +90,10 @@ namespace Socket{
     hints.ai_canonname = NULL;
     hints.ai_addr = NULL;
     hints.ai_next = NULL;
-    int s = getaddrinfo(_host.c_str(), ss.str().c_str(), &hints, &result);
+    int s = Socket::getAddrInfo(_host.c_str(), ss.str().c_str(), &hints, &result);
     if (s != 0){
       hints.ai_family = AF_UNSPEC;
-      s = getaddrinfo(_host.c_str(), ss.str().c_str(), &hints, &result);
+      s = Socket::getAddrInfo(_host.c_str(), ss.str().c_str(), &hints, &result);
       if (s != 0){
         FAIL_MSG("Could not connect SRT socket to %s:%i! Error: %s", _host.c_str(), _port, gai_strmagic(s));
         return res;
