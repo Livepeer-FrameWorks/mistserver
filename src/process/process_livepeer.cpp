@@ -692,6 +692,7 @@ void uploadThread(size_t myNum){
     // never follows another upload thread's switch.
     std::string segAddr;
     std::set<std::string> failedHere;
+    uint64_t segFirstSendMs = 0;
     do{
       HTTP::URL target;
       {
@@ -700,27 +701,13 @@ void uploadThread(size_t myNum){
         target = HTTP::URL(segAddr + "/live/" + Mist::lpID + "/" + JSON::Value(mySeg.keyNo).asString() + ".ts");
         upper.setHeader("Cookie", cookie);
       }
-      // Mist's HTTP timeout is "gateway response budget + socket margin", not
-      // transcode policy. When the workload contract supplies a deadline the
-      // gateway owns selection/retry/fallback and returns within it; Mist only
-      // needs to outlast that. Without a deadline (e.g. live) keep the legacy
-      // segment-duration timeout.
-      // Read as signed and clamp: a negative/invalid override must not wrap into
-      // a huge unsigned timeout.
-      int64_t deadlineMsRaw = Mist::opt.isMember("deadline_ms") ? Mist::opt["deadline_ms"].asInt() : 0;
-      uint64_t deadlineMs = deadlineMsRaw > 0 ? (uint64_t)deadlineMsRaw : 0;
-      if (deadlineMs > 0) {
-        upper.dataTimeout = Mist::livepeerSocketTimeoutSeconds(mySeg.segDuration, deadlineMs);
-        // Under the workload contract the gateway owns retry policy, so make a
-        // single deliberate attempt per outer iteration: the explicit retry logic
-        // below decides same-broadcaster (idempotent join) vs switch, and the
-        // total stays within the advertised deadline wall instead of the
-        // downloader silently re-sending and multiplying the response budget.
-        upper.retryCount = Mist::livepeerDownloaderRetryCount(deadlineMs);
-      } else {
-        upper.dataTimeout = Mist::livepeerSocketTimeoutSeconds(mySeg.segDuration, deadlineMs);
-        upper.retryCount = Mist::livepeerDownloaderRetryCount(deadlineMs);
-      }
+      // The gateway owns orchestrator selection, retries and hedging within the
+      // segment's deadline and answers before it ends; Mist's socket only needs
+      // to outlast that, and makes one attempt per request so the loop below
+      // decides every re-send.
+      uint64_t deadlineMs = Mist::livepeerSegmentDeadlineMs(Mist::opt, mySeg.segDuration);
+      upper.dataTimeout = Mist::livepeerSocketTimeoutSeconds(deadlineMs);
+      upper.retryCount = Mist::LIVEPEER_DOWNLOADER_RETRY_COUNT;
       upper.setHeader("Accept", "multipart/mixed");
       upper.setHeader("Content-Duration", JSON::Value(mySeg.segDuration).asString());
       upper.setHeader("Content-Resolution", JSON::Value(mySeg.width).asString()+"x"+JSON::Value(mySeg.height).asString());
@@ -733,6 +720,7 @@ void uploadThread(size_t myNum){
         upper.setHeader("Livepeer-Transcode-Configuration", tc.toString());
       }
 
+      if (!segFirstSendMs) { segFirstSendMs = Util::bootMS(); }
       uint64_t uplTime = Util::getMicros();
       statActiveUploads.fetch_add(1, std::memory_order_relaxed);
       bool postOk = upper.post(target, mySeg.data, mySeg.data.size());
@@ -852,8 +840,26 @@ void uploadThread(size_t myNum){
           }
           prevURL = target.getUrl();
           was422 = true;
-        }else{
-          //Failure due to non-200/422 status code
+        } else if (upper.getStatusCode() == 503) {
+          // No result yet: the gateway keeps working on the segment until its
+          // deadline, and re-posting it to the same gateway joins that work.
+          // Fall back only once the segment's whole budget is spent.
+          ++statFailN200;
+          uint64_t elapsedMs = Util::bootMS() - segFirstSendMs;
+          WARN_MSG("No result for seg %s from %s after %.2f ms (%" PRIu64 " of %" PRIu64 " ms budget used): %" PRIu32 " %s",
+                   JSON::Value(mySeg.keyNo).asString().c_str(), target.getUrl().c_str(), uplTime / 1000.0, elapsedMs,
+                   deadlineMs, upper.getStatusCode(), upper.getStatusText().c_str());
+          if (Mist::livepeerSegmentBudgetSpent(elapsedMs, deadlineMs)) {
+            procExit.log(ER_FORMAT_SPECIFIC, 2, "Livepeer gateway had no result for segment %s within its %" PRIu64 " ms budget",
+                         JSON::Value(mySeg.keyNo).asString().c_str(), deadlineMs);
+            requestLivepeerStop();
+            return;
+          }
+          uint64_t remainingMs = deadlineMs - elapsedMs;
+          Util::sleep(remainingMs < 250 ? remainingMs : 250);
+          continue;
+        } else {
+          // Failure due to non-200/422/503 status code
           ++statFailN200;
           WARN_MSG("Failed to upload %zu bytes to %s in %.2f ms: %" PRIu32 " %s", mySeg.data.size(), target.getUrl().c_str(), uplTime/1000.0, upper.getStatusCode(), upper.getStatusText().c_str());
           if (Mist::livepeerFatalUploadStatus(upper.getStatusCode())) {

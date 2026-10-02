@@ -21,6 +21,9 @@ namespace {
   // answered 422, the way a gateway rejects segments of a manifest it is still
   // setting up; the re-sent segment is transcoded normally.
   bool rejectFirst = false;
+  // With LIVEPEER_STUB_NO_RESULT_FIRST=1 that first answer is 503 instead: the
+  // gateway had no result within the segment's budget yet.
+  bool noResultFirst = false;
   std::mutex rejectedMutex;
   std::set<uint64_t> rejectedOnce;
   // With LIVEPEER_STUB_CLAIM_FILE set, stubs sharing that path decide on their
@@ -122,6 +125,15 @@ namespace {
     }
 
     const uint64_t segment = segmentNumber(request);
+    {
+      // Every upload carries the segment's budget as deadlineMs in the
+      // transcode configuration header.
+      const size_t field = lowerHeaders.find("\"deadlinems\":");
+      const unsigned long long deadline = field == std::string::npos ? 0 : strtoull(lowerHeaders.c_str() + field + 13, 0, 10);
+      std::lock_guard<std::mutex> logGuard(logMutex);
+      fprintf(stdout, "deadline %llu %llu\n", (unsigned long long)segment, deadline);
+      fflush(stdout);
+    }
     if (failsEverything()) {
       usleep(rejectDelayMs * 1000);
       const std::string response =
@@ -140,8 +152,9 @@ namespace {
         reject = rejectedOnce.insert(segment).second;
       }
       if (reject) {
-        const std::string response =
-          "HTTP/1.1 422 Unprocessable Entity\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
+        const std::string response = noResultFirst
+          ? "HTTP/1.1 503 Service Unavailable\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+          : "HTTP/1.1 422 Unprocessable Entity\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
         sendAll(fd, response.data(), response.size());
         close(fd);
         std::lock_guard<std::mutex> logGuard(logMutex);
@@ -187,6 +200,9 @@ int main(int argc, char **argv) {
   }
   const char *rejectFirstEnv = getenv("LIVEPEER_STUB_REJECT_FIRST");
   rejectFirst = rejectFirstEnv && !strcmp(rejectFirstEnv, "1");
+  const char *noResultFirstEnv = getenv("LIVEPEER_STUB_NO_RESULT_FIRST");
+  noResultFirst = noResultFirstEnv && !strcmp(noResultFirstEnv, "1");
+  if (noResultFirst) { rejectFirst = true; }
   claimFile = getenv("LIVEPEER_STUB_CLAIM_FILE");
   if (claimFile && !*claimFile) { claimFile = 0; }
   const char *rejectDelayEnv = getenv("LIVEPEER_STUB_REJECT_DELAY_MS");

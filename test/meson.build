@@ -240,6 +240,15 @@ if get_option('b_sanitize') == 'none' and ffmpeg_program.found() and ffprobe_pro
                 livepeerprocstateprobe],
          env: ['LIVEPEER_STUB_REJECT_FIRST=1'],
          suite: 'Processing', timeout: 150, is_parallel: false)
+    test('Livepeer re-posts a segment the gateway has no result for yet', livepeervodtest,
+         args: [ffmpeg_program, ffprobe_program, exec_tgts.get('MistController'),
+                exec_tgts.get('MistInEBML'), exec_tgts.get('MistInBuffer'),
+                exec_tgts.get('MistProcLivepeer'), exec_tgts.get('MistOutEBML'),
+                exec_tgts.get('MistSession'), exec_tgts.get('MistUtilLog'),
+                exec_tgts.get('MistUtilNuke'), livepeerstub, timeout_program,
+                livepeerprocstateprobe],
+         env: ['LIVEPEER_STUB_NO_RESULT_FIRST=1'],
+         suite: 'Processing', timeout: 150, is_parallel: false)
     test('Livepeer upload threads failing on one gateway switch once and drop no segment', livepeervodtest,
          args: [ffmpeg_program, ffprobe_program, exec_tgts.get('MistController'),
                 exec_tgts.get('MistInEBML'), exec_tgts.get('MistInBuffer'),

@@ -10,10 +10,9 @@
 namespace Mist {
 
   static const uint32_t LIVEPEER_MAX_CONSECUTIVE_REJECTIONS = 5;
-  static const uint64_t LIVEPEER_SOCKET_MARGIN_S = 5;
 
   inline bool livepeerFatalUploadStatus(uint32_t status) {
-    return status == 401 || status == 403 || status == 503;
+    return status == 401 || status == 403;
   }
 
   inline bool livepeerShouldFallback(uint32_t consecutiveRejections) {
@@ -86,12 +85,34 @@ namespace Mist {
     return !postSucceeded && requestWasSent;
   }
 
-  inline uint64_t livepeerSocketTimeoutSeconds(uint64_t segmentDurationMs, uint64_t deadlineMs) {
-    return deadlineMs ? deadlineMs / 1000 + LIVEPEER_SOCKET_MARGIN_S : segmentDurationMs / 1000 + 2;
+  /// Largest deadlineMs the gateway accepts.
+  static const uint64_t LIVEPEER_MAX_DEADLINE_MS = 3600000;
+
+  /// The gateway's total budget for one segment, from its receipt of the
+  /// upload to the end of the response, sent as deadlineMs on every upload. A
+  /// configured deadline_ms (VOD) applies as is; live gets the segment duration
+  /// plus one second.
+  inline uint64_t livepeerSegmentDeadlineMs(const JSON::Value & options, uint64_t segmentDurationMs) {
+    int64_t configured = options.isMember("deadline_ms") ? options["deadline_ms"].asInt() : 0;
+    uint64_t deadlineMs = configured > 0 ? (uint64_t)configured : segmentDurationMs + 1000;
+    return deadlineMs < LIVEPEER_MAX_DEADLINE_MS ? deadlineMs : LIVEPEER_MAX_DEADLINE_MS;
   }
 
-  inline size_t livepeerDownloaderRetryCount(uint64_t deadlineMs) {
-    return deadlineMs ? 1 : 2;
+  /// The gateway answers within its deadline, so the upload socket waits one
+  /// second longer (whole seconds, rounded up).
+  inline uint64_t livepeerSocketTimeoutSeconds(uint64_t deadlineMs) {
+    return (deadlineMs + 1000 + 999) / 1000;
+  }
+
+  /// One attempt per upload request: the downloader never re-POSTs on its own
+  /// and cancels in-flight work; the upload loop decides every re-send.
+  static const uint32_t LIVEPEER_DOWNLOADER_RETRY_COUNT = 1;
+
+  /// A 503 means the gateway had no result for the segment yet; its work goes
+  /// on until the deadline and a re-POST of the same segment joins it. Once the
+  /// segment's budget is spent without a result, Livepeer falls back.
+  inline bool livepeerSegmentBudgetSpent(uint64_t elapsedMs, uint64_t deadlineMs) {
+    return elapsedMs >= deadlineMs;
   }
 
   inline JSON::Value buildLivepeerTranscodeConfiguration(const JSON::Value & options, uint64_t deadlineMs) {
@@ -100,7 +121,7 @@ namespace Mist {
     if (options.isMember("workload") && options["workload"].isString()) {
       configuration["workload"] = options["workload"];
     }
-    if (deadlineMs > 0) { configuration["deadlineMs"] = options["deadline_ms"]; }
+    if (deadlineMs > 0) { configuration["deadlineMs"] = deadlineMs; }
     if (options.isMember("min_speed")) { configuration["minSpeed"] = options["min_speed"]; }
     if (options.isMember("job_token") && options["job_token"].isString()) {
       configuration["jobToken"] = options["job_token"];

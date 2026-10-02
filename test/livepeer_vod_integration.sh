@@ -227,6 +227,19 @@ if [ "$first_response" != "1" ]; then
   echo "broadcaster did not complete segment 1 before segment 0; ordering path was not exercised" >&2
   exit 1
 fi
+# Live uploads carry a budget of their segment duration (2 s here, shorter for
+# the tail) plus one second.
+deadlines=$(cat $stub_logs | sed -n 's/^deadline [0-9]* //p')
+if [ -z "$deadlines" ]; then
+  echo "broadcaster saw no uploads" >&2
+  exit 1
+fi
+for deadline in $deadlines; do
+  if [ "$deadline" -le 1000 ] || [ "$deadline" -gt 3500 ]; then
+    echo "an upload carried deadlineMs=$deadline; expected its segment duration plus 1000 ms" >&2
+    exit 1
+  fi
+done
 if [ "${LIVEPEER_STUB_REJECT_FIRST:-}" = "1" ]; then
   # Every segment was rejected once; each must be re-sent to the same
   # broadcaster and transcoded rather than skipped.
@@ -241,6 +254,23 @@ if [ "${LIVEPEER_STUB_REJECT_FIRST:-}" = "1" ]; then
   fi
   if grep -q 'Segment could not be transcoded\|consecutive segment rejections\|Livepeer rejected segment' "$work/input.log"; then
     echo "Livepeer gave up a segment the broadcaster accepts on re-send" >&2
+    exit 1
+  fi
+fi
+if [ "${LIVEPEER_STUB_NO_RESULT_FIRST:-}" = "1" ]; then
+  # Every segment first got a 503 (no result yet); each must be re-posted to
+  # the same gateway within its budget instead of stopping Livepeer.
+  no_result=$(grep -c '^rejected ' "$work/broadcaster.log" || true)
+  if [ "$no_result" -lt 10 ]; then
+    echo "broadcaster answered 503 for only $no_result segments; the no-result path was not exercised" >&2
+    exit 1
+  fi
+  if ! grep -q 'No result for seg' "$work/input.log"; then
+    echo "Livepeer did not re-post a segment the gateway had no result for" >&2
+    exit 1
+  fi
+  if grep -q 'fatal HTTP status\|had no result for segment\|Switched to new broadcaster' "$work/input.log"; then
+    echo "Livepeer stopped or switched on a 503 within the segment's budget" >&2
     exit 1
   fi
 fi

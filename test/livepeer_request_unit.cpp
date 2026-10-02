@@ -31,11 +31,33 @@ int main() {
   assert(!configuration.isMember("workload"));
   assert(!configuration.isMember("deadlineMs"));
 
+  // Live carries no configured deadline: every segment's budget is its
+  // duration plus one second, sent as an integer deadlineMs.
+  JSON::Value live;
+  live["target_profiles"] = JSON::fromString("[{\"name\":\"360p\"}]");
+  assert(Mist::livepeerSegmentDeadlineMs(live, 2000) == 3000);
+  assert(Mist::livepeerSegmentDeadlineMs(live, 4170) == 5170);
+  configuration = Mist::buildLivepeerTranscodeConfiguration(live, Mist::livepeerSegmentDeadlineMs(live, 2000));
+  assert(configuration["deadlineMs"].isInt());
+  assert(configuration["deadlineMs"].asInt() == 3000);
+  live["deadline_ms"] = -5;
+  assert(Mist::livepeerSegmentDeadlineMs(live, 2000) == 3000);
+  // A configured deadline (VOD) wins over the segment duration and is capped
+  // at the gateway's maximum.
+  assert(Mist::livepeerSegmentDeadlineMs(options, 2000) == 45000);
+  options["deadline_ms"] = 7200000;
+  assert(Mist::livepeerSegmentDeadlineMs(options, 2000) == 3600000);
+  assert(Mist::livepeerSegmentDeadlineMs(live, 7200000) == 3600000);
+
   assert(Mist::livepeerFatalUploadStatus(401));
   assert(Mist::livepeerFatalUploadStatus(403));
-  assert(Mist::livepeerFatalUploadStatus(503));
+  // 503 means the gateway had no result within the budget; it is retried, not fatal.
+  assert(!Mist::livepeerFatalUploadStatus(503));
   assert(!Mist::livepeerFatalUploadStatus(422));
   assert(!Mist::livepeerFatalUploadStatus(500));
+  assert(!Mist::livepeerSegmentBudgetSpent(2999, 3000));
+  assert(Mist::livepeerSegmentBudgetSpent(3000, 3000));
+  assert(Mist::livepeerSegmentBudgetSpent(3600, 3000));
 
   assert(!Mist::livepeerShouldFallback(4));
   assert(Mist::livepeerShouldFallback(5));
@@ -64,10 +86,12 @@ int main() {
   assert(!Mist::livepeerShouldRetryCurrentBroadcaster(false, false));
   assert(!Mist::livepeerShouldRetryCurrentBroadcaster(true, true));
 
-  assert(Mist::livepeerSocketTimeoutSeconds(3900, 0) == 5);
-  assert(Mist::livepeerSocketTimeoutSeconds(3900, 45000) == 50);
-  assert(Mist::livepeerDownloaderRetryCount(0) == 2);
-  assert(Mist::livepeerDownloaderRetryCount(45000) == 1);
+  // The socket outlasts the gateway's budget by one second, rounded up to
+  // whole seconds; one attempt per request.
+  assert(Mist::livepeerSocketTimeoutSeconds(3000) == 4);
+  assert(Mist::livepeerSocketTimeoutSeconds(5170) == 7);
+  assert(Mist::livepeerSocketTimeoutSeconds(30000) == 31);
+  assert(Mist::LIVEPEER_DOWNLOADER_RETRY_COUNT == 1);
 
   std::set<std::string> two;
   two.insert("http://a");
