@@ -109,6 +109,12 @@ namespace HTTP{
     if (!canRequest(link)){return;}
     bool needSSL = (link.protocol == "https" || link.protocol == "wss");
     H.Clean();
+    // A kept-alive connection the peer has since closed reads as end-of-stream;
+    // reconnect instead of sending the request into it.
+    if (conn && conn.getSocket() >= 0) {
+      char probe;
+      if (recv(conn.getSocket(), &probe, 1, MSG_PEEK | MSG_DONTWAIT) == 0) { conn.close(); }
+    }
     // Reconnect if needed
     if (!proxied || needSSL){
       if (!conn || link.host != connectedHost || link.getPort() != connectedPort || needSSL != ssl) {
@@ -588,6 +594,10 @@ namespace HTTP{
               return post(link, payload, payloadLen, sync, --maxRecursiveDepth);
             }
           }
+          std::string connectionHeader = getHeader("Connection");
+          std::transform(connectionHeader.begin(), connectionHeader.end(), connectionHeader.begin(),
+                         [](unsigned char c) { return std::tolower(c); });
+          if (H.protocol == "HTTP/1.0" || connectionHeader.find("close") != std::string::npos) { s.close(); }
           return true; // Success!
         }
         // reset the data timeout

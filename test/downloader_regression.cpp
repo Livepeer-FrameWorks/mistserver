@@ -86,6 +86,44 @@ namespace {
     return !result && !downloader.requestWasSent();
   }
 
+  /// Answers two POSTs, each on its own connection. With `announceClose` the
+  /// first response says Connection: close; without it the peer closes its
+  /// keep-alive connection after a moment, the way a server ends an idle one.
+  bool postsAfterPeerClose(bool announceClose) {
+    Socket::Server server(0, "127.0.0.1", false);
+    if (!server.getBoundAddr().port()) { return false; }
+    HTTP::URL url = localUrl(server);
+    std::atomic<int> accepted(0);
+    std::thread peer([&]() {
+      for (int i = 0; i < 2; ++i) {
+        Socket::Connection conn = server.accept();
+        ++accepted;
+        if (!readRequest(conn)) { return; }
+        HTTP::Parser response;
+        response.protocol = "HTTP/1.1";
+        if (announceClose) { response.SetHeader("Connection", "close"); }
+        response.SetHeader("Content-Length", "2");
+        response.SetBody("ok");
+        response.SendResponse("200", "OK", conn);
+        Util::sleep(50);
+        conn.close();
+      }
+    });
+
+    HTTP::Downloader downloader;
+    // One attempt per POST, as Livepeer uploads use: a request may not depend on
+    // the downloader's own re-send to get past a connection the peer closed.
+    downloader.retryCount = 1;
+    downloader.dataTimeout = 2;
+    const bool first = downloader.post(url, std::string("first"), true);
+    Util::sleep(300);
+    const bool second = first && downloader.post(url, std::string("second"), true);
+    // A failed POST may never have opened the second connection the peer waits for.
+    if (accepted < 2) { Socket::Connection unblock("127.0.0.1", server.getBoundAddr().port(), false); }
+    peer.join();
+    return first && second;
+  }
+
 } // namespace
 
 namespace {
@@ -146,10 +184,14 @@ int main() {
   const bool responseFailure = testPostTracksResponsePhaseFailure();
   const bool preSendFailure = testPostTracksPreSendFailure();
   const bool encodedOnce = testPathEncodedOnce();
+  const bool postClose = postsAfterPeerClose(true);
+  const bool postIdleClose = postsAfterPeerClose(false);
 
   if (!headClose) { std::cerr << "HEAD response did not close a Connection: close socket" << std::endl; }
   if (!responseFailure) { std::cerr << "POST response-phase failure was not classified as sent" << std::endl; }
   if (!preSendFailure) { std::cerr << "POST pre-send failure was incorrectly classified as sent" << std::endl; }
   if (!encodedOnce) { std::cerr << "request path was not percent-encoded exactly once" << std::endl; }
-  return headClose && responseFailure && preSendFailure && encodedOnce ? 0 : 1;
+  if (!postClose) { std::cerr << "POST after a Connection: close response failed" << std::endl; }
+  if (!postIdleClose) { std::cerr << "POST on a keep-alive connection the peer closed failed" << std::endl; }
+  return headClose && responseFailure && preSendFailure && encodedOnce && postClose && postIdleClose ? 0 : 1;
 }
