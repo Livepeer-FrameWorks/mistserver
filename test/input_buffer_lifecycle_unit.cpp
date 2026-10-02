@@ -56,6 +56,46 @@ namespace {
         meta.setCodec(source, "H264");
       }
 
+      void initPageFixture(const std::string & name) {
+        streamName = name;
+        meta.reInit(name, true);
+        const size_t source = meta.addTrack();
+        meta.setID(source, 1);
+        meta.setType(source, "video");
+        meta.setCodec(source, "H264");
+        bufferTime = 50000;
+        idleTime = 60000;
+        cutTime = 0;
+        config->is_active = true;
+        meta.setLive(true);
+        meta.markUpdated(0);
+      }
+
+      bool beginPage(uint32_t firstKey, IPC::sharedPage & page) {
+        Util::RelAccX & pages = meta.pages(0);
+        const uint64_t index = pages.getEndPos();
+        pages.setInt("firstkey", firstKey, index);
+        pages.setInt("size", 4096, index);
+        pages.setInt("keycount", 0, index);
+        pages.setInt("avail", 0, index);
+        pages.addRecords(1);
+        const bool started = bufferStart(0, firstKey, page, meta);
+        page.master = true;
+        return started;
+      }
+
+      void publishFirstKey() {
+        meta.pages(0).setInt("keycount", 1, 0);
+        meta.pages(0).setInt("avail", 1, 0);
+        meta.update(0, 0, 0, 1, 0, true, 1);
+      }
+
+      void retireFirstKey() { meta.keys(0).deleteRecords(1); }
+
+      void evictUnused() { removeUnused(); }
+
+      size_t cachedPages() const { return M.pages(0).getPresent(); }
+
       size_t expected(const JSON::Value & processes, bool & resolved) const {
         return expectedProcessingOutputTracks(processes, resolved);
       }
@@ -117,6 +157,27 @@ namespace {
 } // namespace
 
 int main() {
+  {
+    Util::Config pageConfig("input-buffer-page-publication");
+    InputBufferProbe pageInput(&pageConfig);
+    pageInput.initPageFixture("pagepub" + std::to_string(getpid()));
+    IPC::sharedPage firstPage;
+    if (!pageInput.beginPage(0, firstPage)) { return fail("could not start first-page publication fixture"); }
+    pageInput.evictUnused();
+    if (!firstPage.exists() || pageInput.cachedPages() != 1) {
+      return fail("buffer eviction deleted the publisher's page before its first key was published");
+    }
+    pageInput.publishFirstKey();
+    IPC::sharedPage nextPage;
+    if (!pageInput.beginPage(1, nextPage)) { return fail("could not start next-page publication fixture"); }
+    pageInput.retireFirstKey();
+    pageInput.evictUnused();
+    if (firstPage.exists()) { return fail("buffer eviction must still remove a page whose keys expired"); }
+    if (!nextPage.exists() || pageInput.cachedPages() != 1) {
+      return fail("retiring the previous page erased the next publisher page before its first key was published");
+    }
+  }
+
   char pageName[NAME_BUFFER_SIZE];
   snprintf(pageName, sizeof(pageName), "/MstBufferLifecycleTest_%d", getpid());
 

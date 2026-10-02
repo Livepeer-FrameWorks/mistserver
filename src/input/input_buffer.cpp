@@ -541,8 +541,10 @@ namespace Mist{
       Util::RelAccXFieldData firstKeyEnt = tPages.getFieldData("firstkey");
       Util::RelAccXFieldData keyCount = tPages.getFieldData("keycount");
       for (uint32_t j = tPages.getDeleted(); j < tPages.getEndPos(); j++){
-        if (tPages.getInt(firstKeyEnt, j) + tPages.getInt(keyCount, j) > firstKey){break;}
-        bufferRemove(i, tPages.getInt(firstKeyEnt, j), j);
+        const uint64_t pageFirstKey = tPages.getInt(firstKeyEnt, j);
+        // Publishers expose a page before its first packet increments keycount.
+        if (pageFirstKey >= firstKey || pageFirstKey + tPages.getInt(keyCount, j) > firstKey) { break; }
+        bufferRemove(i, pageFirstKey, j);
       }
     }
     updateMeta();

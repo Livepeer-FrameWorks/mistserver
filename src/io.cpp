@@ -216,7 +216,8 @@ namespace Mist{
     }
     // Delete pages from the tracks index page that will never contain any more
     for (uint32_t i = tPages.getDeleted(); i < tPages.getEndPos(); i++){
-      if (tPages.getInt("keycount", i) || tPages.getInt("avail", i)){
+      // An empty page at the live key boundary may still be receiving its first packet.
+      if (tPages.getInt("keycount", i) || tPages.getInt("avail", i) || tPages.getInt(firstKey, i) >= newFirstKey) {
         break;
       }
       tPages.deleteRecords(1);
