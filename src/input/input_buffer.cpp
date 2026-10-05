@@ -46,7 +46,6 @@ namespace Mist{
     publisherSessionEnded = false;
     effectiveSpeed = 0;
     startupSeedApplied = false;
-    outputsResolved = false;
     lastRateUpdateMs = 0;
     rateJitterMs = (uint32_t)(((uint64_t)getpid() * 1103515245u + 12345u) % 251u);
     rampLockoutTicks = 0;
@@ -1364,8 +1363,6 @@ namespace Mist{
     if (!streamStatus || streamStatus.len < 16) { return; }
     auto publish = [this](bool resolved, uint16_t expected) {
       streamStatus.mapped[STRMSTATE_PROCESS_OUTPUTS_RESOLVED_OFFSET] = resolved;
-      outputsResolved = resolved;
-      publishFeedPaused();
       memcpy(streamStatus.mapped + STRMSTATE_PROCESS_OUTPUTS_EXPECTED_OFFSET, &expected, sizeof(uint16_t));
     };
     if (!M.getValidTracks().size()) {
@@ -1387,8 +1384,7 @@ namespace Mist{
 
   void InputBuffer::publishFeedPaused() {
     if (!streamStatus || streamStatus.len < 16) { return; }
-    streamStatus.mapped[STRMSTATE_PROCESS_FEED_PAUSED_OFFSET] =
-      processControlledRealtime && (!outputsResolved || consumerLag.held());
+    streamStatus.mapped[STRMSTATE_PROCESS_FEED_PAUSED_OFFSET] = processControlledRealtime && consumerLag.held();
   }
 
   /// How far the source leads the slowest HOLDBUFFER recorder (see

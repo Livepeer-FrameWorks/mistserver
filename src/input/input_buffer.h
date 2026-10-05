@@ -133,7 +133,6 @@ namespace Mist{
     // it leads them by nearly the whole buffer window.
     BufferHoldTracker bufferHolds;
     ConsumerLagHold consumerLag;
-    bool outputsResolved;
 
     std::set<size_t> generatePids;
     std::map<size_t, size_t> sourceUsers;

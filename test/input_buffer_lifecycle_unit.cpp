@@ -286,8 +286,8 @@ int main() {
       "a downstream ONNX selector must remain expected while its configured AV intermediate is still pending");
   }
   input.publishExpected(processingChain);
-  if (input.expectationResolved() || !input.feedPaused()) {
-    return fail("the VOD feeder must pause while a downstream process output contract is unresolved");
+  if (input.expectationResolved() || input.feedPaused()) {
+    return fail("the feed must not pause before any process output exists: only a lagging recorder holds it");
   }
   JSON::Value impossibleOnnx = downstreamOnnx;
   impossibleOnnx["track_select"] = "video=VP9&audio=none";
