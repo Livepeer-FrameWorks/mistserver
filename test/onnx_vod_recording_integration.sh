@@ -225,8 +225,11 @@ if awk -v l="$header_latency" 'BEGIN { exit !(l > 2.0) }'; then
   echo "the recording header came ${header_latency}s after the first ONNX results; expected at most 2s" >&2
   exit 1
 fi
-if awk -v l="$onnx_start_latency" 'BEGIN { exit !(l > 1.5) }'; then
-  echo "ONNX started ${onnx_start_latency}s after the input; expected at most 1.5s" >&2
+# The AV process starts once its one source track is ready (at most one 2s GOP of the fixture plus
+# one 500ms readiness re-check), and the buffer starts ONNX on the next supervisor tick (200ms
+# during the first 10s) after the AV output it reads carries data; 300ms covers that first frame.
+if awk -v l="$onnx_start_latency" 'BEGIN { exit !(l > 3.0) }'; then
+  echo "ONNX started ${onnx_start_latency}s after the input; expected at most 3s (one GOP, one readiness re-check, one supervisor tick)" >&2
   exit 1
 fi
 if ! grep -q 'ONNX model loaded successfully' "$work/input.log"; then

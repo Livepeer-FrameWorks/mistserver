@@ -2,8 +2,8 @@
 set -eu
 
 # Processing streams whose processes are decided by the processing graph:
-#   av-latency  an AV-only stream: the AV process, which reads a single track, starts reading at
-#               most 1s after the input started
+#   av-latency  an AV-only stream: the AV process, which reads a single track, starts reading once
+#               that track is ready to play, not after the timeout of waiting for a second one
 #   slow-onnx   AV -> ONNX where the ONNX process takes 4s to start and the recording drains
 #               into a slow reader: the recording still holds the complete source and ONNX
 #               results from its start through its end
@@ -33,12 +33,6 @@ feed_probe=${14}
 
 if [ "${MIST_RUN_MEDIA_TESTS:-}" != "1" ]; then
   echo "set MIST_RUN_MEDIA_TESTS=1 to run the processing graph integration" >&2
-  exit 77
-fi
-if [ "$mode" = slow-onnx ] && [ "${MIST_PROCESSING_SLOW_CONSUMER_CHECKS:-}" != "1" ]; then
-  # A consumer that attaches seconds after its input started is not held for yet: ONNX keeps only
-  # the latest of the frames it catches up on, so its results start where it attached.
-  echo "set MIST_PROCESSING_SLOW_CONSUMER_CHECKS=1 to check results coverage behind a slow ONNX start" >&2
   exit 77
 fi
 if [ "$mode" != av-latency ] && { [ -z "${MIST_ONNX_TEST_MODEL:-}" ] || [ ! -f "$MIST_ONNX_TEST_MODEL" ]; }; then
@@ -143,6 +137,10 @@ source_mkv="$work/source.mkv"
   -c:a aac -b:a 96k "$source_mkv"
 
 av='{"process":"AV","x-LSP-kind":"video","codec":"NV12","track_select":"video=H264&audio=none","target_mask":4}'
+if [ "$mode" = av-latency ]; then
+  # Logs the readiness wait, so a start on its timeout shows.
+  av='{"process":"AV","x-LSP-kind":"video","codec":"NV12","track_select":"video=H264&audio=none","target_mask":4,"debug":6}'
+fi
 onnx="{\"process\":\"ONNX\",\"model\":\"custom\",\"model_path\":\"$MIST_ONNX_TEST_MODEL\",\"model_type\":\"yolo-nms\",\"input_size\":640,\"process_every_nth\":2,\"track_select\":\"video=NV12&audio=none\",\"target_mask\":2}"
 if [ "$mode" = av-latency ]; then
   processes="[$av]"
@@ -196,8 +194,15 @@ if [ "$mode" = av-latency ]; then
   av_reading=$(awk 'index($0, "MistProcAV") && index($0, "starting at buffer head") { print $1; exit }' "$work/input.log")
   latency=$(seconds_between "$input_started" "$av_reading")
   echo "AV started reading ${latency}s after the input"
-  if exceeds "$latency" 1.0; then
-    echo "AV started reading ${latency}s after the input; expected at most 1s" >&2
+  if grep -q 'isReadyForPlay timed out waiting for tracks' "$work/input.log"; then
+    echo "AV started reading on the readiness timeout instead of on its one track being ready" >&2
+    exit 1
+  fi
+  # A live reader is ready once a track it selects holds two keyframes or more than 500ms of
+  # media, checked every 500ms. The fixture's source arrives in real time with a keyframe every
+  # 2s, so its one video track is ready at most one GOP plus one re-check after the input started.
+  if exceeds "$latency" 2.5; then
+    echo "AV started reading ${latency}s after the input; its track is ready within one GOP (2s) plus one 500ms re-check" >&2
     exit 1
   fi
   exit 0
@@ -302,7 +307,9 @@ if [ "$result_count" -lt 10 ] || ! exceeds "$last_result" "$((recording_seconds 
   echo "ONNX results do not cover the end of the recording: $result_count results from $first_result to $last_result" >&2
   exit 1
 fi
-if exceeds "$first_result" 1.0; then
+# Every second frame is processed (process_every_nth=2 at 10fps): the results start with the
+# first frames of the recording, however late the ONNX process started reading.
+if exceeds "$first_result" 0.5; then
   echo "ONNX results do not cover the start of the recording: the first is at ${first_result}s" >&2
   exit 1
 fi
