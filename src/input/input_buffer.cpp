@@ -1171,6 +1171,84 @@ namespace Mist{
     return false;
   }
 
+  /// Whether a configured process will (re)produce its outputs: it is not retired, and it did not
+  /// already finish after the source ended (Thumbs completing its VOD sheet), since what it made
+  /// is in the stream and it has nothing left to produce.
+  bool InputBuffer::processWillProduce(const JSON::Value & proc) const {
+    if (processingProcessRetired(proc)) { return false; }
+    JSON::Value keyed = proc;
+    keyed["source"] = streamName;
+    const std::string key = keyed.toString();
+    const auto running = runningProcs.find(key);
+    const bool producerRunning = running != runningProcs.end() && running->second && Util::Procs::isActive(running->second);
+    const auto boots = procBoots.find(key);
+    return producerRunning || !everHadPush || hasPush || boots == procBoots.end() || !boots->second;
+  }
+
+  /// What a process declares for its configuration (see src/process/process_outputs.h), asked once
+  /// per configuration. A process that gives no declaration is supervised on its configured track
+  /// selection alone and adds no expected outputs.
+  JSON::Value InputBuffer::processDeclaration(const std::string & config, const JSON::Value & args) {
+    std::map<std::string, JSON::Value>::const_iterator known = processDeclarations.find(config);
+    if (known != processDeclarations.end()) { return known->second; }
+    std::deque<std::string> argarr;
+    argarr.push_back(Util::getMyPath() + "MistProc" + args["process"].asString());
+    argarr.push_back("--describe-outputs");
+    argarr.push_back(config);
+    JSON::Value declaration = JSON::fromString(Util::Procs::getOutputOf(argarr, 5000));
+    if (!declaration.isObject()) {
+      WARN_MSG("Process `%s` does not describe its outputs; it starts on its configured track selection and no "
+               "recording waits for its tracks",
+               args["process"].asString().c_str());
+      declaration.null();
+    }
+    processDeclarations[config] = declaration;
+    return declaration;
+  }
+
+  /// The processing graph of the given process list (see src/process_graph.h), rebuilt only when
+  /// what it is built from changed.
+  const ProcessGraph & InputBuffer::resolveProcessGraph(const JSON::Value & procs) {
+    std::vector<ProcessGraphNode> nodes;
+    const std::set<std::string> tags = Util::streamTags(streamName);
+    std::string inputs = procs.toString() + "\n";
+    for (const std::string & tag : tags) { inputs += tag + ","; }
+    inputs += "\n";
+    jsonForEachConst (procs, it) {
+      if (!it->isObject() || !(*it)["process"].isString()) { continue; }
+      ProcessGraphNode node;
+      node.proc = *it;
+      node.proc["source"] = streamName;
+      node.config = node.proc.toString();
+      node.declaration = processDeclaration(node.config, node.proc);
+      node.inhibited = processInhibitReason(node.proc, M, tags);
+      if (node.proc["sink"].isString() && node.proc["sink"].asStringRef().size()) {
+        std::string sink = node.proc["sink"].asStringRef();
+        Util::streamVariables(sink, streamName);
+        node.producesHere = sink == streamName;
+      }
+      node.producing = processWillProduce(*it);
+      inputs += node.producing ? "1" : "0";
+      nodes.push_back(node);
+    }
+    inputs += "\n";
+    const uint8_t oldMask = DTSC::trackValidMask;
+    DTSC::trackValidMask = TRACK_VALID_ALL;
+    const std::set<size_t> withData = M.getValidTracks(true);
+    for (const size_t track : M.getValidTracks()) {
+      inputs += std::to_string(track) + ":" + M.getType(track) + ":" + M.getCodec(track) + ":" +
+        std::to_string(M.trackValid(track)) + ":" + std::to_string(M.getSourceTrack(track)) + ":" +
+        M.getOutputKey(track) + (withData.count(track) ? ":data," : ",");
+    }
+    DTSC::trackValidMask = oldMask;
+    if (inputs == processGraphInputs) { return processGraph; }
+    processGraphInputs = inputs;
+    processGraphNodes.clear();
+    for (const ProcessGraphNode & node : nodes) { processGraphNodes[node.config] = node; }
+    processGraph = buildProcessGraph(M, nodes);
+    return processGraph;
+  }
+
   size_t InputBuffer::expectedProcessingOutputTracks(const JSON::Value & procs, bool & resolved) const {
     resolved = true;
     if (!procs.isArray() || !procs.size()) { return 0; }
@@ -1565,67 +1643,9 @@ namespace Mist{
     // Why each configured process is excluded from newProcs this tick.
     // Consulted when stopping a still-running process so the stop log and
     // PROCESS_EXIT trigger name the guard that retired it.
-    std::map<std::string, std::string> skipReasons;
-
-    // Convert to strings
-    jsonForEachConst(procs, it){
-      JSON::Value tmp = *it;
-      tmp["source"] = streamName;
-      std::string key = tmp.toString();
-      if (tmp.isMember("source_track")){
-        std::set<size_t> wouldSelect = Util::findTracks(M, JSON::Value(), "", tmp["source_track"].asStringRef());
-        // No match - skip this process
-        if (!wouldSelect.size()) {
-          skipReasons[key] = "source_track '" + tmp["source_track"].asString() + "' matches no tracks";
-          continue;
-        }
-      }
-      if (tmp.isMember("track_select")){
-        std::set<size_t> wouldSelect = Util::wouldSelect(M, tmp["track_select"].asStringRef());
-        // No match - skip this process
-        if (!wouldSelect.size()) {
-          skipReasons[key] = "track_select '" + tmp["track_select"].asString() + "' matches no tracks";
-          continue;
-        }
-      }
-      // If tags_inhibit is set, prevent the process from starting
-      if (tmp.isMember("tags_inhibit")) {
-        std::set<std::string> T = Util::streamTags(streamName);
-        auto matchesTag = [&T](const JSON::Value & J) {
-          if (!J.isString()) { return false; }
-          const std::string & tag = J.asStringRef();
-          if (tag.size() && tag[0] == '#') { return T.count(tag.substr(1)) > 0; }
-          return T.count(tag) > 0;
-        };
-        JSON::Value & inhib = tmp["tags_inhibit"];
-        if (inhib.isString()) {
-          if (matchesTag(inhib)) {
-            skipReasons[key] = "inhibited by stream tag '" + inhib.asString() + "'";
-            continue;
-          }
-        } else if (inhib.isArray()) {
-          bool hasMatch = false;
-          jsonForEachConst (inhib, tagIt) {
-            if (matchesTag(*tagIt)) {
-              hasMatch = true;
-              break;
-            }
-          }
-          if (hasMatch) {
-            skipReasons[key] = "inhibited by stream tags";
-            continue;
-          }
-        }
-      }
-      // Only original (ingest) tracks inhibit a process. Outputs of this or any other process,
-      // including those left behind by an earlier run, never do.
-      if (tmp.isMember("track_inhibit") && Util::inhibitorMatchesSource(M, tmp["track_inhibit"].asStringRef())) {
-        skipReasons[key] = "track_inhibit '" + tmp["track_inhibit"].asString() + "' matches source tracks";
-        continue;
-      }
-      // Mark process as should-be-active
-      newProcs.insert(key);
-    }
+    const ProcessGraph & graph = resolveProcessGraph(procs);
+    newProcs = graph.runs;
+    std::map<std::string, std::string> skipReasons = graph.skipReasons;
 
     configuredProcessIdentities.clear();
     for (const std::string & config : newProcs) { configuredProcessIdentities[DTSC::processIdentity(config)] = config; }
@@ -1705,6 +1725,13 @@ namespace Mist{
 
       // Skip if this process previously hard-failed or was stopped (config change clears this).
       if (procHardFailed.count(config) || procStopped.count(config)) { continue; }
+
+      // A process reads what it selects once that exists: one fed by another process's output
+      // starts once that output carries data.
+      if (!runningProcs.count(config) && !nodeSelectsExistingTracks(M, processGraphNodes[config])) {
+        VERYHIGH_MSG("Process `%s` waits for its input tracks", args["process"].asString().c_str());
+        continue;
+      }
 
       // If the process was running but is now dead, collect its result before restarting it.
       if (runningProcs.count(config)) {

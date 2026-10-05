@@ -1,3 +1,4 @@
+#include "../process_graph.h"
 #include "buffer_hold.h"
 #include "input.h"
 
@@ -68,6 +69,9 @@ namespace Mist{
     bool processingProcessMatchesSource(const JSON::Value & proc) const;
     bool processingProcessMayMatchTranscodeOutput(const JSON::Value & proc, const JSON::Value & procs) const;
     bool processingProcessRetired(const JSON::Value & proc) const;
+    bool processWillProduce(const JSON::Value & proc) const;
+    JSON::Value processDeclaration(const std::string & config, const JSON::Value & args);
+    const ProcessGraph & resolveProcessGraph(const JSON::Value & procs);
     size_t expectedProcessingOutputTracks(const JSON::Value & procs, bool & resolved) const;
     void publishProcessingOutputExpectation(const JSON::Value & procs);
     void publishFeedPaused();
@@ -83,6 +87,15 @@ namespace Mist{
     virtual bool requestProcessReplacement(const std::string & payload, std::string & response);
     void updateProcessingRate();
     std::map<std::string, pid_t> runningProcs;     // LTS
+    // Each process's --describe-outputs answer by configuration (null when it gave none); a
+    // configuration never changes what it declares.
+    std::map<std::string, JSON::Value> processDeclarations;
+    // The graph of the effective process list, the nodes it was built from, and what it was built
+    // from: it is rebuilt only when the process list, the stream's tracks (and which carry data),
+    // tags or a process's retirement change.
+    ProcessGraph processGraph;
+    std::map<std::string, ProcessGraphNode> processGraphNodes;
+    std::string processGraphInputs;
     std::map<std::string, uint32_t> procBoots;
     std::map<std::string, uint64_t> procNextBoot;
     std::set<std::string> procHardFailed; // configs that hit unrecoverable error
