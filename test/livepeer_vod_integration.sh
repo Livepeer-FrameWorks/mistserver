@@ -477,4 +477,8 @@ if [ "${LIVEPEER_TEST_KILL_MIDWAY:-}" = "1" ]; then
     exit 1
   fi
 fi
+if grep -q 'which this process did not declare' "$work/input.log"; then
+  echo "a process registered an output it did not declare with --describe-outputs" >&2
+  exit 1
+fi
 echo "Livepeer loopback recording retained the processed video tail through $video_tail seconds"

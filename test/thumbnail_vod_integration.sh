@@ -255,6 +255,10 @@ if [ "$(sed -n '1p' "$trigger_file")" != "THUMBNAIL_UPDATED" ] || \
   exit 1
 fi
 
+if grep -q 'which this process did not declare' "$work/input.log"; then
+  echo "a process registered an output it did not declare with --describe-outputs" >&2
+  exit 1
+fi
 compose_count=$(grep -c 'Buffered sprite sheet:' "$work/input.log")
 if [ "$compose_count" -lt 2 ] || [ "$compose_count" -gt 3 ]; then
   echo "thumbnail interval produced $compose_count sprite encodes; expected 2-3 coalesced generations" >&2

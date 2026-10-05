@@ -49,6 +49,7 @@ mkdir -p "$ipc_root"
 stream="onnxrecord$$"
 controller_pid=
 input_pid=
+stamp_pid=
 
 cleanup() {
   status=$?
@@ -69,6 +70,9 @@ cleanup() {
     kill -TERM "$input_pid" >/dev/null 2>&1 || true
     wait "$input_pid" >/dev/null 2>&1 || true
   fi
+  if [ -n "$stamp_pid" ]; then
+    wait "$stamp_pid" >/dev/null 2>&1 || true
+  fi
   if [ -n "$controller_pid" ]; then
     kill -INT "$controller_pid" >/dev/null 2>&1 || true
     wait "$controller_pid" >/dev/null 2>&1 || true
@@ -84,6 +88,14 @@ trap cleanup EXIT
 trap 'exit 129' HUP
 trap 'exit 130' INT
 trap 'exit 143' TERM
+
+# Prefixes every log line with the time it was written, for the startup latency checks.
+stamp() {
+  perl -MTime::HiRes=time -ne 'BEGIN { $| = 1 } printf "%.3f %s", time, $_'
+}
+first_time() {
+  awk -v pattern="$2" 'index($0, pattern) { print $1; exit }' "$1"
+}
 
 source_mkv="$work/source.mkv"
 "$ffmpeg" -hide_banner -loglevel error -y \
@@ -119,7 +131,10 @@ if [ "$ready" -ne 1 ]; then
   exit 1
 fi
 
-TMP="$ipc_root" MIST_CONTROL=1 "$input_ebml" -r -s "$stream" "$source_mkv" >"$work/input.log" 2>&1 &
+mkfifo "$work/input.fifo"
+stamp <"$work/input.fifo" >"$work/input.log" &
+stamp_pid=$!
+TMP="$ipc_root" MIST_CONTROL=1 "$input_ebml" -r -s "$stream" "$source_mkv" >"$work/input.fifo" 2>&1 &
 input_pid=$!
 
 started=0
@@ -141,7 +156,14 @@ if [ "$started" -ne 1 ]; then
 fi
 
 recording="$work/recording.mkv"
-TMP="$ipc_root" MIST_CONTROL=1 "$output_ebml" -s "$stream" "$recording?duration=8" >"$work/output.log" 2>&1
+(
+  TMP="$ipc_root" MIST_CONTROL=1 "$output_ebml" -s "$stream" "$recording?duration=8" 2>&1
+  echo "recorder exited with status $?"
+) | stamp >"$work/output.log"
+if ! grep -q 'recorder exited with status 0' "$work/output.log"; then
+  echo "the recorder failed" >&2
+  exit 1
+fi
 
 "$ffmpeg" -hide_banner -loglevel error -i "$recording" -map 0:v:0 -map 0:a:0 -f null - 2>"$work/decode.log"
 if [ -s "$work/decode.log" ]; then
@@ -182,6 +204,31 @@ if [ "$data_packets" -lt 20 ]; then
 fi
 if ! grep -q 'Recording header: .* 1/1 expected processing outputs ready' "$work/output.log"; then
   echo "the recording header did not wait for the ONNX results track the processing graph expects" >&2
+  exit 1
+fi
+if grep -q 'which this process did not declare' "$work/input.log"; then
+  echo "a process registered an output it did not declare with --describe-outputs" >&2
+  exit 1
+fi
+input_started=$(first_time "$work/input.log" 'Input started')
+onnx_started=$(awk 'index($0, "Started process") && index($0, "MistProcONNX") { print $1; exit }' "$work/input.log")
+onnx_results=$(first_time "$work/input.log" 'ProcessSink metadata track')
+header_written=$(first_time "$work/output.log" 'Recording header:')
+if [ -z "$input_started" ] || [ -z "$onnx_started" ] || [ -z "$onnx_results" ] || [ -z "$header_written" ]; then
+  echo "could not time the processing startup (input $input_started, ONNX $onnx_started/$onnx_results, header $header_written)" >&2
+  exit 1
+fi
+onnx_start_latency=$(awk -v a="$input_started" -v b="$onnx_started" 'BEGIN { printf "%.3f", b - a }')
+header_latency=$(awk -v a="$onnx_results" -v b="$header_written" 'BEGIN { printf "%.3f", b - a }')
+echo "ONNX started ${onnx_start_latency}s after the input; recording header ${header_latency}s after the first ONNX results"
+if awk -v l="$header_latency" 'BEGIN { exit !(l > 2.0) }'; then
+  echo "the recording header came ${header_latency}s after the first ONNX results; expected at most 2s" >&2
+  exit 1
+fi
+# Starting a chained process at most 1.5s after the input depends on how a process waits for an
+# input track that has no data yet; checked only where that is settled.
+if [ "${MIST_PROCESSING_READINESS_CHECKS:-}" = "1" ] && awk -v l="$onnx_start_latency" 'BEGIN { exit !(l > 1.5) }'; then
+  echo "ONNX started ${onnx_start_latency}s after the input; expected at most 1.5s" >&2
   exit 1
 fi
 if ! grep -q 'ONNX model loaded successfully' "$work/input.log"; then

@@ -484,6 +484,22 @@ if get_option('b_sanitize') == 'none' and ffmpeg_program.found() and ffprobe_pro
                   exec_tgts.get('MistUtilLog'), exec_tgts.get('MistUtilNuke'),
                   exec_tgts.get('MistAnalyserEBML'), procstateprobe],
            suite: 'Processing', timeout: 180, is_parallel: false)
+      perl_program = find_program('perl', required: false)
+      if perl_program.found()
+        streamfeedprobe = executable('streamfeedprobe', 'stream_feed_probe.cpp', header_tgts, dependencies: libmist_dep)
+        processinggraphtest = find_program('processing_graph_integration.sh')
+        foreach mode : [['av-latency', 'An AV process starts reading at most 1s after its input'],
+                        ['slow-onnx', 'A slow ONNX start and a slow recording sink keep the complete source and results'],
+                        ['kill-onnx', 'A killed ONNX process neither pauses the feed nor loses its results track']]
+          test(mode[1], processinggraphtest,
+               args: [mode[0], ffmpeg_program, ffprobe_program, exec_tgts.get('MistController'),
+                      exec_tgts.get('MistInEBML'), exec_tgts.get('MistInBuffer'), exec_tgts.get('MistProcAV'),
+                      exec_tgts.get('MistProcONNX'), exec_tgts.get('MistOutEBML'), exec_tgts.get('MistSession'),
+                      exec_tgts.get('MistUtilNuke'), exec_tgts.get('MistAnalyserEBML'), perl_program,
+                      streamfeedprobe],
+               suite: 'Processing', timeout: 180, is_parallel: false)
+        endforeach
+      endif
     endif
   endif
 endif

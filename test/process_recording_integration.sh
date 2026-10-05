@@ -283,6 +283,10 @@ if [ "${MIST_PROCESS_EXPECT_EOF:-}" = "1" ]; then
     exit 1
   fi
 fi
+if grep -q 'which this process did not declare' "$work/input.log"; then
+  echo "a process registered an output it did not declare with --describe-outputs" >&2
+  exit 1
+fi
 started_processes=$(grep -c 'Started process .*MistProcAV' "$work/input.log" || true)
 if [ "$started_processes" -ne 1 ]; then
   echo "processor restarted $started_processes times after source EOF; expected one initial start" >&2
