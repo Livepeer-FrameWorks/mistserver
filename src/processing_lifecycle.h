@@ -70,13 +70,30 @@ namespace Mist {
     return PROCESSING_EOF_STOP;
   }
 
-  inline bool processingSelectionEnded(bool live, bool processControlledRealtime, uint8_t streamState) {
-    if (!live || !processControlledRealtime) { return false; }
-    return streamState == STRMSTAT_SHUTDOWN || streamState == STRMSTAT_OFF;
+  /// The buffer of a stream as a reader of a process-controlled live stream sees it.
+  enum ProcessingBufferState {
+    PROCESSING_BUFFER_ALIVE, ///< waiting for or serving data; also any stream that is not process-controlled and live
+    PROCESSING_BUFFER_DRAINING, ///< signalled drain (SHUTDOWN): nothing is left to produce or wait for
+    PROCESSING_BUFFER_GONE, ///< exited or killed: what a reader has not read yet is lost with it
+  };
+
+  /// Classifies the buffer of a process-controlled live stream by its stream state and whether the
+  /// input process that holds the stream (named by its input PID page) still exists. A killed
+  /// buffer never says so itself: that input process marks it invalid, so the state no longer says
+  /// waiting, ready or draining, or it was killed as well. A buffer that exited leaves no state
+  /// (OFF). A buffer that is merely busy (a synchronous trigger call) is alive.
+  inline ProcessingBufferState processingBufferState(bool live, bool processControlledRealtime, uint8_t streamState, bool inputAlive) {
+    if (!live || !processControlledRealtime) { return PROCESSING_BUFFER_ALIVE; }
+    if (!inputAlive) { return PROCESSING_BUFFER_GONE; }
+    if (streamState == STRMSTAT_SHUTDOWN) { return PROCESSING_BUFFER_DRAINING; }
+    if (streamState == STRMSTAT_WAIT || streamState == STRMSTAT_READY) { return PROCESSING_BUFFER_ALIVE; }
+    return PROCESSING_BUFFER_GONE;
   }
 
-  inline bool processingInputTrackEnded(bool processBinary, bool live, bool processControlledRealtime, bool claimed, uint8_t streamState) {
-    return processBinary && live && processControlledRealtime && !claimed && streamState == STRMSTAT_WAIT;
+  /// Whether a process reading a process-controlled stream treats an unclaimed track as ended:
+  /// only once the source ended, so no producer will claim it again.
+  inline bool processingInputTrackEnded(bool processBinary, bool live, bool processControlledRealtime, bool claimed, bool sourceEof) {
+    return processBinary && live && processControlledRealtime && !claimed && sourceEof;
   }
 
   inline bool processingTrackProducerEnded(bool live, bool processControlledRealtime, bool sourceEof,
@@ -113,25 +130,11 @@ namespace Mist {
     return metadataLive || (recording && fileTarget && recordingSourceWasLive);
   }
 
+  /// Whether a processing recording still runs its track gate. Before the header the gate
+  /// releases only on its track counts; afterwards it stops once the stream drains.
   inline bool processingRecordingNeedsTrackGate(bool recordingToFile, bool hasMetadata, bool processControlledRealtime,
-                                                bool streamShuttingDown) {
-    return recordingToFile && hasMetadata && processControlledRealtime && !streamShuttingDown;
-  }
-
-  /// Bound on how long a draining stream waits for a still-running producer's
-  /// outputs before the recording header is written with the tracks that exist.
-  const uint64_t PROCESSING_PRODUCER_DRAIN_MS = 30000;
-
-  /// Whether a draining processing stream releases the recording header gate:
-  /// only once no more process output can arrive. The input ending is not that
-  /// point; producers such as thumbnails create their tracks after the source
-  /// ends. A producer still running PROCESSING_PRODUCER_DRAIN_MS after the
-  /// source ended is not waited for any longer.
-  inline bool processingRecordingGateReleased(bool streamShuttingDown, bool producersFinished,
-                                              uint64_t sourceEndedSinceMs, uint64_t nowMs) {
-    if (!streamShuttingDown) { return false; }
-    if (producersFinished) { return true; }
-    return sourceEndedSinceMs && nowMs >= sourceEndedSinceMs + PROCESSING_PRODUCER_DRAIN_MS;
+                                                bool gateReleased) {
+    return recordingToFile && hasMetadata && processControlledRealtime && !gateReleased;
   }
 
   /// Whether an original (non-process) track must have data before a
@@ -140,6 +143,14 @@ namespace Mist {
   /// only when the recording selects them.
   inline bool processingOriginalGatesHeader(const std::string & type, bool selected) {
     return type == "video" || type == "audio" || selected;
+  }
+
+  /// Whether a processing recording header waits for this original track. Before the source
+  /// ended, processingOriginalGatesHeader decides. After it, no original can get data any more:
+  /// the originals the header needs are exactly those of them that have data.
+  inline bool processingOriginalNeededForHeader(const std::string & type, bool selected, bool sourceEof, bool hasData) {
+    if (sourceEof && !hasData) { return false; }
+    return processingOriginalGatesHeader(type, selected);
   }
 
   /// Why a realtime feeder does not register a track its source file declares, given the file's
@@ -158,6 +169,48 @@ namespace Mist {
   /// was replaced. While the older one is still claimed, its producer is still writing it.
   inline bool bufferRetiresReplacedOutput(bool olderClaimed, bool newerClaimed) {
     return newerClaimed && !olderClaimed;
+  }
+
+  /// Whether the buffer may erase a track that stopped receiving data. A process-controlled
+  /// stream holds its whole source for its readers and processes: while any of them is still
+  /// connected, a track that stopped updating (every track does once the source ended) is still
+  /// being read.
+  inline bool bufferIdleTrackEraseAllowed(bool processControlledRealtime, bool hasDrainConsumer) {
+    return !processControlledRealtime || !hasDrainConsumer;
+  }
+
+  /// Whether a process-controlled buffer that waits for its readers after source EOF counts this
+  /// tick as activity: a recorder whose read position or selection changed within the hold
+  /// tracker's stale window (BUFFER_HOLD_STALE_MS) is still making progress. Without one, the
+  /// inactivity timeout runs from the last data, as for any buffer.
+  inline bool processingReaderKeepsBufferAlive(bool processControlledRealtime, ProcessingSourceEofAction eofAction,
+                                               bool progressingReader) {
+    return processControlledRealtime && eofAction == PROCESSING_EOF_WAIT && progressingReader;
+  }
+
+  /// Whether a processing recording that stops reports the buffer as lost (ER_SHM_LOST, which
+  /// is retried) instead of the reason it recorded itself. That is the case when the buffer
+  /// ended it (asked it to disconnect, signalled it, or went away) before it played out its
+  /// selected tracks and its own reason is a clean one. A recording that reached its end keeps
+  /// its reason, and so does one that already failed by itself.
+  inline bool processingRecordingLostBuffer(bool processingRecording, bool reachedEnd, bool bufferEndedIt, bool cleanReason) {
+    return processingRecording && !reachedEnd && bufferEndedIt && cleanReason;
+  }
+
+  /// Whether a live read waits for a track to reach the seek position: while it has a producer,
+  /// or the buffer keeps it for a producer or publisher that is coming back (heldForResume). An
+  /// unclaimed track nobody comes back for gets nothing more, so there is nothing to wait for.
+  inline bool seekWaitsForTrack(bool live, bool claimed, bool heldForResume, uint64_t trackNow, uint64_t position) {
+    return live && (claimed || heldForResume) && trackNow < position;
+  }
+
+  /// Whether a bounded read (one with a stop position) ends a track at its last packet instead
+  /// of waiting for more: the track has no producer, the buffer does not keep it for one that is
+  /// coming back (a restarting process, a publisher within its resume window), and its data stops
+  /// short of the stop position, so no more data in range can arrive. Packets already read stay
+  /// in the output. Unbounded reads (viewers, DVR recordings) keep waiting for the track.
+  inline bool boundedReadTrackExhausted(bool bounded, bool live, bool claimed, bool heldForResume, uint64_t trackNow, uint64_t stopMs) {
+    return bounded && live && !claimed && !heldForResume && trackNow < stopMs;
   }
 
   /// Whether a processing recording leaves out an original track that would

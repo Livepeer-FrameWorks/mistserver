@@ -21,6 +21,8 @@
 
 #include <algorithm>
 #include <arpa/inet.h>
+#include <cerrno>
+#include <csignal>
 #include <cstring>
 #include <fcntl.h>
 #include <fstream>
@@ -1142,7 +1144,7 @@ namespace Mist{
     }
 
     HIGH_MSG("Seeking for pos %" PRIu64, pos);
-    if (meta.getLive() && meta.getNowms(tid) < pos){
+    if (seekWaitsForTrack(meta.getLive(), M.isClaimed(tid), M.getResumeUntil(tid) > Util::bootMS(), meta.getNowms(tid), pos)) {
       unsigned int maxTime = 0;
       while (meta.getNowms(tid) < pos && myConn && ++maxTime <= 20 && keepGoing()){
         Util::wait(500);
@@ -2152,7 +2154,7 @@ namespace Mist{
       // Always loop at least every 2s, no matter what
       if (maxWait > 2000) { maxWait = 2000; }
 
-      bool processControlledRealtimeEnded = processingControlledRealtimeSelectionEnded();
+      bool processControlledRealtimeEnded = processingControlledRealtimeSelectionEnded(processingBuffer());
       if (processControlledRealtimeEnded && maxWait > 50) { maxWait = 50; }
 
       size_t task = evLp.await(maxWait);
@@ -2170,7 +2172,8 @@ namespace Mist{
         }
       }
       //if (task == std::string::npos){} // Continue signal received; no special handling needed
-      processControlledRealtimeEnded = processingControlledRealtimeSelectionEnded();
+      const ProcessingBufferState bufferState = processingBuffer();
+      processControlledRealtimeEnded = processingControlledRealtimeSelectionEnded(bufferState);
       if (parseData && (processControlledRealtimeEnded || !realTime || !nTime || nTime <= targetTime())) {
         if (!isInitialized){
           initialize();
@@ -2183,6 +2186,12 @@ namespace Mist{
         // process output tracks exist would pin the recording start (and its
         // keyframe alignment) to a track set that is still incomplete.
         if (waitForProcessingRecordingHeader(sentHeader, keepGoing(), processingRecordingTracksReady())) {
+          // The tracks this recording waits for never come from a buffer that is gone.
+          if (bufferState == PROCESSING_BUFFER_GONE) {
+            Util::logExitReason(ER_SHM_LOST, "stream buffer stopped while this recording waited for its header");
+            onFail("Stream buffer stopped while this recording waited for its header", true);
+            break;
+          }
           suggestedWait = 100;
           ++prepFalse;
           continue;
@@ -2265,6 +2274,7 @@ namespace Mist{
             if (!onFinish()){
               // Not intercepted; stop playback
               Util::logExitReason(ER_CLEAN_EOF, "end of stream");
+              reachedEnd = true;
               break;
             }
             // Intercepted! Continue as if nothing happened.
@@ -2295,6 +2305,7 @@ namespace Mist{
                   INFO_MSG("Shutting down because planned stopping point reached");
                   Util::logExitReason(ER_CLEAN_INTENDED_STOP, "planned stopping point reached");
                 }
+                reachedEnd = true;
                 break;
               }
             }
@@ -2430,6 +2441,14 @@ namespace Mist{
       }
     }
     determineExitReason(); // Allow an output to override the below two checks.
+    if (isRecordingToFile) {
+      const bool cleanReason = !Util::exitReason[0] || !strncmp(Util::mRExitReason, "CLEAN", 5);
+      if (processingRecordingLostBuffer(processingControlledRealtime(), reachedEnd, bufferEndedOutput(), cleanReason)) {
+        // A recording the buffer ended early is a node-side failure that a retry can recover.
+        Util::exitReason[0] = 0;
+        Util::logExitReason(ER_SHM_LOST, "stream buffer ended the recording before it played out its tracks");
+      }
+    }
     if (!Util::Config::is_active) { Util::logExitReason(ER_UNKNOWN, "set inactive"); }
     if (!myConn){Util::logExitReason(ER_CLEAN_REMOTE_CLOSE, "connection closed");}
     if (strncmp(Util::exitReason, "connection closed", 17) == 0){
@@ -2723,6 +2742,8 @@ namespace Mist{
 
     uint64_t nextTime;
     size_t trackTries = 0;
+    const bool processControlled = processingControlledRealtime();
+    const ProcessingBufferState bufferState = processingBuffer();
     std::map<size_t, IPC::sharedPage>::iterator cPageIt;
     //In case we're not in sync mode, we might have to retry a few times
     for (; trackTries < buffer.size(); ++trackTries){
@@ -2744,19 +2765,37 @@ namespace Mist{
         return 2000;
       }
 
-      bool processControlledRealtimeEnded = processingControlledRealtimeSelectionEnded();
-      uint8_t streamState = Util::getStreamStatus(streamName);
+      bool processControlledRealtimeEnded = processingControlledRealtimeSelectionEnded(bufferState);
+      if (bufferState == PROCESSING_BUFFER_GONE) {
+        Util::logExitReason(ER_SHM_LOST, "stream buffer exited before this output played out its tracks");
+        onFail("Stream buffer exited before this output played out its tracks", true);
+        return 1;
+      }
       bool processInputTrackEnded =
         processingInputTrackEnded(Util::Config::binaryType.load(std::memory_order_relaxed) == Util::PROCESS,
-                                  M.getLive(), processingControlledRealtime(), M.isClaimed(nxt.tid), streamState);
+                                  M.getLive(), processControlled, M.isClaimed(nxt.tid), processStreamState.sourceEof);
       bool processTrackProducerEnded = processingTrackProducerEnded(
         M.getLive(), processingControlledRealtime(), processStreamState.sourceEof,
         processStreamState.processProducersFinished, M.getSourceTrack(nxt.tid) != INVALID_TRACK_ID, M.isClaimed(nxt.tid));
       bool processControlledTrackEnded = processControlledRealtimeEnded || processInputTrackEnded || processTrackProducerEnded;
+      // A bounded read (a stop position, or a recording stop set by duration or recstop) of a
+      // track without a producer, which the buffer does not keep for a returning one, whose
+      // data stops short of that position: no more data in range can arrive.
+      uint64_t readStopMs = 0;
+      if (targetParams.count("stop")) {
+        readStopMs = atoll(targetParams["stop"].c_str());
+      } else if (isRecordingToFile && targetParams.count("recstop")) {
+        readStopMs = atoll(targetParams["recstop"].c_str());
+      }
+      const bool boundedTrackExhausted =
+        boundedReadTrackExhausted(readStopMs, M.getLive(), M.isClaimed(nxt.tid),
+                                  M.getResumeUntil(nxt.tid) > Util::bootMS(), M.getNowms(nxt.tid), readStopMs);
 
       // Ensure we have the lookahead available. Once a process-controlled source has ended,
-      // no more lookahead can arrive; drain the packets already present instead.
-      if (waitForLiveLookAhead(M.getLive(), processControlledTrackEnded, needsLookAhead, M.getNowms(nxt.tid), nxt.time)) {
+      // or a bounded read's track can get no more data in range, no more lookahead can
+      // arrive; drain the packets already present instead.
+      if (waitForLiveLookAhead(M.getLive(), processControlledTrackEnded || boundedTrackExhausted, needsLookAhead,
+                               M.getNowms(nxt.tid), nxt.time)) {
         // Name the track gating the wait: a process output track that never
         // produces data (e.g. a sick thumbnailer's JPEG track) pins a
         // recording here invisibly otherwise. Log every 5s while stuck.
@@ -2880,6 +2919,10 @@ namespace Mist{
         }
         // We're still on the same page; ghost packets should update their time and retry later
         if (nxt.ghostPacket){
+          if (boundedTrackExhausted) {
+            dropTrack(nxt.tid, "no more data in range", false);
+            return 1;
+          }
           if (nxt.time < nowMs) {
             // Pretend we received data, to prevent timeouts
             lastReceive = thisBootMs;
@@ -2987,20 +3030,21 @@ namespace Mist{
 
       // If now-ms is higher than current, we know we can safely return this packet at least
       if (M.getNowms(nxt.tid) > nxt.time) { break; }
+      // This is the last packet in range of a bounded read's exhausted track: return it, and
+      // the track ends at its page end.
+      if (boundedTrackExhausted) { break; }
 
-      processControlledRealtimeEnded = processingControlledRealtimeSelectionEnded();
+      processControlledRealtimeEnded = processingControlledRealtimeSelectionEnded(bufferState);
       processTrackProducerEnded = processingTrackProducerEnded(
         M.getLive(), processingControlledRealtime(), processStreamState.sourceEof,
         processStreamState.processProducersFinished, M.getSourceTrack(nxt.tid) != INVALID_TRACK_ID, M.isClaimed(nxt.tid));
       if (processControlledRealtimeEnded || processInputTrackEnded || processTrackProducerEnded) { break; }
 
-      if (M.getLive() && processingControlledRealtime() && !M.isClaimed(nxt.tid)) {
-        uint8_t streamState = Util::getStreamStatus(streamName);
-        if (streamState == STRMSTAT_WAIT || streamState == STRMSTAT_SHUTDOWN || streamState == STRMSTAT_OFF) {
-          processingDrainedTracks.insert(nxt.tid);
-          dropTrack(nxt.tid, "process-controlled realtime track ended", false);
-          return 1;
-        }
+      // Unclaimed after source EOF: its producer is gone and none will start again.
+      if (M.getLive() && processControlled && !M.isClaimed(nxt.tid) && processStreamState.sourceEof) {
+        processingDrainedTracks.insert(nxt.tid);
+        dropTrack(nxt.tid, "process-controlled realtime track ended", false);
+        return 1;
       }
 
       //In non-sync mode, shuffle the just-tried packet to the end of queue and retry
@@ -3618,8 +3662,42 @@ namespace Mist{
     describeRecordedTrack(M, trackIdx, recordedTrackDetails[trackIdx]);
   }
 
+  /// Whether the stream buffer ended this processing recording: when it shuts down it asks every
+  /// reader to disconnect before it drains, and it can exit or be killed.
+  bool Output::bufferEndedOutput() {
+    for (std::map<size_t, Comms::Users>::iterator it = userSelect.begin(); it != userSelect.end(); ++it) {
+      if (it->second && (it->second.getStatus() & COMM_STATUS_REQDISCONNECT)) { return true; }
+    }
+    return processingBufferState(true, true, Util::getStreamStatus(streamName), streamInputAlive()) != PROCESSING_BUFFER_ALIVE;
+  }
+
+  /// The buffer of the process-controlled live stream this output reads (see
+  /// processingBufferState); alive for any other stream.
+  ProcessingBufferState Output::processingBuffer() {
+    if (!M || !M.getLive() || !processingControlledRealtime()) { return PROCESSING_BUFFER_ALIVE; }
+    return processingBufferState(true, true, Util::getStreamStatus(streamName), streamInputAlive());
+  }
+
+  /// Whether the input process holding the stream this output reads still exists: the process
+  /// its input PID page names (which marks a buffer that died under it invalid). Once that process
+  /// is gone the page is read again, as it can name a restarted input by now. True while the page
+  /// is not found, which is looked for again at most once a second.
+  bool Output::streamInputAlive() {
+    if (streamInputPid && (!kill(streamInputPid, 0) || errno == EPERM)) { return true; }
+    const bool hadInput = streamInputPid;
+    const uint64_t now = Util::bootMS();
+    if (!hadInput && streamInputPidReadMs && now < streamInputPidReadMs + 1000) { return true; }
+    streamInputPidReadMs = now;
+    streamInputPid = 0;
+    char pageName[NAME_BUFFER_SIZE];
+    snprintf(pageName, NAME_BUFFER_SIZE, SHM_STREAM_IPID, streamName.c_str());
+    IPC::sharedPage pidPage(pageName, 8, false, false);
+    if (pidPage && pidPage.len >= sizeof(uint64_t)) { streamInputPid = (pid_t) * (uint64_t *)pidPage.mapped; }
+    if (!streamInputPid) { return !hadInput; }
+    return !kill(streamInputPid, 0) || errno == EPERM;
+  }
+
   void Output::refreshProcessStreamState() {
-    if (!isRecordingToFile) { return; }
     char stateName[NAME_BUFFER_SIZE];
     snprintf(stateName, NAME_BUFFER_SIZE, SHM_STREAM_STATE, streamName.c_str());
     IPC::sharedPage statePage(stateName, 0, false, false);
@@ -3635,13 +3713,13 @@ namespace Mist{
     }
   }
 
-  bool Output::processingControlledRealtimeSelectionEnded() {
+  bool Output::processingControlledRealtimeSelectionEnded(ProcessingBufferState bufferState) {
     if (!M || !M.getLive()) { return false; }
 
-    refreshProcessStreamState();
-    uint8_t streamState = Util::getStreamStatus(streamName);
     const bool processControlled = processingControlledRealtime();
-    if (processingSelectionEnded(true, processControlled, streamState)) { return true; }
+    if (!processControlled) { return false; }
+    refreshProcessStreamState();
+    if (bufferState == PROCESSING_BUFFER_DRAINING) { return true; }
     bool anySelectedTrackClaimed = false;
     for (std::map<size_t, Comms::Users>::const_iterator it = userSelect.begin(); it != userSelect.end(); ++it) {
       if (M.isClaimed(it->first)) {
@@ -3655,35 +3733,14 @@ namespace Mist{
   bool Output::processingRecordingTracksReady() {
     const bool hasMetadata = M;
     const bool processControlled = hasMetadata && processingControlledRealtime();
-    // Stream is draining and no more process output is coming: record whatever
-    // exists rather than wedging. Downstream validators own the verdict on the
-    // resulting artifact. Deliberately only SHUTDOWN — getStreamStatus returns
-    // STRMSTAT_OFF while the state page doesn't exist yet, which is exactly the
-    // boot window where a recording races the stream and the gate must hold.
-    // After the header the gate only keeps reselecting, which is how a replaced
-    // producer is noticed and the recording retried; waiting on producers to
-    // finish matters only for what the header declares.
-    const bool streamShuttingDown = Util::getStreamStatus(streamName) == STRMSTAT_SHUTDOWN;
+    // Before the header the gate holds until the track set is known (see below);
+    // no stream state releases it. After the header it only keeps reselecting,
+    // which is how a replaced producer is noticed and the recording retried,
+    // until the stream drains.
+    const bool gateReleased = sentHeader && Util::getStreamStatus(streamName) == STRMSTAT_SHUTDOWN;
     refreshProcessStreamState();
-    const bool gateReleased = sentHeader
-      ? streamShuttingDown
-      : processingRecordingGateReleased(streamShuttingDown, processStreamState.processProducersFinished,
-                                        procSourceEndedSinceMs, Util::bootMS());
     if (!processingRecordingNeedsTrackGate(isRecordingToFile, hasMetadata, processControlled, gateReleased)) {
       recordingHeaderWaitLog.clear();
-      if (gateReleased && processControlled && !sentHeader) {
-        // Nothing more is coming: take every track that exists into the header now,
-        // rather than the selection from the previous check.
-        meta.reloadReplacedPagesIfNeeded();
-        selectDefaultTracks();
-        if (processStreamState.processProducersFinished) {
-          INFO_MSG("Recording header: stream drained and its processes finished; recording the tracks that exist");
-        } else {
-          WARN_MSG("Recording header: a process is still running %" PRIu64
-                   " ms after the source ended; recording the tracks that exist",
-                   Util::bootMS() - procSourceEndedSinceMs);
-        }
-      }
       return true;
     }
 
@@ -3724,17 +3781,22 @@ namespace Mist{
     }
 
     // Every original video and audio track must have data, selected or not: a
-    // processing stream's media originals all come from its one input within
-    // moments, and a selector that names a track with no data yet (by id, say)
-    // matches nothing, so a header written then would leave that track out for
-    // good. Other originals (metadata, subtitles) can stay empty for the whole
-    // stream, so they count only when this output selects them.
+    // processing stream's media originals all come from its one input, and a
+    // selector that names a track with no data yet (by id, say) matches
+    // nothing, so a header written then would leave that track out for good.
+    // Other originals (metadata, subtitles) can stay empty for the whole
+    // stream, so they count only when this output selects them. Once the
+    // source ended no original can get data any more, so the originals with
+    // data are exactly the ones the header needs.
     size_t selectedOriginalTracks = 0;
     size_t readyOriginalTracks = 0;
     for (const size_t track : M.getValidTracks()) {
       if (M.getSourceTrack(track) != INVALID_TRACK_ID) { continue; }
       const std::string type = M.getType(track);
-      if (!processingOriginalGatesHeader(type, userSelect.count(track))) { continue; }
+      if (!processingOriginalNeededForHeader(type, userSelect.count(track), processStreamState.sourceEof,
+                                             validTracksWithData.count(track))) {
+        continue;
+      }
       ++selectedOriginalTracks;
       if (validTracksWithData.count(track)) { ++readyOriginalTracks; }
     }

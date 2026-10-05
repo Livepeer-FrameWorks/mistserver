@@ -397,7 +397,7 @@ namespace Mist {
           sourceTrackIdx = thumbSourceTrackIdx;
         }
 
-        if (localCache.empty() || lastMs <= firstMs) {
+        if (localCache.empty() || lastMs < firstMs) {
           HIGH_MSG("No thumbnails to compose (cache=%zu, range=%" PRIu64 "-%" PRIu64 ")", localCache.size(), firstMs, lastMs);
           return;
         }
@@ -546,11 +546,17 @@ namespace Mist {
             return;
           }
 
-          // Check if we have thumbnails to compose
+          // Check if we have thumbnails to compose. A finished source composes whatever it has,
+          // a single keyframe included.
           bool shouldCompose = false;
           {
             std::lock_guard<std::mutex> lk(thumbMutex);
-            shouldCompose = !thumbCache.empty() && bufferLastMs > bufferFirstMs;
+            shouldCompose = !thumbCache.empty() && (bufferLastMs > bufferFirstMs || sourceDone);
+          }
+          if (sourceDone && !shouldCompose) {
+            Util::logExitReason(ER_CLEAN_EOF, "source ended without a decodable keyframe");
+            INFO_MSG("Source ended without a decodable keyframe; no sprite sheet");
+            return;
           }
 
           if (shouldCompose) {

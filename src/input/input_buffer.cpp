@@ -476,29 +476,40 @@ namespace Mist{
       uint64_t resumeUntil = 0;
       const bool producerAlive = M.isClaimed(track) && Util::Procs::isActive((pid_t)M.isClaimedBy(track));
       const std::string key = M.getOutputKey(track);
-      if (producerAlive) {
-        producerHoldUntil.erase(track);
-      } else if (key.size()) {
+      if (key.size()) {
         std::map<std::string, std::string>::const_iterator producer =
           configuredProcessIdentities.find(DTSC::outputKeyIdentity(key));
-        // No process starts once the stream's source ended.
-        const bool restartable = producer != configuredProcessIdentities.end() &&
-          !processingProcessRetired(JSON::fromString(producer->second)) && !(everHadPush && !hasPush);
-        if (!restartable) {
+        // Only a process that will be started again comes back for its outputs: not a retired
+        // one, not one configured without restarts, and none in a stream whose source ended.
+        bool restarts = false;
+        uint64_t nextStart = 0;
+        if (producer != configuredProcessIdentities.end()) {
+          const JSON::Value config = JSON::fromString(producer->second);
+          restarts = !processingProcessRetired(config) && config["restart_type"].asString() != "disabled" &&
+            !(everHadPush && !hasPush);
+          std::map<std::string, uint64_t>::const_iterator nextBoot = procNextBoot.find(producer->second);
+          if (nextBoot != procNextBoot.end()) { nextStart = nextBoot->second; }
+        }
+        if (!restarts) {
           if (producerHoldUntil.erase(track)) {
-            INFO_MSG("Track %zu (output %s) is no longer kept: its process was retired", track, key.c_str());
+            INFO_MSG("Track %zu (output %s) is no longer kept: its process will not be restarted", track, key.c_str());
           }
+        } else if (producerAlive) {
+          // Published while the producer runs, so a reader that sees it go also sees the hold.
+          producerHoldUntil.erase(track);
+          resumeUntil = producerResumeDeadline(now, nextStart);
         } else {
           if (!producerHoldUntil.count(track)) {
-            std::map<std::string, uint64_t>::const_iterator nextBoot = procNextBoot.find(producer->second);
-            producerHoldUntil[track] = producerResumeDeadline(now, nextBoot == procNextBoot.end() ? 0 : nextBoot->second);
+            producerHoldUntil[track] = producerResumeDeadline(now, nextStart);
             INFO_MSG("Keeping track %zu (output %s) for its restarting process for up to %" PRIu64 " ms", track,
                      key.c_str(), producerHoldUntil[track] - now);
           }
           if (trackHeldForProducer(true, producerHoldUntil[track], now)) { resumeUntil = producerHoldUntil[track]; }
         }
-      } else if (resumeMode && !processControlledRealtime && !M.isClaimed(track) && !bufferTrackIsDerived(M.getSourceTrack(track))) {
-        resumeUntil = M.getLastUpdated(track) * 1000 + idleTime;
+      } else if (resumeMode && !processControlledRealtime && !bufferTrackIsDerived(M.getSourceTrack(track))) {
+        // Published while the publisher is connected too, so a reader that sees it leave also
+        // sees the hold: until the idle timeout would remove the track.
+        resumeUntil = (producerAlive ? now : M.getLastUpdated(track) * 1000) + idleTime;
       }
       if (M.getResumeUntil(track) != resumeUntil) { meta.setResumeUntil(track, resumeUntil); }
     }
@@ -512,6 +523,7 @@ namespace Mist{
     retireReplacedOutputs();
     updateResumeHolds();
     // first remove all tracks that have not been updated for too long
+    const bool idleEraseAllowed = bufferIdleTrackEraseAllowed(processControlledRealtime, hasProcessDrainConsumers());
     bool changed = true;
     while (changed){
       changed = false;
@@ -541,6 +553,7 @@ namespace Mist{
           }
           continue;
         }
+        if (!idleEraseAllowed) { continue; }
         // Kept for its restarting producer: the restarted process continues it.
         std::map<size_t, uint64_t>::const_iterator hold = producerHoldUntil.find(i);
         if (hold != producerHoldUntil.end() && trackHeldForProducer(true, hold->second, Util::bootMS())) { continue; }
@@ -1387,6 +1400,11 @@ namespace Mist{
 
     ProcessingSourceEofAction eofAction = processingSourceEofAction(config->is_active, hasPush, everHadPush, resumeMode,
                                                                     processControlledRealtime, hasProcessDrainConsumers());
+    // After source EOF no data arrives any more, so a recorder still playing out the buffer is
+    // its only activity. A recorder that stopped progressing for the stale window no longer counts.
+    if (processingReaderKeepsBufferAlive(processControlledRealtime, eofAction, !bufferHolds.positions().empty())) {
+      activityCounter = Util::bootSecs();
+    }
     if (eofAction != PROCESSING_EOF_NONE) {
       if (eofAction == PROCESSING_EOF_WAIT) {
         if (streamStatus) { streamStatus.mapped[0] = STRMSTAT_WAIT; }

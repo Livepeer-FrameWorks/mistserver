@@ -87,7 +87,11 @@ namespace Mist{
     void selectAllTracks();
     bool processingControlledRealtime() const;
     void markBufferHold(size_t trackIdx);
-    bool processingControlledRealtimeSelectionEnded();
+    bool processingControlledRealtimeSelectionEnded(ProcessingBufferState bufferState);
+    bool processingControlledRealtimeSelectionEnded() {
+      return processingControlledRealtimeSelectionEnded(processingBuffer());
+    }
+    ProcessingBufferState processingBuffer();
     bool processingRecordingTracksReady();
 
     /// Accessors for buffer SyncMode.
@@ -171,6 +175,11 @@ namespace Mist{
     std::map<size_t, std::string> writtenSources;
     void rememberRecordedTrack(size_t trackIdx);
     void refreshProcessStreamState();
+    bool reachedEnd = false; ///< playback stopped at the end of the stream or at its planned stop point
+    bool bufferEndedOutput();
+    bool streamInputAlive();
+    pid_t streamInputPid = 0; ///< the stream's input process, from its input PID page
+    uint64_t streamInputPidReadMs = 0; ///< when the input PID page was last looked for
 
     // Playback timing related
     uint64_t timingBootMs; ///< System boot time of the last playback speed change.

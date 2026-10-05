@@ -113,6 +113,75 @@ if [ "${LIVEPEER_TEST_FAILING_GATEWAY:-}" = "1" ]; then
   stub_logs="$stub_logs $work/broadcaster2.log"
   broadcasters="\"[\\\"http://127.0.0.1:$broadcaster_port\\\",\\\"http://127.0.0.1:$broadcaster2_port\\\"]\""
 fi
+triggers="{}"
+livepeer_options=
+if [ "${LIVEPEER_TEST_HEADER_BUFFER_KILLED:-}" = "1" ]; then
+  # Every transcode is held back (within a long segment budget), so the recording waits for its
+  # header until the buffer dies.
+  livepeer_options=",\"deadline_ms\":120000"
+  : >"$work/hold"
+  LIVEPEER_STUB_HOLD_FILE="$work/hold"
+  export LIVEPEER_STUB_HOLD_FILE
+  MIST_TEST_TRIGGER_OUTPUT="$work/trigger"
+  export MIST_TEST_TRIGGER_OUTPUT
+  script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+  triggers="{\"RECORDING_END\":[{\"handler\":\"$script_dir/capture_trigger.sh\",\"sync\":false,\"streams\":[\"$stream\"]}]}"
+fi
+extra_processes=
+output_timeout=90
+if [ "${LIVEPEER_TEST_SLOW_REPLACE:-}" = "1" ]; then
+  # While the recording waits for its header (every transcode is held back), a second process
+  # fails for good and the buffer asks a PROCESS_REPLACE endpoint that takes 12 s to answer. The
+  # buffer is busy that long, not stopped: the recording must keep waiting.
+  if ! command -v python3 >/dev/null 2>&1; then
+    echo "python3 is required for the slow PROCESS_REPLACE endpoint" >&2
+    exit 77
+  fi
+  livepeer_options=",\"deadline_ms\":120000"
+  : >"$work/hold"
+  LIVEPEER_STUB_HOLD_FILE="$work/hold"
+  export LIVEPEER_STUB_HOLD_FILE
+  MIST_TEST_TRIGGER_OUTPUT="$work/trigger"
+  export MIST_TEST_TRIGGER_OUTPUT
+  script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+  replace_port=$((broadcaster_port + 2))
+  dead_port=$((broadcaster_port + 3))
+  # Answers after 12 s, sending a little of its (empty) answer every 3 s so the request does not
+  # time out before that.
+  python3 -c '
+import socket, sys, time
+srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+srv.bind(("127.0.0.1", int(sys.argv[1])))
+srv.listen(4)
+print("ready", flush=True)
+while True:
+    conn, _ = srv.accept()
+    request = b""
+    while b"\r\n\r\n" not in request:
+        request += conn.recv(65536)
+    head, body = request.split(b"\r\n\r\n", 1)
+    length = 0
+    for line in head.split(b"\r\n"):
+        if line.lower().startswith(b"content-length:"):
+            length = int(line.split(b":")[1])
+    while len(body) < length:
+        body += conn.recv(65536)
+    open(sys.argv[2], "w").write("%.3f\n" % time.time())
+    chunks = 4
+    conn.sendall(b"HTTP/1.1 200 OK\r\nContent-Length: %d\r\nConnection: close\r\n\r\n" % (chunks * 26000))
+    for _ in range(chunks):
+        time.sleep(3)
+        conn.sendall(b" " * 26000)
+    conn.close()
+' "$replace_port" "$work/replace-requested" >"$work/replace-endpoint.log" 2>&1 &
+  stub2_pid=$!
+  stub_logs="$stub_logs $work/replace-endpoint.log"
+  triggers="{\"RECORDING_END\":[{\"handler\":\"$script_dir/capture_trigger.sh\",\"sync\":false,\"streams\":[\"$stream\"]}],\"PROCESS_REPLACE\":[{\"handler\":\"http://127.0.0.1:$replace_port/\",\"sync\":true,\"streams\":[\"$stream\"]}]}"
+  # Uploads to a gateway that is not there: the process exits unrecoverably on its first segment.
+  extra_processes=",{\"process\":\"Livepeer\",\"hardcoded_broadcasters\":\"http://127.0.0.1:$dead_port\",\"target_profiles\":[{\"name\":\"spare\",\"bitrate\":200000,\"width\":160,\"height\":90,\"fps\":10,\"gop\":\"2.0\"}],\"target_mask\":2,\"source_mask\":4,\"restart_type\":\"disabled\"}"
+  output_timeout=90
+fi
 "$broadcaster_stub" "$broadcaster_port" >"$work/broadcaster.log" 2>&1 &
 stub_pid=$!
 for log in $stub_logs; do
@@ -131,7 +200,7 @@ restart_type=disabled
 if [ "${LIVEPEER_TEST_KILL_MIDWAY:-}" = "1" ]; then restart_type=fixed; fi
 config="$work/config.json"
 printf '%s\n' \
-  "{\"account\":{\"test\":{\"password\":\"098f6bcd4621d373cade4e832627b4f6\"}},\"auto_push\":null,\"bandwidth\":{\"exceptions\":[\"::1\",\"127.0.0.0/8\"]},\"config\":{\"accesslog\":\"LOG\",\"controller\":{\"interface\":\"127.0.0.1\",\"port\":$controller_port,\"username\":null},\"debug\":4,\"defaultStream\":null,\"prometheus\":\"\",\"protocols\":[],\"serverid\":null,\"sessionInputMode\":15,\"sessionOutputMode\":15,\"sessionStreamInfoMode\":1,\"sessionUnspecifiedMode\":0,\"sessionViewerMode\":14,\"tknMode\":15,\"triggers\":{},\"trustedproxy\":[]},\"extwriters\":null,\"jwks\":null,\"push_settings\":{\"maxspeed\":0,\"wait\":3},\"streamkeys\":null,\"streams\":{\"$stream\":{\"name\":\"$stream\",\"source\":\"$source_mkv\",\"process_controlled_realtime\":true,\"realtime_speed\":4,\"processes\":[{\"process\":\"Livepeer\",\"hardcoded_broadcasters\":$broadcasters,\"target_profiles\":[{\"name\":\"audit\",\"bitrate\":500000,\"width\":320,\"height\":180,\"fps\":10,\"gop\":\"2.0\"}],\"target_mask\":2,\"source_mask\":4,\"restart_type\":\"disabled\"}]}},\"variables\":null}" \
+  "{\"account\":{\"test\":{\"password\":\"098f6bcd4621d373cade4e832627b4f6\"}},\"auto_push\":null,\"bandwidth\":{\"exceptions\":[\"::1\",\"127.0.0.0/8\"]},\"config\":{\"accesslog\":\"LOG\",\"controller\":{\"interface\":\"127.0.0.1\",\"port\":$controller_port,\"username\":null},\"debug\":4,\"defaultStream\":null,\"prometheus\":\"\",\"protocols\":[],\"serverid\":null,\"sessionInputMode\":15,\"sessionOutputMode\":15,\"sessionStreamInfoMode\":1,\"sessionUnspecifiedMode\":0,\"sessionViewerMode\":14,\"tknMode\":15,\"triggers\":$triggers,\"trustedproxy\":[]},\"extwriters\":null,\"jwks\":null,\"push_settings\":{\"maxspeed\":0,\"wait\":3},\"streamkeys\":null,\"streams\":{\"$stream\":{\"name\":\"$stream\",\"source\":\"$source_mkv\",\"process_controlled_realtime\":true,\"realtime_speed\":4,\"processes\":[{\"process\":\"Livepeer\",\"hardcoded_broadcasters\":$broadcasters,\"target_profiles\":[{\"name\":\"audit\",\"bitrate\":500000,\"width\":320,\"height\":180,\"fps\":10,\"gop\":\"2.0\"}],\"target_mask\":2,\"source_mask\":4,\"restart_type\":\"$restart_type\"$livepeer_options}$extra_processes]}},\"variables\":null}" \
   >"$config"
 
 TMP="$ipc_root" MIST_CONTROL=1 "$controller" -c "$config" -C r -L "$work/controller.log" &
@@ -161,7 +230,7 @@ if ! grep -q 'Input started' "$work/input.log"; then
 fi
 
 recording="$work/recording.mkv"
-"$timeout_program" 90 env TMP="$ipc_root" MIST_CONTROL=1 "$output_ebml" -s "$stream" "$recording?stop=29500" \
+"$timeout_program" "$output_timeout" env TMP="$ipc_root" MIST_CONTROL=1 "$output_ebml" -s "$stream" "$recording?stop=29500" \
   >"$work/output.log" 2>&1 &
 output_pid=$!
 
@@ -183,9 +252,89 @@ while [ "$attempt" -lt 150 ]; do
   attempt=$((attempt + 1))
   sleep 0.1
 done
-if [ "$proc_state_read" -ne 1 ]; then
+# Without a single transcoded segment (header-buffer-killed, slow-replace) the snapshot is not required.
+if [ "$proc_state_read" -ne 1 ] && [ "${LIVEPEER_TEST_HEADER_BUFFER_KILLED:-}" != "1" ] &&
+   [ "${LIVEPEER_TEST_SLOW_REPLACE:-}" != "1" ]; then
   echo "Livepeer did not publish a readable ProcState snapshot while running" >&2
   exit 1
+fi
+if [ "${LIVEPEER_TEST_HEADER_BUFFER_KILLED:-}" = "1" ]; then
+  # The recording waits for the rendition before writing its header; the buffer dies under it.
+  attempt=0
+  while [ "$attempt" -lt 300 ] && ! grep -q 'Waiting for processing tracks before recording header' "$work/output.log"; do
+    attempt=$((attempt + 1))
+    sleep 0.1
+  done
+  if ! grep -q 'Waiting for processing tracks before recording header' "$work/output.log"; then
+    echo "the recording never waited for its header" >&2
+    exit 1
+  fi
+  pkill -KILL -f "MistInBuffer.*$stream" || true
+  attempt=0
+  while [ "$attempt" -lt 600 ] && kill -0 "$output_pid" 2>/dev/null; do
+    attempt=$((attempt + 1))
+    sleep 0.1
+  done
+  if kill -0 "$output_pid" 2>/dev/null; then
+    echo "the recording was still waiting for its header 60 s after its buffer was killed" >&2
+    exit 1
+  fi
+  wait "$output_pid" || true
+  output_pid=
+  attempt=0
+  while [ "$attempt" -lt 100 ] && [ ! -s "$work/trigger.RECORDING_END" ]; do
+    attempt=$((attempt + 1))
+    sleep 0.1
+  done
+  reason=$(sed -n '12p' "$work/trigger.RECORDING_END" 2>/dev/null || true)
+  if [ "$reason" != "SHM_LOST" ]; then
+    echo "a recording whose buffer was killed before its header reported '$reason'; expected SHM_LOST" >&2
+    exit 1
+  fi
+  rm -f "$work/hold"
+  echo "a recording waiting for its header reported SHM_LOST when its buffer was killed"
+  exit 0
+fi
+if [ "${LIVEPEER_TEST_SLOW_REPLACE:-}" = "1" ]; then
+  attempt=0
+  while [ "$attempt" -lt 300 ] && [ ! -s "$work/replace-requested" ]; do
+    attempt=$((attempt + 1))
+    sleep 0.1
+  done
+  if [ ! -s "$work/replace-requested" ]; then
+    echo "the failing process never made the buffer ask for its replacement" >&2
+    exit 1
+  fi
+  # The buffer waits for the endpoint 12 s; the recording must still wait for its header after that.
+  sleep 14
+  if ! kill -0 "$output_pid" 2>/dev/null || grep -q 'SHM_LOST\|buffer stopped' "$work/output.log"; then
+    echo "the recording gave up while its buffer was busy asking for a replacement" >&2
+    exit 1
+  fi
+  if ! grep -q 'Waiting for processing tracks before recording header' "$work/output.log"; then
+    echo "the recording never waited for its header" >&2
+    exit 1
+  fi
+  rm -f "$work/hold"
+  attempt=0
+  while [ "$attempt" -lt 1000 ] && kill -0 "$output_pid" 2>/dev/null; do
+    attempt=$((attempt + 1))
+    sleep 0.1
+  done
+  wait "$output_pid" || true
+  output_pid=
+  attempt=0
+  while [ "$attempt" -lt 100 ] && [ ! -s "$work/trigger.RECORDING_END" ]; do
+    attempt=$((attempt + 1))
+    sleep 0.1
+  done
+  reason=$(sed -n '12p' "$work/trigger.RECORDING_END" 2>/dev/null || true)
+  if [ -z "$reason" ] || [ "$reason" = "SHM_LOST" ]; then
+    echo "a recording whose buffer was busy for 12 s ended with '$reason'" >&2
+    exit 1
+  fi
+  echo "a recording waiting for its header kept waiting through a 12 s PROCESS_REPLACE call and ended with $reason"
+  exit 0
 fi
 if [ "${LIVEPEER_TEST_KILL_MIDWAY:-}" = "1" ]; then
   # Kill the process once about a third of the source is transcoded; its restart continues the

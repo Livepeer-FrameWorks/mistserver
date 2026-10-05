@@ -78,19 +78,34 @@ int main() {
     return fail("ordinary non-resumable streams must stop after producer EOF");
   }
 
-  if (!processingSelectionEnded(true, true, STRMSTAT_SHUTDOWN) || !processingSelectionEnded(true, true, STRMSTAT_OFF) ||
-      processingSelectionEnded(true, true, STRMSTAT_WAIT) || processingSelectionEnded(false, true, STRMSTAT_SHUTDOWN) ||
-      processingSelectionEnded(true, false, STRMSTAT_SHUTDOWN)) {
-    return fail("only process-controlled live shutdown may enable buffered output drain");
+  if (processingBufferState(true, true, STRMSTAT_SHUTDOWN, true) != PROCESSING_BUFFER_DRAINING ||
+      processingBufferState(false, true, STRMSTAT_SHUTDOWN, true) != PROCESSING_BUFFER_ALIVE ||
+      processingBufferState(true, false, STRMSTAT_SHUTDOWN, true) != PROCESSING_BUFFER_ALIVE) {
+    return fail("only process-controlled live shutdown drains the buffer for its readers");
+  }
+  if (processingBufferState(true, true, STRMSTAT_READY, true) != PROCESSING_BUFFER_ALIVE ||
+      processingBufferState(true, true, STRMSTAT_WAIT, true) != PROCESSING_BUFFER_ALIVE) {
+    return fail("a waiting or ready processing buffer, however busy, is alive");
+  }
+  if (processingBufferState(true, true, STRMSTAT_OFF, true) != PROCESSING_BUFFER_GONE ||
+      processingBufferState(true, true, STRMSTAT_INVALID, true) != PROCESSING_BUFFER_GONE ||
+      processingBufferState(true, true, STRMSTAT_BOOT, true) != PROCESSING_BUFFER_GONE ||
+      processingBufferState(true, true, STRMSTAT_READY, false) != PROCESSING_BUFFER_GONE ||
+      processingBufferState(true, true, STRMSTAT_SHUTDOWN, false) != PROCESSING_BUFFER_GONE) {
+    return fail("a processing buffer that exited, was marked invalid, reboots, or whose input process died is gone");
+  }
+  if (processingBufferState(true, false, STRMSTAT_INVALID, false) != PROCESSING_BUFFER_ALIVE ||
+      processingBufferState(false, true, STRMSTAT_OFF, false) != PROCESSING_BUFFER_ALIVE) {
+    return fail("the buffer of a stream that is not process-controlled and live is never gone for this check");
   }
 
-  if (!processingInputTrackEnded(true, true, true, false, STRMSTAT_WAIT) ||
-      processingInputTrackEnded(false, true, true, false, STRMSTAT_WAIT) ||
-      processingInputTrackEnded(true, false, true, false, STRMSTAT_WAIT) ||
-      processingInputTrackEnded(true, true, false, false, STRMSTAT_WAIT) ||
-      processingInputTrackEnded(true, true, true, true, STRMSTAT_WAIT) ||
-      processingInputTrackEnded(true, true, true, false, STRMSTAT_READY)) {
-    return fail("only processors may treat an unclaimed process-controlled WAIT track as input EOF");
+  if (!processingInputTrackEnded(true, true, true, false, true) ||
+      processingInputTrackEnded(false, true, true, false, true) || processingInputTrackEnded(true, false, true, false, true) ||
+      processingInputTrackEnded(true, true, false, false, true) || processingInputTrackEnded(true, true, true, true, true)) {
+    return fail("only processors may treat an unclaimed process-controlled track as input EOF");
+  }
+  if (processingInputTrackEnded(true, true, true, false, false)) {
+    return fail("an unclaimed track before source EOF (a producer between instances) has not ended");
   }
 
   if (!processingTrackProducerEnded(true, true, true, false, false, false) ||
@@ -141,14 +156,34 @@ int main() {
     return fail("only active process-controlled file recordings may wait for late output tracks");
   }
 
-  if (processingRecordingGateReleased(false, true, 1000, 999999)) {
-    return fail("a stream that is not shutting down keeps its recording header gate");
+  // Header gate over originals: {source EOF, has data} x {video, audio, unselected meta, selected meta}.
+  if (!processingOriginalNeededForHeader("video", false, false, false) ||
+      !processingOriginalNeededForHeader("audio", false, false, false) ||
+      !processingOriginalNeededForHeader("meta", true, false, false)) {
+    return fail("before source EOF every gating original is waited for, with or without data");
   }
-  if (processingRecordingGateReleased(true, false, 1000, 1000 + PROCESSING_PRODUCER_DRAIN_MS - 1) ||
-      processingRecordingGateReleased(true, false, 0, 999999)) {
-    return fail("a shutting-down stream still waits for a running producer's outputs, such as thumbnails made after "
-                "the source ended");
+  if (processingOriginalNeededForHeader("video", false, true, false) ||
+      processingOriginalNeededForHeader("audio", true, true, false) ||
+      processingOriginalNeededForHeader("meta", true, true, false)) {
+    return fail("after source EOF an original without data never gets any and must not hold the header");
   }
+  if (!processingOriginalNeededForHeader("video", false, true, true) ||
+      !processingOriginalNeededForHeader("audio", false, true, true) ||
+      !processingOriginalNeededForHeader("meta", true, true, true)) {
+    return fail("after source EOF every gating original with data is still part of the header");
+  }
+  if (processingOriginalNeededForHeader("meta", false, false, true) || processingOriginalNeededForHeader("meta", false, true, true)) {
+    return fail("an unselected original metadata track never gates the header");
+  }
+
+  if (!bufferIdleTrackEraseAllowed(false, false) || !bufferIdleTrackEraseAllowed(false, true) ||
+      !bufferIdleTrackEraseAllowed(true, false)) {
+    return fail("live streams, and processing streams nobody reads, erase idle tracks");
+  }
+  if (bufferIdleTrackEraseAllowed(true, true)) {
+    return fail("a processing stream must keep its idle tracks while readers still drain them");
+  }
+
   if (realtimeTrackSkipReason("video", 0, true, false).empty() || realtimeTrackSkipReason("audio", 0, false, false).empty() ||
       realtimeTrackSkipReason("meta", 0, false, false).empty()) {
     return fail("a declared track without frames is not registered");
@@ -169,10 +204,61 @@ int main() {
     return fail("an output whose producer still writes it, or whose replacement is not registered, stays");
   }
 
-  if (!processingRecordingGateReleased(true, true, 0, 0) ||
-      !processingRecordingGateReleased(true, false, 1000, 1000 + PROCESSING_PRODUCER_DRAIN_MS)) {
+  if (!processingReaderKeepsBufferAlive(true, PROCESSING_EOF_WAIT, true)) {
+    return fail("a progressing recorder must keep a processing buffer alive after source EOF");
+  }
+  if (processingReaderKeepsBufferAlive(true, PROCESSING_EOF_WAIT, false) ||
+      processingReaderKeepsBufferAlive(true, PROCESSING_EOF_NONE, true) ||
+      processingReaderKeepsBufferAlive(true, PROCESSING_EOF_DRAIN, true) ||
+      processingReaderKeepsBufferAlive(false, PROCESSING_EOF_WAIT, true)) {
+    return fail("only a progressing recorder of a waiting processing buffer counts as activity");
+  }
+
+  if (!processingRecordingLostBuffer(true, false, true, true)) {
+    return fail("a processing recording the buffer ended before it played out must report the buffer as lost");
+  }
+  if (processingRecordingLostBuffer(true, true, true, true)) {
+    return fail("a processing recording that reached its end keeps its clean reason");
+  }
+  if (processingRecordingLostBuffer(true, false, false, true)) {
+    return fail("a recording stopped while its buffer stays up (an operator stop) keeps its clean reason");
+  }
+  if (processingRecordingLostBuffer(true, false, true, false)) {
+    return fail("a recording that failed by itself keeps its own failure reason");
+  }
+  if (processingRecordingLostBuffer(false, false, true, true)) {
+    return fail("recordings of ordinary streams keep their reason");
+  }
+
+  if (!seekWaitsForTrack(true, true, false, 1000, 2000)) {
+    return fail("a live seek waits for a claimed track to reach the position");
+  }
+  if (seekWaitsForTrack(true, false, false, 1000, 2000)) {
+    return fail("a live seek must not wait for an unclaimed track nobody comes back for: nothing can arrive");
+  }
+  if (!seekWaitsForTrack(true, false, true, 1000, 2000)) {
+    return fail("a live seek waits for a track kept for its returning producer or publisher");
+  }
+  if (seekWaitsForTrack(false, true, false, 1000, 2000) || seekWaitsForTrack(true, true, false, 2000, 2000)) {
+    return fail("a seek waits only on a live track that has not reached the position");
+  }
+
+  if (!boundedReadTrackExhausted(true, true, false, false, 1000, 2000)) {
+    return fail("a bounded read ends an unclaimed track whose data stops before the stop position");
+  }
+  if (boundedReadTrackExhausted(true, true, true, false, 1000, 2000)) {
+    return fail("a bounded read keeps waiting for a claimed track");
+  }
+  if (boundedReadTrackExhausted(true, true, false, true, 1000, 2000)) {
     return fail(
-      "a shutting-down stream releases the gate once its producers finished, or stops waiting after the drain bound");
+      "a bounded read (a scheduled live recording) waits for a publisher or process within its resume window");
+  }
+  if (boundedReadTrackExhausted(false, true, false, false, 1000, 2000)) {
+    return fail("an unbounded read (a viewer or DVR) keeps waiting for an unclaimed track");
+  }
+  if (boundedReadTrackExhausted(true, true, false, false, 2000, 2000) ||
+      boundedReadTrackExhausted(true, false, false, false, 1000, 2000)) {
+    return fail("a track that reached the stop position, or a VoD track, ends by the usual rules");
   }
 
   if (!processingOriginalGatesHeader("video", false) || !processingOriginalGatesHeader("audio", false)) {

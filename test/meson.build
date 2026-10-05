@@ -223,6 +223,12 @@ if get_option('b_sanitize') == 'none' and ffmpeg_program.found() and ffprobe_pro
                 exec_tgts.get('MistOutHTTPTS'), exec_tgts.get('MistUtilNuke'), timeout_program],
          env: {'MIST_REPUBLISH_RESOLUTION': '640x360'},
          suite: 'Streams', timeout: 90, is_parallel: false)
+    liverecordingresumetest = find_program('live_recording_resume_integration.sh')
+    test('A scheduled live recording waits for a publisher that resumes', liverecordingresumetest,
+         args: [ffmpeg_program, ffprobe_program, exec_tgts.get('MistController'),
+                exec_tgts.get('MistInBuffer'), exec_tgts.get('MistOutRTMP'),
+                exec_tgts.get('MistOutEBML'), exec_tgts.get('MistUtilNuke'), timeout_program],
+         suite: 'Streams', timeout: 120, is_parallel: false)
     curl_program = find_program('curl', required: false)
     if curl_program.found()
       restreampushtest = find_program('restream_push_integration.sh')
@@ -286,6 +292,24 @@ if get_option('b_sanitize') == 'none' and ffmpeg_program.found() and ffprobe_pro
                 livepeerprocstateprobe],
          env: ['LIVEPEER_TEST_KILL_MIDWAY=1'],
          suite: 'Processing', timeout: 150, is_parallel: false)
+    test('A recording waiting for its header reports a lost buffer when the buffer is killed', livepeervodtest,
+         args: [ffmpeg_program, ffprobe_program, exec_tgts.get('MistController'),
+                exec_tgts.get('MistInEBML'), exec_tgts.get('MistInBuffer'),
+                exec_tgts.get('MistProcLivepeer'), exec_tgts.get('MistOutEBML'),
+                exec_tgts.get('MistSession'), exec_tgts.get('MistUtilLog'),
+                exec_tgts.get('MistUtilNuke'), livepeerstub, timeout_program,
+                livepeerprocstateprobe],
+         env: ['LIVEPEER_TEST_HEADER_BUFFER_KILLED=1'],
+         suite: 'Processing', timeout: 150, is_parallel: false)
+    test('A recording waiting for its header keeps waiting while its buffer is busy in a slow trigger', livepeervodtest,
+         args: [ffmpeg_program, ffprobe_program, exec_tgts.get('MistController'),
+                exec_tgts.get('MistInEBML'), exec_tgts.get('MistInBuffer'),
+                exec_tgts.get('MistProcLivepeer'), exec_tgts.get('MistOutEBML'),
+                exec_tgts.get('MistSession'), exec_tgts.get('MistUtilLog'),
+                exec_tgts.get('MistUtilNuke'), livepeerstub, timeout_program,
+                livepeerprocstateprobe],
+         env: ['LIVEPEER_TEST_SLOW_REPLACE=1'],
+         suite: 'Processing', timeout: 150, is_parallel: false)
     livepeerlivetest = find_program('livepeer_live_integration.sh')
     livepeerliveargs = [ffmpeg_program, ffprobe_program, exec_tgts.get('MistController'),
                         exec_tgts.get('MistInBuffer'), exec_tgts.get('MistOutRTMP'),
@@ -337,6 +361,12 @@ if get_option('b_sanitize') == 'none' and ffmpeg_program.found() and ffprobe_pro
          env: {'MIST_PROCESS_EXPECT_EOF': '1', 'MIST_PROCESS_SOURCE_DURATION': '8',
                'MIST_PROCESS_SOURCE_BFRAMES': '2'},
          suite: 'Processing', timeout: 120, is_parallel: false)
+    boundedcuttest = find_program('bounded_cut_integration.sh')
+    test('A bounded live cut over a stopped rendition ends without waiting for it', boundedcuttest,
+         args: [ffmpeg_program, ffprobe_program, exec_tgts.get('MistController'), exec_tgts.get('MistInBuffer'),
+                exec_tgts.get('MistOutRTMP'), exec_tgts.get('MistProcAV'), exec_tgts.get('MistOutEBML'),
+                exec_tgts.get('MistUtilNuke'), timeout_program],
+         suite: 'Streams', timeout: 150, is_parallel: false)
     if curl_program.found()
       sessionstoptest = find_program('process_session_stop_integration.sh')
       sessionstopargs = [ffmpeg_program, curl_program, exec_tgts.get('MistController'), exec_tgts.get('MistInBuffer'),
@@ -379,6 +409,29 @@ if get_option('b_sanitize') == 'none' and ffmpeg_program.found() and ffprobe_pro
                   exec_tgts.get('MistProcThumbs'), exec_tgts.get('MistOutEBML'),
                   exec_tgts.get('MistUtilNuke'), timeout_program, python_program],
            suite: 'Processing', timeout: 240, is_parallel: false)
+      processingdraintest = find_program('processing_drain_integration.sh')
+      processingdrainargs = [ffmpeg_program, ffprobe_program, exec_tgts.get('MistController'),
+                             exec_tgts.get('MistInMP4'), exec_tgts.get('MistInEBML'), exec_tgts.get('MistInBuffer'),
+                             exec_tgts.get('MistProcThumbs'), exec_tgts.get('MistOutEBML'),
+                             exec_tgts.get('MistUtilNuke'), timeout_program, python_program]
+      test('Processing recordings write their header at source EOF despite an empty original', processingdraintest,
+           args: processingdrainargs, env: {'MIST_DRAIN_MODE': 'empty-original'},
+           suite: 'Processing', timeout: 120, is_parallel: false)
+      test('Processing buffers stay up while a slow recorder drains after source EOF', processingdraintest,
+           args: processingdrainargs, env: {'MIST_DRAIN_MODE': 'slow-sink'},
+           suite: 'Processing', timeout: 420, is_parallel: false)
+      test('Processing recordings stuck past the stale window report a lost buffer', processingdraintest,
+           args: processingdrainargs, env: {'MIST_DRAIN_MODE': 'stuck-sink'},
+           suite: 'Processing', timeout: 420, is_parallel: false)
+      test('Processing recordings whose buffer stops mid-drain report a lost buffer', processingdraintest,
+           args: processingdrainargs, env: {'MIST_DRAIN_MODE': 'buffer-killed'},
+           suite: 'Processing', timeout: 300, is_parallel: false)
+      test('Processing recordings of a very short source keep audio that starts after video', processingdraintest,
+           args: processingdrainargs, env: {'MIST_DRAIN_MODE': 'late-audio'},
+           suite: 'Processing', timeout: 120, is_parallel: false)
+      test('Processing recordings keep a one-frame source video track', processingdraintest,
+           args: processingdrainargs, env: {'MIST_DRAIN_MODE': 'one-frame'},
+           suite: 'Processing', timeout: 120, is_parallel: false)
     endif
     thumbnailvodtest = find_program('thumbnail_vod_integration.sh')
     test('Thumbnail VOD publishes JPEG, VTT, trigger, and HTTP artifacts', thumbnailvodtest,
