@@ -18,6 +18,7 @@
 
 #include <arpa/inet.h>
 #include <atomic>
+#include <csignal>
 #include <cstdlib>
 #include <cstring>
 #include <dirent.h>
@@ -234,18 +235,8 @@ namespace {
           if (!hasValue(request, "X-Trigger-UUID") || !hasValue(request, "X-Trigger-UnixMillis") || !hasValue(request, "Date")) {
             ++missingIdentity;
           }
-          // The sender may have given up on its request already: answering it must not end this
-          // process with SIGPIPE.
           const std::string response = "HTTP/1.1 200 OK\r\nContent-Length: 4\r\nConnection: close\r\n\r\ntrue";
-#ifdef SO_NOSIGPIPE
-          const int noSigPipe = 1;
-          setsockopt(conn, SOL_SOCKET, SO_NOSIGPIPE, &noSigPipe, sizeof(noSigPipe));
-#endif
-#ifdef MSG_NOSIGNAL
-          send(conn, response.data(), response.size(), MSG_NOSIGNAL);
-#else
           send(conn, response.data(), response.size(), 0);
-#endif
           close(conn);
         }
       }
@@ -276,6 +267,14 @@ namespace {
   }
 
   int runStress() {
+    // Like every Mist process (see Util::Config::activate), a write to a peer that hung up fails
+    // instead of ending this one: the stub answers senders that may have given up, and trigger
+    // handlers can exit before their input is written. A handler, unlike SIG_IGN, does not carry
+    // over into the sessions and handlers this process starts.
+    struct sigaction ignorePipe;
+    memset(&ignorePipe, 0, sizeof(ignorePipe));
+    ignorePipe.sa_handler = [](int) {};
+    sigaction(SIGPIPE, &ignorePipe, 0);
     const std::string dir = Util::getMyPath();
     const std::string results = envOr("ENVSTRESS_RESULTS", "");
     if (results.empty()) { return fail("results directory missing"); }
