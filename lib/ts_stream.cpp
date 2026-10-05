@@ -1261,6 +1261,7 @@ namespace TS{
       if (idx == INVALID_TRACK_ID){
         if (!addNewTrack){return;}
         trkDta.id = mId;
+        if (outputName.size()) { trkDta.output = trkDta.type == "video" ? outputName : outputName + "." + trkDta.type; }
         idx = meta.addOrResumeDelayedTrack(trkDta);
       }
 

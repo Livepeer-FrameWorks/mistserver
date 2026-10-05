@@ -45,6 +45,20 @@ namespace DTSC{
   extern uint8_t trackValidMask;
   extern uint8_t trackValidDefault;
 
+  /// Identity (see processIdentity) of the configured process this process runs as, from the
+  /// configuration it was started with as its argument; empty when it read its configuration from
+  /// standard input. While set, tracks described with an output name are registered and resumed by
+  /// their output key.
+  extern std::string outputKeyScope;
+  /// Identity of a configured process: a hash of the configuration string the buffer keys it by and
+  /// passes as its first argument. A changed or replacement configuration has another identity.
+  std::string processIdentity(const std::string & processConfig);
+  /// The key of one output of a configured process: "<identity>/<output name>". Output names longer
+  /// than 100 bytes are replaced by a hash. Empty when either part is empty.
+  std::string outputKey(const std::string & identity, const std::string & outputName);
+  /// The process identity part of an output key; empty for a track without a key.
+  std::string outputKeyIdentity(const std::string & key);
+
   ///\brief This enum holds all possible datatypes for DTSC packets.
   enum datatype{
     AUDIO,          ///< Stream Audio data
@@ -232,6 +246,10 @@ namespace DTSC{
       size_t width{0}; ///< Video width
       size_t height{0}; ///< Video height
       size_t fpks{0}; ///< Frames per 1000 seconds (fps * 1000)
+
+      /// The producer's name for this output (a rendition name, "video", "sprite", ...), stable
+      /// across restarts of that producer. Empty for tracks that are not process outputs.
+      std::string output;
   };
 
   class Track{
@@ -397,6 +415,13 @@ namespace DTSC{
     size_t addOrResumeTrack(const TrackMetadata & trkDta, size_t sourceTrack = INVALID_TRACK_ID);
     size_t addOrResumeDelayedTrack(const TrackMetadata & trkDta);
     std::string resumeMismatch(size_t trackIdx, const TrackMetadata & trkDta) const;
+    std::string keyedResumeMismatch(size_t trackIdx, const TrackMetadata & trkDta) const;
+
+    void setOutputKey(size_t trackIdx, const std::string & key);
+    std::string getOutputKey(size_t trackIdx) const;
+    size_t findOutputKeyTrack(const std::string & key) const;
+    void setResumeUntil(size_t trackIdx, uint64_t bootMs);
+    uint64_t getResumeUntil(size_t trackIdx) const;
     void resizeTrack(size_t source, size_t fragCount = DEFAULT_FRAGMENT_COUNT, size_t keyCount = DEFAULT_KEY_COUNT,
                      size_t partCount = DEFAULT_PART_COUNT, size_t pageCount = DEFAULT_PAGE_COUNT, const char * reason = "",
                      size_t frameSize = 0);
@@ -657,6 +682,12 @@ namespace DTSC{
     /// whenever the stream page changes.
     bool replacementGivenUp = false;
 
+    size_t addOrResumeKeyedTrack(const TrackMetadata & trkDta, const std::string & key, size_t sourceTrack, bool delayed);
+    size_t createDescribedTrack(const TrackMetadata & trkDta, size_t sourceTrack, const std::string & key);
+    size_t createDescribedDelayedTrack(const TrackMetadata & trkDta, const std::string & key);
+    size_t addTrackRecord(size_t fragCount, size_t keyCount, size_t partCount, size_t pageCount, bool setValid,
+                          size_t frameSize, const std::string & key);
+
     std::map<size_t, jitterTimer> theJitters;
     // Internal buffers so we don't always need to search for everything
     Util::RelAccXFieldData streamVodField;
@@ -683,5 +714,15 @@ namespace DTSC{
     Util::RelAccXFieldData trackIvecField;
     Util::RelAccXFieldData trackWidevineField;
     Util::RelAccXFieldData trackPlayreadyField;
+
+    void openProcessOutputs(bool create);
+    void useProcessOutputs(char *mem);
+    void allocateMemBufProcessOutputs();
+    bool hasProcessOutput(size_t trackIdx) const;
+    IPC::sharedPage processOutputsPage;
+    char *processOutputsMemBuf = nullptr;
+    Util::RelAccX processOutputs;
+    Util::RelAccXFieldData outputKeyField;
+    Util::RelAccXFieldData resumeUntilField;
   };
 }// namespace DTSC

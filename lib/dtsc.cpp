@@ -18,6 +18,9 @@
 #include "util.h"
 
 #include <arpa/inet.h> //for htonl/ntohl
+#include <cerrno>
+#include <cinttypes>
+#include <csignal>
 #include <cstdlib>
 #include <cstring>
 #include <fstream>
@@ -45,6 +48,37 @@ namespace DTSC{
   uint8_t trackValidMask = TRACK_VALID_ALL;
   /// The mask that will be set by the current process for new tracks
   uint8_t trackValidDefault = TRACK_VALID_ALL;
+
+  std::string outputKeyScope;
+
+  static uint64_t fnv1a64(const std::string & data) {
+    uint64_t hash = 1469598103934665603ull;
+    for (const unsigned char c : data) {
+      hash ^= c;
+      hash *= 1099511628211ull;
+    }
+    return hash;
+  }
+
+  static std::string hex64(uint64_t value) {
+    char hex[17];
+    snprintf(hex, sizeof(hex), "%016" PRIx64, value);
+    return hex;
+  }
+
+  std::string processIdentity(const std::string & processConfig) {
+    return hex64(fnv1a64(processConfig));
+  }
+
+  std::string outputKey(const std::string & identity, const std::string & outputName) {
+    if (identity.empty() || outputName.empty()) { return ""; }
+    return identity + "/" + (outputName.size() <= 100 ? outputName : "h" + hex64(fnv1a64(outputName)));
+  }
+
+  std::string outputKeyIdentity(const std::string & key) {
+    const size_t slash = key.find('/');
+    return slash == std::string::npos ? "" : key.substr(0, slash);
+  }
 
   /// Default constructor for packets - sets a null pointer and invalid packet.
   Packet::Packet(){
@@ -1290,6 +1324,8 @@ namespace DTSC{
     snprintf(pageName, NAME_BUFFER_SIZE, SHM_STREAM_META, streamName.c_str());
 
     if (master){
+      // Before the stream page, so every process that finds the stream finds its process outputs.
+      openProcessOutputs(true);
       streamPage.init(pageName, bufferSize, false, false);
       if (streamPage.mapped){
         FAIL_MSG("Re-claiming page %s", pageName);
@@ -1306,6 +1342,7 @@ namespace DTSC{
         return;
       }
       stream = Util::RelAccX(streamPage.mapped, true);
+      openProcessOutputs(false);
     }
   }
 
@@ -1563,6 +1600,8 @@ namespace DTSC{
 
     if (stream.isReload() || stream.isExit()){
       INFO_MSG("Reloading entire metadata");
+      // An exiting stream page is followed by the next generation's, with its own process outputs.
+      const bool nextGeneration = stream.isExit();
       streamPage.close();
       replacementGivenUp = false;
       snprintf(pageName, NAME_BUFFER_SIZE, SHM_STREAM_META, streamName.c_str());
@@ -1574,6 +1613,7 @@ namespace DTSC{
         return true;
       }
       stream = Util::RelAccX(streamPage.mapped, true);
+      if (nextGeneration || !processOutputs.isReady()) { openProcessOutputs(false); }
       tM.clear();
       if (trackInvalidateCallback) {
         for (auto & t : tracks) { trackInvalidateCallback(t.first); }
@@ -2205,9 +2245,173 @@ namespace DTSC{
     return "";
   }
 
+  /// Why the track carrying an output key cannot continue as the described output of the same key;
+  /// empty when it can. An empty init in the description means the producer does not know it yet
+  /// (an encoder that only has it after its first packet), not that the output has none.
+  std::string Meta::keyedResumeMismatch(size_t T, const TrackMetadata & trkDta) const {
+    if (trkDta.init.size() || !getInit(T).size()) { return resumeMismatch(T, trkDta); }
+    TrackMetadata withInit = trkDta;
+    withInit.init = getInit(T);
+    return resumeMismatch(T, storedTrackForm(withInit));
+  }
+
+  /// Lays out the process outputs page (see SHM_STREAM_POUT) in the given memory, which is
+  /// PROCESS_OUTPUTS_PAGE_LEN bytes of zeroes.
+  static void initProcessOutputs(char *mem) {
+    Util::RelAccX outputs(mem, false);
+    outputs.addField("outkey", RAX_128STRING);
+    outputs.addField("resumeuntil", RAX_64UINT);
+    outputs.setRCount(PROCESS_OUTPUT_TRACKS);
+    outputs.addRecords(PROCESS_OUTPUT_TRACKS);
+    outputs.setReady();
+  }
+
+  /// Creates (as the stream's master) or opens the stream's process outputs, by track index:
+  /// the key of each process output and the time until which the buffer holds an unclaimed track
+  /// for its producer or publisher to come back. They are kept outside the track list, on a page
+  /// of fixed size that is never replaced, so no other process growing the list can lose a write
+  /// to them, and the track list keeps the record layout of every version. A stream whose master
+  /// made no such page (a version from before it) has no keys and holds no tracks.
+  void Meta::openProcessOutputs(bool create) {
+    processOutputs = Util::RelAccX();
+    processOutputsPage.close();
+    char pageName[NAME_BUFFER_SIZE];
+    snprintf(pageName, NAME_BUFFER_SIZE, SHM_STREAM_POUT, streamName.c_str());
+    if (create) {
+      // A page left by a previous generation is replaced, not reused: a new page is all zeroes.
+      processOutputsPage.init(pageName, 0, false, false);
+      processOutputsPage.master = true;
+      processOutputsPage.close();
+      processOutputsPage.init(pageName, PROCESS_OUTPUTS_PAGE_LEN, true);
+      processOutputsPage.master = false;
+      if (processOutputsPage.mapped) { initProcessOutputs(processOutputsPage.mapped); }
+    } else {
+      processOutputsPage.init(pageName, 0, false, false);
+    }
+    if (!processOutputsPage.mapped) { return; }
+    useProcessOutputs(processOutputsPage.mapped);
+  }
+
+  /// Uses the process outputs laid out in the given memory, when they are complete.
+  void Meta::useProcessOutputs(char *mem) {
+    processOutputs = Util::RelAccX(mem, false);
+    if (!processOutputs.isReady()) {
+      processOutputs = Util::RelAccX();
+      return;
+    }
+    outputKeyField = processOutputs.getFieldData("outkey");
+    resumeUntilField = processOutputs.getFieldData("resumeuntil");
+  }
+
+  /// Gives in-memory metadata its process outputs on first use; most never has any.
+  void Meta::allocateMemBufProcessOutputs() {
+    if (!isMemBuf || processOutputsMemBuf) { return; }
+    processOutputsMemBuf = (char *)calloc(1, PROCESS_OUTPUTS_PAGE_LEN);
+    if (!processOutputsMemBuf) { return; }
+    initProcessOutputs(processOutputsMemBuf);
+    useProcessOutputs(processOutputsMemBuf);
+  }
+
+  /// Whether the process outputs have a record for this track index.
+  bool Meta::hasProcessOutput(size_t trackIdx) const {
+    return processOutputs.isReady() && trackIdx < processOutputs.getRCount();
+  }
+
+  void Meta::setOutputKey(size_t trackIdx, const std::string & key) {
+    if (key.size()) { allocateMemBufProcessOutputs(); }
+    if (!hasProcessOutput(trackIdx)) {
+      // Without the page at all the stream's master is of a version without output keys.
+      if (key.size() && processOutputs.isReady()) {
+        WARN_MSG("Track %zu has no room for its output key %s", trackIdx, key.c_str());
+      }
+      return;
+    }
+    processOutputs.setString(outputKeyField, key, trackIdx);
+  }
+
+  /// The output key of a process output track; empty for every other track.
+  std::string Meta::getOutputKey(size_t trackIdx) const {
+    if (!hasProcessOutput(trackIdx)) { return ""; }
+    return fieldString(processOutputs, outputKeyField, trackIdx);
+  }
+
+  /// Sets until when (boot ms) the buffer keeps this unclaimed track for its producer or publisher
+  /// to come back; 0 when it does not.
+  void Meta::setResumeUntil(size_t trackIdx, uint64_t bootMs) {
+    if (bootMs) { allocateMemBufProcessOutputs(); }
+    if (!hasProcessOutput(trackIdx)) { return; }
+    processOutputs.setInt(resumeUntilField, bootMs, trackIdx);
+  }
+
+  /// Until when (boot ms) the buffer keeps this unclaimed track for its producer or publisher to
+  /// come back; 0 when it does not.
+  uint64_t Meta::getResumeUntil(size_t trackIdx) const {
+    if (!hasProcessOutput(trackIdx)) { return 0; }
+    return processOutputs.getInt(resumeUntilField, trackIdx);
+  }
+
+  /// The newest valid track (under any validity mask) carrying the given output key.
+  size_t Meta::findOutputKeyTrack(const std::string & key) const {
+    size_t found = INVALID_TRACK_ID;
+    if (key.empty()) { return found; }
+    for (size_t i = trackList.getDeleted(); i < trackList.getEndPos(); ++i) {
+      if (!trackList.getInt(trackValidField, i) || !tracks.count(i)) { continue; }
+      if (getOutputKey(i) == key) { found = i; }
+    }
+    return found;
+  }
+
+  /// Registers a process output by its output key. The producer continues the track that carries
+  /// its key when that track still describes the same output; a previous instance of the producer
+  /// that still holds the claim gets five seconds to let go, a dead one loses it at once. A track
+  /// whose description changed (another init or video size) is replaced: a new track gets the key
+  /// and the old one is left unclaimed for the buffer to retire. No other track is ever taken.
+  size_t Meta::addOrResumeKeyedTrack(const TrackMetadata & trkDta, const std::string & key, size_t sourceTrack, bool delayed) {
+    uint8_t oldMask = trackValidMask;
+    trackValidMask = TRACK_VALID_ALL;
+    reloadReplacedPagesIfNeeded();
+    trackValidMask = oldMask;
+    size_t T = findOutputKeyTrack(key);
+    if (T != INVALID_TRACK_ID) {
+      const uint64_t waitStart = Util::bootMS();
+      while (isClaimed(T) && isClaimedBy(T) != (uint64_t)getpid()) {
+        const pid_t owner = (pid_t)isClaimedBy(T);
+        if (kill(owner, 0) && errno == ESRCH) {
+          INFO_MSG("Track %zu (output %s) is claimed by PID %d, which is gone; taking it over", T, key.c_str(), (int)owner);
+          breakClaim(T);
+          break;
+        }
+        if (Util::bootMS() - waitStart > 5000) { break; }
+        Util::sleep(100);
+      }
+      if (isClaimed(T) && isClaimedBy(T) != (uint64_t)getpid()) {
+        WARN_MSG("Track %zu (output %s) is still claimed by PID %" PRIu64 "; registering this output as a new track", T,
+                 key.c_str(), isClaimedBy(T));
+      } else {
+        const std::string mismatch = keyedResumeMismatch(T, trkDta);
+        if (mismatch.empty()) {
+          if (isClaimedBy(T) == (uint64_t)getpid() || claimTrack(T, false)) {
+            INFO_MSG("Resuming track %zu (output %s): %s %s", T, key.c_str(), trkDta.codec.c_str(), trkDta.type.c_str());
+            if (trkDta.type == "video" && trkDta.fpks) { setFpks(T, trkDta.fpks); }
+            if (trkDta.id) { setID(T, trkDta.id); }
+            if (sourceTrack != INVALID_TRACK_ID) { setSourceTrack(T, sourceTrack); }
+            if (!delayed) { markUpdated(T); }
+            return T;
+          }
+          WARN_MSG("Could not claim track %zu (output %s); registering this output as a new track", T, key.c_str());
+        } else {
+          WARN_MSG("Replacing track %zu (output %s): %s mismatch", T, key.c_str(), mismatch.c_str());
+        }
+      }
+    }
+    return delayed ? createDescribedDelayedTrack(trkDta, key) : createDescribedTrack(trkDta, sourceTrack, key);
+  }
+
   /// Either adds a track or resumes an existing track, if it can match track metadata to an unclaimed track.
   size_t Meta::addOrResumeTrack(const TrackMetadata & input, size_t sourceTrack) {
     const TrackMetadata trkDta = storedTrackForm(input);
+    const std::string key = outputKey(outputKeyScope, trkDta.output);
+    if (key.size()) { return addOrResumeKeyedTrack(trkDta, key, sourceTrack, false); }
     // Attempt to find an existing unclaimed track to resume
     uint8_t oldMask = trackValidMask;
     trackValidMask = TRACK_VALID_ALL;
@@ -2220,6 +2424,8 @@ namespace DTSC{
     uint64_t loop_start = Util::bootSecs();
     do {
       for (const size_t & T : V) {
+        // A process output belongs to its producer and is only ever resumed by its output key.
+        if (getOutputKey(T).size()) { continue; }
         const std::string mismatch = resumeMismatch(T, trkDta);
         if (mismatch.size()) {
           INFO_MSG("T%zu: not resumed by this %s %s track: %s mismatch", T, trkDta.codec.c_str(), trkDta.type.c_str(),
@@ -2246,24 +2452,28 @@ namespace DTSC{
     if (hasCandidate) {
       WARN_MSG("Failed to claim track (%s %s) for resuming! Creating instead...", trkDta.codec.c_str(), trkDta.type.c_str());
     }
+    return createDescribedTrack(trkDta, sourceTrack, "");
+  }
 
+  /// Creates a validated track with the given description and output key: a raw track for codecs
+  /// with a static frame size, a standard track otherwise.
+  size_t Meta::createDescribedTrack(const TrackMetadata & trkDta, size_t sourceTrack, const std::string & key) {
     {
       // Create a new track and set the metadata
       size_t T = INVALID_TRACK_ID;
       size_t staticSize = Util::pixfmtToSize(trkDta.codec, trkDta.width, trkDta.height);
       if (staticSize) {
         // Known static frame sizes: raw track mode
-        T = addTrack(0, 0, 0, 0, false, staticSize);
+        T = addTrackRecord(0, 0, 0, 0, false, staticSize, key);
       } else {
         // Other cases: standard track mode
-        T = addDelayedTrack();
+        T = addTrackRecord(DEFAULT_FRAGMENT_COUNT, DEFAULT_KEY_COUNT, DEFAULT_PART_COUNT, DEFAULT_PAGE_COUNT, false, 0, key);
       }
       if (T == INVALID_TRACK_ID) {
         FAIL_MSG("Could not create new track %zu: %s %s", T, trkDta.codec.c_str(), trkDta.type.c_str());
         return T;
       }
       INFO_MSG("Creating new track %zu: %s %s", T, trkDta.codec.c_str(), trkDta.type.c_str());
-      markUpdated(T);
       setType(T, trkDta.type);
       setCodec(T, trkDta.codec);
       setLang(T, trkDta.lang);
@@ -2321,10 +2531,14 @@ namespace DTSC{
   /// Either adds a track or resumes an existing track, if it can match track metadata to an unclaimed track.
   size_t Meta::addOrResumeDelayedTrack(const TrackMetadata & input) {
     const TrackMetadata trkDta = storedTrackForm(input);
+    const std::string key = outputKey(outputKeyScope, trkDta.output);
+    if (key.size()) { return addOrResumeKeyedTrack(trkDta, key, INVALID_TRACK_ID, true); }
     // Attempt to find an existing unclaimed track to resume
     std::set<size_t> V = getValidTracks();
     for (const auto & T : V) {
       if (isClaimed(T)) { continue; }
+      // A process output belongs to its producer and is only ever resumed by its output key.
+      if (getOutputKey(T).size()) { continue; }
       const std::string mismatch = resumeMismatch(T, trkDta);
       if (mismatch.size()) {
         INFO_MSG("T%zu: not resumed by this %s %s track: %s mismatch", T, trkDta.codec.c_str(), trkDta.type.c_str(),
@@ -2344,10 +2558,18 @@ namespace DTSC{
       if (trkDta.id) { setID(T, trkDta.id); }
       return T;
     }
+    return createDescribedDelayedTrack(trkDta, "");
+  }
 
+  /// Creates a delayed (not yet valid) track with the given description and output key.
+  size_t Meta::createDescribedDelayedTrack(const TrackMetadata & trkDta, const std::string & key) {
     {
       // Create a new track and set the metadata
-      size_t T = addDelayedTrack();
+      size_t T = addTrackRecord(DEFAULT_FRAGMENT_COUNT, DEFAULT_KEY_COUNT, DEFAULT_PART_COUNT, DEFAULT_PAGE_COUNT, false, 0, key);
+      if (T == INVALID_TRACK_ID) {
+        FAIL_MSG("Could not create new (delayed) track: %s %s", trkDta.codec.c_str(), trkDta.type.c_str());
+        return T;
+      }
       INFO_MSG("Creating new (delayed) track %zu: %s %s", T, trkDta.codec.c_str(), trkDta.type.c_str());
       setType(T, trkDta.type);
       setCodec(T, trkDta.codec);
@@ -2371,6 +2593,13 @@ namespace DTSC{
   /// Adds a track to the metadata structure.
   /// To be called from the various inputs/outputs whenever they want to add a track.
   size_t Meta::addTrack(size_t fragCount, size_t keyCount, size_t partCount, size_t pageCount, bool setValid, size_t frameSize){
+    return addTrackRecord(fragCount, keyCount, partCount, pageCount, setValid, frameSize, "");
+  }
+
+  /// Creates a track carrying the output key (empty for a track that is no process output) in a
+  /// new track list record, appended while the track list is locked.
+  size_t Meta::addTrackRecord(size_t fragCount, size_t keyCount, size_t partCount, size_t pageCount, bool setValid,
+                              size_t frameSize, const std::string & key) {
     char pageName[NAME_BUFFER_SIZE];
     TrackListLock lock(*this);
     if (!lock.held()) {
@@ -2421,6 +2650,8 @@ namespace DTSC{
     trackList.setString(trackPageField, pageName, tNumber);
     trackList.setInt(trackPidField, getpid(), tNumber);
     trackList.setInt(trackSourceTidField, INVALID_TRACK_ID, tNumber);
+    setOutputKey(tNumber, key);
+    setResumeUntil(tNumber, 0);
     trackList.addRecords(1);
     if (setValid){validateTrack(tNumber, trackValidDefault);}
     return tNumber;
@@ -3653,6 +3884,9 @@ namespace DTSC{
       }
       tMemBuf.clear();
       sizeMemBuf.clear();
+      processOutputs = Util::RelAccX();
+      free(processOutputsMemBuf);
+      processOutputsMemBuf = 0;
     }else if (isMaster){
       IPC::semaphore trackLock;
       if (streamName.size()){
@@ -3673,6 +3907,7 @@ namespace DTSC{
       }
       if (streamPage.mapped && stream.isReady()){stream.setExit();}
       streamPage.master = true;
+      processOutputsPage.master = true;
       if (streamName.size()){
         //Wipe tracklist semaphore. This is not done anywhere else in the codebase.
         trackLock.unlink();
@@ -3682,6 +3917,8 @@ namespace DTSC{
     trackList = Util::RelAccX();
     streamPage.close();
     replacementGivenUp = false;
+    processOutputs = Util::RelAccX();
+    processOutputsPage.close();
     if (trackInvalidateCallback) {
       for (auto & t : tracks) { trackInvalidateCallback(t.first); }
     }

@@ -465,6 +465,37 @@ namespace EBML{
     tmpElem = E.findChild(EBML::EID_LANGUAGE);
     if (tmpElem) { lang = tmpElem.getValString(); }
     size_t idx = meta.trackIDToIndex(trackID, getpid());
+    if (idx == INVALID_TRACK_ID && DTSC::outputKeyScope.size()) {
+      // A process writing its outputs as Matroska (FFmpeg, exec): each track number the tool writes
+      // is one output, which a restarted run of the same process continues. Raw video keeps a
+      // standard track, as before.
+      DTSC::TrackMetadata trkDta;
+      trkDta.type = trueType;
+      trkDta.codec = trueCodec;
+      trkDta.lang = lang;
+      trkDta.init = init;
+      trkDta.id = trackID;
+      if (trueType == "video") {
+        tmpElem = E.findChild(EBML::EID_PIXELWIDTH);
+        trkDta.width = tmpElem ? tmpElem.getValUInt() : 0;
+        tmpElem = E.findChild(EBML::EID_PIXELHEIGHT);
+        trkDta.height = tmpElem ? tmpElem.getValUInt() : 0;
+      }
+      if (trueType == "audio") {
+        tmpElem = E.findChild(EBML::EID_CHANNELS);
+        trkDta.channels = tmpElem ? tmpElem.getValUInt() : 1;
+        tmpElem = E.findChild(EBML::EID_BITDEPTH);
+        trkDta.size = tmpElem ? tmpElem.getValUInt() : 0;
+        tmpElem = E.findChild(EBML::EID_SAMPLINGFREQUENCY);
+        trkDta.rate = tmpElem ? (int)tmpElem.getValFloat() : 8000;
+      }
+      if (!Util::pixfmtToSize(trueCodec, trkDta.width, trkDta.height)) {
+        trkDta.output = "track" + std::to_string(trackID);
+        idx = meta.addOrResumeTrack(trkDta);
+        INFO_MSG("Detected track %" PRIu64 " => %zu: %s", trackID, idx, meta.getTrackIdentifier(idx).c_str());
+        return idx != INVALID_TRACK_ID;
+      }
+    }
     if (idx == INVALID_TRACK_ID) { idx = meta.addTrack(); }
     meta.setID(idx, trackID);
     meta.setLang(idx, lang);

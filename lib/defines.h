@@ -231,6 +231,11 @@ static inline void show_stackframe(){}
 #define SHM_STREAM_CONF "/MstSCnf%s"   //%s stream name
 #define SHM_STREAM_IPID "/MstIPID%s"   //%s stream name
 #define SHM_STREAM_PPID "/MstPPID%s"   //%s stream name
+// Output key and resume hold of each track of a stream, by track index (see
+// DTSC::Meta::openProcessOutputs); created by the stream's master, never resized.
+#define SHM_STREAM_POUT "/MstPOut%s" //%s stream name
+#define PROCESS_OUTPUT_TRACKS 1024
+#define PROCESS_OUTPUTS_PAGE_LEN (4096 + PROCESS_OUTPUT_TRACKS * (128 + 8))
 #define SHM_GLOBAL_CONF "/MstGlobalConfig"
 #define SHM_STREAMKEYS "/MstStrmKeys"
 // Stream state values stored at SHM_STREAM_STATE byte 0.

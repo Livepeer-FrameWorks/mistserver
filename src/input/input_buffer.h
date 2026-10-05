@@ -53,6 +53,7 @@ namespace Mist{
 
     bool removeKey(size_t tid);
     void removeUnused();
+    void retireReplacedOutputs();
     void finish();
 
     void userLeadIn();

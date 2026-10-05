@@ -543,6 +543,7 @@ namespace Mist {
         identity["output_id"] = outputId;
         identity["model"] = opt["model"].asString();
         trkDta.init = identity.toString();
+        trkDta.output = outputId + "/" + identity["role"].asString();
         metadataTrackIdx = meta.addOrResumeTrack(trkDta);
         if (metadataTrackIdx == INVALID_TRACK_ID) { FAIL_MSG("ProcessSink: could not add metadata track"); return; }
         meta.setID(metadataTrackIdx, metadataTrackIdx);
@@ -568,6 +569,7 @@ namespace Mist {
         trkDta.width = w;
         trkDta.height = h;
         trkDta.fpks = estimatedFpks;
+        trkDta.output = outputId + "/annotations";
         videoTrackIdx = meta.addOrResumeTrack(trkDta);
         if (videoTrackIdx == INVALID_TRACK_ID) { FAIL_MSG("ProcessSink: could not add video track"); return; }
         meta.setID(videoTrackIdx, videoTrackIdx);
@@ -2491,6 +2493,7 @@ int main(int argc, char *argv[]) {
 
   if (config.getString("configuration") != "-") {
     opt = JSON::fromString(config.getString("configuration"));
+    DTSC::outputKeyScope = DTSC::processIdentity(config.getString("configuration"));
   } else {
     std::string json, line;
     while (std::getline(std::cin, line)) json += line;

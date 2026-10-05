@@ -54,7 +54,8 @@ namespace {
 
   bool sendAll(int fd, const char *data, size_t size) {
     while (size) {
-      const ssize_t sent = send(fd, data, size, 0);
+      // A client killed mid-response must not take the stub down with SIGPIPE.
+      const ssize_t sent = send(fd, data, size, MSG_NOSIGNAL);
       if (sent <= 0) { return false; }
       data += sent;
       size -= sent;

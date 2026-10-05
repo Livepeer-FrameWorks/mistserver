@@ -140,6 +140,10 @@ if [ ! -e "/dev/shm/MstSTATE$stream" ]; then
   echo "the nuke of the previous generation wiped the new generation's stream state page" >&2
   exit 1
 fi
+if [ ! -e "/dev/shm/MstPOut$stream" ]; then
+  echo "the nuke of the previous generation wiped the new generation's process outputs page" >&2
+  exit 1
+fi
 input_pid=$(od -An -t u8 -N 8 "/dev/shm/MstIPID$stream" 2>/dev/null | tr -d ' ')
 if [ "$input_pid" != "$new_pid" ]; then
   echo "the stream's input PID page names '${input_pid:-nothing}', not the new generation's input $new_pid" >&2

@@ -322,6 +322,7 @@ int main(int argc, char **argv){
   killProcesses(checkPids, "output");
   if (newerGenerationStarted()) { return leaveNewerGeneration("removing its semaphores"); }
   nukePage(COMMS_USERS);
+  nukePage(SHM_STREAM_POUT);
   nukeSem(SEM_USERS);
   nukeSem(SEM_LIVE);
   nukeSem(SEM_TRACKLIST);

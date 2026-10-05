@@ -580,6 +580,7 @@ namespace Mist {
           {
             DTSC::TrackMetadata trkDta;
             trkDta.type = "video";
+            trkDta.output = "video";
             trkDta.codec = "UYVY";
             trkDta.width = outputWidth;
             trkDta.height = outputHeight;
@@ -931,20 +932,21 @@ namespace Mist {
                       size_t bytes = audBytes * blocks;
                       if (audIdx == INVALID_TRACK_ID) {
                         INFO_MSG("Adding audio track!");
-                        thisIdx = audIdx = meta.addTrack();
                         audioChannels = s.P->audChannels;
                         audioSampRate = s.P->audRate;
                         audioSampSize = s.P->audSize;
                         if (Mist::opt.isMember("audiochannels") && Mist::opt["audiochannels"].isInt()) {
                           audioChannels = Mist::opt["audiochannels"].asInt();
                         }
-                        meta.setType(thisIdx, "audio");
-                        meta.setCodec(thisIdx, "PCM");
-                        meta.setRate(thisIdx, audioSampRate);
-                        meta.setSize(thisIdx, audioSampSize);
-                        meta.setChannels(thisIdx, audioChannels);
+                        DTSC::TrackMetadata trkDta;
+                        trkDta.type = "audio";
+                        trkDta.output = "audio";
+                        trkDta.codec = "PCM";
+                        trkDta.rate = audioSampRate;
+                        trkDta.size = audioSampSize;
+                        trkDta.channels = audioChannels;
+                        thisIdx = audIdx = meta.addOrResumeTrack(trkDta);
                         meta.setID(thisIdx, thisIdx);
-                        meta.markUpdated(thisIdx);
                       }
                       if (s.P->audTime >= audLastMs) {
                         if (s.P->audTime > audLastMs && audLastMs) { audForwardTo(s.P->audTime); }
@@ -1438,6 +1440,7 @@ int main(int argc, char *argv[]) {
     // read configuration
     if (config.getString("configuration") != "-") {
       Mist::opt = JSON::fromString(config.getString("configuration"));
+      DTSC::outputKeyScope = DTSC::processIdentity(config.getString("configuration"));
     } else {
       std::string json, line;
       INFO_MSG("Reading configuration from standard input");

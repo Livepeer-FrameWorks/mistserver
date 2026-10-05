@@ -86,6 +86,8 @@ embeddedframetest = executable('embeddedframetest', 'dtsc_embedded_frames_unit.c
 test('Embedded frame storage fills and wraps safely', embeddedframetest, suite: 'DTSC')
 
 dtscresumetest = executable('dtscresumetest', 'dtsc_resume_unit.cpp', header_tgts, dependencies: libmist_dep)
+dtscoutputkeytest = executable('dtscoutputkeytest', 'dtsc_output_key_unit.cpp', header_tgts, dependencies: libmist_dep)
+test('Process outputs resume by output key only', dtscoutputkeytest, suite: 'DTSC')
 dtsclockbudgettest = executable('dtsclockbudgettest', 'dtsc_track_list_lock_budget_unit.cpp', header_tgts,
                                 dependencies: libmist_dep)
 test('Only appending, growing and claiming take the track list lock', dtsclockbudgettest, suite: 'DTSC')
@@ -93,6 +95,9 @@ dtsclistwritetest = executable('dtsclistwritetest', 'dtsc_track_list_write_unit.
                                dependencies: libmist_dep)
 test('Every write to a shared track list survives another process growing it', dtsclistwritetest, suite: 'DTSC',
      timeout: 60)
+dtscprocessoutputstest = executable('dtscprocessoutputstest', 'dtsc_process_outputs_unit.cpp', header_tgts,
+                                    dependencies: libmist_dep)
+test('Output keys and resume holds survive the track list growing', dtscprocessoutputstest, suite: 'DTSC')
 test('A reconnect resumes the tracks it left', dtscresumetest, suite: 'DTSC')
 
 inputtstest = executable('inputtstest', ['input_ts_unit.cpp', '../src/input/input.cpp',
@@ -288,6 +293,12 @@ if get_option('b_sanitize') == 'none' and ffmpeg_program.found() and ffprobe_pro
          env: {'MIST_PROCESS_EXPECT_EOF': '1', 'MIST_PROCESS_SOURCE_DURATION': '8',
                'MIST_PROCESS_SOURCE_BFRAMES': '2'},
          suite: 'Processing', timeout: 120, is_parallel: false)
+    processresumetest = find_program('process_resume_integration.sh')
+    test('Restarted live processes continue their own output tracks', processresumetest,
+         args: [ffmpeg_program, ffprobe_program, exec_tgts.get('MistController'), exec_tgts.get('MistInBuffer'),
+                exec_tgts.get('MistOutRTMP'), exec_tgts.get('MistProcAV'), exec_tgts.get('MistProcThumbs'),
+                exec_tgts.get('MistUtilNuke')],
+         suite: 'Processing', timeout: 150, is_parallel: false)
     processavrepublishtest = find_program('process_av_republish_integration.sh')
     test('Audio ProcAV survives a live republish that replaces track 0', processavrepublishtest,
          args: [ffmpeg_program, exec_tgts.get('MistController'), exec_tgts.get('MistInBuffer'),

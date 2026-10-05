@@ -149,6 +149,14 @@ int main() {
     return fail("a shutting-down stream still waits for a running producer's outputs, such as thumbnails made after "
                 "the source ended");
   }
+  if (!bufferRetiresReplacedOutput(false, true)) {
+    return fail("an output replaced by a registered newer track of its key goes at once");
+  }
+  if (bufferRetiresReplacedOutput(true, true) || bufferRetiresReplacedOutput(false, false) ||
+      bufferRetiresReplacedOutput(true, false)) {
+    return fail("an output whose producer still writes it, or whose replacement is not registered, stays");
+  }
+
   if (!processingRecordingGateReleased(true, true, 0, 0) ||
       !processingRecordingGateReleased(true, false, 1000, 1000 + PROCESSING_PRODUCER_DRAIN_MS)) {
     return fail(

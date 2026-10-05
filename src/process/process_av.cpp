@@ -389,6 +389,7 @@ namespace Mist{
       // We're encoding to a target codec
       DTSC::TrackMetadata trkDta;
       trkDta.type = "video";
+      trkDta.output = "video";
       trkDta.codec = codecOut;
       trkDta.id = 1;
       trkDta.width = frameConverted->width;
@@ -450,11 +451,17 @@ namespace Mist{
 
       DTSC::TrackMetadata trkDta;
       trkDta.type = "audio";
+      trkDta.output = "audio";
       trkDta.codec = codecOut;
       trkDta.id = 1;
       trkDta.rate = outAudioRate;
       trkDta.channels = outAudioChannels;
       trkDta.size = outAudioDepth;
+      // An encoder that exports its configuration on open has it now; one that only has it after
+      // its first packet registers without it, and the first packet sets it on a new track.
+      if (context_out && context_out->extradata && context_out->extradata_size) {
+        trkDta.init.assign((char *)context_out->extradata, context_out->extradata_size);
+      }
 
       // Add a single track and init some metadata
       meta.reInit(streamName, false);
@@ -2914,6 +2921,7 @@ int main(int argc, char *argv[]){
   // read configuration
   if (config.getString("configuration") != "-"){
     Mist::opt = JSON::fromString(config.getString("configuration"));
+    DTSC::outputKeyScope = DTSC::processIdentity(config.getString("configuration"));
   } else {
     INFO_MSG("Reading configuration from standard input");
     std::string json;

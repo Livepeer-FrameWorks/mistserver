@@ -433,11 +433,34 @@ namespace Mist{
     /*LTS-END*/
   }
 
+  /// Removes process outputs that were replaced explicitly: a producer whose output changed
+  /// (another init or video size after a restart) registered a new track under the output key the
+  /// old track carries, and left the old one unclaimed. The old track goes at once rather than
+  /// lingering until it idles out.
+  void InputBuffer::retireReplacedOutputs() {
+    const std::set<size_t> validTracks = M.getValidTracks();
+    std::map<std::string, size_t> newest;
+    for (const size_t track : validTracks) {
+      const std::string key = M.getOutputKey(track);
+      if (key.empty()) { continue; }
+      if (!newest.count(key) || track > newest[key]) { newest[key] = track; }
+    }
+    for (const size_t track : validTracks) {
+      const std::string key = M.getOutputKey(track);
+      if (key.empty() || newest[key] == track) { continue; }
+      if (!bufferRetiresReplacedOutput(M.isClaimed(track), M.isClaimed(newest[key]))) { continue; }
+      WARN_MSG("Removing track %zu: replaced by track %zu (output %s)", track, newest[key], key.c_str());
+      meta.reloadReplacedPagesIfNeeded();
+      removeTrack(track);
+    }
+  }
+
   void InputBuffer::removeUnused(){
     meta.reloadReplacedPagesIfNeeded();
     if (!meta){
       return;
     }
+    retireReplacedOutputs();
     // first remove all tracks that have not been updated for too long
     bool changed = true;
     while (changed){

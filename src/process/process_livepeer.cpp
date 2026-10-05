@@ -552,9 +552,12 @@ void insertPart(const Mist::preparedSegment & mySeg, const std::string & renditi
   while (!livepeerStopRequested.load(std::memory_order_acquire)) {
     {
       std::lock_guard<std::mutex> guard(segMutex);
-      if (Mist::segs[rendition].fullyRead){
+      Mist::readySegment & seg = Mist::segs[rendition];
+      // The rendition name is the profile name: the output this process continues across restarts.
+      if (seg.S.getOutputName().empty()) { seg.S.setOutputName(rendition); }
+      if (seg.fullyRead) {
         HIGH_MSG("Inserting %zi bytes of %s, originally for time %" PRIu64, len, rendition.c_str(), mySeg.time);
-        Mist::segs[rendition].set(mySeg.time, ptr, len);
+        seg.set(mySeg.time, ptr, len);
         return;
       }
     }
@@ -1189,6 +1192,7 @@ int main(int argc, char *argv[]){
   // read configuration
   if (config.getString("configuration") != "-"){
     Mist::opt = JSON::fromString(config.getString("configuration"));
+    DTSC::outputKeyScope = DTSC::processIdentity(config.getString("configuration"));
   } else {
     std::string json, line;
     INFO_MSG("Reading configuration from standard input");

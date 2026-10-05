@@ -244,38 +244,30 @@ namespace Mist {
           return;
         }
 
+        // Each output resumes the track a previous run of this process left (live restarts would
+        // otherwise add a sprite, VTT and preview track per run).
+        const size_t lineage = streamName == opt["source"].asString() ? sourceTrackIdx : INVALID_TRACK_ID;
+        auto addOutput = [&](const std::string & output, const std::string & type, const std::string & codec,
+                             const std::string & lang, uint32_t width, uint32_t height) {
+          DTSC::TrackMetadata trkDta;
+          trkDta.type = type;
+          trkDta.codec = codec;
+          trkDta.lang = lang;
+          trkDta.width = width;
+          trkDta.height = height;
+          trkDta.output = output;
+          size_t idx = meta.addOrResumeTrack(trkDta, lineage);
+          if (idx == INVALID_TRACK_ID) { return idx; }
+          meta.setID(idx, idx);
+          userSelect[idx].reload(streamName, idx, COMM_STATUS_ACTSOURCEDNT);
+          return idx;
+        };
         // Sprite sheet JPEG track
-        spriteIdx = meta.addTrack();
-        meta.setType(spriteIdx, "video");
-        meta.setCodec(spriteIdx, "JPEG");
-        meta.setLang(spriteIdx, "thu");
-        meta.setWidth(spriteIdx, gridW);
-        meta.setHeight(spriteIdx, gridH);
-        meta.setID(spriteIdx, spriteIdx);
-        if (streamName == opt["source"].asString()) { meta.setSourceTrack(spriteIdx, sourceTrackIdx); }
-        meta.markUpdated(spriteIdx);
-        userSelect[spriteIdx].reload(streamName, spriteIdx, COMM_STATUS_ACTSOURCEDNT);
-
+        spriteIdx = addOutput("sprite", "video", "JPEG", "thu", gridW, gridH);
         // VTT subtitle track
-        vttIdx = meta.addTrack();
-        meta.setType(vttIdx, "meta");
-        meta.setCodec(vttIdx, "thumbvtt");
-        meta.setID(vttIdx, vttIdx);
-        if (streamName == opt["source"].asString()) { meta.setSourceTrack(vttIdx, sourceTrackIdx); }
-        meta.markUpdated(vttIdx);
-        userSelect[vttIdx].reload(streamName, vttIdx, COMM_STATUS_ACTSOURCEDNT);
-
+        vttIdx = addOutput("vtt", "meta", "thumbvtt", "", 0, 0);
         // Preview JPEG track (single latest keyframe, lang="pre")
-        previewIdx = meta.addTrack();
-        meta.setType(previewIdx, "video");
-        meta.setCodec(previewIdx, "JPEG");
-        meta.setLang(previewIdx, "pre");
-        meta.setWidth(previewIdx, cellWidth);
-        meta.setHeight(previewIdx, cellHeight);
-        meta.setID(previewIdx, previewIdx);
-        if (streamName == opt["source"].asString()) { meta.setSourceTrack(previewIdx, sourceTrackIdx); }
-        meta.markUpdated(previewIdx);
-        userSelect[previewIdx].reload(streamName, previewIdx, COMM_STATUS_ACTSOURCEDNT);
+        previewIdx = addOutput("preview", "video", "JPEG", "pre", cellWidth, cellHeight);
 
         publishedThumbWidth = cellWidth;
         publishedThumbHeight = cellHeight;
@@ -1179,6 +1171,7 @@ int main(int argc, char *argv[]) {
   // Read configuration
   if (config.getString("configuration") != "-") {
     Mist::opt = JSON::fromString(config.getString("configuration"));
+    DTSC::outputKeyScope = DTSC::processIdentity(config.getString("configuration"));
   } else {
     std::string json, line;
     INFO_MSG("Reading configuration from standard input");

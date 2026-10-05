@@ -423,6 +423,7 @@ int main(int argc, char *argv[]){
   // read configuration
   if (config.getString("configuration") != "-") {
     Mist::opt = JSON::fromString(config.getString("configuration"));
+    DTSC::outputKeyScope = DTSC::processIdentity(config.getString("configuration"));
   } else {
     std::string json, line;
     INFO_MSG("Reading configuration from standard input");

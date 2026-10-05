@@ -79,9 +79,15 @@ namespace TS{
     uint64_t getLastMs(size_t tid) const;
 
     void setRawDataParser(rawDataType parser);
+    /// Names the process output this stream carries (a rendition), so its tracks are registered
+    /// and resumed by output key: the video track under this name, any other track under
+    /// "<name>.<type>".
+    void setOutputName(const std::string & name) { outputName = name; }
+    const std::string & getOutputName() const { return outputName; }
 
   private:
     bool delayTracks;
+    std::string outputName;
 
     uint64_t lastPAT;
     rawDataType rParser;

@@ -142,6 +142,13 @@ namespace Mist {
     return type == "video" || type == "audio" || selected;
   }
 
+  /// Whether the buffer removes an older track carrying the same output key as a newer one: once
+  /// the producer registered the newer one (claims it) and let go of the older one, the older one
+  /// was replaced. While the older one is still claimed, its producer is still writing it.
+  inline bool bufferRetiresReplacedOutput(bool olderClaimed, bool newerClaimed) {
+    return newerClaimed && !olderClaimed;
+  }
+
   /// Whether a processing recording leaves out an original track that would
   /// join its selection after the header was written. A recording header
   /// cannot be extended, so an original metadata or subtitle track that first
