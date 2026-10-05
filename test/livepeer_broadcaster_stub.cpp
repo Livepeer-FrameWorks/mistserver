@@ -4,6 +4,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <ctime>
 #include <fcntl.h>
 #include <mutex>
 #include <netinet/in.h>
@@ -35,6 +36,18 @@ namespace {
   uint64_t rejectDelayMs = 0;
   std::mutex claimMutex;
   int claimed = -1;
+  // While the file named by LIVEPEER_STUB_HOLD_FILE exists, every response waits, the way a
+  // gateway stalls; the test removes the file to let them through.
+  const char *holdFile = 0;
+  // While the file named by LIVEPEER_STUB_ALT_FLAG exists, every rendition carries the MPEG-TS
+  // bytes of LIVEPEER_STUB_ALT_FILE instead of the uploaded segment: an orchestrator that encodes
+  // differently (another resolution).
+  const char *altFlag = 0;
+  std::string altSegment;
+
+  bool fileExists(const char *path) {
+    return path && access(path, F_OK) == 0;
+  }
 
   bool failsEverything() {
     if (!claimFile) { return false; }
@@ -165,24 +178,34 @@ namespace {
       }
     }
 
-    const std::string prefix = "--mist-audit\r\nContent-Type: video/mp2t\r\nRendition-Name: audit\r\n\r\n";
-    const std::string suffix = "\r\n--mist-audit--\r\n";
-    const size_t responseSize = prefix.size() + bodySize + suffix.size();
-    const std::string responseHeaders =
-      "HTTP/1.1 200 OK\r\nContent-Type: multipart/mixed; boundary=mist-audit\r\nContent-Length: " + std::to_string(responseSize) +
-      "\r\nConnection: close\r\n\r\n";
     // Return odd segments first. The processor must serialize insertion by
     // segment number even when parallel broadcaster responses complete out of
     // order. Slow even responses also exercise external backpressure.
     usleep(segment % 2 ? 100000 : 1800000);
+    if (fileExists(holdFile)) {
+      const time_t heldFrom = time(0);
+      while (fileExists(holdFile) && active) { usleep(100000); }
+      std::lock_guard<std::mutex> logGuard(logMutex);
+      fprintf(stdout, "held %llu %llds\n", (unsigned long long)segment, (long long)(time(0) - heldFrom));
+      fflush(stdout);
+    }
+    const bool alternate = fileExists(altFlag) && altSegment.size();
+    const char *body = alternate ? altSegment.data() : request.data() + bodyStart;
+    const size_t bodyLength = alternate ? altSegment.size() : bodySize;
+    const std::string prefix = "--mist-audit\r\nContent-Type: video/mp2t\r\nRendition-Name: audit\r\n\r\n";
+    const std::string suffix = "\r\n--mist-audit--\r\n";
+    const size_t responseSize = prefix.size() + bodyLength + suffix.size();
+    const std::string responseHeaders =
+      "HTTP/1.1 200 OK\r\nContent-Type: multipart/mixed; boundary=mist-audit\r\nContent-Length: " + std::to_string(responseSize) +
+      "\r\nConnection: close\r\n\r\n";
     sendAll(fd, responseHeaders.data(), responseHeaders.size());
     sendAll(fd, prefix.data(), prefix.size());
-    sendAll(fd, request.data() + bodyStart, bodySize);
+    sendAll(fd, body, bodyLength);
     sendAll(fd, suffix.data(), suffix.size());
     close(fd);
     {
       std::lock_guard<std::mutex> logGuard(logMutex);
-      fprintf(stdout, "responded %llu\n", (unsigned long long)segment);
+      fprintf(stdout, "responded %llu%s\n", (unsigned long long)segment, alternate ? " alternate" : "");
       fflush(stdout);
     }
   }
@@ -208,6 +231,22 @@ int main(int argc, char **argv) {
   if (claimFile && !*claimFile) { claimFile = 0; }
   const char *rejectDelayEnv = getenv("LIVEPEER_STUB_REJECT_DELAY_MS");
   if (rejectDelayEnv) { rejectDelayMs = strtoull(rejectDelayEnv, 0, 10); }
+  holdFile = getenv("LIVEPEER_STUB_HOLD_FILE");
+  if (holdFile && !*holdFile) { holdFile = 0; }
+  altFlag = getenv("LIVEPEER_STUB_ALT_FLAG");
+  if (altFlag && !*altFlag) { altFlag = 0; }
+  const char *altFileEnv = getenv("LIVEPEER_STUB_ALT_FILE");
+  if (altFileEnv && *altFileEnv) {
+    FILE *alt = fopen(altFileEnv, "rb");
+    if (!alt) {
+      perror("LIVEPEER_STUB_ALT_FILE");
+      return 1;
+    }
+    char chunk[65536];
+    size_t got;
+    while ((got = fread(chunk, 1, sizeof(chunk), alt)) > 0) { altSegment.append(chunk, got); }
+    fclose(alt);
+  }
   signal(SIGINT, stop);
   signal(SIGTERM, stop);
 

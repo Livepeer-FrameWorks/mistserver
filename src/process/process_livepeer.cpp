@@ -206,8 +206,41 @@ namespace Mist{
           seek(0);
           return;
         }
+        if (processingControlledRealtime()) {
+          const uint64_t resumeAt = resumePosition();
+          if (resumeAt) {
+            INFO_MSG("Continuing renditions that a previous run produced: seeking to source keyframe at %" PRIu64 " ms", resumeAt);
+            seek(resumeAt);
+            return;
+          }
+        }
       }
       Output::initialSeek(dryRun);
+    }
+    /// Where a restarted run in a process-controlled stream continues: the first source keyframe
+    /// after the end of what every configured profile already produced (the last keyframe before
+    /// it while the source has not reached further; the sink drops what was produced already), or
+    /// 0 to start from the beginning (a profile has no rendition yet, or this run has no output
+    /// identity).
+    uint64_t resumePosition() {
+      if (DTSC::outputKeyScope.empty() || !opt["target_profiles"].isArray() || !opt["target_profiles"].size()) {
+        return 0;
+      }
+      uint64_t produced = 0xFFFFFFFFFFFFFFFFull;
+      jsonForEach (opt["target_profiles"], prof) {
+        const size_t rendition = M.findOutputKeyTrack(DTSC::outputKey(DTSC::outputKeyScope, (*prof)["name"].asString()));
+        if (rendition == INVALID_TRACK_ID || !M.getLastms(rendition)) { return 0; }
+        if (M.getLastms(rendition) < produced) { produced = M.getLastms(rendition); }
+      }
+      const size_t mainIdx = getMainSelectedTrack();
+      if (mainIdx == INVALID_TRACK_ID || M.getType(mainIdx) != "video") { return 0; }
+      DTSC::Keys keys(M.keys(mainIdx));
+      uint64_t lastKeyBefore = 0;
+      for (size_t i = keys.getFirstValid(); i < keys.getEndValid(); ++i) {
+        if (keys.getTime(i) > produced) { return keys.getTime(i); }
+        lastKeyBefore = keys.getTime(i);
+      }
+      return lastKeyBefore;
     }
     void sendNext(){
       {
@@ -265,9 +298,14 @@ namespace Mist{
             statQueueDepth.fetch_add(1, std::memory_order_relaxed);
             currPreSeg = (currPreSeg + 1) % PRESEG_COUNT;
           }
+          // Both upload slots are busy (a slow gateway, or a segment waiting for its insert
+          // turn). The wait keeps this output's session counted: MistSession ends a session whose
+          // connection stopped updating, and ending it terminates every process connected to it.
           while (!presegs[currPreSeg].fullyRead.load(std::memory_order_acquire) && conf.is_active &&
                  !livepeerStopRequested.load(std::memory_order_acquire)) {
             Util::sleep(100);
+            thisBootMs = Util::bootMS();
+            stats();
           }
           presegs[currPreSeg].data.assign(0, 0);
           selectDefaultTracks();
@@ -307,6 +345,7 @@ namespace Mist{
     bool isSingular(){return false;}
   private:
     std::map<std::string, readySegment>::iterator segIt;
+    std::map<size_t, uint64_t> resumedUntil; ///< last packet time of each rendition this run resumed
     bool needHeader(){return false;}
     virtual void getNext(size_t idx = INVALID_TRACK_ID){
       thisPacket.null();
@@ -323,6 +362,7 @@ namespace Mist{
       }
       while (!thisPacket && !livepeerStopRequested.load(std::memory_order_acquire) &&
              (conf.is_active || !Mist::livepeerQueuesDrained())) {
+        bool droppedProduced = false;
         {
           std::lock_guard<std::mutex> guard(segMutex);
           std::string oRend;
@@ -369,6 +409,17 @@ namespace Mist{
                 S.S.initializeMetadata(meta, thisPacket.getTrackId(), trackId, sourceIndex.load(std::memory_order_relaxed));
                 thisIdx = M.trackIDToIndex(trackId, getpid());
                 if (M.getType(thisIdx) == "audio") { meta.validateTrack(thisIdx, 0); }
+                // A resumed rendition already holds data up to its last packet.
+                if (thisIdx != INVALID_TRACK_ID && M.getLastms(thisIdx)) {
+                  resumedUntil[thisIdx] = M.getLastms(thisIdx);
+                }
+              }
+              // A restarted run may start at the keyframe before the end of what the previous
+              // run produced; the part it already produced is dropped.
+              std::map<size_t, uint64_t>::iterator resumed = resumedUntil.find(thisIdx);
+              if (thisPacket && resumed != resumedUntil.end() && thisPacket.getTime() + timeOffset <= resumed->second) {
+                thisPacket.null();
+                droppedProduced = true;
               }
             }
             const bool parseExhausted = livepeerSegmentParseExhausted(S.byteOffset, S.data.size(), S.S.hasPacket());
@@ -384,7 +435,7 @@ namespace Mist{
             }
           }
         }
-        if (!thisPacket){
+        if (!thisPacket && !droppedProduced) {
           Util::sleep(25);
           if (userSelect.size() && userSelect.begin()->second.getStatus() == COMM_STATUS_REQDISCONNECT){
             procExit.log(ER_CLEAN_LIVE_BUFFER_REQ, 0, "buffer requested shutdown");
@@ -461,10 +512,18 @@ void sinkThread(){
                  Util::exitReason[0] ? Util::exitReason : "Sink thread failed");
   }
   INFO_MSG("Sink thread shutting down");
-  if (!livepeerSourceEOF.load(std::memory_order_acquire) || livepeerStopRequested.load(std::memory_order_acquire)) {
-    std::string why = livepeerStopRequested.load(std::memory_order_acquire)
-      ? "sink thread ended after a stop request"
-      : "sink thread ended before the source finished";
+  // Without the sink nothing takes the queued renditions any more: a sink that ended (its input
+  // session was stopped) before the queue drained stops the process instead of leaving the
+  // source and upload threads waiting for it.
+  const bool stopped = livepeerStopRequested.load(std::memory_order_acquire);
+  const bool sourceDone = livepeerSourceEOF.load(std::memory_order_acquire);
+  if (stopped || !sourceDone || !Mist::livepeerQueuesDrained()) {
+    std::string why = "sink thread ended before the segment queue drained";
+    if (stopped) {
+      why = "sink thread ended after a stop request";
+    } else if (!sourceDone) {
+      why = "sink thread ended before the source finished";
+    }
     if (Util::exitReason[0]) { why += std::string(": ") + Util::exitReason; }
     requestLivepeerStop(why.c_str());
   }
@@ -515,6 +574,10 @@ void sourceThread(){
         conf.is_active = true;
         co.is_active = true;
       }
+    } else if (livepeerStopRequested.load(std::memory_order_acquire)) {
+      // Another thread stopped the process and recorded why (its sink's session was stopped, an
+      // upload failed for good): the source ending under that stop is no failure of its own.
+      INFO_MSG("Source thread ended after a stop request: %s", Util::exitReason);
     } else {
       procExit.log(Util::mRExitReason ? Util::mRExitReason : ER_UNKNOWN, rc, "%s",
                    Util::exitReason[0] ? Util::exitReason : "Source thread failed");
@@ -544,10 +607,12 @@ struct MultipartResult {
     size_t renditionCount;
     size_t totalOutputBytes;
     std::vector<RenditionInfo> renditions;
+    size_t partsSeen; ///< renditions in the response, inserted or not
 };
 
-///Inserts a part into the queue of parts to parse
-void insertPart(const Mist::preparedSegment & mySeg, const std::string & rendition, void * ptr, size_t len){
+/// Inserts a part into the queue of parts to parse, once the sink finished the previous part of
+/// this rendition. Returns false when the process stopped before it could.
+bool insertPart(const Mist::preparedSegment & mySeg, const std::string & rendition, void *ptr, size_t len) {
   uint64_t waitTime = Util::bootMS();
   uint64_t lastAlert = waitTime;
   while (!livepeerStopRequested.load(std::memory_order_acquire)) {
@@ -559,7 +624,7 @@ void insertPart(const Mist::preparedSegment & mySeg, const std::string & renditi
       if (seg.fullyRead) {
         HIGH_MSG("Inserting %zi bytes of %s, originally for time %" PRIu64, len, rendition.c_str(), mySeg.time);
         seg.set(mySeg.time, ptr, len);
-        return;
+        return true;
       }
     }
     uint64_t currMs = Util::bootMS();
@@ -571,6 +636,7 @@ void insertPart(const Mist::preparedSegment & mySeg, const std::string & renditi
     }
     Util::sleep(100);
   }
+  return false;
 }
 
 /// Parses a multipart response, returns rendition details
@@ -578,6 +644,7 @@ MultipartResult parseMultipart(const Mist::preparedSegment & mySeg, const std::s
   MultipartResult result;
   result.renditionCount = 0;
   result.totalOutputBytes = 0;
+  result.partsSeen = 0;
   std::string bound;
   if (cType.find("boundary=") != std::string::npos){
     bound = "--"+cType.substr(cType.find("boundary=")+9);
@@ -619,7 +686,9 @@ MultipartResult parseMultipart(const Mist::preparedSegment & mySeg, const std::s
       std::string preType = partHeaders["Content-Type"].substr(0, 10);
       Util::stringToLower(preType);
       if (preType == "video/mp2t"){
-        insertPart(mySeg, partHeaders["Rendition-Name"], (void *)(d.data() + headEnd + 4), bodyLen);
+        ++result.partsSeen;
+        // Stopped while waiting to insert: the rest of the response is not inserted either.
+        if (!insertPart(mySeg, partHeaders["Rendition-Name"], (void *)(d.data() + headEnd + 4), bodyLen)) { break; }
         ++result.renditionCount;
         result.totalOutputBytes += bodyLen;
         RenditionInfo rInfo;
@@ -675,6 +744,12 @@ void uploadThread(size_t myNum){
   Util::setStreamName(livepeerThreadStreamName);
   Mist::preparedSegment & mySeg = Mist::presegs[myNum];
   HTTP::Downloader upper;
+  // A stopping process gives up the upload it is waiting on instead of waiting out the
+  // segment's deadline, so it exits as soon as it decided to.
+  upper.progressCallback = []() {
+    if (livepeerStopRequested.load(std::memory_order_acquire)) { return false; }
+    return conf.is_active || livepeerSourceEOF.load(std::memory_order_acquire);
+  };
   bool was422 = false;
   uint32_t consecutive422 = 0;
   std::string prevURL;
@@ -697,6 +772,8 @@ void uploadThread(size_t myNum){
     if (livepeerStopRequested.load(std::memory_order_acquire) || !mySeg.fullyWritten.load(std::memory_order_acquire)) {
       return;
     } // Exit early on shutdown
+    const Mist::LivepeerSegmentInfo seg = {mySeg.keyNo, mySeg.time,   mySeg.segDuration,
+                                           mySeg.width, mySeg.height, (uint64_t)mySeg.data.size()};
     size_t attempts = 0;
     uint32_t rejectionsHere = 0;
     // Every attempt for this segment goes to segAddr; it only changes through
@@ -765,6 +842,7 @@ void uploadThread(size_t myNum){
           MultipartResult mpResult;
           mpResult.renditionCount = 0;
           mpResult.totalOutputBytes = 0;
+          mpResult.partsSeen = 0;
           if (upper.getHeader("Content-Type").substr(0, 10) == "multipart/"){
             mpResult = parseMultipart(mySeg, upper.getHeader("Content-Type"), upper.const_data());
           }else{
@@ -773,6 +851,9 @@ void uploadThread(size_t myNum){
                      "with multipart!",
                      upper.getHeader("Content-Type").c_str(), upper.const_data().size());
           }
+          // Stopped before every rendition was inserted: this segment is not complete, and
+          // nothing is reported about it.
+          if (!Mist::livepeerSegmentInserted(mpResult.partsSeen, mpResult.renditionCount)) { return; }
           mySeg.fullyRead.store(true, std::memory_order_release);
           statQueueDepth.fetch_sub(1, std::memory_order_relaxed);
           if (!insertOrder.complete(myNum)) {
@@ -786,7 +867,7 @@ void uploadThread(size_t myNum){
           // this independent of whether LIVEPEER_SEGMENT_COMPLETE is wired up.
           // Only the trigger payload emission lives behind shouldTrigger().
           uint64_t turnaroundMs = uplTime / 1000;
-          double speedFactor = turnaroundMs > 0 ? (double)mySeg.segDuration / (double)turnaroundMs : 0.0;
+          double speedFactor = turnaroundMs > 0 ? (double)seg.duration / (double)turnaroundMs : 0.0;
           {
             double sf = speedFactor;
             if (sf < 0) sf = 0;
@@ -806,12 +887,12 @@ void uploadThread(size_t myNum){
 
             std::string payload = std::string(Util::streamName) + "\n" + // 1. stream name
               Mist::lpID + "\n" + // 2. livepeer session ID
-              JSON::Value(mySeg.keyNo).asString() + "\n" + // 3. segment number
-              JSON::Value(mySeg.time).asString() + "\n" + // 4. segment start ms
-              JSON::Value(mySeg.segDuration).asString() + "\n" + // 5. segment duration ms
-              JSON::Value(mySeg.width).asString() + "\n" + // 6. source width
-              JSON::Value(mySeg.height).asString() + "\n" + // 7. source height
-              JSON::Value((uint64_t)mySeg.data.size()).asString() + "\n" + // 8. input bytes
+              JSON::Value(seg.keyNo).asString() + "\n" + // 3. segment number
+              JSON::Value(seg.time).asString() + "\n" + // 4. segment start ms
+              JSON::Value(seg.duration).asString() + "\n" + // 5. segment duration ms
+              JSON::Value(seg.width).asString() + "\n" + // 6. source width
+              JSON::Value(seg.height).asString() + "\n" + // 7. source height
+              JSON::Value(seg.bytes).asString() + "\n" + // 8. input bytes
               JSON::Value((uint64_t)mpResult.totalOutputBytes).asString() + "\n" + // 9. output bytes total
               JSON::Value(mpResult.renditionCount).asString() + "\n" + // 10. rendition count
               JSON::Value((uint64_t)attempts).asString() + "\n" + // 11. attempt count

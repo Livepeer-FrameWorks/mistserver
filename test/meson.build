@@ -277,6 +277,47 @@ if get_option('b_sanitize') == 'none' and ffmpeg_program.found() and ffprobe_pro
                 livepeerprocstateprobe],
          env: ['LIVEPEER_TEST_FAILING_GATEWAY=1'],
          suite: 'Processing', timeout: 150, is_parallel: false)
+    test('A restarted Livepeer process continues a processing stream after what it produced', livepeervodtest,
+         args: [ffmpeg_program, ffprobe_program, exec_tgts.get('MistController'),
+                exec_tgts.get('MistInEBML'), exec_tgts.get('MistInBuffer'),
+                exec_tgts.get('MistProcLivepeer'), exec_tgts.get('MistOutEBML'),
+                exec_tgts.get('MistSession'), exec_tgts.get('MistUtilLog'),
+                exec_tgts.get('MistUtilNuke'), livepeerstub, timeout_program,
+                livepeerprocstateprobe],
+         env: ['LIVEPEER_TEST_KILL_MIDWAY=1'],
+         suite: 'Processing', timeout: 150, is_parallel: false)
+    livepeerlivetest = find_program('livepeer_live_integration.sh')
+    livepeerliveargs = [ffmpeg_program, ffprobe_program, exec_tgts.get('MistController'),
+                        exec_tgts.get('MistInBuffer'), exec_tgts.get('MistOutRTMP'),
+                        exec_tgts.get('MistProcLivepeer'), exec_tgts.get('MistOutEBML'),
+                        exec_tgts.get('MistUtilNuke'), livepeerstub]
+    test('Live Livepeer keeps running through a long gateway stall', livepeerlivetest,
+         args: livepeerliveargs, env: {'MIST_LIVEPEER_LIVE_MODE': 'backpressure'},
+         suite: 'Processing', timeout: 180, is_parallel: false)
+    test('A stopped Livepeer process exits without waiting for stalled uploads', livepeerlivetest,
+         args: livepeerliveargs, env: {'MIST_LIVEPEER_LIVE_MODE': 'stop-stall'},
+         suite: 'Processing', timeout: 120, is_parallel: false)
+    test('A killed live Livepeer process is restarted on the next buffer tick', livepeerlivetest,
+         args: livepeerliveargs, env: {'MIST_LIVEPEER_LIVE_MODE': 'restart'},
+         suite: 'Processing', timeout: 150, is_parallel: false)
+    test('A killed live Livepeer process continues its rendition track', livepeerlivetest,
+         args: livepeerliveargs, env: {'MIST_LIVEPEER_LIVE_MODE': 'kill-resume'},
+         suite: 'Processing', timeout: 180, is_parallel: false)
+    test('A live Livepeer restart in another resolution replaces its rendition explicitly', livepeerlivetest,
+         args: livepeerliveargs, env: {'MIST_LIVEPEER_LIVE_MODE': 'resolution'},
+         suite: 'Processing', timeout: 150, is_parallel: false)
+    test('A stalled and killed live Livepeer process continues its rendition track', livepeerlivetest,
+         args: livepeerliveargs, env: {'MIST_LIVEPEER_LIVE_MODE': 'stall-kill'},
+         suite: 'Processing', timeout: 210, is_parallel: false)
+    test('A live stream whose publisher left stops without restarting its processes', livepeerlivetest,
+         args: livepeerliveargs, env: {'MIST_LIVEPEER_LIVE_MODE': 'live-end'},
+         suite: 'Processing', timeout: 180, is_parallel: false)
+    test('A resumable live stream restarts its processes only for a returning publisher', livepeerlivetest,
+         args: livepeerliveargs, env: {'MIST_LIVEPEER_LIVE_MODE': 'live-end-resume'},
+         suite: 'Processing', timeout: 180, is_parallel: false)
+    test('A live Livepeer process whose sessions are stopped exits without being killed', livepeerlivetest,
+         args: livepeerliveargs, env: {'MIST_LIVEPEER_LIVE_MODE': 'stop-sessions'},
+         suite: 'Processing', timeout: 150, is_parallel: false)
   endif
   if get_option('WITH_AV') and timeout_program.found()
     processrecordingtest = find_program('process_recording_integration.sh')
@@ -306,6 +347,9 @@ if get_option('b_sanitize') == 'none' and ffmpeg_program.found() and ffprobe_pro
            suite: 'Processing', timeout: 150, is_parallel: false)
       test('A publisher returning after its sessions were stopped gets its processes back', sessionstoptest,
            args: sessionstopargs, env: {'MIST_SESSION_STOP_MODE': 'stop-return'},
+           suite: 'Processing', timeout: 150, is_parallel: false)
+      test('A Livepeer process whose input session is stopped reports a stop, not a failure', sessionstoptest,
+           args: sessionstopargs, env: {'MIST_SESSION_STOP_MODE': 'stop-sink'},
            suite: 'Processing', timeout: 150, is_parallel: false)
       test('A live process whose session ended while it stalled is started again', sessionstoptest,
            args: sessionstopargs, env: {'MIST_SESSION_STOP_MODE': 'expire'},

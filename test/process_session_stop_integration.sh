@@ -5,6 +5,9 @@
 #   stop          the stream's sessions are stopped through the API while the publisher is live;
 #                 every process reports PROCESS_EXIT status "stopped" and none is started again.
 #   stop-return   as stop, then a publisher returns; it gets its processes back.
+#   stop-sink     only the Livepeer process's input session (its sink) is stopped while the
+#                 publisher stays; the process reports "stopped" (its source thread ending
+#                 under that stop is no failure of its own) and is not started again.
 #   live-end      the publisher of a non-resumable stream leaves; the processes play out the
 #                 buffer, report a clean end of stream (CLEAN_EOF) and are not started again.
 #   expire        the AV process stalls until its reading session ends for lack of updates, and
@@ -46,7 +49,7 @@ fi
 
 mode=${MIST_SESSION_STOP_MODE:-stop}
 case "$mode" in
-  stop | stop-return | live-end) ;;
+  stop | stop-return | stop-sink | live-end) ;;
   expire)
     if [ ! -d /dev/shm ]; then
       echo "the expire mode reads session pages in /dev/shm" >&2
@@ -214,6 +217,27 @@ case "$mode" in
       wait_for 60 "renditions for the returning publisher" responded_at_least $((count + 3))
       echo "stop-return: no process restarted after the stop; the returning publisher got its processes back"
     fi
+    ;;
+  stop-sink)
+    sessid=$(listed_session 'INPUT:Livepeer')
+    if [ -z "$sessid" ]; then
+      echo "the Livepeer process's input session is not listed" >&2
+      exit 1
+    fi
+    "$curl" -s --max-time 5 "http://127.0.0.1:$api_port/api2" --data-urlencode "command={\"stop_sessid\":\"$sessid\"}" \
+      >/dev/null
+    livepeer_exited() { grep -q '|Livepeer|{' "$exits"; }
+    wait_for 20 "the Livepeer process to report its exit" livepeer_exited
+    sleep 3
+    if [ "$(exit_status Livepeer)" != "stopped|CLEAN_CONTROLLER_REQ" ]; then
+      echo "the Livepeer process reported '$(exit_status Livepeer)' after its input session was stopped" >&2
+      exit 1
+    fi
+    if [ "$(started)" -ne 3 ]; then
+      echo "the buffer started $(($(started) - 3)) processes after the Livepeer input session was stopped" >&2
+      exit 1
+    fi
+    echo "stop-sink: the Livepeer process whose input session was stopped reported 'stopped' and was not restarted"
     ;;
   expire)
     sessid=$(listed_session '(OUTPUT:)?AV')

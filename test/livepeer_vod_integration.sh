@@ -127,6 +127,8 @@ for log in $stub_logs; do
   fi
 done
 
+restart_type=disabled
+if [ "${LIVEPEER_TEST_KILL_MIDWAY:-}" = "1" ]; then restart_type=fixed; fi
 config="$work/config.json"
 printf '%s\n' \
   "{\"account\":{\"test\":{\"password\":\"098f6bcd4621d373cade4e832627b4f6\"}},\"auto_push\":null,\"bandwidth\":{\"exceptions\":[\"::1\",\"127.0.0.0/8\"]},\"config\":{\"accesslog\":\"LOG\",\"controller\":{\"interface\":\"127.0.0.1\",\"port\":$controller_port,\"username\":null},\"debug\":4,\"defaultStream\":null,\"prometheus\":\"\",\"protocols\":[],\"serverid\":null,\"sessionInputMode\":15,\"sessionOutputMode\":15,\"sessionStreamInfoMode\":1,\"sessionUnspecifiedMode\":0,\"sessionViewerMode\":14,\"tknMode\":15,\"triggers\":{},\"trustedproxy\":[]},\"extwriters\":null,\"jwks\":null,\"push_settings\":{\"maxspeed\":0,\"wait\":3},\"streamkeys\":null,\"streams\":{\"$stream\":{\"name\":\"$stream\",\"source\":\"$source_mkv\",\"process_controlled_realtime\":true,\"realtime_speed\":4,\"processes\":[{\"process\":\"Livepeer\",\"hardcoded_broadcasters\":$broadcasters,\"target_profiles\":[{\"name\":\"audit\",\"bitrate\":500000,\"width\":320,\"height\":180,\"fps\":10,\"gop\":\"2.0\"}],\"target_mask\":2,\"source_mask\":4,\"restart_type\":\"disabled\"}]}},\"variables\":null}" \
@@ -184,6 +186,16 @@ done
 if [ "$proc_state_read" -ne 1 ]; then
   echo "Livepeer did not publish a readable ProcState snapshot while running" >&2
   exit 1
+fi
+if [ "${LIVEPEER_TEST_KILL_MIDWAY:-}" = "1" ]; then
+  # Kill the process once about a third of the source is transcoded; its restart continues the
+  # rendition after what was produced instead of transcoding the source again from the start.
+  attempt=0
+  while [ "$attempt" -lt 300 ] && [ "$(cat $stub_logs | grep -c '^responded ')" -lt 5 ]; do
+    attempt=$((attempt + 1))
+    sleep 0.1
+  done
+  kill -KILL "$livepeer_pid"
 fi
 
 wait "$output_pid"
@@ -300,5 +312,20 @@ reserved=$(sed -n 's/.*Reserved track \([0-9][0-9]*\) for output .*\/audit.*/\1/
 if [ -z "$reserved" ] || ! grep -q "Claimed reserved track $reserved (output .*/audit)" "$work/input.log"; then
   echo "the Livepeer rendition did not take the track the buffer reserved for it (${reserved:-none})" >&2
   exit 1
+fi
+if [ "${LIVEPEER_TEST_KILL_MIDWAY:-}" = "1" ]; then
+  if ! grep -q 'Resuming track [0-9]* (output ' "$work/input.log"; then
+    echo "the restarted Livepeer process did not continue its rendition track" >&2
+    exit 1
+  fi
+  if ! grep -q 'Continuing renditions that a previous run produced' "$work/input.log"; then
+    echo "the restarted Livepeer process did not skip what the killed run produced" >&2
+    exit 1
+  fi
+  uploads=$(cat $stub_logs | grep -c '^deadline ' || true)
+  if [ "$uploads" -gt 19 ]; then
+    echo "Livepeer uploaded $uploads segments of a 30 s source; the restart transcoded the start again" >&2
+    exit 1
+  fi
 fi
 echo "Livepeer loopback recording retained the processed video tail through $video_tail seconds"
