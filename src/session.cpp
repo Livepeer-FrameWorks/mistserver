@@ -410,6 +410,14 @@ int main(int argc, char **argv){
       evLp.await(1000);
     }
     shouldSleep = connections.getExit();
+    // A session told to stop (the controller's stop_sessions, or a shutdown) says so to its
+    // connections before it closes, unlike one that ended because they stopped updating.
+    if (!config.is_active) {
+      for (size_t i = 0; i < connections.recordCount(); ++i) {
+        const uint8_t status = connections.getStatus(i);
+        if (status != COMM_STATUS_INVALID) { connections.setStatus(status | COMM_STATUS_SESSSTOP, i); }
+      }
+    }
     connections.setExit();
     if (!thisType && shouldSleep) {
       uint64_t sleepStart = Util::bootSecs();

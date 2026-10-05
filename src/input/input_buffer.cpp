@@ -481,10 +481,9 @@ namespace Mist{
       } else if (key.size()) {
         std::map<std::string, std::string>::const_iterator producer =
           configuredProcessIdentities.find(DTSC::outputKeyIdentity(key));
-        // A processing stream starts no process once its source ended.
+        // No process starts once the stream's source ended.
         const bool restartable = producer != configuredProcessIdentities.end() &&
-          !processingProcessRetired(JSON::fromString(producer->second)) &&
-          !(processControlledRealtime && everHadPush && !hasPush);
+          !processingProcessRetired(JSON::fromString(producer->second)) && !(everHadPush && !hasPush);
         if (!restartable) {
           if (producerHoldUntil.erase(track)) {
             INFO_MSG("Track %zu (output %s) is no longer kept: its process was retired", track, key.c_str());
@@ -856,7 +855,21 @@ namespace Mist{
         procInterval = 1000;
       }
     }
-    if (Util::bootMS() - lastProcTime > procInterval){
+    bool processExited = false;
+    for (std::map<std::string, pid_t>::iterator it = runningProcs.begin(); it != runningProcs.end(); ++it) {
+      if (it->second && !Util::Procs::isActive(it->second)) {
+        processExited = true;
+        break;
+      }
+    }
+    bool restartDue = false;
+    for (std::map<std::string, uint64_t>::iterator it = procNextBoot.begin(); it != procNextBoot.end(); ++it) {
+      if (it->second && it->second <= Util::bootMS() && it->second > lastProcTime) {
+        restartDue = true;
+        break;
+      }
+    }
+    if (processSupervisorCheckDue(Util::bootMS(), lastProcTime, procInterval, processExited, restartDue)) {
       lastProcTime = Util::bootMS();
       std::string fullName = config->getString("streamname");
       Util::sanitizeName(fullName);
@@ -918,7 +931,9 @@ namespace Mist{
     ///\todo Add tracing of earliest watched keys, to prevent data going out of memory for
     /// still-watching viewers
     if (users.getStatus(id) & COMM_STATUS_SOURCE) {
-      bool isProcess = generatePids.count(users.getPid(id));
+      // A record first seen as a process's stays one: an exited process is collected (and
+      // leaves generatePids) a tick before its records are disconnected.
+      bool isProcess = generatePids.count(users.getPid(id)) || processUsers.count(id);
       if (isProcess) {
         processUsers[id] = users.getTrack(id);
         processPidsWithUsers.insert(users.getPid(id));
@@ -931,6 +946,7 @@ namespace Mist{
           INFO_MSG("New publisher session; re-resolving stream processes");
           publisherSessionEnded = false;
           processOverrideResolved = false;
+          procStopped.clear();
         }
         if (!sourceUsers.count(id) && retainedSourceTracks.size()) {
           // A new publisher session: a retained track it did not resume is stale.
@@ -950,8 +966,10 @@ namespace Mist{
         }
         sourceUsers[id] = newTrack;
       }
+      // A disconnecting publisher is gone: this scan handles its disconnect right after.
+      const bool disconnecting = users.getStatus(id) & COMM_STATUS_DISCONNECT;
       // GeneratePids holds the pids of the process that generate data, so ignore those for determining if a push is ingested.
-      if (!isProcess && M.trackValid(users.getTrack(id))) { hasPush = true; }
+      if (!isProcess && !disconnecting && M.trackValid(users.getTrack(id))) { hasPush = true; }
     }
 
     if (!(users.getStatus(id) & COMM_STATUS_DONOTTRACK)) {
@@ -1127,7 +1145,7 @@ namespace Mist{
     JSON::Value tmp = proc;
     tmp["source"] = streamName;
     const std::string key = tmp.toString();
-    if (procHardFailed.count(key)) { return true; }
+    if (procHardFailed.count(key) || procStopped.count(key)) { return true; }
     std::string restartType = "fixed";
     if (proc.isMember("restart_type")) { restartType = proc["restart_type"].asString(); }
     if (restartType == "disabled") {
@@ -1635,6 +1653,7 @@ namespace Mist{
           procBoots.erase(processConfig);
           procNextBoot.erase(processConfig);
           procHardFailed.erase(processConfig);
+          procStopped.erase(processConfig);
           it = runningProcs.erase(it);
         } else {
           ++it;
@@ -1652,6 +1671,13 @@ namespace Mist{
         ++hfIt;
       }
     }
+    for (auto stIt = procStopped.begin(); stIt != procStopped.end();) {
+      if (!newProcs.count(*stIt)) {
+        stIt = procStopped.erase(stIt);
+      } else {
+        ++stIt;
+      }
+    }
 
     std::string debugLvl;
     // start up new/changed connectors
@@ -1659,8 +1685,8 @@ namespace Mist{
       if (runningProcs.count(config) && Util::Procs::isActive(runningProcs[config])) { continue; }
       JSON::Value args(PARSEJSON, config);
 
-      // Skip if this process previously hard-failed (config change clears this).
-      if (procHardFailed.count(config)) { continue; }
+      // Skip if this process previously hard-failed or was stopped (config change clears this).
+      if (procHardFailed.count(config) || procStopped.count(config)) { continue; }
 
       // If the process was running but is now dead, collect its result before restarting it.
       if (runningProcs.count(config)) {
@@ -1685,7 +1711,7 @@ namespace Mist{
 
         std::string configuredRestartType = "fixed";
         if (args.isMember("restart_type")) { configuredRestartType = args["restart_type"].asString(); }
-        const std::string status = processExitStatus(exitCode, configuredRestartType, procBoots[config]);
+        const std::string status = processExitStatus(exitCode, configuredRestartType, procBoots[config], shortReason);
 
         std::string procType = args["process"].asString();
         if (Triggers::shouldTrigger("PROCESS_EXIT", streamName)) {
@@ -1705,6 +1731,12 @@ namespace Mist{
         }
         processPidsWithUsers.erase(deadPid);
         runningProcs.erase(config);
+        if (status == "stopped") {
+          INFO_MSG("Process `%s` (PID %d) was stopped (%s); it starts again with a new publisher session",
+                   procType.c_str(), deadPid, longReason.c_str());
+          procStopped.insert(config);
+          continue;
+        }
       }
 
       // Check restart behaviour - default to instant (re)starts
@@ -1735,10 +1767,12 @@ namespace Mist{
         continue;
       }
 
-      // Do not restart processors into a stream that is already draining.
+      // Do not restart processors into a stream that is already draining, or whose publisher left:
+      // hasPush still holds the previous tick's state here.
       const uint8_t procStreamState = Util::getStreamStatus(streamName);
-      const bool sourceEof = processControlledRealtime && streamStatus &&
-        streamStatus.len > STRMSTATE_PROCESS_SOURCE_EOF_OFFSET && streamStatus.mapped[STRMSTATE_PROCESS_SOURCE_EOF_OFFSET];
+      const bool sourceEofFlag = streamStatus && streamStatus.len > STRMSTATE_PROCESS_SOURCE_EOF_OFFSET &&
+        streamStatus.mapped[STRMSTATE_PROCESS_SOURCE_EOF_OFFSET];
+      const bool sourceEof = processSourceEnded(processControlledRealtime, sourceEofFlag, everHadPush, hasPush);
       if (!processSupervisorMayStart(Util::Config::is_active, procStreamState, sourceEof)) {
         VERYHIGH_MSG("Not starting process `%s`: stream is shutting down", args["process"].asString().c_str());
         continue;

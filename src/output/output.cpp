@@ -3213,7 +3213,11 @@ namespace Mist{
     statComm.setLastSecond(thisPacket ? thisPacket.getTime()/1000 : 0);
     statComm.setPid(getpid());
     if (statComm.getExit() || statComm.getStatus() & COMM_STATUS_REQDISCONNECT){
-      Util::logExitReason(ER_CLEAN_INTENDED_STOP, "shutdown due to session end");
+      // For a process, a session that was told to stop is a request from the controller, which its
+      // buffer does not answer with a restart. A session that ended because this process stalled
+      // and stopped updating it is no such request.
+      const bool controllerStop = Util::Config::binaryType == Util::PROCESS && (statComm.getStatus() & COMM_STATUS_SESSSTOP);
+      Util::logExitReason(controllerStop ? ER_CLEAN_CONTROLLER_REQ : ER_CLEAN_INTENDED_STOP, "shutdown due to session end");
       onFail("Shutting down due to session end");
       statComm.unload();
       return;

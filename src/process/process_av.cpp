@@ -2488,7 +2488,7 @@ void sinkThread(){
     rc = 2;
   }
   if (rc == 0) {
-    procExit.log(ER_CLEAN_EOF, 0, "Sink thread finished");
+    procExit.logThreadFinished("Sink thread finished");
   } else {
     procExit.log(Util::mRExitReason ? Util::mRExitReason : ER_UNKNOWN, rc, "%s",
                  Util::exitReason[0] ? Util::exitReason : "Sink thread failed");
@@ -2527,7 +2527,7 @@ void sourceThread(){
     rc = 2;
   }
   if (rc == 0) {
-    procExit.log(ER_CLEAN_EOF, 0, "Source thread finished");
+    procExit.logThreadFinished("Source thread finished");
   } else {
     procExit.log(Util::mRExitReason ? Util::mRExitReason : ER_UNKNOWN, rc, "%s",
                  Util::exitReason[0] ? Util::exitReason : "Source thread failed");

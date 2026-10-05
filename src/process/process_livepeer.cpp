@@ -455,7 +455,7 @@ void sinkThread(){
   INFO_MSG("Running sink thread...");
   int rc = in.run();
   if (rc == 0) {
-    procExit.log(ER_CLEAN_EOF, 0, "Sink thread finished");
+    procExit.logThreadFinished("Sink thread finished");
   } else {
     procExit.log(Util::mRExitReason ? Util::mRExitReason : ER_UNKNOWN, rc, "%s",
                  Util::exitReason[0] ? Util::exitReason : "Sink thread failed");
@@ -506,7 +506,8 @@ void sourceThread(){
     bool cleanExit = (sourceExitReason.compare(0, 5, "CLEAN") == 0);
     if (rc == 0 && cleanExit) {
       livepeerSourceEOF.store(true, std::memory_order_release);
-      procExit.log(sourceExitReason.size() ? sourceExitReason.c_str() : ER_CLEAN_EOF, 0, "Source thread finished");
+      procExit.log(sourceExitReason.size() ? sourceExitReason.c_str() : ER_CLEAN_EOF, 0, "%s",
+                   sourceExitReason == ER_CLEAN_CONTROLLER_REQ ? Util::exitReason : "Source thread finished");
       if (!livepeerStopRequested.load(std::memory_order_acquire)) {
         // Output::run uses Util::Config::is_active as a process-wide flag and
         // may clear it on clean VOD EOF. Keep the process alive long enough for

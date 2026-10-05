@@ -365,7 +365,11 @@ class ProcExitState {
       va_end(args);
       Util::logExitReason(shortStr, "%s", buf);
       std::lock_guard<std::mutex> guard(mtx);
-      if (isSet && code <= exitCode) { return; }
+      // A requested stop outranks a clean end another thread recorded first: the buffer does
+      // not restart a process that was stopped on purpose.
+      const bool stopOverEof = !code && !exitCode && shortStr && !strcmp(shortStr, ER_CLEAN_CONTROLLER_REQ) &&
+        !strcmp(shortReason, ER_CLEAN_EOF);
+      if (isSet && code <= exitCode && !stopOverEof) { return; }
       isSet = true;
       exitCode = code;
       if (shortStr) {
@@ -374,6 +378,16 @@ class ProcExitState {
       }
       strncpy(longReason, buf, sizeof(longReason) - 1);
       longReason[sizeof(longReason) - 1] = '\0';
+    }
+    /// Records the end of a thread that finished without error: a stop the controller or the
+    /// thread's session requested (CLEAN_CONTROLLER_REQ in this thread's exit reason) is reported
+    /// as such, anything else as the end of its stream with the given description.
+    void logThreadFinished(const char *finished) {
+      if (Util::mRExitReason && !strcmp(Util::mRExitReason, ER_CLEAN_CONTROLLER_REQ)) {
+        log(ER_CLEAN_CONTROLLER_REQ, 0, "%s", Util::exitReason);
+      } else {
+        log(ER_CLEAN_EOF, 0, "%s", finished);
+      }
     }
     /// Write aggregated state to SHM page, relinquish ownership, return exit code.
     /// Falls back to main thread's Util::exitReason if no thread recorded a reason.

@@ -968,7 +968,7 @@ void sinkThread() {
   MEDIUM_MSG("Running thumbnail sink thread...");
   int rc = in.run();
   if (rc == 0) {
-    procExit.log(ER_CLEAN_EOF, 0, "Thumbnail sink thread finished");
+    procExit.logThreadFinished("Thumbnail sink thread finished");
   } else {
     // Attribute the failure: include the sink's last activity so an exit
     // before the first compose (e.g. buffer attach failure) is
@@ -1008,7 +1008,7 @@ void sourceThread() {
   MEDIUM_MSG("Running thumbnail source thread...");
   int rc = out.run();
   if (rc == 0) {
-    procExit.log(ER_CLEAN_EOF, 0, "Thumbnail source thread finished");
+    procExit.logThreadFinished("Thumbnail source thread finished");
   } else {
     procExit.log(Util::mRExitReason ? Util::mRExitReason : ER_UNKNOWN, rc, "%s",
                  Util::exitReason[0] ? Util::exitReason : "Thumbnail source thread failed");

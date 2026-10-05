@@ -215,6 +215,31 @@ int main() {
     return fail("concurrent process exits did not retain the fatal reason");
   }
 
+  // A thread stopped by its session reports that stop, also when another thread finished first;
+  // a thread that reached the end of its stream reports CLEAN_EOF.
+  ProcState::initPage(page);
+  ProcExitState stoppedExit;
+  std::thread([&stoppedExit]() { stoppedExit.logThreadFinished("Sink thread finished"); }).join();
+  std::thread([&stoppedExit]() {
+    Util::logExitReason(ER_CLEAN_CONTROLLER_REQ, "received shutdown request from session");
+    stoppedExit.logThreadFinished("Source thread finished");
+  }).join();
+  if (stoppedExit.flush(page) != 0 || !ProcState::readSnapshot(page, snapshot) ||
+      std::string(snapshot.shortReason) != ER_CLEAN_CONTROLLER_REQ ||
+      std::string(snapshot.longReason) != "received shutdown request from session") {
+    return fail("a thread stopped by its session must be reported as stopped, not as the end of its stream");
+  }
+  ProcState::initPage(page);
+  ProcExitState eofExit;
+  std::thread([&eofExit]() {
+    Util::logExitReason(ER_CLEAN_EOF, "end of stream");
+    eofExit.logThreadFinished("Source thread finished");
+  }).join();
+  if (eofExit.flush(page) != 0 || !ProcState::readSnapshot(page, snapshot) ||
+      std::string(snapshot.shortReason) != ER_CLEAN_EOF || std::string(snapshot.longReason) != "Source thread finished") {
+    return fail("a thread that reached the end of its stream must report CLEAN_EOF");
+  }
+
   nodePage.master = false;
   shm_unlink(nodePageName);
   shm_unlink(pageName);

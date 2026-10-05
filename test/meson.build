@@ -296,6 +296,24 @@ if get_option('b_sanitize') == 'none' and ffmpeg_program.found() and ffprobe_pro
          env: {'MIST_PROCESS_EXPECT_EOF': '1', 'MIST_PROCESS_SOURCE_DURATION': '8',
                'MIST_PROCESS_SOURCE_BFRAMES': '2'},
          suite: 'Processing', timeout: 120, is_parallel: false)
+    if curl_program.found()
+      sessionstoptest = find_program('process_session_stop_integration.sh')
+      sessionstopargs = [ffmpeg_program, curl_program, exec_tgts.get('MistController'), exec_tgts.get('MistInBuffer'),
+                         exec_tgts.get('MistOutRTMP'), exec_tgts.get('MistProcAV'), exec_tgts.get('MistProcThumbs'),
+                         exec_tgts.get('MistProcLivepeer'), exec_tgts.get('MistUtilNuke'), livepeerstub]
+      test('Live processes whose sessions are stopped report it and are not restarted', sessionstoptest,
+           args: sessionstopargs, env: {'MIST_SESSION_STOP_MODE': 'stop'},
+           suite: 'Processing', timeout: 150, is_parallel: false)
+      test('A publisher returning after its sessions were stopped gets its processes back', sessionstoptest,
+           args: sessionstopargs, env: {'MIST_SESSION_STOP_MODE': 'stop-return'},
+           suite: 'Processing', timeout: 150, is_parallel: false)
+      test('A live process whose session ended while it stalled is started again', sessionstoptest,
+           args: sessionstopargs, env: {'MIST_SESSION_STOP_MODE': 'expire'},
+           suite: 'Processing', timeout: 150, is_parallel: false)
+      test('Live processes at the end of their stream report a clean end and are not restarted', sessionstoptest,
+           args: sessionstopargs, env: {'MIST_SESSION_STOP_MODE': 'live-end'},
+           suite: 'Processing', timeout: 150, is_parallel: false)
+    endif
     processresumetest = find_program('process_resume_integration.sh')
     test('Restarted live processes continue their own output tracks', processresumetest,
          args: [ffmpeg_program, ffprobe_program, exec_tgts.get('MistController'), exec_tgts.get('MistInBuffer'),

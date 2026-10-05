@@ -18,12 +18,30 @@ int main() {
       std::string(processExitStatus(1, "backoff", 8)) != "retrying") {
     return fail("process exit status does not match the restart contract");
   }
+  if (std::string(processExitStatus(0, "fixed", 1, ER_CLEAN_CONTROLLER_REQ)) != "stopped" ||
+      std::string(processExitStatus(0, "fixed", 1, ER_CLEAN_EOF)) != "clean" ||
+      std::string(processExitStatus(0, "fixed", 1, ER_CLEAN_INTENDED_STOP)) != "clean" ||
+      std::string(processExitStatus(1, "fixed", 1, ER_CLEAN_CONTROLLER_REQ)) != "retrying") {
+    return fail("only a clean exit the controller requested is a stop, which the buffer does not restart");
+  }
 
   if (!processSupervisorMayStart(true, STRMSTAT_INIT, false) || !processSupervisorMayStart(true, STRMSTAT_BOOT, false) ||
       !processSupervisorMayStart(true, STRMSTAT_WAIT, false) || !processSupervisorMayStart(true, STRMSTAT_READY, false) ||
       processSupervisorMayStart(true, STRMSTAT_WAIT, true) || processSupervisorMayStart(true, STRMSTAT_SHUTDOWN, false) ||
       processSupervisorMayStart(true, STRMSTAT_OFF, false) || processSupervisorMayStart(false, STRMSTAT_READY, false)) {
     return fail("the supervisor must start processors only while the stream can still produce media");
+  }
+
+  if (!processSourceEnded(false, false, true, false) || processSourceEnded(false, false, false, false) ||
+      processSourceEnded(false, false, true, true) || !processSourceEnded(true, true, true, true) ||
+      processSourceEnded(true, false, true, false)) {
+    return fail("processes are not (re)started into a live stream whose publisher left, only before its first "
+                "publisher and while one is connected");
+  }
+
+  if (processSupervisorCheckDue(10000, 9000, 5000, false, false) || !processSupervisorCheckDue(10000, 4000, 5000, false, false) ||
+      !processSupervisorCheckDue(10000, 9900, 5000, true, false) || !processSupervisorCheckDue(10000, 9900, 5000, false, true)) {
+    return fail("the supervisor must check on its interval and as soon as a process exited or a restart became due");
   }
 
   {

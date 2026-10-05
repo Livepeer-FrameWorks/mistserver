@@ -8,8 +8,13 @@
 #include <vector>
 
 namespace Mist {
-  inline const char *processExitStatus(int exitCode, const std::string & restartType, uint32_t bootCount) {
+  /// How a collected process exit is handled. A clean exit the controller requested (the stop of
+  /// the process's session) is "stopped": the process stays down until a new publisher session or
+  /// a configuration change, since restarting it would undo that stop.
+  inline const char *processExitStatus(int exitCode, const std::string & restartType, uint32_t bootCount,
+                                       const std::string & shortReason = "") {
     if (exitCode == 2) { return "unrecoverable"; }
+    if (exitCode == 0 && shortReason == ER_CLEAN_CONTROLLER_REQ) { return "stopped"; }
     if (exitCode == 0) { return "clean"; }
     if (restartType == "disabled" && bootCount) { return "disabled"; }
     return "retrying";
@@ -17,6 +22,22 @@ namespace Mist {
 
   inline bool processSupervisorMayStart(bool active, uint8_t streamState, bool sourceEof) {
     return active && !sourceEof && streamState != STRMSTAT_SHUTDOWN && streamState != STRMSTAT_OFF;
+  }
+
+  /// Whether the source of a live stream ended: a publisher was connected and none is now. The
+  /// buffer neither starts nor restarts processes then, since there is nothing left for them to
+  /// process until a publisher returns. A process-controlled stream publishes the same state on
+  /// its state page for its readers.
+  inline bool processSourceEnded(bool processControlledRealtime, bool processingSourceEofFlag, bool everHadPush, bool hasPush) {
+    if (processControlledRealtime) { return processingSourceEofFlag; }
+    return everHadPush && !hasPush;
+  }
+
+  /// Whether the buffer checks its processes on this tick: on its regular interval (which also
+  /// picks up configuration changes), and as soon as a process it started has exited or a delayed
+  /// restart became due, so a producer that died is collected and restarted on the next tick.
+  inline bool processSupervisorCheckDue(uint64_t nowMs, uint64_t lastCheckMs, uint64_t intervalMs, bool processExited, bool restartDue) {
+    return processExited || restartDue || nowMs - lastCheckMs > intervalMs;
   }
 
   /// The outputs of an AV or Thumbs process that a processing buffer reserves a track for before

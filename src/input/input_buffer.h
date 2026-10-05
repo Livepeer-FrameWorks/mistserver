@@ -86,6 +86,7 @@ namespace Mist{
     std::map<std::string, uint32_t> procBoots;
     std::map<std::string, uint64_t> procNextBoot;
     std::set<std::string> procHardFailed; // configs that hit unrecoverable error
+    std::set<std::string> procStopped; // configs whose process the controller stopped (its session)
     // Replacement layer from PROCESS_REPLACE, applied on top of processOverride or the stream config:
     // keyed failed config -> the process configs that take its place.
     std::map<std::string, JSON::Value> processReplacements;

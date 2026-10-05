@@ -346,6 +346,7 @@ static inline void show_stackframe(){}
 #define COMM_STATUS_DISCONNECT 0x20 // Disconnected
 #define COMM_STATUS_REQDISCONNECT 0x10 // Other side requests disconnect
 #define COMM_STATUS_NOKILL 0x8 // Do not send kill command to this PID on shutdown
+#define COMM_STATUS_SESSSTOP 0x4 // The session ended because it was told to stop, not because it went idle
 #define COMM_STATUS_HOLDBUFFER 0x2 // The buffer must not evict keys this reader has not consumed yet
 #define COMM_STATUS_ACTIVE 0x1
 #define COMM_STATUS_INVALID 0x0

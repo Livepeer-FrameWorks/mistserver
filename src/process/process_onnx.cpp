@@ -1104,7 +1104,7 @@ namespace Mist {
     MEDIUM_MSG("Running source thread...");
     int rc = out.run();
     if (rc == 0) {
-      procExit.log(ER_CLEAN_EOF, 0, "ONNX source thread finished");
+      procExit.logThreadFinished("ONNX source thread finished");
     } else {
       procExit.log(Util::mRExitReason ? Util::mRExitReason : ER_UNKNOWN, rc, "%s",
                    Util::exitReason[0] ? Util::exitReason : "ONNX source thread failed");
@@ -1121,7 +1121,7 @@ namespace Mist {
     INFO_MSG("Running sink thread...");
     int rc = sink.run();
     if (rc == 0) {
-      procExit.log(ER_CLEAN_EOF, 0, "ONNX sink thread finished");
+      procExit.logThreadFinished("ONNX sink thread finished");
     } else {
       procExit.log(Util::mRExitReason ? Util::mRExitReason : ER_UNKNOWN, rc, "%s",
                    Util::exitReason[0] ? Util::exitReason : "ONNX sink thread failed");
