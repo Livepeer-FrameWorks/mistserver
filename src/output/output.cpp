@@ -389,6 +389,8 @@ namespace Mist{
     bool autoSeek = buffer.size();
     uint64_t seekTarget = buffer.getSyncMode()?currentTime():0;
     std::set<size_t> trks = Util::wouldSelect(M, targetParams, capa, UA, autoSeek ? seekTarget : 0);
+    // A reader that can only ever take fewer tracks waits for those, not for tracks it never selects.
+    if (trks.size() && trks.size() < minTracks) { minTracks = trks.size(); }
 
     size_t trkCount = 0;
     for (std::set<size_t>::iterator it = trks.begin(); it != trks.end(); ++it){

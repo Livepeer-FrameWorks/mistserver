@@ -2,8 +2,8 @@
 set -eu
 
 # Processing streams whose processes are decided by the processing graph:
-#   av-latency  an AV-only stream: the AV process starts reading at most 1s after the input
-#               started (checked only with MIST_PROCESSING_READINESS_CHECKS=1, see below)
+#   av-latency  an AV-only stream: the AV process, which reads a single track, starts reading at
+#               most 1s after the input started
 #   slow-onnx   AV -> ONNX where the ONNX process takes 4s to start and the recording drains
 #               into a slow reader: the recording still holds the complete source and ONNX
 #               results from its start through its end
@@ -33,12 +33,6 @@ feed_probe=${14}
 
 if [ "${MIST_RUN_MEDIA_TESTS:-}" != "1" ]; then
   echo "set MIST_RUN_MEDIA_TESTS=1 to run the processing graph integration" >&2
-  exit 77
-fi
-if [ "$mode" = av-latency ] && [ "${MIST_PROCESSING_READINESS_CHECKS:-}" != "1" ]; then
-  # How a process waits for its input before it starts reading is still being decided; until
-  # then the AV process waits for a second track it never selects.
-  echo "set MIST_PROCESSING_READINESS_CHECKS=1 to check the AV start latency" >&2
   exit 77
 fi
 if [ "$mode" = slow-onnx ] && [ "${MIST_PROCESSING_SLOW_CONSUMER_CHECKS:-}" != "1" ]; then
@@ -308,9 +302,7 @@ if [ "$result_count" -lt 10 ] || ! exceeds "$last_result" "$((recording_seconds 
   echo "ONNX results do not cover the end of the recording: $result_count results from $first_result to $last_result" >&2
   exit 1
 fi
-# Results from the start of the recording need the ONNX process to read its input from the
-# start: behind the AV process's start delay (see av-latency) they begin where it caught up.
-if { [ "$mode" = slow-onnx ] || [ "${MIST_PROCESSING_READINESS_CHECKS:-}" = "1" ]; } && exceeds "$first_result" 1.0; then
+if exceeds "$first_result" 1.0; then
   echo "ONNX results do not cover the start of the recording: the first is at ${first_result}s" >&2
   exit 1
 fi

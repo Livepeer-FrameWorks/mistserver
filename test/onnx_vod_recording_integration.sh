@@ -225,9 +225,7 @@ if awk -v l="$header_latency" 'BEGIN { exit !(l > 2.0) }'; then
   echo "the recording header came ${header_latency}s after the first ONNX results; expected at most 2s" >&2
   exit 1
 fi
-# Starting a chained process at most 1.5s after the input depends on how a process waits for an
-# input track that has no data yet; checked only where that is settled.
-if [ "${MIST_PROCESSING_READINESS_CHECKS:-}" = "1" ] && awk -v l="$onnx_start_latency" 'BEGIN { exit !(l > 1.5) }'; then
+if awk -v l="$onnx_start_latency" 'BEGIN { exit !(l > 1.5) }'; then
   echo "ONNX started ${onnx_start_latency}s after the input; expected at most 1.5s" >&2
   exit 1
 fi
