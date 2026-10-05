@@ -52,6 +52,10 @@ namespace Comms{
     return !processReader || !sessionStartFailed;
   }
 
+  /// How long a connection waits for its session process to create the session semaphore,
+  /// unless the process is stopping.
+  const uint64_t SESSION_SEMAPHORE_WAIT_MS = 45000;
+
   class Comms{
   public:
     Comms();
@@ -102,8 +106,9 @@ namespace Comms{
                                 const std::string & connector, uint64_t sessionMode, const std::string & viewerOrigin = "");
     std::string sessionId;
     std::string initialTkn;
-    /// Whether the last reload could not start the session process, as opposed to a session
-    /// that exists but refused this connection.
+    /// Whether the last reload could not start the session process, or stopped waiting for it
+    /// because this process is stopping, as opposed to a session that exists but refused this
+    /// connection.
     bool sessionStartFailed() const { return startFailed; }
 
     void setExit();

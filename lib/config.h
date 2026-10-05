@@ -44,6 +44,14 @@ namespace Util{
     static void setServerFD(int fd);
     // variables
     static std::atomic<bool> is_active; ///< Set to true by activate(), set to false by the signal handler.
+    /// Set by the signal handler (SIGINT, SIGTERM, SIGHUP) and requestStop(), cleared only when a
+    /// stop is cancelled. Unlike is_active, which loops clear to end and some processes set again
+    /// to keep draining, it only tells that this process was told to stop.
+    static std::atomic<bool> stop_requested;
+    /// Whether this process was told to stop: a wait for something it would no longer use ends.
+    static bool stopRequested() { return stop_requested; }
+    /// Tells this process to stop, as a SIGTERM would.
+    static void requestStop();
     static std::atomic<bool> is_restarting; ///< Set to true when restarting, set to false on boot.
     static std::atomic<binType> binaryType;
     static binType claimBinaryType(binType requested);

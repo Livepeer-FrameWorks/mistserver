@@ -328,13 +328,23 @@ namespace Comms{
     if(!sem){
       char semName[NAME_BUFFER_SIZE];
       snprintf(semName, NAME_BUFFER_SIZE, SEM_SESSION, sessId.c_str());
-      size_t tries = 0;
+      // A booting session creates its semaphore within milliseconds; a loaded host may need
+      // much longer, so the wait is long. It ends early once this process is told to stop: it
+      // has no use for the session then and must not be held up by it.
+      const uint64_t waitStart = Util::bootMS();
+      uint64_t backoff = 5;
       do {
-        sem.open(semName, O_RDWR, ACCESSPERMS, 1);
-        if (!sem){
-          Util::sleep(Util::expBackoffMs(tries++, 15, 15000));
+        sem.open(semName, O_RDWR, ACCESSPERMS, 1, true);
+        if (sem) { break; }
+        if (Util::Config::stopRequested()) {
+          INFO_MSG("Not waiting for session %s: this process is stopping", sessId.c_str());
+          startFailed = true;
+          index = INVALID_RECORD_INDEX;
+          return;
         }
-      } while (!sem && tries < 15);
+        Util::sleep(backoff);
+        if (backoff < 500) { backoff *= 2; }
+      } while (Util::bootMS() - waitStart < SESSION_SEMAPHORE_WAIT_MS);
       if (!sem){
         FAIL_MSG("Could not open session semaphore; aborting!");
         index = INVALID_RECORD_INDEX;

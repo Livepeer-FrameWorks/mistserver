@@ -377,6 +377,9 @@ sessionstartfailuretest = executable('sessionstartfailuretest', 'session_start_f
 test('A session that cannot start is reported at once and stops only viewers', sessionstartfailuretest,
      suite: ['Procs', 'Streams'], timeout: 120)
 
+stopwaittest = executable('stopwaittest', 'stop_wait_unit.cpp', header_tgts, dependencies: libmist_dep)
+test('A process told to stop gives up its waits', stopwaittest, suite: ['Procs', 'Streams', 'DTSC'], timeout: 90)
+
 triggerconfigpolicytest = executable('triggerconfigpolicytest', 'trigger_config_policy_unit.cpp', header_tgts,
                                      dependencies: libmist_dep)
 test('Controller validates typed trigger failure policy', triggerconfigpolicytest, suite: 'Triggers')
@@ -429,6 +432,11 @@ test('Output lookahead wait diagnostic policy', lookaheadwaitdiagnosticstest, su
 offlinestreamstatetest = executable('offlinestreamstatetest', 'offline_stream_state_unit.cpp', header_tgts,
                                     dependencies: libmist_dep)
 test('Offline stream state preserves the diagnostics ABI', offlinestreamstatetest, suite: 'Streams')
+
+semaphoretimedwaittest = executable('semaphoretimedwaittest', 'semaphore_timed_wait_unit.cpp', header_tgts,
+                                    dependencies: libmist_dep)
+test('Timed semaphore waits wait as long as asked and count what they acquire', semaphoretimedwaittest,
+     suite: 'Streams', timeout: 30)
 
 outputstartpolicytest = executable('outputstartpolicytest', 'output_start_policy_unit.cpp', header_tgts,
                                    dependencies: libmist_dep)

@@ -81,8 +81,7 @@ std::string livepeerThreadStreamName;
 inline void requestLivepeerStop(const char *why) {
   WARN_MSG("Stopping Livepeer process: %s", why);
   livepeerStopRequested.store(true, std::memory_order_release);
-  conf.is_active = false;
-  co.is_active = false;
+  Util::Config::requestStop();
 }
 
 static uint32_t evenScaledDimension(uint32_t numerator, uint32_t requested, uint32_t denominator) {

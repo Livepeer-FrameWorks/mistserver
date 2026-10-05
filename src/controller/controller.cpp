@@ -893,6 +893,7 @@ int main_loop(int argc, char **argv){
       if (Triggers::shouldTrigger("SYSTEM_STOP")) {
         if (!Triggers::doTrigger("SYSTEM_STOP", Util::exitReason)) {
           Controller::conf.is_active = true;
+          Util::Config::stop_requested = false;
           Util::Config::is_restarting = false;
           LOG_MSG("CONF", "Shutdown prevented by SYSTEM_STOP trigger");
         }

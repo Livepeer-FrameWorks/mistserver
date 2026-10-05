@@ -665,11 +665,16 @@ bool Util::startInput(std::string streamname, std::string filename, bool forkFir
   // Note: this uses the _whole_ stream name, including + (if any).
   // This means "test+a" and "test+b" have separate locks and do not interact with each other.
   uint8_t streamStat = getStreamStatus(streamname);
-  // Wait for a maximum of 240 x 250ms sleeps = 60 seconds
+  // Wait for a maximum of 240 x 250ms sleeps = 60 seconds. A caller that is told to stop while
+  // waiting gives up: it would not use the stream any more.
   size_t sleeps = 0;
   while (++sleeps < 240 && streamStat != STRMSTAT_OFF && streamStat != STRMSTAT_OFFLINE &&
          streamStat != STRMSTAT_READY && (!isProvider || streamStat != STRMSTAT_WAIT)) {
     if (streamStat == STRMSTAT_BOOT && overrides.count("throughboot")){break;}
+    if (Util::Config::stopRequested()) {
+      INFO_MSG("Stopped while waiting for stream %s to become available", streamname.c_str());
+      return false;
+    }
     Util::sleep(250);
     streamStat = getStreamStatus(streamname);
   }

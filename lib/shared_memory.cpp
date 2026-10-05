@@ -1,13 +1,16 @@
 #include "shared_memory.h"
 
+#include "config.h"
 #include "defines.h"
 #include "stream.h"
 #include "timing.h"
 
+#include <algorithm>
 #include <cerrno>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <ctime>
 #include <fcntl.h>
 #include <sys/mman.h>
 #include <sys/sem.h>
@@ -158,55 +161,41 @@ namespace IPC{
 
   ///\brief Tries to wait for the semaphore for a given amount of ms, returns true if successful, false
   /// otherwise
-  bool semaphore::tryWait(uint64_t ms){
+  bool semaphore::tryWait(uint64_t ms) {
     if (!(*this)){return false;}
     int result;
 #if defined(__APPLE__)
-    /// \todo (roxlu) test tryWaitOneSecond, shared_memory.cpp
+    // macOS has no sem_timedwait.
     uint64_t now = Util::getMicros();
     uint64_t timeout = now + (ms * 1000);
-    while (now < timeout){
-      if (!sem_trywait(mySem)) {
-        isLocked = 1;
-        return true;
-      }
+    result = sem_trywait(mySem);
+    while (result && now < timeout) {
       usleep(100e3);
+      result = sem_trywait(mySem);
       now = Util::getMicros();
     }
-    return false;
 #else
+    // sem_timedwait takes an absolute CLOCK_REALTIME deadline, which a retry after an
+    // interrupting signal keeps.
     struct timespec wt;
-    wt.tv_sec = ms / 1000;
-    wt.tv_nsec = ms % 1000;
-    result = sem_timedwait(mySem, &wt);
+    clock_gettime(CLOCK_REALTIME, &wt);
+    wt.tv_sec += ms / 1000;
+    wt.tv_nsec += (ms % 1000) * 1000000;
+    if (wt.tv_nsec >= 1000000000) {
+      ++wt.tv_sec;
+      wt.tv_nsec -= 1000000000;
+    }
+    do { result = sem_timedwait(mySem, &wt); } while (result == -1 && errno == EINTR);
 #endif
-    return (isLocked = (!result) ? 1 : 0) > 0;
+    if (result) { return false; }
+    if (++isLocked == 1) { lockTime = Util::getMicros(); }
+    return true;
   }
 
   ///\brief Tries to wait for the semaphore for a single second, returns true if successful, false
   /// otherwise
-  bool semaphore::tryWaitOneSecond(){
-    if (!(*this)){return false;}
-    int result;
-#if defined(__APPLE__)
-    /// \todo (roxlu) test tryWaitOneSecond, shared_memory.cpp
-    uint64_t now = Util::getMicros();
-    uint64_t timeout = now + 1e6;
-    result = 1;
-    while (result && now < timeout){
-      result = sem_trywait(mySem);
-      usleep(100e3);
-      now = Util::getMicros();
-    }
-#else
-    struct timespec wt;
-    wt.tv_sec = 1;
-    wt.tv_nsec = 0;
-    result = sem_timedwait(mySem, &wt);
-#endif
-    isLocked += (!result) ? 1 : 0;
-    if (isLocked == 1){lockTime = Util::getMicros();}
-    return isLocked;
+  bool semaphore::tryWaitOneSecond() {
+    return tryWait(1000);
   }
 
   ///\brief Closes the currently opened semaphore
@@ -334,10 +323,14 @@ namespace IPC{
           if (len > 1) { ERROR_MSG("Overwriting old page for %s", name.c_str()); }
           handle = shm_open(name.c_str(), O_CREAT | O_RDWR, ACCESSPERMS);
         } else {
+          // A process told to stop while waiting for the page gives up: it would not use it.
           int i = 0;
-          while (i < 11 && handle == -1 && autoBackoff) {
+          while (i < 11 && handle == -1 && autoBackoff && !Util::Config::stopRequested()) {
             i++;
-            Util::wait(Util::expBackoffMs(i - 1, 10, 10000));
+            const uint64_t until = Util::bootMS() + Util::expBackoffMs(i - 1, 10, 10000);
+            for (uint64_t now = Util::bootMS(); now < until && !Util::Config::stopRequested(); now = Util::bootMS()) {
+              Util::sleep(std::min<uint64_t>(100, until - now));
+            }
             handle = shm_open(name.c_str(), O_RDWR, ACCESSPERMS);
           }
         }

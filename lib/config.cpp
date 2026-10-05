@@ -42,6 +42,7 @@ static_assert(ATOMIC_BOOL_LOCK_FREE == 2, "Config signal state requires lock-fre
 static_assert(ATOMIC_INT_LOCK_FREE == 2, "Config binary type requires lock-free atomics");
 std::atomic<bool> Util::Config::is_active{false};
 std::atomic<bool> Util::Config::is_restarting{false};
+std::atomic<bool> Util::Config::stop_requested{false};
 static int serv_sock_fd = -1;
 uint32_t Util::printDebugLevel = DEBUG;
 __thread char Util::streamName[256] = {0};
@@ -691,6 +692,11 @@ void Util::Config::activate(){
   is_active = true;
 }
 
+void Util::Config::requestStop() {
+  stop_requested = true;
+  is_active = false;
+}
+
 std::mutex * mutabort = 0;
 void Util::Config::setMutexAborter(void * mutex){
   mutabort = (std::mutex*)mutex;
@@ -745,6 +751,7 @@ void Util::Config::signal_handler(int signum, siginfo_t *sigInfo, void *ignore){
       break;
     default: logExitReason(ER_CLEAN_SIGNAL, "signal %s (%d)", strsignal(signum), signum);
     }
+    stop_requested = true;
     is_active = false;
   default:
     switch (sigInfo->si_code){

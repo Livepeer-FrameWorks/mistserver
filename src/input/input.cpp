@@ -1019,6 +1019,7 @@ namespace Mist{
           if (canCancelUnload){
             activityCounter = Util::bootSecs();
             config->is_active = true;
+            Util::Config::stop_requested = false;
             ret = true;
           }else{
             WARN_MSG("Attempted to abort unload with STREAM_UNLOAD trigger, but not a cancelable exit reason");
