@@ -53,6 +53,10 @@ configsignaltest = executable('configsignaltest', 'config_signal_unit.cpp', head
                               dependencies: libmist_dep)
 test('Config activation preserves diagnostic signal contracts', configsignaltest, suite: 'Runtime')
 
+logrecordatomictest = executable('logrecordatomictest', 'log_record_atomic_unit.cpp', header_tgts,
+                                 dependencies: libmist_dep)
+test('Log records of concurrent processes never interleave', logrecordatomictest, suite: 'Runtime')
+
 controllerlogthreadtest = executable('controllerlogthreadtest', 'controller_log_thread_unit.cpp',
                                      header_tgts, dependencies: libmist_dep)
 test('Controller log thread joins on every scope exit', controllerlogthreadtest, suite: 'Controller')

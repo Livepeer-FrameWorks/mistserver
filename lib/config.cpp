@@ -49,6 +49,45 @@ __thread char Util::exitReason[256] = {0};
 __thread char* Util::mRExitReason = (char*)ER_UNKNOWN;
 std::atomic<Util::binType> Util::Config::binaryType{UNSET};
 
+/// Writes one log record to stderr in a single write, where stdio may split one fprintf into
+/// several. Every process logs into the controller's one log pipe, and a pipe write of up to
+/// PIPE_BUF bytes (4096 on Linux, 512 on macOS) never interleaves with another process's write.
+/// A record that does not fit the stack buffer is formatted on the heap, so it is never cut.
+/// errno is preserved for callers that log before reading it.
+void Util::logWrite(const char *fmt, ...) {
+  int savedErrno = errno;
+  char stackBuf[4096];
+  char *buf = stackBuf;
+  va_list args;
+  va_start(args, fmt);
+  va_list again;
+  va_copy(again, args);
+  int len = vsnprintf(stackBuf, sizeof(stackBuf), fmt, args);
+  va_end(args);
+  if (len >= (int)sizeof(stackBuf)) {
+    buf = (char *)malloc(len + 1);
+    if (buf) {
+      vsnprintf(buf, len + 1, fmt, again);
+    } else {
+      buf = stackBuf;
+      len = sizeof(stackBuf) - 1;
+      buf[len - 1] = '\n';
+    }
+  }
+  va_end(again);
+  size_t done = 0;
+  while (len > 0 && done < (size_t)len) {
+    ssize_t ret = write(STDERR_FILENO, buf + done, len - done);
+    if (ret < 0) {
+      if (errno == EINTR) { continue; }
+      break;
+    }
+    done += ret;
+  }
+  if (buf != stackBuf) { free(buf); }
+  errno = savedErrno;
+}
+
 Util::binType Util::Config::claimBinaryType(Util::binType requested) {
   Util::binType expected = UNSET;
   binaryType.compare_exchange_strong(expected, requested, std::memory_order_relaxed);

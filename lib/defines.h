@@ -34,6 +34,11 @@
 namespace Util{
   extern uint32_t printDebugLevel;
   extern __thread char streamName[256];
+#if defined(__GNUC__)
+  void logWrite(const char *fmt, ...) __attribute__((format(printf, 1, 2)));
+#else
+  void logWrite(const char *fmt, ...);
+#endif
 }
 
 static const char *DBG_LVL_LIST[] ={"NONE", "FAIL",     "ERROR",   "WARN",   "INFO",    "MEDIUM",
@@ -66,9 +71,9 @@ static const char *DBG_LVL_LIST[] ={"NONE", "FAIL",     "ERROR",   "WARN",   "IN
   #endif
 #endif
 
-#define LOG_MSG(lvl, msg, ...)                                                                              \
-  fprintf(stderr, "%.8s|%.30s|%d|%.100s:%d|%.200s|" msg "\n", lvl, MIST_PROG, getpid(), __FILE__, __LINE__, \
-          Util::streamName, ##__VA_ARGS__);
+#define LOG_MSG(lvl, msg, ...)                                                                             \
+  Util::logWrite("%.8s|%.30s|%d|%.100s:%d|%.200s|" msg "\n", lvl, MIST_PROG, getpid(), __FILE__, __LINE__, \
+                 Util::streamName, ##__VA_ARGS__);
 #define DEBUG_MSG(lvl, msg, ...)                                                       \
   if (Util::printDebugLevel >= lvl) { LOG_MSG(DBG_LVL_LIST[lvl], msg, ##__VA_ARGS__) }
 
