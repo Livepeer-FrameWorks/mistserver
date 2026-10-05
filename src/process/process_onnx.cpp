@@ -13,6 +13,8 @@
 #include <mist/util.h>
 
 #include <atomic>
+#include <chrono>
+#include <condition_variable>
 #include <deque>
 #include <mutex>
 #include <thread>
@@ -125,10 +127,18 @@ bool kalmanEnabled = false;
 float kalmanProcessNoise = 0.01f;
 float kalmanMeasurementNoise = 0.1f;
 
-// Processing pipeline - video packets from ProcessSource to processing thread
+// Processing pipeline - video packets from ProcessSource to processing thread. On a live stream
+// the processing thread takes the latest frame and stale ones are dropped. On a process-controlled
+// stream every frame is processed: the source waits while the bounded queue is full (which the
+// published contract reports as a full queue, so the feed slows down), and results are passed on
+// in order, so a late start catches up from the buffer head without losing frames.
 std::mutex latestVideoMutex;
 ONNX::VideoPacket latestVideo;
 bool hasLatestVideo = false;
+std::atomic<bool> orderedVision{false};
+std::deque<ONNX::VideoPacket> videoQueue;
+std::condition_variable videoQueueSpace;
+static const size_t VISION_QUEUE_CAPACITY = 8;
 
 struct TensorPacket {
   std::vector<uint8_t> data;
@@ -459,8 +469,19 @@ namespace Mist {
             sendFirst = true;
           }
 
-          // Store as latest video packet for processing thread
-          {
+          if (!orderedModeKnown) {
+            orderedVision = processingControlledRealtime();
+            orderedModeKnown = true;
+          }
+          if (orderedVision) {
+            std::unique_lock<std::mutex> lock(latestVideoMutex);
+            while (videoQueue.size() >= VISION_QUEUE_CAPACITY && isActive && keepGoing()) {
+              videoQueueSpace.wait_for(lock, std::chrono::milliseconds(100));
+            }
+            visionReceivedFrames++;
+            videoQueue.push_back(vp);
+          } else {
+            // Store as latest video packet for processing thread
             std::lock_guard<std::mutex> lock(latestVideoMutex);
             visionReceivedFrames++;
             if (hasLatestVideo) {
@@ -1013,8 +1034,9 @@ namespace Mist {
           sample.configuredMaxFps = maxInferenceFps;
           {
             std::lock_guard<std::mutex> lock(latestVideoMutex);
-            sample.inputQueueDepth = hasLatestVideo ? 1 : 0;
+            sample.inputQueueDepth = orderedVision ? videoQueue.size() : (hasLatestVideo ? 1 : 0);
           }
+          if (orderedVision) { sample.queueCapacity = VISION_QUEUE_CAPACITY; }
         }
 
         sample.workDeltaUs = totalWorkUs >= prevWorkUs ? totalWorkUs - prevWorkUs : 0;
@@ -1598,10 +1620,14 @@ namespace Mist {
       ONNX::VideoPacket vp;
       bool hasVideo = false;
 
-      // Measure mutex contention for video queue
       {
         std::lock_guard<std::mutex> lock(latestVideoMutex);
-        if (hasLatestVideo) {
+        if (!videoQueue.empty()) {
+          vp = std::move(videoQueue.front());
+          videoQueue.pop_front();
+          hasVideo = true;
+          videoQueueSpace.notify_all();
+        } else if (hasLatestVideo) {
           vp = latestVideo;
           hasLatestVideo = false;
           hasVideo = true;
@@ -1700,7 +1726,10 @@ namespace Mist {
               transcriptQueue.push_back(evPacket);
             }
           }
-          {
+          if (orderedVision) {
+            std::lock_guard<std::mutex> lock(transcriptMutex);
+            transcriptQueue.push_back(metadata);
+          } else {
             std::lock_guard<std::mutex> lock(latestMetadataMutex);
             latestMetadata = metadata;
             hasLatestMetadata = true;

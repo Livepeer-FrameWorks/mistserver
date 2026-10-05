@@ -37,6 +37,7 @@ namespace Mist {
 
     private:
       bool sendFirst{false}; //< Whether first packet has been sent
+      bool orderedModeKnown{false}; //< Whether orderedVision was set from the stream's processing mode
       uint64_t sendPacketTime;
   };
 } // namespace Mist
