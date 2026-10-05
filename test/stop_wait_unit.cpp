@@ -1,11 +1,13 @@
 // A process told to stop gives up waiting for what it would no longer use: a session that does not
-// start, a shared page that does not appear, and a stream that does not become available. It is
-// told to stop by a signal (the handler Util::Config::activate installs) or by
-// Util::Config::requestStop. Each case runs in a process of its own, since a stop is never taken
-// back.
+// start, a shared page that does not appear, a stream that does not become available, and a
+// stream's track list lock that a holder that died never releases (which a process also gives up on
+// once the stream shuts down). It is told to stop by a signal (the handler Util::Config::activate
+// installs) or by Util::Config::requestStop. Each case runs in a process of its own, since a stop is
+// never taken back.
 #include <mist/comms.h>
 #include <mist/config.h>
 #include <mist/defines.h>
+#include <mist/dtsc.h>
 #include <mist/shared_memory.h>
 #include <mist/stream.h>
 #include <mist/timing.h>
@@ -137,12 +139,78 @@ namespace {
     expect(ran && ran < 2000, "waiting for a booting stream gives up once signalled to stop after 300 ms (" + ms(ran) + ")");
     expect(!code, "a stopped caller does not report the stream as started");
   }
+
+  /// Takes the track list lock of the stream and dies holding it.
+  void dieHoldingTheLock(const std::string & streamName) {
+    pid_t holder = fork();
+    if (!holder) {
+      char name[NAME_BUFFER_SIZE];
+      snprintf(name, NAME_BUFFER_SIZE, SEM_TRACKLIST, streamName.c_str());
+      IPC::semaphore lock(name, O_CREAT | O_RDWR, ACCESSPERMS, 1);
+      lock.wait();
+      _exit(0);
+    }
+    waitpid(holder, 0, 0);
+  }
+
+  void removeStream(const std::string & streamName) {
+    char name[NAME_BUFFER_SIZE];
+    snprintf(name, NAME_BUFFER_SIZE, SHM_STREAM_META, streamName.c_str());
+    IPC::sharedPage meta(name, 0, false, false);
+    if (meta) { meta.master = true; }
+    snprintf(name, NAME_BUFFER_SIZE, SEM_TRACKLIST, streamName.c_str());
+    IPC::semaphore trackLock(name, O_CREAT | O_RDWR, ACCESSPERMS, 1);
+    trackLock.unlink();
+  }
+
+  void trackListLockWait() {
+    const std::string streamName = "lw" + std::to_string(getpid() % 100000);
+    {
+      DTSC::Meta buffer(streamName, true);
+      buffer.setLive(true);
+      dieHoldingTheLock(streamName);
+      int code = 0;
+      const uint64_t ran = runChild(REQUEST, 300, [&]() {
+        DTSC::Meta M(streamName, false, false);
+        return M.addTrack() == INVALID_TRACK_ID ? 0 : 3;
+      }, code);
+      expect(ran && ran < 1500, "waiting for the track list lock gives up once stopped after 300 ms (" + ms(ran) + ")");
+      expect(!code, "a process that gave up waiting for the track list lock adds no track");
+    }
+    removeStream(streamName);
+  }
+
+  void trackListLockStreamEnds() {
+    const std::string streamName = "le" + std::to_string(getpid() % 100000);
+    {
+      DTSC::Meta buffer(streamName, true);
+      buffer.setLive(true);
+      buffer.addTrack();
+      buffer.breakClaim(0);
+      dieHoldingTheLock(streamName);
+      std::thread shutdown([&buffer]() {
+        Util::sleep(300);
+        buffer.clear(); // the buffer shuts the stream down
+      });
+      int code = 0;
+      const uint64_t ran = runChild(NO_STOP, 0, [&]() {
+        DTSC::Meta M(streamName, false, false);
+        return M.claimTrack(0, false) ? 3 : 0;
+      }, code);
+      shutdown.join();
+      expect(ran && ran < 2500, "waiting for the track list lock gives up once the stream shuts down (" + ms(ran) + ")");
+      expect(!code, "a claimant that gave up waiting claims nothing");
+    }
+    removeStream(streamName);
+  }
 } // namespace
 
 int main() {
   sessionWait();
   sharedPageWait();
   startInputWait();
+  trackListLockWait();
+  trackListLockStreamEnds();
   if (failures) { return 1; }
   std::cout << "a process gives up its waits once told to stop" << std::endl;
   return 0;

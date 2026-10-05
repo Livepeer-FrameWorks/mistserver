@@ -630,6 +630,33 @@ namespace DTSC{
     std::map<size_t, size_t> sizeMemBuf;
 
   private:
+    /// Holds the track list lock of a shared stream for its scope, switched to the newest list
+    /// page. It serializes what appends to the list or grows it, and claims: two processes
+    /// adding a track never take the same record, and two claimants of one track never both get
+    /// it.
+    class TrackListLock {
+      public:
+        TrackListLock(Meta & meta);
+        ~TrackListLock();
+        TrackListLock(const TrackListLock &) = delete;
+        TrackListLock & operator=(const TrackListLock &) = delete;
+        /// Whether this scope holds the lock.
+        bool held() const { return isHeld; }
+
+      private:
+        Meta & M;
+        IPC::semaphore sem;
+        bool isHeld;
+    };
+
+    bool switchToReplacedStreamPage();
+    bool switchForWrite();
+    void setSharedInt(Util::RelAccX Meta::*page, Util::RelAccXFieldData Meta::*field, size_t recordNo, uint64_t val);
+    void setSharedString(Util::RelAccX Meta::*page, Util::RelAccXFieldData Meta::*field, size_t recordNo, const std::string & val);
+    /// Whether switchForWrite gave up waiting for a replacement of the current stream page; reset
+    /// whenever the stream page changes.
+    bool replacementGivenUp = false;
+
     std::map<size_t, jitterTimer> theJitters;
     // Internal buffers so we don't always need to search for everything
     Util::RelAccXFieldData streamVodField;

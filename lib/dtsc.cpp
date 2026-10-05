@@ -5,6 +5,7 @@
 
 #include "adts.h"
 #include "bitfields.h"
+#include "config.h"
 #include "defines.h"
 #include "encode.h"
 #include "h264.h"
@@ -1395,10 +1396,12 @@ namespace DTSC{
       FAIL_MSG("Failed to re-allocate memory for main stream metadata");
       return;
     }
-    memcpy(orig, (isMemBuf ? streamMemBuf : streamPage.mapped), pageSize);
-
-    // Set current structure to require a reload
+    // Flag the current page for reload before copying it: a write another process makes to it
+    // that the copy misses sees the flag afterwards, and is repeated on the replacement (see
+    // setSharedInt).
     stream.setReload();
+    __atomic_thread_fence(__ATOMIC_SEQ_CST);
+    memcpy(orig, isMemBuf ? streamMemBuf : streamPage.mapped, pageSize);
 
     // Calculate _new_ size
     size_t newPageSize = META_META_OFFSET + META_TRACK_OFFSET + META_META_RECORDSIZE + (newTrackCount * META_TRACK_RECORDSIZE);
@@ -1418,6 +1421,7 @@ namespace DTSC{
       streamPage.master = true;
       std::string pageName = streamPage.name;
       streamPage.init(pageName, newPageSize, true);
+      replacementGivenUp = false;
       if (!streamPage.mapped){
         FAIL_MSG("Failed to re-allocate shared memory for main metadata: %s", strerror(errno));
         return;
@@ -1468,7 +1472,11 @@ namespace DTSC{
     trackList = Util::RelAccX(stream.getPointer(streamTracksField), false);
     preloadTrackFields();
     for (size_t i = 0; i < trackList.getPresent(); i++){
-      if (trackList.getInt(trackValidField, i) == 0){continue;}
+      // This process's own tracks stay loaded before they are valid (a delayed track waits for its
+      // init), so a reload while it describes them does not drop them.
+      if (trackList.getInt(trackValidField, i) == 0 && trackList.getInt(trackPidField, i) != (uint64_t)getpid()) {
+        continue;
+      }
       if (tracks.count(i)){continue;}
       IPC::sharedPage &p = tM[i];
       p.init(trackList.getPointer(trackPageField, i), SHM_STREAM_TRACK_LEN, false, false);
@@ -1556,6 +1564,7 @@ namespace DTSC{
     if (stream.isReload() || stream.isExit()){
       INFO_MSG("Reloading entire metadata");
       streamPage.close();
+      replacementGivenUp = false;
       snprintf(pageName, NAME_BUFFER_SIZE, SHM_STREAM_META, streamName.c_str());
       streamPage.init(pageName, 0, false, true);
       if (!streamPage.mapped){
@@ -1679,6 +1688,88 @@ namespace DTSC{
     return ret;
   }
 
+  /// Switches to the page that replaced the stream page when that page is flagged for reload and
+  /// the stream is not exiting. Unlike reloadReplacedPagesIfNeeded it neither waits for the
+  /// replacement nor reloads the tracks (whose pages a grown list does not change): the
+  /// replacement is used once it is complete (ready and not itself replaced), until then the
+  /// current page stays. Returns whether it switched.
+  bool Meta::switchToReplacedStreamPage() {
+    if (isMemBuf || !stream.isReady() || !stream.isReload() || stream.isExit()) { return false; }
+    char pageName[NAME_BUFFER_SIZE];
+    snprintf(pageName, NAME_BUFFER_SIZE, SHM_STREAM_META, streamName.c_str());
+    IPC::sharedPage fresh(pageName, 0, false, false);
+    if (!fresh.mapped) { return false; }
+    Util::RelAccX freshStream(fresh.mapped, false);
+    if (!freshStream.isReady() || freshStream.isReload() || freshStream.isExit()) { return false; }
+    // The replaced page ends up in fresh, which closes it.
+    streamPage.swap(fresh);
+    replacementGivenUp = false;
+    stream = Util::RelAccX(streamPage.mapped, false);
+    streamTracksField = stream.getFieldData("tracks");
+    updateFieldDataReferences();
+    trackList = Util::RelAccX(stream.getPointer(streamTracksField), false);
+    preloadTrackFields();
+    return true;
+  }
+
+  /// Switches to the replacement of the stream page flagged for reload for a write to repeat
+  /// there, waiting for it up to a second. The replacement is normally complete within
+  /// microseconds; one that does not come (its writer died while growing the list) delays one
+  /// write by a second, after which writes stay on the current page without waiting.
+  bool Meta::switchForWrite() {
+    if (replacementGivenUp) { return false; }
+    const uint64_t until = Util::bootMS() + 1000;
+    while (!switchToReplacedStreamPage()) {
+      if (!stream.isReload() || stream.isExit()) { return false; }
+      if (Util::bootMS() >= until) {
+        WARN_MSG("No replacement for the metadata page of %s appeared within a second", streamName.c_str());
+        replacementGivenUp = true;
+        return false;
+      }
+      Util::sleep(1);
+    }
+    return true;
+  }
+
+  namespace {
+    std::string fieldString(const Util::RelAccX & page, const Util::RelAccXFieldData & field, size_t recordNo) {
+      const char *val = page.getPointer(field, recordNo);
+      return val ? std::string(val, strnlen(val, field.size)) : "";
+    }
+  } // namespace
+
+  /// Writes an integer field of the shared stream page (page is stream or trackList) so that the
+  /// write survives another process growing the track list, which flags the page for reload before
+  /// it copies it: a write the copy missed sees the flag after it, and is repeated on the
+  /// replacement. The replacement holds the value from before this write when the copy missed it,
+  /// this write's value when it did not, and any other value only when another process wrote the
+  /// field on the replacement since: that newer write is kept.
+  void Meta::setSharedInt(Util::RelAccX Meta::*page, Util::RelAccXFieldData Meta::*field, size_t recordNo, uint64_t val) {
+    const uint64_t before = (this->*page).getInt(this->*field, recordNo);
+    (this->*page).setInt(this->*field, val, recordNo);
+    if (isMemBuf) { return; }
+    __atomic_thread_fence(__ATOMIC_SEQ_CST);
+    while (stream.isReload() && !stream.isExit() && switchForWrite()) {
+      if ((this->*page).getInt(this->*field, recordNo) != before) { return; }
+      (this->*page).setInt(this->*field, val, recordNo);
+      __atomic_thread_fence(__ATOMIC_SEQ_CST);
+    }
+  }
+
+  /// Writes a string field of the shared stream page like setSharedInt.
+  void Meta::setSharedString(Util::RelAccX Meta::*page, Util::RelAccXFieldData Meta::*field, size_t recordNo,
+                             const std::string & val) {
+    const std::string before = fieldString(this->*page, this->*field, recordNo);
+    (this->*page).setString(this->*field, val, recordNo);
+    if (isMemBuf) { return; }
+    __atomic_thread_fence(__ATOMIC_SEQ_CST);
+    while (stream.isReload() && !stream.isExit() && switchForWrite()) {
+      if (fieldString(this->*page, this->*field, recordNo) != before) { return; }
+      (this->*page).setString(this->*field, val, recordNo);
+      __atomic_thread_fence(__ATOMIC_SEQ_CST);
+    }
+  }
+
   /// Merges in track information from a given DTSC::Meta object, optionally deleting missing tracks
   /// and optionally making hard copies of the original data.
   void Meta::merge(const DTSC::Meta &M, bool deleteTracks, bool copyData){
@@ -1772,6 +1863,9 @@ namespace DTSC{
       WARN_MSG("Unsupported operation for in-memory streams");
       return INVALID_TRACK_ID;
     }
+    TrackListLock lock(*this);
+    if (!lock.held()) { return INVALID_TRACK_ID; }
+    if (trackList.getPresent() >= trackList.getRCount()) { resizeTrackList(trackList.getPresent() * 2); }
     size_t tNumber = trackList.getPresent();
 
     Track &t = tracks[tNumber];
@@ -2191,6 +2285,39 @@ namespace DTSC{
     }
   }
 
+  /// Takes the track list lock and switches to the newest list page. Every process grows the list
+  /// only while holding this lock, so a page flagged for reload has its complete replacement by
+  /// now. The semaphore is opened for each lock, since the stream's next generation has its own.
+  Meta::TrackListLock::TrackListLock(Meta & meta) : M(meta), isHeld(false) {
+    if (M.isMemBuf) {
+      isHeld = true;
+      return;
+    }
+    char semName[NAME_BUFFER_SIZE];
+    snprintf(semName, NAME_BUFFER_SIZE, SEM_TRACKLIST, M.streamName.c_str());
+    sem.open(semName, O_CREAT | O_RDWR, ACCESSPERMS, 1);
+    if (!sem) {
+      FAIL_MSG("Could not open the track list semaphore of %s", M.streamName.c_str());
+      return;
+    }
+    // A process told to stop, or whose stream shuts down, gives up waiting: a holder that died
+    // with the lock taken never releases it, and the stream's next generation has its own lock.
+    while (!sem.tryWait(100)) {
+      const bool stopped = Util::Config::stopRequested();
+      if (stopped || (M.streamPage.mapped && M.stream.isExit())) {
+        WARN_MSG("Gave up waiting for the track list lock of %s: %s", M.streamName.c_str(),
+                 stopped ? "told to stop" : "the stream shuts down");
+        return;
+      }
+    }
+    isHeld = true;
+    M.switchToReplacedStreamPage();
+  }
+
+  Meta::TrackListLock::~TrackListLock() {
+    if (isHeld && !M.isMemBuf) { sem.post(); }
+  }
+
   /// Either adds a track or resumes an existing track, if it can match track metadata to an unclaimed track.
   size_t Meta::addOrResumeDelayedTrack(const TrackMetadata & input) {
     const TrackMetadata trkDta = storedTrackForm(input);
@@ -2245,21 +2372,14 @@ namespace DTSC{
   /// To be called from the various inputs/outputs whenever they want to add a track.
   size_t Meta::addTrack(size_t fragCount, size_t keyCount, size_t partCount, size_t pageCount, bool setValid, size_t frameSize){
     char pageName[NAME_BUFFER_SIZE];
-    IPC::semaphore trackLock;
-    if (!isMemBuf){
-      snprintf(pageName, NAME_BUFFER_SIZE, SEM_TRACKLIST, streamName.c_str());
-      trackLock.open(pageName, O_CREAT | O_RDWR, ACCESSPERMS, 1);
-      if (!trackLock){
-        FAIL_MSG("Could not open semaphore to add track!");
-        return INVALID_TRACK_ID;
-      }
-      trackLock.wait();
-      if (stream.isExit()){
-        trackLock.post();
-        FAIL_MSG("Not adding track: stream is shutting down");
-        return INVALID_TRACK_ID;
-      }
-      reloadReplacedPagesIfNeeded();
+    TrackListLock lock(*this);
+    if (!lock.held()) {
+      FAIL_MSG("Could not lock the track list to add a track");
+      return INVALID_TRACK_ID;
+    }
+    if (!isMemBuf && stream.isExit()) {
+      FAIL_MSG("Not adding track: stream is shutting down");
+      return INVALID_TRACK_ID;
     }
 
     // Resize track list if we're running out of tracks
@@ -2303,7 +2423,6 @@ namespace DTSC{
     trackList.setInt(trackSourceTidField, INVALID_TRACK_ID, tNumber);
     trackList.addRecords(1);
     if (setValid){validateTrack(tNumber, trackValidDefault);}
-    if (!isMemBuf){trackLock.post();}
     return tNumber;
   }
 
@@ -2312,7 +2431,7 @@ namespace DTSC{
   }
 
   void Meta::breakClaim(size_t trackIdx) {
-    trackList.setInt(trackPidField, 0, trackIdx);
+    setSharedInt(&Meta::trackList, &Meta::trackPidField, trackIdx, 0);
   }
 
   uint64_t Meta::isClaimedBy(size_t trackIdx) const{
@@ -2320,21 +2439,14 @@ namespace DTSC{
   }
 
   bool Meta::claimTrack(size_t trackIdx, bool critical) {
-    IPC::semaphore trackLock;
-    if (!isMemBuf) {
-      char pageName[NAME_BUFFER_SIZE];
-      snprintf(pageName, NAME_BUFFER_SIZE, SEM_TRACKLIST, streamName.c_str());
-      trackLock.open(pageName, O_CREAT | O_RDWR, ACCESSPERMS, 1);
-      if (!trackLock) {
-        FAIL_MSG("Could not open semaphore to claim track!");
-        return false;
-      }
-      trackLock.wait();
-      if (stream.isExit()) {
-        trackLock.post();
-        FAIL_MSG("Not claiming track: stream page is shutting down");
-        return false;
-      }
+    TrackListLock lock(*this);
+    if (!lock.held()) {
+      FAIL_MSG("Could not lock the track list to claim a track");
+      return false;
+    }
+    if (!isMemBuf && stream.isExit()) {
+      FAIL_MSG("Not claiming track: stream page is shutting down");
+      return false;
     }
     if (trackList.getInt(trackPidField, trackIdx) != 0){
       if (critical) {
@@ -2343,7 +2455,6 @@ namespace DTSC{
       return false;
     }
     trackList.setInt(trackPidField, getpid(), trackIdx);
-    if (!isMemBuf) { trackLock.post(); }
     return true;
   }
 
@@ -2352,7 +2463,7 @@ namespace DTSC{
       FAIL_MSG("Cannot abandon track: is claimed by PID %" PRIu64 ", not us", trackList.getInt(trackPidField, trackIdx));
       return;
     }
-    trackList.setInt(trackPidField, 0, trackIdx);
+    setSharedInt(&Meta::trackList, &Meta::trackPidField, trackIdx, 0);
   }
 
   bool Meta::hasEmbeddedFrames(size_t trackIdx) const{
@@ -2583,11 +2694,13 @@ namespace DTSC{
     return std::string(src + 2, size);
   }
 
-  void Meta::setSource(const std::string &src){stream.setString(streamSourceField, src);}
+  void Meta::setSource(const std::string & src) {
+    setSharedString(&Meta::stream, &Meta::streamSourceField, 0, src);
+  }
   std::string Meta::getSource() const{return stream.getPointer(streamSourceField);}
 
   void Meta::setID(size_t trackIdx, size_t id){
-    trackList.setInt(trackIdField, id, trackIdx);
+    setSharedInt(&Meta::trackList, &Meta::trackIdField, trackIdx, id);
     DTSC::Track &t = tracks.at(trackIdx);
     t.track.setInt(t.trackIdField, id);
   }
@@ -2595,7 +2708,7 @@ namespace DTSC{
 
   /// Writes Util::bootSecs() to the track's last updated field.
   void Meta::markUpdated(size_t trackIdx){
-    trackList.setInt(trackLastUpdateField, Util::bootSecs(), trackIdx);
+    setSharedInt(&Meta::trackList, &Meta::trackLastUpdateField, trackIdx, Util::bootSecs());
   }
 
   /// Reads the track's last updated field, which should be the Util::bootSecs() value of the time
@@ -2662,7 +2775,7 @@ namespace DTSC{
   }
 
   void Meta::setType(size_t trackIdx, const std::string &type){
-    trackList.setString(trackTypeField, type, trackIdx);
+    setSharedString(&Meta::trackList, &Meta::trackTypeField, trackIdx, type);
     DTSC::Track &t = tracks.at(trackIdx);
     t.track.setString(t.trackTypeField, type);
   }
@@ -2671,7 +2784,7 @@ namespace DTSC{
   }
 
   void Meta::setCodec(size_t trackIdx, const std::string &codec){
-    trackList.setString(trackCodecField, codec, trackIdx);
+    setSharedString(&Meta::trackList, &Meta::trackCodecField, trackIdx, codec);
     DTSC::Track &t = tracks.at(trackIdx);
     t.track.setString(t.trackCodecField, codec);
   }
@@ -2822,7 +2935,7 @@ namespace DTSC{
   }
 
   void Meta::setMinKeepAway(size_t trackIdx, uint64_t minKeepAway){
-    trackList.setInt(trackMinKeepAwayField, minKeepAway, trackIdx);
+    setSharedInt(&Meta::trackList, &Meta::trackMinKeepAwayField, trackIdx, minKeepAway);
   }
 
   uint64_t Meta::getMinKeepAway(size_t trackIdx) const{
@@ -2830,7 +2943,7 @@ namespace DTSC{
   }
 
   void Meta::setMaxKeepAway(uint64_t maxKeepAway){
-    stream.setInt(streamMaxKeepAwayField, maxKeepAway);
+    setSharedInt(&Meta::stream, &Meta::streamMaxKeepAwayField, 0, maxKeepAway);
   }
 
   uint64_t Meta::getMaxKeepAway() const{
@@ -2838,49 +2951,49 @@ namespace DTSC{
   }
 
   void Meta::setEncryption(size_t trackIdx, const std::string &encryption){
-    trackList.setString(trackEncryptionField, encryption, trackIdx);
+    setSharedString(&Meta::trackList, &Meta::trackEncryptionField, trackIdx, encryption);
   }
   std::string Meta::getEncryption(size_t trackIdx) const{
     return trackList.getPointer(trackEncryptionField, trackIdx);
   }
 
   void Meta::setWidevine(size_t trackIdx, const std::string &widevine){
-    trackList.setString(trackWidevineField, widevine, trackIdx);
+    setSharedString(&Meta::trackList, &Meta::trackWidevineField, trackIdx, widevine);
   }
   std::string Meta::getWidevine(size_t trackIdx) const{
     return trackList.getPointer(trackWidevineField, trackIdx);
   }
 
   void Meta::setPlayReady(size_t trackIdx, const std::string &playReady){
-    trackList.setString(trackPlayreadyField, playReady, trackIdx);
+    setSharedString(&Meta::trackList, &Meta::trackPlayreadyField, trackIdx, playReady);
   }
   std::string Meta::getPlayReady(size_t trackIdx) const{
     return trackList.getPointer(trackPlayreadyField, trackIdx);
   }
 
   void Meta::setIvec(size_t trackIdx, uint64_t ivec){
-    trackList.setInt(trackIvecField, ivec, trackIdx);
+    setSharedInt(&Meta::trackList, &Meta::trackIvecField, trackIdx, ivec);
   }
   uint64_t Meta::getIvec(size_t trackIdx) const{
     return trackList.getInt(trackIvecField, trackIdx);
   }
 
   void Meta::setSourceTrack(size_t trackIdx, size_t sourceTrack){
-    trackList.setInt(trackSourceTidField, sourceTrack, trackIdx);
+    setSharedInt(&Meta::trackList, &Meta::trackSourceTidField, trackIdx, sourceTrack);
   }
   uint64_t Meta::getSourceTrack(size_t trackIdx) const{
     return trackList.getInt(trackSourceTidField, trackIdx);
   }
 
   void Meta::setVod(bool vod){
-    stream.setInt(streamVodField, vod ? 1 : 0);
+    setSharedInt(&Meta::stream, &Meta::streamVodField, 0, vod ? 1 : 0);
   }
   bool Meta::getVod() const{
     return isLimited || stream.getInt(streamVodField);
   }
 
   void Meta::setLive(bool live){
-    stream.setInt(streamLiveField, live ? 1 : 0);
+    setSharedInt(&Meta::stream, &Meta::streamLiveField, 0, live ? 1 : 0);
   }
   bool Meta::getLive() const{
     return (!isLimited || limitMax == 0xFFFFFFFFFFFFFFFFull) && stream.getInt(streamLiveField);
@@ -2909,19 +3022,19 @@ namespace DTSC{
   }
 
   void Meta::setBufferWindow(uint64_t bufferWindow){
-    stream.setInt(streamBufferWindowField, bufferWindow);
+    setSharedInt(&Meta::stream, &Meta::streamBufferWindowField, 0, bufferWindow);
   }
   uint64_t Meta::getBufferWindow() const{return stream.getInt(streamBufferWindowField);}
 
   void Meta::setBootMsOffset(int64_t bootMsOffset){
     DONTEVEN_MSG("Setting streamBootMsOffsetField to %" PRId64, bootMsOffset);
-    stream.setInt(streamBootMsOffsetField, bootMsOffset);
+    setSharedInt(&Meta::stream, &Meta::streamBootMsOffsetField, 0, bootMsOffset);
   }
   int64_t Meta::getBootMsOffset() const{return stream.getInt(streamBootMsOffsetField);}
 
   void Meta::setUTCOffset(int64_t UTCOffset, uint8_t UTCSource) {
-    stream.setInt(streamUTCOffsetField, UTCOffset);
-    stream.setInt(streamUTCSourceField, UTCSource);
+    setSharedInt(&Meta::stream, &Meta::streamUTCOffsetField, 0, UTCOffset);
+    setSharedInt(&Meta::stream, &Meta::streamUTCSourceField, 0, UTCSource);
   }
   int64_t Meta::getUTCOffset() const{return stream.getInt(streamUTCOffsetField);}
   uint8_t Meta::getUTCSource() const {
@@ -2930,7 +3043,7 @@ namespace DTSC{
 
   /*LTS-START*/
   void Meta::setMinimumFragmentDuration(uint64_t fragmentDuration){
-    stream.setInt(streamMinimumFragmentDurationField, fragmentDuration);
+    setSharedInt(&Meta::stream, &Meta::streamMinimumFragmentDurationField, 0, fragmentDuration);
   }
   uint64_t Meta::getMinimumFragmentDuration() const{
     uint64_t res = stream.getInt(streamMinimumFragmentDurationField);
@@ -2986,7 +3099,7 @@ namespace DTSC{
   /// Sets the track valid field to 1, also calling markUpdated()
   void Meta::validateTrack(size_t trackIdx, uint8_t validType){
     markUpdated(trackIdx);
-    trackList.setInt(trackValidField, validType, trackIdx);
+    setSharedInt(&Meta::trackList, &Meta::trackValidField, trackIdx, validType);
   }
 
   void Meta::removeEmptyTracks(){
@@ -3016,7 +3129,9 @@ namespace DTSC{
     tM.erase(trackIdx);
     tracks.erase(trackIdx);
 
-    trackList.setInt(trackValidField, 0, trackIdx);
+    setSharedInt(&Meta::trackList, &Meta::trackValidField, trackIdx, 0);
+    // A reload keeps this process's own invalid tracks loaded (see refresh), so its claim goes.
+    if (trackList.getInt(trackPidField, trackIdx) == (uint64_t)getpid()) { breakClaim(trackIdx); }
   }
 
   /// Removes the first key from the memory structure and caches.
@@ -3546,6 +3661,8 @@ namespace DTSC{
         trackLock.open(pageName, O_CREAT|O_RDWR, ACCESSPERMS, 1);
         trackLock.tryWaitOneSecond();
       }
+      // The exit flag goes on the newest list page, which another process may have grown.
+      switchToReplacedStreamPage();
       std::set<size_t> toRemove;
       for (std::map<size_t, IPC::sharedPage>::iterator it = tM.begin(); it != tM.end(); it++){
         if (!it->second.mapped){continue;}
@@ -3564,6 +3681,7 @@ namespace DTSC{
     stream = Util::RelAccX();
     trackList = Util::RelAccX();
     streamPage.close();
+    replacementGivenUp = false;
     if (trackInvalidateCallback) {
       for (auto & t : tracks) { trackInvalidateCallback(t.first); }
     }

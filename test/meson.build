@@ -86,6 +86,13 @@ embeddedframetest = executable('embeddedframetest', 'dtsc_embedded_frames_unit.c
 test('Embedded frame storage fills and wraps safely', embeddedframetest, suite: 'DTSC')
 
 dtscresumetest = executable('dtscresumetest', 'dtsc_resume_unit.cpp', header_tgts, dependencies: libmist_dep)
+dtsclockbudgettest = executable('dtsclockbudgettest', 'dtsc_track_list_lock_budget_unit.cpp', header_tgts,
+                                dependencies: libmist_dep)
+test('Only appending, growing and claiming take the track list lock', dtsclockbudgettest, suite: 'DTSC')
+dtsclistwritetest = executable('dtsclistwritetest', 'dtsc_track_list_write_unit.cpp', header_tgts,
+                               dependencies: libmist_dep)
+test('Every write to a shared track list survives another process growing it', dtsclistwritetest, suite: 'DTSC',
+     timeout: 60)
 test('A reconnect resumes the tracks it left', dtscresumetest, suite: 'DTSC')
 
 inputtstest = executable('inputtstest', ['input_ts_unit.cpp', '../src/input/input.cpp',
