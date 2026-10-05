@@ -105,6 +105,26 @@ namespace Triggers{
     Util::sendUDPApi(j);
   }
 
+  /// Identity of one trigger firing: every handler of that firing receives the same values, as
+  /// X-Trigger-UUID/X-Trigger-UnixMillis/Date headers or MIST_TUUID/MIST_TIME/MIST_DATE variables.
+  struct Firing {
+      std::string uuid;
+      std::string unixMillis;
+      std::string date;
+  };
+
+  static Firing newFiring() {
+    Firing firing;
+    firing.uuid = Util::generateUUID();
+    uint64_t currTime = Util::unixMS();
+    firing.unixMillis = JSON::Value(currTime).asString();
+    firing.date = Util::getDateString(currTime / 1000);
+    return firing;
+  }
+
+  static Result runTrigger(const std::string & trigger, const std::string & value, const std::string & payload,
+                           int sync, const std::string & defaultResponse, Action onFail, const Firing & firing);
+
   ///\brief Handles a trigger by sending a payload to a destination.
   ///\param trigger Trigger event type.
   ///\param value Destination. This can be an (HTTP)URL, or an absolute path to a binary/script
@@ -113,6 +133,14 @@ namespace Triggers{
   ///\returns Typed response and transport status.
   Result handleTrigger(const std::string & trigger, const std::string & value, const std::string & payload, int sync,
                        const std::string & defaultResponse, Action onFail) {
+    return runTrigger(trigger, value, payload, sync, defaultResponse, onFail, newFiring());
+  }
+
+  /// Runs one handler of a trigger firing. The process environment is never modified: other
+  /// threads may be starting child processes at the same time, and an executable handler gets
+  /// its variables through its own environment instead.
+  static Result runTrigger(const std::string & trigger, const std::string & value, const std::string & payload,
+                           int sync, const std::string & defaultResponse, Action onFail, const Firing & firing) {
     uint64_t tStartMs = Util::bootMS();
     if (!value.size()){
       INFO_MSG("Blank %s trigger, responding: %s", trigger.c_str(), defaultResponse.c_str());
@@ -131,9 +159,9 @@ namespace Triggers{
         DL.setHeader("X-Name", hrn);
       }
       DL.setHeader("X-PID", JSON::Value(getpid()).toString());
-      DL.setHeader("X-Trigger-UUID", getenv("MIST_TUUID"));
-      DL.setHeader("X-Trigger-UnixMillis", getenv("MIST_TIME"));
-      DL.setHeader("Date", getenv("MIST_DATE"));
+      DL.setHeader("X-Trigger-UUID", firing.uuid);
+      DL.setHeader("X-Trigger-UnixMillis", firing.unixMillis);
+      DL.setHeader("Date", firing.date);
       DL.setHeader("Content-Type", "text/plain");
       HTTP::URL url(value);
       if (DL.post(url, payload, sync) && (!sync || DL.isOk())) {
@@ -168,28 +196,23 @@ namespace Triggers{
       int fdIn = -1;
       int fdOut = -1;
 
-      char *argv[3];
-      argv[0] = (char *)value.c_str();
-      argv[1] = (char *)trigger.c_str();
-      argv[2] = NULL;
-      setenv("MIST_TRIGGER", trigger.c_str(), 1);
-      setenv("MIST_TRIG_DEF", defaultResponse.c_str(), 1);
-      setenv("MIST_PID", JSON::Value(getpid()).toString().c_str(), 1);
+      std::deque<std::string> args;
+      args.push_back(value);
+      args.push_back(trigger);
+      std::map<std::string, std::string> handlerEnv;
+      handlerEnv["MIST_TRIGGER"] = trigger;
+      handlerEnv["MIST_TRIG_DEF"] = defaultResponse;
+      handlerEnv["MIST_PID"] = JSON::Value(getpid()).toString();
+      handlerEnv["MIST_TUUID"] = firing.uuid;
+      handlerEnv["MIST_TIME"] = firing.unixMillis;
+      handlerEnv["MIST_DATE"] = firing.date;
       std::string iid = Util::getGlobalConfig("iid", false).asString();
-      if (iid.size()){
-        setenv("MIST_INSTANCE", iid.c_str(), 1);
-      }
+      if (iid.size()) { handlerEnv["MIST_INSTANCE"] = iid; }
       std::string hrn = Util::getGlobalConfig("hrn", false).asString();
-      if (hrn.size()){
-        setenv("MIST_NAME", hrn.c_str(), 1);
-      }
+      if (hrn.size()) { handlerEnv["MIST_NAME"] = hrn; }
       uint64_t startTime = Util::bootMS();
-      pid_t myProc = Util::Procs::StartPiped(argv, &fdIn, &fdOut, 0); // start new process and return stdin file desc.
-      unsetenv("MIST_TRIGGER");
-      unsetenv("MIST_TRIG_DEF");
-      unsetenv("MIST_PID");
-      unsetenv("MIST_INSTANCE");
-      unsetenv("MIST_NAME");
+      // start new process and return stdin file desc.
+      pid_t myProc = Util::Procs::StartPiped(args, &fdIn, &fdOut, 0, Util::environmentWith(handlerEnv));
       if (fdIn == -1 || fdOut == -1 || !myProc) {
         FAIL_MSG("Could not execute trigger executable: %s", strerror(errno));
         submitTriggerStat(trigger, tStartMs, false);
@@ -307,19 +330,7 @@ namespace Triggers{
       return false;
     }
 
-    {
-      std::string uuid = Util::generateUUID();
-      setenv("MIST_TUUID", uuid.c_str(), 1);
-    }
-
-    {
-      uint64_t currTime = Util::unixMS();
-      std::string time = JSON::Value(currTime).asString();
-      setenv("MIST_TIME", time.c_str(), 1);
-      std::string date = Util::getDateString(currTime / 1000);
-      setenv("MIST_DATE", date.c_str(), 1);
-    }
-
+    const Firing firing = newFiring();
     bool retVal = true;
 
     for (uint32_t i = 0; i < trigs.getRCount(); ++i) {
@@ -363,12 +374,7 @@ namespace Triggers{
 
       if (isHandled){
         VERYHIGH_MSG("%s trigger handled by %s", type.c_str(), uri.c_str());
-        if (dryRun) {
-          unsetenv("MIST_TUUID");
-          unsetenv("MIST_TIME");
-          unsetenv("MIST_DATE");
-          return true;
-        }
+        if (dryRun) { return true; }
         std::string defaultResponse = trigs.getPointer("default", i);
         if (!defaultResponse.size()) { defaultResponse = "true"; }
         Action onFail = (Action)trigs.getInt("onfail", i);
@@ -376,7 +382,7 @@ namespace Triggers{
         if (!sync) { onFail = ACT_LEGACY; }
         if (sync){
           const std::string priorResponse = result.response;
-          Result current = handleTrigger(type, uri, payload, sync, defaultResponse, onFail);
+          Result current = runTrigger(type, uri, payload, sync, defaultResponse, onFail, firing);
           if (current.action == ACT_KEEP) {
             current.response = priorResponse;
           } else if (current.action != ACT_VALUE) {
@@ -391,15 +397,12 @@ namespace Triggers{
           }
           if (current.action == ACT_DENY) { break; }
         }else{
-          Result unused = handleTrigger(type, uri, payload, sync, defaultResponse); // do it.
+          Result unused = runTrigger(type, uri, payload, sync, defaultResponse, ACT_LEGACY, firing); // do it.
           retVal &= Util::stringToBool(unused.response);
         }
       }
     }
 
-    unsetenv("MIST_TUUID");
-    unsetenv("MIST_TIME");
-    unsetenv("MIST_DATE");
     return !dryRun && retVal;
   }
 }// namespace Triggers

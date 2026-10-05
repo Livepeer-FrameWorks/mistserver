@@ -76,7 +76,10 @@ std::atomic<bool> livepeerSourceEOF{false};
 std::atomic<bool> livepeerStopRequested{false};
 std::string livepeerThreadStreamName;
 
-inline void requestLivepeerStop() {
+/// Stops both threads of this process. The reason is logged here because the other thread only
+/// sees that the process went inactive.
+inline void requestLivepeerStop(const char *why) {
+  WARN_MSG("Stopping Livepeer process: %s", why);
   livepeerStopRequested.store(true, std::memory_order_release);
   conf.is_active = false;
   co.is_active = false;
@@ -460,7 +463,11 @@ void sinkThread(){
   }
   INFO_MSG("Sink thread shutting down");
   if (!livepeerSourceEOF.load(std::memory_order_acquire) || livepeerStopRequested.load(std::memory_order_acquire)) {
-    requestLivepeerStop();
+    std::string why = livepeerStopRequested.load(std::memory_order_acquire)
+      ? "sink thread ended after a stop request"
+      : "sink thread ended before the source finished";
+    if (Util::exitReason[0]) { why += std::string(": ") + Util::exitReason; }
+    requestLivepeerStop(why.c_str());
   }
 }
 
@@ -521,7 +528,9 @@ void sourceThread(){
     procExit.log(ER_READ_START_FAILURE, 2, "Source thread failed to initialize");
     livepeerStopRequested.store(true, std::memory_order_release);
   }
-  requestLivepeerStop();
+  std::string why = "source thread ended";
+  if (Util::exitReason[0]) { why += std::string(": ") + Util::exitReason; }
+  requestLivepeerStop(why.c_str());
 }
 
 /// Structure to hold per-rendition information
@@ -642,7 +651,7 @@ void segmentRejectedTrigger(size_t myNum, Mist::preparedSegment & mySeg, const s
   statQueueDepth.fetch_sub(1, std::memory_order_relaxed);
   if (!insertOrder.complete(myNum)) {
     procExit.log(ER_FORMAT_SPECIFIC, 2, "Livepeer segment rejection completed out of order");
-    requestLivepeerStop();
+    requestLivepeerStop("segment rejection completed out of order");
   }
 }
 
@@ -652,7 +661,7 @@ bool rejectSegment(size_t myNum, Mist::preparedSegment & mySeg, const std::strin
   if (Mist::livepeerRejectedSegmentStopsJob(Mist::opt, Util::streamName)) {
     procExit.log(ER_FORMAT_SPECIFIC, 2, "Livepeer rejected segment %s (422); stopping so the local fallback transcodes the whole source",
                  JSON::Value(mySeg.keyNo).asString().c_str());
-    requestLivepeerStop();
+    requestLivepeerStop("rejected segment (422) stops this job");
     return true;
   }
   segmentRejectedTrigger(myNum, mySeg, bc1, bc2);
@@ -765,7 +774,7 @@ void uploadThread(size_t myNum){
           statQueueDepth.fetch_sub(1, std::memory_order_relaxed);
           if (!insertOrder.complete(myNum)) {
             procExit.log(ER_FORMAT_SPECIFIC, 2, "Livepeer response completed out of order");
-            requestLivepeerStop();
+            requestLivepeerStop("response completed out of order");
             return;
           }
           statTotalLocalWorkUs.fetch_add(Util::getMicros(workStart), std::memory_order_relaxed);
@@ -822,7 +831,7 @@ void uploadThread(size_t myNum){
           if (Mist::livepeerShouldFallback(consecutive422)) {
             procExit.log(ER_FORMAT_SPECIFIC, 2,
                          "Livepeer: %" PRIu32 " consecutive segment rejections (422) — falling back", consecutive422);
-            requestLivepeerStop();
+            requestLivepeerStop("consecutive segment rejections (422)");
             return;
           }
           Mist::LivepeerRejectionStep step = Mist::livepeerRejectionStep(rejectionsHere, was422);
@@ -852,7 +861,7 @@ void uploadThread(size_t myNum){
           if (Mist::livepeerSegmentBudgetSpent(elapsedMs, deadlineMs)) {
             procExit.log(ER_FORMAT_SPECIFIC, 2, "Livepeer gateway had no result for segment %s within its %" PRIu64 " ms budget",
                          JSON::Value(mySeg.keyNo).asString().c_str(), deadlineMs);
-            requestLivepeerStop();
+            requestLivepeerStop("segment budget spent without a result");
             return;
           }
           uint64_t remainingMs = deadlineMs - elapsedMs;
@@ -865,7 +874,7 @@ void uploadThread(size_t myNum){
           if (Mist::livepeerFatalUploadStatus(upper.getStatusCode())) {
             procExit.log(ER_FORMAT_SPECIFIC, 2, "Livepeer upload fatal HTTP status %" PRIu32 " %s",
                          upper.getStatusCode(), upper.getStatusText().c_str());
-            requestLivepeerStop();
+            requestLivepeerStop("fatal upload HTTP status");
             return;
           }
         }
@@ -882,7 +891,7 @@ void uploadThread(size_t myNum){
       Util::sleep(100);//Rate-limit retries
       if (attempts > 4){
         procExit.log(ER_FORMAT_SPECIFIC, 2, "too many upload failures");
-        requestLivepeerStop();
+        requestLivepeerStop("too many upload failures");
         return;
       }
       // We finished writing the request body but got no response in time (the
@@ -906,7 +915,7 @@ void uploadThread(size_t myNum){
         if (!Mist::currBroadAddr.size()){
           FAIL_MSG("Cannot switch to new broadcaster: none available");
           procExit.log(ER_FORMAT_SPECIFIC, 2, "no Livepeer broadcasters available");
-          requestLivepeerStop();
+          requestLivepeerStop("no broadcasters available");
           return;
         }
         if (outcome == Mist::LivepeerSwitchOutcome::Switched) {

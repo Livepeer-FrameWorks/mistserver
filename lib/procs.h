@@ -15,6 +15,11 @@ namespace Util{
 
   std::vector<char *> dequeToArgv(const std::deque<std::string> & argDeq);
 
+  /// This process's environment with every variable in vars set to its value, replacing an
+  /// inherited value of the same name. A child started with it sees exactly these variables,
+  /// without the process environment ever being modified.
+  std::deque<std::string> environmentWith(const std::map<std::string, std::string> & vars);
+
   /// Deals with spawning, monitoring and stopping child processes
   class Procs{
   public:
@@ -30,6 +35,9 @@ namespace Util{
     static pid_t StartPiped(const char *const *argv, int *fdIn, int *fdOut, int *fdErr);
     static pid_t StartPiped(const char *const *argv);
     static pid_t StartPiped(const std::deque<std::string> & argDeq, int *fdIn, int *fdOut, int *fdErr);
+    static pid_t StartPiped(const char *const *argv, int *fdIn, int *fdOut, int *fdErr, char *const *envp);
+    static pid_t StartPiped(const std::deque<std::string> & argDeq, int *fdIn, int *fdOut, int *fdErr,
+                            const std::deque<std::string> & env);
     static void Stop(pid_t name);
     static void hangup(pid_t name);
     static void Murder(pid_t name);

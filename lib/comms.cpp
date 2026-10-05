@@ -359,6 +359,7 @@ namespace Comms{
                            const std::string & protocol, const std::string & reqUrl, bool _master, bool reIssue,
                            const std::string & origin, const std::string & referer) {
     initialTkn = tkn;
+    startFailed = false;
     uint8_t sessMode = sessionViewerMode;
     // USER_NEW decides a viewer session once, including its origin, so requests from a
     // different site must not join a session another site's request opened.
@@ -404,52 +405,57 @@ namespace Comms{
         std::deque<std::string> args;
         args.push_back(Util::getMyPath() + "MistSession");
         args.push_back(sessionId);
+        // Values not passed as arguments reach the session through its own environment. Every
+        // thread of this process can boot sessions and fire triggers concurrently, so the
+        // process environment itself is never modified.
+        std::map<std::string, std::string> sessionEnv;
 
         // First bit defines whether to include stream name
         if (sessMode & 0x08){
           args.push_back("--streamname");
           args.push_back(streamName);
         }else{
-          setenv("SESSION_STREAM", streamName.c_str(), 1);
+          sessionEnv["SESSION_STREAM"] = streamName;
         }
         // Second bit defines whether to include viewer ip
         if (sessMode & 0x04){
           args.push_back("--ip");
           args.push_back(host);
         }else{
-          setenv("SESSION_IP", host.c_str(), 1);
+          sessionEnv["SESSION_IP"] = host;
         }
         // Third bit defines whether to include tkn
         if (sessMode & 0x02){
           args.push_back("--tkn");
           args.push_back(tkn);
         }else{
-          setenv("SESSION_TKN", tkn.c_str(), 1);
+          sessionEnv["SESSION_TKN"] = tkn;
         }
         // Fourth bit defines whether to include protocol
         if (sessMode & 0x01){
           args.push_back("--protocol");
           args.push_back(protocol);
         }else{
-          setenv("SESSION_PROTOCOL", protocol.c_str(), 1);
+          sessionEnv["SESSION_PROTOCOL"] = protocol;
         }
         if (Util::printDebugLevel != DEBUG){
           args.push_back("--debug");
           args.push_back(JSON::Value(Util::printDebugLevel).asString());
         }
-        setenv("SESSION_REQURL", reqUrl.c_str(), 1);
-        setenv("SESSION_ORIGIN", origin.c_str(), 1);
-        setenv("SESSION_REFERER", referer.c_str(), 1);
+        sessionEnv["SESSION_REQURL"] = reqUrl;
+        sessionEnv["SESSION_ORIGIN"] = origin;
+        sessionEnv["SESSION_REFERER"] = referer;
         int err = fileno(stderr);
-        thisPid = Util::Procs::StartPiped(args, 0, 0, &err);
+        thisPid = Util::Procs::StartPiped(args, 0, 0, &err, Util::environmentWith(sessionEnv));
+        if (!thisPid) {
+          // No session process means no session semaphore will ever appear: report the
+          // failure now instead of waiting it out. The caller retries on its next stats tick.
+          WARN_MSG("Could not start session %s; retrying on the next stats update", sessionId.c_str());
+          startFailed = true;
+          index = INVALID_RECORD_INDEX;
+          return;
+        }
         Util::Procs::forget(thisPid);
-        unsetenv("SESSION_STREAM");
-        unsetenv("SESSION_IP");
-        unsetenv("SESSION_TKN");
-        unsetenv("SESSION_PROTOCOL");
-        unsetenv("SESSION_REQURL");
-        unsetenv("SESSION_ORIGIN");
-        unsetenv("SESSION_REFERER");
       }else{
         INFO_MSG("Connecting to existing session %s", sessionId.c_str());
       }

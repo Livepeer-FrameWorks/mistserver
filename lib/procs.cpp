@@ -88,6 +88,17 @@ std::vector<char *> Util::dequeToArgv(const std::deque<std::string> & argDeq) {
   return ret;
 }
 
+std::deque<std::string> Util::environmentWith(const std::map<std::string, std::string> & vars) {
+  std::deque<std::string> env;
+  for (char **it = environ; it && *it; ++it) {
+    const char *eq = strchr(*it, '=');
+    if (eq && vars.count(std::string(*it, eq - *it))) { continue; }
+    env.push_back(*it);
+  }
+  for (const auto & it : vars) { env.push_back(it.first + "=" + it.second); }
+  return env;
+}
+
 /// sends sig 0 to process (pid). returns true if process is running
 bool Util::Procs::isRunning(pid_t pid){
   return !kill(pid, 0);
@@ -420,13 +431,23 @@ pid_t Util::Procs::StartPiped(const char *const *argv) {
   return Util::Procs::StartPiped(argv, &fdIn, &fdOut, &fdErr);
 }
 
+pid_t Util::Procs::StartPiped(const char *const *argv, int *fdIn, int *fdOut, int *fdErr) {
+  return Util::Procs::StartPiped(argv, fdIn, fdOut, fdErr, environ);
+}
+
+pid_t Util::Procs::StartPiped(const std::deque<std::string> & argDeq, int *fdIn, int *fdOut, int *fdErr,
+                              const std::deque<std::string> & env) {
+  return Util::Procs::StartPiped(dequeToArgv(argDeq).data(), fdIn, fdOut, fdErr, dequeToArgv(env).data());
+}
+
 /// Starts a new process with given fds if the name is not already active.
 /// \return 0 if process was not started, process PID otherwise.
 /// \arg argv Command for this process.
 /// \arg fdIn Standard input file descriptor. If null, /dev/null is assumed. Otherwise, if arg
 /// contains -1, a new fd is automatically allocated and written into this arg. Then the arg will be
 /// used as fd. \arg fdOut Same as fdIn, but for stdout. \arg fdOut Same as fdIn, but for stderr.
-pid_t Util::Procs::StartPiped(const char *const *argv, int *fdIn, int *fdOut, int *fdErr) {
+/// \arg envp The child's environment.
+pid_t Util::Procs::StartPiped(const char *const *argv, int *fdIn, int *fdOut, int *fdErr, char *const *envp) {
   // NOTE: this function fails if you try and use the same values for all fds
   pid_t pid;
   int pipein[2], pipeout[2], pipeerr[2];
@@ -541,11 +562,12 @@ pid_t Util::Procs::StartPiped(const char *const *argv, int *fdIn, int *fdOut, in
   for (int fd : fd_close) { posix_spawn_file_actions_addclose(&childFdActions, fd); }
   int ret;
   // do{
-  ret = posix_spawnp(&pid, argv[0], &childFdActions, NULL, (char *const *)argv, environ);
+  ret = posix_spawnp(&pid, argv[0], &childFdActions, NULL, (char *const *)argv, envp);
   // }while (ret && errno == EINTR);
   posix_spawn_file_actions_destroy(&childFdActions);
 
-  if (ret) { FAIL_MSG("Could not start process %s: %s", Util::argStr(argv).c_str(), strerror(errno)); }
+  // posix_spawnp returns its error instead of setting errno.
+  if (ret) { FAIL_MSG("Could not start process %s: %s", Util::argStr(argv).c_str(), strerror(ret)); }
 
   if (fdIn && *fdIn == -1) {
     close(pipein[0]); // close unused read end
@@ -572,7 +594,10 @@ pid_t Util::Procs::StartPiped(const char *const *argv, int *fdIn, int *fdOut, in
     }
   }
 
-  if (ret) { return 0; }
+  if (ret) {
+    errno = ret;
+    return 0;
+  }
 
   {
     std::lock_guard<std::mutex> guard(plistMutex);

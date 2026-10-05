@@ -367,6 +367,16 @@ triggerhttpintegrationtest = executable('triggerhttpintegrationtest', 'trigger_h
 test('HTTP triggers preserve typed actions and failure policy', triggerhttpintegrationtest,
      suite: 'Triggers', timeout: 30)
 
+sessionenvspawntest = executable('sessionenvspawntest', 'session_env_spawn_unit.cpp', header_tgts,
+                                 dependencies: libmist_dep)
+test('Concurrent session boots and triggers keep every child environment its own', sessionenvspawntest,
+     suite: ['Procs', 'Triggers'], timeout: 180, is_parallel: false)
+
+sessionstartfailuretest = executable('sessionstartfailuretest', 'session_start_failure_unit.cpp', header_tgts,
+                                     dependencies: libmist_dep)
+test('A session that cannot start is reported at once and stops only viewers', sessionstartfailuretest,
+     suite: ['Procs', 'Streams'], timeout: 120)
+
 triggerconfigpolicytest = executable('triggerconfigpolicytest', 'trigger_config_policy_unit.cpp', header_tgts,
                                      dependencies: libmist_dep)
 test('Controller validates typed trigger failure policy', triggerconfigpolicytest, suite: 'Triggers')

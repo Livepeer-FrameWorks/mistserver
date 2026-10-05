@@ -708,6 +708,14 @@ void Util::Config::installDefaultChildSignalHandler(){
   sigaction(SIGCHLD, &new_action, NULL);
 }
 
+/// Level at which a received signal is logged. A stream process (MistProc*) stops all of its
+/// threads on SIGINT, SIGTERM or SIGHUP, so that signal is logged with its other failures.
+static int signalLogLevel(int signum) {
+  const bool stopsProcess = signum == SIGINT || signum == SIGTERM || signum == SIGHUP;
+  if (stopsProcess && Util::Config::binaryType.load(std::memory_order_relaxed) == Util::PROCESS) { return DLVL_WARN; }
+  return DLVL_DEVEL;
+}
+
 /// Basic signal handler. Sets is_active to false if it receives
 /// a SIGINT, SIGHUP or SIGTERM signal, reaps children for the SIGCHLD
 /// signal, and ignores all other signals.
@@ -745,9 +753,9 @@ void Util::Config::signal_handler(int signum, siginfo_t *sigInfo, void *ignore){
     case SI_TIMER:
     case SI_ASYNCIO:
     case SI_MESGQ:
-      INFO_MSG("Received signal %s (%d) from process %d", strsignal(signum), signum, sigInfo->si_pid);
+      DEBUG_MSG(signalLogLevel(signum), "Received signal %s (%d) from process %d", strsignal(signum), signum, sigInfo->si_pid);
       break;
-    default: INFO_MSG("Received signal %s (%d)", strsignal(signum), signum); break;
+    default: DEBUG_MSG(signalLogLevel(signum), "Received signal %s (%d)", strsignal(signum), signum); break;
     }
     break;
   case SIGCHLD:{// when a child dies, reap it.

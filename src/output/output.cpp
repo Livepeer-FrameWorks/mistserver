@@ -3194,6 +3194,11 @@ namespace Mist{
     if (!statComm){
       statComm.reload(streamName, getConnectedBinHost(), tkn, getStatsName(), reqUrl, false, false, viewerOrigin, viewerReferer);
     }
+    if (!statComm &&
+        !Comms::missingSessionEndsConnection(Util::Config::binaryType == Util::PROCESS, statComm.sessionStartFailed())) {
+      lastStats = now;
+      return;
+    }
     if (!statComm){
       Util::logExitReason(ER_SHM_LOST, "could not connect to session %s", statComm.sessionId.c_str());
       onFail("Shutting down since this session is not allowed to view this stream");

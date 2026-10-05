@@ -42,6 +42,13 @@ namespace {
     return strtoull(value, NULL, 10);
   }
 
+  bool hasHeaderValue(const std::string & request, const std::string & name) {
+    const size_t field = request.find("\r\n" + name + ": ");
+    if (field == std::string::npos) { return false; }
+    const size_t value = field + name.size() + 4;
+    return value < request.size() && request[value] != '\r';
+  }
+
   Triggers::Result runScenario(const Scenario & scenario, const std::string & defaultResponse, Triggers::Action onFail,
                                std::string & serverError) {
     const int listener = socket(AF_INET, SOCK_STREAM, 0);
@@ -97,6 +104,9 @@ namespace {
         serverError = "trigger type header was not forwarded";
       } else if (request.substr(bodyStart, bodyLength) != scenario.payload) {
         serverError = "trigger payload was not forwarded exactly";
+      } else if (!hasHeaderValue(request, "X-Trigger-UUID") || !hasHeaderValue(request, "X-Trigger-UnixMillis") ||
+                 !hasHeaderValue(request, "Date")) {
+        serverError = "trigger identity headers were not forwarded";
       }
 
       std::string headers = "HTTP/1.1 " + std::to_string(scenario.status) + (scenario.status == 200 ? " OK\r\n" : " Failed\r\n");
@@ -128,10 +138,7 @@ namespace {
 } // namespace
 
 int main() {
-  setenv("MIST_TUUID", "audit-trigger-uuid", 1);
-  setenv("MIST_TIME", "1700000000000", 1);
-  setenv("MIST_DATE", "Tue, 14 Nov 2023 22:13:20 GMT", 1);
-
+  // The trigger identity comes from the firing itself; nothing in this process's environment.
   std::string serverError;
   Triggers::Result result = runScenario({"PLAY_REWRITE", "old-stream\nclient", "new-stream", "value", "", 200},
                                         "default", Triggers::ACT_LEGACY, serverError);
@@ -190,9 +197,5 @@ int main() {
   if (!matches(result, Triggers::ACT_CONFIGURED, "", true, "trigger_unavailable")) {
     return fail("a blank handler did not use the configured failure action");
   }
-
-  unsetenv("MIST_TUUID");
-  unsetenv("MIST_TIME");
-  unsetenv("MIST_DATE");
   return 0;
 }

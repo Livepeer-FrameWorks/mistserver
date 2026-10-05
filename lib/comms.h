@@ -44,6 +44,14 @@ namespace Comms{
                              const std::string & protocol, const std::string & reqUrl, const std::string & sessionId,
                              bool validToken, const std::string & origin, const std::string & referer);
 
+  /// Whether a connection without a session must stop. A session that exists but refused the
+  /// connection (USER_NEW) always ends it, and so does any session problem for a viewer. An
+  /// internal process reader whose session process could not be started only lacks accounting,
+  /// so it keeps running and retries on its next stats update.
+  inline bool missingSessionEndsConnection(bool processReader, bool sessionStartFailed) {
+    return !processReader || !sessionStartFailed;
+  }
+
   class Comms{
   public:
     Comms();
@@ -94,6 +102,9 @@ namespace Comms{
                                 const std::string & connector, uint64_t sessionMode, const std::string & viewerOrigin = "");
     std::string sessionId;
     std::string initialTkn;
+    /// Whether the last reload could not start the session process, as opposed to a session
+    /// that exists but refused this connection.
+    bool sessionStartFailed() const { return startFailed; }
 
     void setExit();
     bool getExit();
@@ -174,6 +185,7 @@ namespace Comms{
     Util::FieldAccX pktcount;
     Util::FieldAccX pktloss;
     Util::FieldAccX pktretrans;
+    bool startFailed = false;
   };
 
   class Users : public Comms{
