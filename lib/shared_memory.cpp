@@ -18,6 +18,23 @@
 #include <utility>
 
 namespace IPC{
+  namespace {
+    /// Calls open until it returns a handle, backing off for up to about 20 seconds in total. A
+    /// process told to stop gives up: it would not use the page any more.
+    template<typename Open> int openWithBackoff(Open tryOpen) {
+      int handle = -1;
+      int i = 0;
+      while (i < 11 && handle == -1 && !Util::Config::stopRequested()) {
+        i++;
+        const uint64_t until = Util::bootMS() + Util::expBackoffMs(i - 1, 10, 10000);
+        for (uint64_t now = Util::bootMS(); now < until && !Util::Config::stopRequested(); now = Util::bootMS()) {
+          Util::sleep(std::min<uint64_t>(100, until - now));
+        }
+        handle = tryOpen();
+      }
+      return handle;
+    }
+  } // namespace
 
   ///\brief Empty semaphore constructor, clears all values
   semaphore::semaphore(){
@@ -322,17 +339,8 @@ namespace IPC{
         if (master) {
           if (len > 1) { ERROR_MSG("Overwriting old page for %s", name.c_str()); }
           handle = shm_open(name.c_str(), O_CREAT | O_RDWR, ACCESSPERMS);
-        } else {
-          // A process told to stop while waiting for the page gives up: it would not use it.
-          int i = 0;
-          while (i < 11 && handle == -1 && autoBackoff && !Util::Config::stopRequested()) {
-            i++;
-            const uint64_t until = Util::bootMS() + Util::expBackoffMs(i - 1, 10, 10000);
-            for (uint64_t now = Util::bootMS(); now < until && !Util::Config::stopRequested(); now = Util::bootMS()) {
-              Util::sleep(std::min<uint64_t>(100, until - now));
-            }
-            handle = shm_open(name.c_str(), O_RDWR, ACCESSPERMS);
-          }
+        } else if (autoBackoff) {
+          handle = openWithBackoff([this]() { return shm_open(name.c_str(), O_RDWR, ACCESSPERMS); });
         }
       }
       if (handle == -1) {
@@ -475,13 +483,9 @@ namespace IPC{
           HIGH_MSG("Overwriting old file for %s", name.c_str());
           handle = open(std::string(Util::getTmpFolder() + name).c_str(),
                         O_CREAT | O_TRUNC | O_RDWR, (mode_t)0600);
-        }else{
-          int i = 0;
-          while (i < 11 && handle == -1 && autoBackoff){
-            i++;
-            Util::wait(Util::expBackoffMs(i-1, 10, 10000));
-            handle = open(std::string(Util::getTmpFolder() + name).c_str(), O_RDWR, (mode_t)0600);
-          }
+        } else if (autoBackoff) {
+          handle = openWithBackoff(
+            [this]() { return open(std::string(Util::getTmpFolder() + name).c_str(), O_RDWR, (mode_t)0600); });
         }
       }
       if (handle == -1){
