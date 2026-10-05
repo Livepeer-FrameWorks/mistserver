@@ -1136,18 +1136,30 @@ pid_t Util::startPush(const std::string & streamname, std::string & target, int 
   return ret;
 }
 
+/// The state page (SHM_STREAM_STATE) of a stream, unmapped when it does not exist. Readers ask
+/// for it many times a second, so the page last asked for (per thread) stays mapped until it is
+/// replaced: the stream's input unlinks it when it ends and the next input makes a new one. Where
+/// shared memory reports no link count (macOS) that cannot be seen, and it is opened for every call.
+const IPC::sharedPage & Util::streamStatePage(const std::string & streamname) {
+  thread_local std::string keptName;
+  thread_local IPC::sharedPage kept;
+  if (!kept || keptName != streamname || !kept.exists()) {
+    char pageName[NAME_BUFFER_SIZE];
+    snprintf(pageName, NAME_BUFFER_SIZE, SHM_STREAM_STATE, streamname.c_str());
+    kept.init(pageName, 2, false, false);
+    keptName = streamname;
+  }
+  return kept;
+}
+
 uint8_t Util::getStreamStatus(const std::string &streamname){
-  char pageName[NAME_BUFFER_SIZE];
-  snprintf(pageName, NAME_BUFFER_SIZE, SHM_STREAM_STATE, streamname.c_str());
-  IPC::sharedPage streamStatus(pageName, 2, false, false);
+  const IPC::sharedPage & streamStatus = streamStatePage(streamname);
   if (!streamStatus){return STRMSTAT_OFF;}
   return streamStatus.mapped[0];
 }
 
 uint8_t Util::getStreamStatusPercentage(const std::string &streamname){
-  char pageName[NAME_BUFFER_SIZE];
-  snprintf(pageName, NAME_BUFFER_SIZE, SHM_STREAM_STATE, streamname.c_str());
-  IPC::sharedPage streamStatus(pageName, 2, false, false);
+  const IPC::sharedPage & streamStatus = streamStatePage(streamname);
   if (!streamStatus || streamStatus.len < 2){return 0;}
   return streamStatus.mapped[1];
 }

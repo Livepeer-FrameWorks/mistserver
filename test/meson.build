@@ -572,6 +572,10 @@ test('Offline stream state preserves the diagnostics ABI', offlinestreamstatetes
 sortedpageinfotest = executable('sortedpageinfotest', 'sorted_page_info_unit.cpp', header_tgts, dependencies: libmist_dep)
 test('Buffered packets start out with every field cleared', sortedpageinfotest, suite: 'Streams')
 
+streamstatepagetest = executable('streamstatepagetest', 'stream_state_page_unit.cpp', header_tgts,
+                                 dependencies: libmist_dep)
+test('A stream state page stays mapped between reads and follows its inputs', streamstatepagetest, suite: 'Streams')
+
 semaphoretimedwaittest = executable('semaphoretimedwaittest', 'semaphore_timed_wait_unit.cpp', header_tgts,
                                     dependencies: libmist_dep)
 test('Timed semaphore waits wait as long as asked and count what they acquire', semaphoretimedwaittest,

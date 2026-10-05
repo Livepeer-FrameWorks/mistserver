@@ -86,6 +86,11 @@ namespace Mist{
 
     void selectAllTracks();
     bool processingControlledRealtime() const;
+    mutable IPC::sharedPage streamConfPage; ///< the configuration page processingControlledRealtime read
+    mutable Util::RelAccX streamConf;
+    mutable std::string streamConfName;
+    mutable uint64_t streamConfMissingMs = 0; ///< when the configuration page was last found missing
+    mutable bool streamConfProcessControlled = false;
     void markBufferHold(size_t trackIdx);
     bool processingControlledRealtimeSelectionEnded(ProcessingBufferState bufferState);
     bool processingControlledRealtimeSelectionEnded() {

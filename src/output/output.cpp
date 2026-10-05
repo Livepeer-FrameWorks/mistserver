@@ -3622,13 +3622,44 @@ namespace Mist{
     it->second.setStatus(it->second.getStatus() | COMM_STATUS_HOLDBUFFER);
   }
 
+  /// Whether the stream this output reads is process-controlled, by its configuration page. The
+  /// answer is kept while that page is: the controller flags it for reload and unlinks it before
+  /// it writes a changed configuration on a new page. While the new page is not complete yet the
+  /// previous answer stands. A stream without a configuration page is looked up again at most
+  /// once a second.
   bool Output::processingControlledRealtime() const {
     std::string strName = streamName.substr(0, streamName.find_first_of("+ "));
+    if (strName != streamConfName) {
+      streamConfName = strName;
+      streamConf = Util::RelAccX();
+      streamConfPage.close();
+      streamConfMissingMs = 0;
+      streamConfProcessControlled = false;
+    }
+    if (streamConf.isReady() && !streamConf.isReload() && streamConfPage.exists()) {
+      return streamConfProcessControlled;
+    }
+    const uint64_t now = Util::bootMS();
+    if (streamConfMissingMs && now < streamConfMissingMs + 1000) { return streamConfProcessControlled; }
+    streamConf = Util::RelAccX();
     char tmpBuf[NAME_BUFFER_SIZE];
     snprintf(tmpBuf, NAME_BUFFER_SIZE, SHM_STREAM_CONF, strName.c_str());
-    Util::DTSCShmReader rStrmConf(tmpBuf);
-    DTSC::Scan streamCfg = rStrmConf.getScan();
-    return streamCfg && streamCfg.getMember("process_controlled_realtime").asBool();
+    streamConfPage.init(tmpBuf, 0, false, false);
+    if (!streamConfPage) {
+      streamConfMissingMs = now;
+      streamConfProcessControlled = false;
+      return false;
+    }
+    streamConfMissingMs = 0;
+    Util::RelAccX conf(streamConfPage.mapped);
+    if (!conf.isReady() || conf.isReload()) {
+      streamConfPage.close();
+      return streamConfProcessControlled;
+    }
+    streamConf = conf;
+    DTSC::Scan streamCfg(streamConf.getPointer("dtsc_data"), streamConf.getSize("dtsc_data"));
+    streamConfProcessControlled = streamCfg && streamCfg.getMember("process_controlled_realtime").asBool();
+    return streamConfProcessControlled;
   }
 
   /// Remembers the type of a selected track that is leaving the selection
@@ -3698,9 +3729,7 @@ namespace Mist{
   }
 
   void Output::refreshProcessStreamState() {
-    char stateName[NAME_BUFFER_SIZE];
-    snprintf(stateName, NAME_BUFFER_SIZE, SHM_STREAM_STATE, streamName.c_str());
-    IPC::sharedPage statePage(stateName, 0, false, false);
+    const IPC::sharedPage & statePage = Util::streamStatePage(streamName);
     ProcessStreamState current;
     if (!statePage || !current.read(statePage.mapped, statePage.len)) { return; }
     processStreamState = current;
