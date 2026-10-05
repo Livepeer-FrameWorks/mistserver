@@ -1,6 +1,7 @@
 #include "process_exec.h"
 
 #include "process.hpp"
+#include "process_outputs.h"
 
 #include <mist/proc_stats.h>
 #include <mist/procs.h>
@@ -264,14 +265,29 @@ void sinkThread(){
   xCV.notify_all();
 }
 
+/// The selector the source reads with: track_select, or all audio and video.
+std::string sourceTrackSelector() {
+  if (Mist::opt.isMember("track_select")) { return Mist::opt["track_select"].asString(); }
+  return "audio=all&video=all";
+}
+
+/// The input selection of this configuration (see process_outputs.h). The tracks it adds are
+/// whatever the executed program writes, so it declares none.
+JSON::Value processDeclaration() {
+  Util::Config scratch;
+  JSON::Value sourceCapa;
+  Mist::ProcessSource::init(&scratch, sourceCapa);
+  JSON::Value declaration;
+  declaration["select"] = Mist::declaredSelection(Mist::selectionQuery(sourceTrackSelector()), sourceCapa);
+  declaration["dynamic"] = true;
+  return declaration;
+}
+
 void sourceThread(){
   JSON::Value capa;
   Mist::ProcessSource::init(&conf, capa);
   conf.getOption("streamname", true).append(Mist::opt["source"].c_str());
-  conf.getOption("target", true).append("-?audio=all&video=all");
-  if (Mist::opt.isMember("track_select")){
-    conf.getOption("target", true).append("-?" + Mist::opt["track_select"].asString());
-  }
+  conf.getOption("target", true).append("-?" + sourceTrackSelector());
   {
     std::unique_lock<std::mutex> lk(xMutex);
     conf.is_active = true;
@@ -314,6 +330,7 @@ int main(int argc, char *argv[]){
     opt["help"] = "Output connector info in JSON format, then exit.";
     opt["value"].append(0);
     config.addOption("json", opt);
+    Mist::addDescribeOutputsOption(config);
   }
 
   capa["codecs"][0u][0u].append("H264");
@@ -438,6 +455,7 @@ int main(int argc, char *argv[]){
     FAIL_MSG("Error config syntax error!");
     return 1;
   }
+  if (Mist::describeOrDeclare(config, processDeclaration())) { return 0; }
 
   // stream which connects to input
   std::thread source(sourceThread);

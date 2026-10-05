@@ -5,6 +5,7 @@
 #include "livepeer_order.h"
 #include "livepeer_request.h"
 #include "process.hpp"
+#include "process_outputs.h"
 
 #include <mist/downloader.h>
 #include <mist/encode.h>
@@ -108,13 +109,17 @@ namespace Mist{
   public:
     bool isRecording(){return false;}
     bool isReadyForPlay() { return true; }
+    /// The codecs the source sends to the gateway.
+    static void addSourceCodecs(JSON::Value & sourceCapa) {
+      sourceCapa["codecs"][0u][0u].append("+H264");
+      sourceCapa["codecs"][0u][0u].append("+HEVC");
+      sourceCapa["codecs"][0u][0u].append("+MPEG2");
+      sourceCapa["codecs"][0u][1u].append("+AAC");
+    }
     ProcessSource(Socket::Connection & c, Util::Config & _cfg, JSON::Value & _capa) : TSOutput(c, _cfg, _capa) {
       meta.ignorePid(getpid());
       capa["name"] = "Livepeer";
-      capa["codecs"][0u][0u].append("+H264");
-      capa["codecs"][0u][0u].append("+HEVC");
-      capa["codecs"][0u][0u].append("+MPEG2");
-      capa["codecs"][0u][1u].append("+AAC");
+      addSourceCodecs(capa);
       realTime = 0;
       wantRequest = false;
       parseData = true;
@@ -320,6 +325,15 @@ namespace Mist{
     }
   };
 
+  /// The validity mask of the renditions: the configured target_mask, or by default visible to
+  /// viewers and pushes.
+  uint8_t outputTrackMask() {
+    if (opt.isMember("target_mask") && !opt["target_mask"].isNull() && opt["target_mask"].asString() != "") {
+      return opt["target_mask"].asInt();
+    }
+    return TRACK_VALID_EXT_HUMAN | TRACK_VALID_EXT_PUSH;
+  }
+
   //sink, takes data from livepeer and ingests
   class ProcessSink : public Input{
   public:
@@ -334,11 +348,7 @@ namespace Mist{
         pStat["proc_status_update"]["source"] = opt["source"];
       }
       Util::setStreamName(opt["source"].asString() + "→" + streamName);
-      if (opt.isMember("target_mask") && !opt["target_mask"].isNull() && opt["target_mask"].asString() != ""){
-        DTSC::trackValidDefault = opt["target_mask"].asInt();
-      } else {
-        DTSC::trackValidDefault = TRACK_VALID_EXT_HUMAN | TRACK_VALID_EXT_PUSH;
-      }
+      DTSC::trackValidDefault = outputTrackMask();
       preRun();
     }
     virtual bool needsLock(){return false;}
@@ -529,6 +539,56 @@ void sinkThread(){
   }
 }
 
+/// The audio passed through with the renditions: none unless audio_select names any.
+std::string audioSelector() {
+  if (Mist::opt.isMember("audio_select") && Mist::opt["audio_select"].isString() && Mist::opt["audio_select"]) {
+    return Mist::opt["audio_select"].asStringRef();
+  }
+  return "none";
+}
+
+/// The selector the source reads with: the configured source_track (default maxbps) as video,
+/// plus the passed-through audio.
+std::string sourceTrackSelector() {
+  std::string video_select = "maxbps";
+  if (Mist::opt.isMember("source_track") && Mist::opt["source_track"].isString() && Mist::opt["source_track"]) {
+    video_select = Mist::opt["source_track"].asStringRef();
+  }
+  return "audio=" + audioSelector() + "&video=" + video_select;
+}
+
+/// The input selection and renditions of this configuration (see process_outputs.h): an H264 track
+/// per named profile, which carries the profile's track_inhibit, and its passed-through audio,
+/// which no reader sees (see ProcessSink::streamMainLoop).
+JSON::Value processDeclaration() {
+  JSON::Value sourceCapa;
+  Mist::ProcessSource::addSourceCodecs(sourceCapa);
+  JSON::Value declaration;
+  declaration["select"] = Mist::declaredSelection(Mist::selectionQuery(sourceTrackSelector()), sourceCapa);
+  declaration["outputs"].append(JSON::Value());
+  declaration["outputs"].shrink(0);
+  if (!Mist::opt["target_profiles"].isArray()) { return declaration; }
+  jsonForEachConst (Mist::opt["target_profiles"], prof) {
+    if (!prof->isObject() || !(*prof)["name"].isString() || !(*prof)["name"].asStringRef().size()) { continue; }
+    DTSC::TrackMetadata rendition;
+    rendition.type = "video";
+    rendition.codec = "H264";
+    rendition.output = (*prof)["name"].asStringRef();
+    JSON::Value output = Mist::declaredOutput(rendition, Mist::outputTrackMask());
+    if (prof->isMember("track_inhibit")) { output["track_inhibit"] = (*prof)["track_inhibit"]; }
+    declaration["outputs"].append(output);
+    if (audioSelector() == "none") { continue; }
+    DTSC::TrackMetadata audio;
+    audio.type = "audio";
+    audio.codec = "AAC";
+    audio.output = rendition.output + ".audio";
+    output = Mist::declaredOutput(audio, 0);
+    if (prof->isMember("track_inhibit")) { output["track_inhibit"] = (*prof)["track_inhibit"]; }
+    declaration["outputs"].append(output);
+  }
+  return declaration;
+}
+
 void sourceThread(){
   Util::setStreamName(livepeerThreadStreamName);
   conf.addOption("streamname",
@@ -540,19 +600,9 @@ void sourceThread(){
   opt["default"] = "";
   opt["arg_num"] = 1;
   opt["help"] = "Target filename to store EBML file as, or - for stdout.";
-  //Check for audio selection, default to none
-  std::string audio_select = "none";
-  if (Mist::opt.isMember("audio_select") && Mist::opt["audio_select"].isString() && Mist::opt["audio_select"]){
-    audio_select = Mist::opt["audio_select"].asStringRef();
-  }
-  //Check for source track selection, default to maxbps
-  std::string video_select = "maxbps";
-  if (Mist::opt.isMember("source_track") && Mist::opt["source_track"].isString() && Mist::opt["source_track"]){
-    video_select = Mist::opt["source_track"].asStringRef();
-  }
   conf.addOption("target", opt);
   conf.getOption("streamname", true).append(Mist::opt["source"].c_str());
-  conf.getOption("target", true).append("-?audio="+audio_select+"&video="+video_select);
+  conf.getOption("target", true).append("-?" + sourceTrackSelector());
   JSON::Value capa;
   Mist::ProcessSource::init(&conf, capa);
   conf.is_active = true;
@@ -1064,6 +1114,7 @@ int main(int argc, char *argv[]){
     opt["help"] = "Kick off source if not already active";
     opt["value"].append(false);
     config.addOption("kickoff", opt);
+    Mist::addDescribeOutputsOption(config);
   }
 
   capa["codecs"][0u][0u].append("H264");
@@ -1293,6 +1344,7 @@ int main(int argc, char *argv[]){
   if (!Mist::opt.isMember("sink") || !Mist::opt["sink"] || !Mist::opt["sink"].isString()){
     INFO_MSG("No sink explicitly set, using source as sink");
   }
+  if (Mist::describeOrDeclare(config, processDeclaration())) { return 0; }
   ProcState::publishStartup(procStatePage, 8.0, PRC_RESOURCE_EXTERNAL);
   if (!Mist::opt.isMember("custom_url") || !Mist::opt["custom_url"] || !Mist::opt["custom_url"].isString()){
     api_url = "https://livepeer.live/api";

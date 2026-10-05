@@ -6,6 +6,7 @@
 #include "onnx_proc_state.h"
 #include "process.hpp"
 #include "process_onnx_audio.h"
+#include "process_outputs.h"
 
 #include <mist/defines.h>
 #include <mist/onnx.h>
@@ -514,6 +515,44 @@ namespace Mist {
 
   // End of ProcessSource class
 
+  /// The results track: JSON results, or ONNXTENSOR packets in tensor mode.
+  DTSC::TrackMetadata metaTrackDescription() {
+    DTSC::TrackMetadata trkDta{};
+    trkDta.type = "meta";
+    trkDta.codec = activeModality == ONNX::ModelModality::TENSOR ? "ONNXTENSOR" : "JSON";
+    JSON::Value identity;
+    identity["schema"] = "mist.onnx.track/v1";
+    identity["role"] = activeModality == ONNX::ModelModality::TENSOR ? "tensors" : "results";
+    identity["output_id"] = outputId;
+    identity["model"] = opt["model"].asString();
+    trkDta.init = identity.toString();
+    trkDta.output = outputId + "/" + identity["role"].asString();
+    return trkDta;
+  }
+
+  /// The annotated MJPEG video track a vision model draws its results on, when configured.
+  DTSC::TrackMetadata videoTrackDescription() {
+    DTSC::TrackMetadata trkDta{};
+    trkDta.type = "video";
+    trkDta.codec = "JPEG";
+    JSON::Value identity;
+    identity["schema"] = "mist.onnx.track/v1";
+    identity["role"] = "annotations";
+    identity["output_id"] = outputId;
+    identity["model"] = opt["model"].asString();
+    trkDta.init = identity.toString();
+    trkDta.output = outputId + "/annotations";
+    return trkDta;
+  }
+
+  /// The validity mask of the output tracks: the configured target_mask, else the default.
+  uint8_t outputTrackMask() {
+    if (opt.isMember("target_mask") && !opt["target_mask"].isNull() && opt["target_mask"].asString() != "") {
+      return opt["target_mask"].asInt();
+    }
+    return DTSC::trackValidDefault;
+  }
+
   class ProcessSink : public Input {
     private:
       size_t metadataTrackIdx;
@@ -534,17 +573,7 @@ namespace Mist {
       // what stops empty tracks piling up across process restarts.
       void ensureMetaTrack() {
         if (metadataTrackIdx != INVALID_TRACK_ID) { return; }
-        DTSC::TrackMetadata trkDta{};
-        trkDta.type = "meta";
-        trkDta.codec = activeModality == ONNX::ModelModality::TENSOR ? "ONNXTENSOR" : "JSON";
-        JSON::Value identity;
-        identity["schema"] = "mist.onnx.track/v1";
-        identity["role"] = activeModality == ONNX::ModelModality::TENSOR ? "tensors" : "results";
-        identity["output_id"] = outputId;
-        identity["model"] = opt["model"].asString();
-        trkDta.init = identity.toString();
-        trkDta.output = outputId + "/" + identity["role"].asString();
-        metadataTrackIdx = meta.addOrResumeTrack(trkDta);
+        metadataTrackIdx = meta.addOrResumeTrack(metaTrackDescription());
         if (metadataTrackIdx == INVALID_TRACK_ID) { FAIL_MSG("ProcessSink: could not add metadata track"); return; }
         meta.setID(metadataTrackIdx, metadataTrackIdx);
         if (sourceTrackIdx != INVALID_TRACK_ID && streamName == opt["source"].asString()) {
@@ -557,19 +586,10 @@ namespace Mist {
       // dimensions are known and it can resume an existing matching track.
       void ensureVideoTrack(uint64_t w, uint64_t h) {
         if (videoTrackIdx != INVALID_TRACK_ID) { return; }
-        DTSC::TrackMetadata trkDta{};
-        trkDta.type = "video";
-        trkDta.codec = "JPEG";
-        JSON::Value identity;
-        identity["schema"] = "mist.onnx.track/v1";
-        identity["role"] = "annotations";
-        identity["output_id"] = outputId;
-        identity["model"] = opt["model"].asString();
-        trkDta.init = identity.toString();
+        DTSC::TrackMetadata trkDta = videoTrackDescription();
         trkDta.width = w;
         trkDta.height = h;
         trkDta.fpks = estimatedFpks;
-        trkDta.output = outputId + "/annotations";
         videoTrackIdx = meta.addOrResumeTrack(trkDta);
         if (videoTrackIdx == INVALID_TRACK_ID) { FAIL_MSG("ProcessSink: could not add video track"); return; }
         meta.setID(videoTrackIdx, videoTrackIdx);
@@ -603,9 +623,7 @@ namespace Mist {
         }
 
         Util::setStreamName(opt["source"].asString() + "→" + streamName);
-        if (opt.isMember("target_mask") && !opt["target_mask"].isNull() && opt["target_mask"].asString() != "") {
-          DTSC::trackValidDefault = opt["target_mask"].asInt();
-        }
+        DTSC::trackValidDefault = outputTrackMask();
       }
 
       bool checkArguments() { return true; }
@@ -1065,17 +1083,8 @@ namespace Mist {
     }
   }
 
-  void sourceThread() {
-    Util::nameThread("sourceThread");
-    JSON::Value capa;
-    Mist::ProcessSource::init(&conf, capa);
-    conf.getOption("streamname", true).append(opt["source"].asString());
-    JSON::Value targetOpt;
-    targetOpt["arg"] = "string";
-    targetOpt["default"] = "";
-    targetOpt["arg_num"] = 1;
-    conf.addOption("target", targetOpt);
-    conf.getOption("target", true).append("-");
+  /// The track selector the source reads its input with, for the configured modality.
+  std::string sourceTrackSelector() {
     std::string trackSel;
     if (opt.isMember("track_select") && opt["track_select"].isString() && !opt["track_select"].asString().empty()) {
       trackSel = opt["track_select"].asString();
@@ -1098,6 +1107,35 @@ namespace Mist {
     } else if (activeModality == ONNX::ModelModality::TENSOR) {
       trackSel = "meta=ONNXTENSOR&audio=none&video=none";
     }
+    return trackSel;
+  }
+
+  /// The input selection and output tracks of this configuration (see process_outputs.h).
+  JSON::Value processDeclaration() {
+    Util::Config scratch;
+    JSON::Value sourceCapa;
+    ProcessSource::init(&scratch, sourceCapa);
+    JSON::Value declaration;
+    declaration["select"] = declaredSelection(selectionQuery(sourceTrackSelector()), sourceCapa);
+    declaration["outputs"].append(declaredOutput(metaTrackDescription(), outputTrackMask()));
+    if (activeModality == ONNX::ModelModality::VISION && annotatedVideo) {
+      declaration["outputs"].append(declaredOutput(videoTrackDescription(), outputTrackMask()));
+    }
+    return declaration;
+  }
+
+  void sourceThread() {
+    Util::nameThread("sourceThread");
+    JSON::Value capa;
+    Mist::ProcessSource::init(&conf, capa);
+    conf.getOption("streamname", true).append(opt["source"].asString());
+    JSON::Value targetOpt;
+    targetOpt["arg"] = "string";
+    targetOpt["default"] = "";
+    targetOpt["arg_num"] = 1;
+    conf.addOption("target", targetOpt);
+    conf.getOption("target", true).append("-");
+    const std::string trackSel = sourceTrackSelector();
     if (!trackSel.empty()) { conf.getOption("target", true).append("-?" + trackSel); }
     Socket::Connection S;
     Mist::ProcessSource out(S, conf, capa);
@@ -1860,6 +1898,7 @@ int main(int argc, char *argv[]) {
     opt["help"] = "Show connector JSON and exit";
     opt["value"].append(0);
     config.addOption("json", opt);
+    Mist::addDescribeOutputsOption(config);
   }
 
   // Input codecs. Vision models take a raw/JPEG video track; transcription models take a
@@ -2511,6 +2550,7 @@ int main(int argc, char *argv[]) {
     procExit.log(ER_FORMAT_SPECIFIC, 2, "Invalid ONNX process configuration");
     return procExit.flush(procStatePage);
   }
+  if (Mist::describeOrDeclare(config, Mist::processDeclaration())) { return 0; }
 
   // Resolve model path from dropdown or direct path
   std::string modelPath;

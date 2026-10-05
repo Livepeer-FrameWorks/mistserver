@@ -1,6 +1,7 @@
 #include "../input/input.h"
 #include "../output/output.h"
 #include "process.hpp"
+#include "process_outputs.h"
 
 #include <mist/defines.h>
 #include <mist/h264.h>
@@ -343,6 +344,7 @@ int main(int argc, char *argv[]) {
     opt["help"] = "Output connector info in JSON format, then exit.";
     opt["value"].append(0);
     config.addOption("json", opt);
+    Mist::addDescribeOutputsOption(config);
   }
 
   capa["codecs"][0u][0u].append("rawts");
@@ -441,6 +443,17 @@ int main(int argc, char *argv[]) {
 
   if (!Mist::opt.isMember("sink") || !Mist::opt["sink"] || !Mist::opt["sink"].isString()) {
     INFO_MSG("No sink explicitly set, using source as sink");
+  }
+
+  {
+    // The tracks it adds are those of the transport stream it demuxes, so it declares none.
+    Util::Config scratch;
+    JSON::Value sourceCapa;
+    Mist::ProcessSource::init(&scratch, sourceCapa);
+    JSON::Value declaration;
+    declaration["select"] = Mist::declaredSelection(std::map<std::string, std::string>(), sourceCapa);
+    declaration["dynamic"] = true;
+    if (Mist::describeOrDeclare(config, declaration)) { return 0; }
   }
 
   Util::Config co;

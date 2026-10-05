@@ -1,6 +1,7 @@
 #include "process_ffmpeg.h"
 
 #include "process.hpp"
+#include "process_outputs.h"
 
 #include <mist/defines.h>
 #include <mist/proc_stats.h>
@@ -53,6 +54,15 @@ uint8_t sinkCommState = COMM_STATUS_ACTSOURCEDNT;
 size_t sourceTrackIdx = INVALID_TRACK_ID;
 
 namespace Mist{
+  /// The validity mask of the encoded track: the configured target_mask, or by default visible to
+  /// viewers and pushes.
+  uint8_t outputTrackMask() {
+    if (opt.isMember("target_mask") && !opt["target_mask"].isNull() && opt["target_mask"].asString() != "") {
+      return opt["target_mask"].asInt();
+    }
+    return TRACK_VALID_EXT_HUMAN | TRACK_VALID_EXT_PUSH;
+  }
+
   class ProcessSink : public InputEBML{
   public:
     ProcessSink(Util::Config *cfg) : InputEBML(cfg){
@@ -102,11 +112,7 @@ namespace Mist{
         pStat["proc_status_update"]["sink"] = streamName;
         pStat["proc_status_update"]["source"] = opt["source"];
       }
-      if (opt.isMember("target_mask") && !opt["target_mask"].isNull() && opt["target_mask"].asString() != ""){
-        DTSC::trackValidDefault = opt["target_mask"].asInt();
-      } else {
-        DTSC::trackValidDefault = TRACK_VALID_EXT_HUMAN | TRACK_VALID_EXT_PUSH;
-      }
+      DTSC::trackValidDefault = outputTrackMask();
     }
     bool needsLock(){return false;}
     bool isSingular(){return false;}
@@ -216,20 +222,39 @@ void sinkThread(){
   ffCV.notify_all();
 }
 
+/// The selector the source reads the one track ffmpeg encodes with.
+std::string sourceTrackSelector() {
+  if (Enc.isAudio) { return "audio=" + opt["source_track"].asString() + "&video=-1"; }
+  return "video=" + opt["source_track"].asString() + "&audio=-1";
+}
+
+/// The input selection and output track of this configuration (see process_outputs.h): ffmpeg
+/// writes its one encoded stream as track 1 of its Matroska output.
+JSON::Value processDeclaration() {
+  Util::Config scratch;
+  JSON::Value sourceCapa;
+  Mist::ProcessSource::init(&scratch, sourceCapa);
+  JSON::Value declaration;
+  declaration["select"] = Mist::declaredSelection(Mist::selectionQuery(sourceTrackSelector()), sourceCapa);
+  DTSC::TrackMetadata encoded;
+  encoded.type = Enc.isVideo ? "video" : "audio";
+  encoded.codec = opt["codec"].asString() == "H265" ? "HEVC" : opt["codec"].asString();
+  encoded.output = "track1";
+  declaration["outputs"].append(Mist::declaredOutput(encoded, Mist::outputTrackMask()));
+  return declaration;
+}
+
 void sourceThread(){
   Util::nameThread("sourceThread");
   JSON::Value capa;
   Mist::ProcessSource::init(&conf, capa);
   conf.getOption("streamname", true).append(opt["source"].c_str());
 
-  if (Enc.isAudio){
-    conf.getOption("target", true).append("-?audio=" + opt["source_track"].asString() + "&video=-1");
-  }else if (Enc.isVideo){
-    conf.getOption("target", true).append("-?video=" + opt["source_track"].asString() + "&audio=-1");
-  }else{
+  if (!Enc.isAudio && !Enc.isVideo) {
     FAIL_MSG("Cannot set target option parameters");
     return;
   }
+  conf.getOption("target", true).append("-?" + sourceTrackSelector());
 
   {
     std::unique_lock<std::mutex> lk(ffMutex);
@@ -274,6 +299,7 @@ int main(int argc, char *argv[]){
     option["help"] = "Output connector info in JSON format, then exit.";
     option["value"].append(0);
     config.addOption("json", option);
+    Mist::addDescribeOutputsOption(config);
   }
 
   if (!(config.parseArgs(argc, argv))){return 1;}
@@ -670,7 +696,7 @@ int main(int argc, char *argv[]){
     FAIL_MSG("Error config syntax error!");
     return 1;
   }
-
+  if (Mist::describeOrDeclare(config, processDeclaration())) { return 0; }
 
   const std::string & srcStrm = opt["source"].asStringRef();
   //connect to source metadata

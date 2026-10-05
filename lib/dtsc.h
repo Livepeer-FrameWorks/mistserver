@@ -50,6 +50,10 @@ namespace DTSC{
   /// standard input. While set, tracks described with an output name are registered and resumed by
   /// their output key.
   extern std::string outputKeyScope;
+  /// The outputs this process declared for its configuration (see src/process/process_outputs.h):
+  /// an array of {output, type, codec, ...}, or null when it declared none. A keyed track it
+  /// registers that matches none of them in output name, type and codec is logged as a warning.
+  extern JSON::Value declaredOutputs;
   /// Identity of a configured process: a hash of the configuration string the buffer keys it by and
   /// passes as its first argument. A changed or replacement configuration has another identity.
   std::string processIdentity(const std::string & processConfig);

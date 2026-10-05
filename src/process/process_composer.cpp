@@ -2,6 +2,7 @@
 #include "../output/output.h"
 #include "../wpng/wpng_read.h"
 #include "process.hpp"
+#include "process_outputs.h"
 
 #include <mist/pixels.h>
 #include <mist/proc_stats.h>
@@ -491,6 +492,41 @@ namespace Mist {
   JSON::Value prevSources;
 
   /// Writes out the actual composed UYVY data by composing from the sources
+  /// The validity mask of the composed tracks: the configured target_mask, else the default.
+  uint8_t outputTrackMask() {
+    if (opt.isMember("target_mask") && !opt["target_mask"].isNull() && opt["target_mask"].asString() != "") {
+      return opt["target_mask"].asInt();
+    }
+    return DTSC::trackValidDefault;
+  }
+
+  DTSC::TrackMetadata composedVideoTrack() {
+    DTSC::TrackMetadata trkDta;
+    trkDta.type = "video";
+    trkDta.output = "video";
+    trkDta.codec = "UYVY";
+    return trkDta;
+  }
+
+  DTSC::TrackMetadata copiedAudioTrack() {
+    DTSC::TrackMetadata trkDta;
+    trkDta.type = "audio";
+    trkDta.output = "audio";
+    trkDta.codec = "PCM";
+    return trkDta;
+  }
+
+  /// The output tracks of this configuration (see process_outputs.h): the composed video, and the
+  /// audio of one source when copyaudio names it. The sources are other streams, so there is no
+  /// input selection on the stream this process runs for.
+  JSON::Value processDeclaration(bool copiesAudio) {
+    JSON::Value declaration;
+    declaration["select"] = JSON::Value();
+    declaration["outputs"].append(declaredOutput(composedVideoTrack(), outputTrackMask()));
+    if (copiesAudio) { declaration["outputs"].append(declaredOutput(copiedAudioTrack(), outputTrackMask())); }
+    return declaration;
+  }
+
   class ProcessSink : public Input {
     public:
       size_t vidIdx{INVALID_TRACK_ID}, audIdx{INVALID_TRACK_ID};
@@ -507,9 +543,7 @@ namespace Mist {
         streamName = opt["sink"].asString();
         Util::streamVariables(streamName, "");
         Util::setStreamName(streamName);
-        if (opt.isMember("target_mask") && !opt["target_mask"].isNull() && opt["target_mask"].asString() != "") {
-          DTSC::trackValidDefault = opt["target_mask"].asInt();
-        }
+        DTSC::trackValidDefault = outputTrackMask();
       }
 
       ~ProcessSink() {}
@@ -578,10 +612,7 @@ namespace Mist {
           }
 
           {
-            DTSC::TrackMetadata trkDta;
-            trkDta.type = "video";
-            trkDta.output = "video";
-            trkDta.codec = "UYVY";
+            DTSC::TrackMetadata trkDta = composedVideoTrack();
             trkDta.width = outputWidth;
             trkDta.height = outputHeight;
             trkDta.fpks = 0;
@@ -938,10 +969,7 @@ namespace Mist {
                         if (Mist::opt.isMember("audiochannels") && Mist::opt["audiochannels"].isInt()) {
                           audioChannels = Mist::opt["audiochannels"].asInt();
                         }
-                        DTSC::TrackMetadata trkDta;
-                        trkDta.type = "audio";
-                        trkDta.output = "audio";
-                        trkDta.codec = "PCM";
+                        DTSC::TrackMetadata trkDta = copiedAudioTrack();
                         trkDta.rate = audioSampRate;
                         trkDta.size = audioSampSize;
                         trkDta.channels = audioChannels;
@@ -1274,6 +1302,7 @@ int main(int argc, char *argv[]) {
     "help":"Target frame rate or 0 for automatic",
     "default":"0"
   })-");
+  Mist::addDescribeOutputsOption(config);
 
   if (!(config.parseArgs(argc, argv))) { return 1; }
 
@@ -1455,6 +1484,7 @@ int main(int argc, char *argv[]) {
   if (Mist::opt.isMember("copyaudio") && (Mist::opt["copyaudio"].asStringRef().size() || Mist::opt["copyaudio"].isInt())) {
     audioSource = Mist::opt["copyaudio"].asString();
   }
+  if (Mist::describeOrDeclare(config, Mist::processDeclaration(audioSource.size()))) { return 0; }
 
   if (Mist::opt.isMember("printtiming")) {
     if (Mist::opt["printtiming"].isString()) {

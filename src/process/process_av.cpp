@@ -4,6 +4,7 @@
 #include "../output/output.h"
 #include "process.hpp"
 #include "process_av_bitrate.h"
+#include "process_outputs.h"
 
 #include <mist/h264.h>
 #include <mist/mp4_generic.h>
@@ -148,6 +149,29 @@ namespace Mist{
     }
   }
 
+  /// The validity mask of the output track: the configured target_mask, or by default visible to
+  /// viewers and to other processes for raw pixel and PCM output, and to viewers and pushes for
+  /// encoded output.
+  static uint8_t outputTrackMask() {
+    if (opt.isMember("target_mask") && !opt["target_mask"].isNull() && opt["target_mask"].asString() != "") {
+      return opt["target_mask"].asInt();
+    }
+    if (codecOut == "UYVY" || codecOut == "YUYV" || codecOut == "I420" || codecOut == "PCM" || codecOut == "NV12") {
+      return TRACK_VALID_EXT_HUMAN | TRACK_VALID_INT_PROCESS;
+    }
+    return TRACK_VALID_EXT_HUMAN | TRACK_VALID_EXT_PUSH;
+  }
+
+  /// The output track as far as the configuration describes it.
+  static DTSC::TrackMetadata outputTrackBase() {
+    DTSC::TrackMetadata trkDta;
+    trkDta.type = isVideo ? "video" : "audio";
+    trkDta.output = trkDta.type;
+    trkDta.codec = codecOut;
+    trkDta.id = 1;
+    return trkDta;
+  }
+
   class ProcessSink : public Input{
   private:
     size_t trkIdx;
@@ -168,16 +192,7 @@ namespace Mist{
         if (streamName != opt["source"].asStringRef()) { sinkCommState = COMM_STATUS_ACTIVE | COMM_STATUS_SOURCE; }
       }
       Util::setStreamName(opt["source"].asString() + "→" + streamName);
-      if (opt.isMember("target_mask") && !opt["target_mask"].isNull() && opt["target_mask"].asString() != ""){
-        DTSC::trackValidDefault = opt["target_mask"].asInt();
-      } else {
-        if (codecOut == "UYVY" || codecOut == "YUYV" || codecOut == "I420" ||
-            codecOut == "PCM" || codecOut == "NV12") {
-          DTSC::trackValidDefault = TRACK_VALID_EXT_HUMAN | TRACK_VALID_INT_PROCESS;
-        } else {
-          DTSC::trackValidDefault = TRACK_VALID_EXT_HUMAN | TRACK_VALID_EXT_PUSH;
-        }
-      }
+      DTSC::trackValidDefault = outputTrackMask();
     };
 
     void parseH264(bool isKey){
@@ -387,11 +402,7 @@ namespace Mist{
     void setVideoInit(){
       if (trkIdx != INVALID_TRACK_ID){return;}
       // We're encoding to a target codec
-      DTSC::TrackMetadata trkDta;
-      trkDta.type = "video";
-      trkDta.output = "video";
-      trkDta.codec = codecOut;
-      trkDta.id = 1;
+      DTSC::TrackMetadata trkDta = outputTrackBase();
       trkDta.width = frameConverted->width;
       trkDta.height = frameConverted->height;
       if (context_out && context_out->extradata && context_out->extradata_size) {
@@ -449,11 +460,7 @@ namespace Mist{
     void setAudioInit(){
       if (trkIdx != INVALID_TRACK_ID){return;}
 
-      DTSC::TrackMetadata trkDta;
-      trkDta.type = "audio";
-      trkDta.output = "audio";
-      trkDta.codec = codecOut;
-      trkDta.id = 1;
+      DTSC::TrackMetadata trkDta = outputTrackBase();
       trkDta.rate = outAudioRate;
       trkDta.channels = outAudioChannels;
       trkDta.size = outAudioDepth;
@@ -526,15 +533,7 @@ namespace Mist{
       meta.ignorePid(getpid());
       closeMyConn();
 
-      if (isVideo) {
-        targetParams["audio"] = "none";
-        if (targetParams.count("video") && targetParams["video"].size()) { targetParams["video"] += ",|first"; }
-      } else {
-        targetParams["video"] = "none";
-        if (targetParams.count("audio") && targetParams["audio"].size()) { targetParams["audio"] += ",|first"; }
-      }
-      targetParams["meta"] = "none";
-      targetParams["subtitle"] = "none";
+      restrictSourceSelection(targetParams);
 
       targetParams["keeptimes"] = true;
       realTime = 0;
@@ -555,6 +554,20 @@ namespace Mist{
       decodedFrameTimestamped = false;
       decodedFrameTimeOriginSet = false;
       decodedFrameTimeOrigin = 0;
+    }
+
+    /// Narrows the configured track selection to the one track of the configured kind this process
+    /// transcodes.
+    static void restrictSourceSelection(std::map<std::string, std::string> & params) {
+      if (isVideo) {
+        params["audio"] = "none";
+        if (params.count("video") && params["video"].size()) { params["video"] += ",|first"; }
+      } else {
+        params["video"] = "none";
+        if (params.count("audio") && params["audio"].size()) { params["audio"] += ",|first"; }
+      }
+      params["meta"] = "none";
+      params["subtitle"] = "none";
     }
 
     ~ProcessSource(){
@@ -2498,6 +2511,22 @@ void sinkThread(){
   avCV.notify_all();
 }
 
+namespace Mist {
+  /// The input selection and output track of this configuration (see process_outputs.h).
+  JSON::Value processDeclaration() {
+    std::map<std::string, std::string> params;
+    if (opt.isMember("track_select")) { params = selectionQuery(opt["track_select"].asString()); }
+    ProcessSource::restrictSourceSelection(params);
+    Util::Config scratch;
+    JSON::Value sourceCapa;
+    ProcessSource::init(&scratch, sourceCapa);
+    JSON::Value declaration;
+    declaration["select"] = declaredSelection(params, sourceCapa);
+    declaration["outputs"].append(declaredOutput(outputTrackBase(), outputTrackMask()));
+    return declaration;
+  }
+} // namespace Mist
+
 void sourceThread(){
   Util::nameThread("sourceThread");
   JSON::Value capa;
@@ -2584,6 +2613,7 @@ int main(int argc, char *argv[]){
     opt["help"] = "Output connector info in JSON format, then exit.";
     opt["value"].append(0);
     config.addOption("json", opt);
+    Mist::addDescribeOutputsOption(config);
   }
 
   capa["codecs"][0u][0u].append("YUYV");
@@ -2996,6 +3026,8 @@ int main(int argc, char *argv[]){
   if (!Mist::opt.isMember("bitrate") || !Mist::opt["bitrate"].asInt()) {
     Mist::opt["bitrate"] = Mist::defaultAVBitrate(isVideo);
   }
+
+  if (Mist::describeOrDeclare(config, Mist::processDeclaration())) { return 0; }
 
   // The proc owns its bootstrap recommendation. Publish it immediately after
   // parsing configuration, before connecting to streams or initializing the

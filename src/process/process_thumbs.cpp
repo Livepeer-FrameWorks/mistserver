@@ -3,6 +3,7 @@
 #include "../input/input.h"
 #include "../output/output.h"
 #include "process.hpp"
+#include "process_outputs.h"
 #include "thumbnail_artifacts.h"
 
 #include <mist/proc_stats.h>
@@ -185,6 +186,34 @@ std::atomic<uint64_t> thumbLastWorkEnd{0};
 
 namespace Mist {
 
+  /// The validity mask of the thumbnail tracks: the configured target_mask, or by default visible
+  /// to viewers and pushes.
+  uint8_t outputTrackMask() {
+    if (opt.isMember("target_mask") && !opt["target_mask"].isNull() && opt["target_mask"].asString() != "") {
+      return opt["target_mask"].asInt();
+    }
+    return TRACK_VALID_EXT_HUMAN | TRACK_VALID_EXT_PUSH;
+  }
+
+  DTSC::TrackMetadata thumbnailTrack(const std::string & output, const std::string & type, const std::string & codec,
+                                     const std::string & lang) {
+    DTSC::TrackMetadata trkDta;
+    trkDta.type = type;
+    trkDta.codec = codec;
+    trkDta.lang = lang;
+    trkDta.output = output;
+    return trkDta;
+  }
+
+  /// The sprite sheet, its VTT index and the latest preview image, in that order.
+  std::vector<DTSC::TrackMetadata> thumbnailTracks() {
+    std::vector<DTSC::TrackMetadata> tracks;
+    tracks.push_back(thumbnailTrack("sprite", "video", "JPEG", "thu"));
+    tracks.push_back(thumbnailTrack("vtt", "meta", "thumbvtt", ""));
+    tracks.push_back(thumbnailTrack("preview", "video", "JPEG", "pre"));
+    return tracks;
+  }
+
   class ProcessSink : public Input {
     private:
       size_t spriteIdx;
@@ -206,11 +235,7 @@ namespace Mist {
         Util::streamVariables(streamName, opt["source"].asString());
         Util::sanitizeName(streamName);
         Util::setStreamName(opt["source"].asString() + "→" + streamName);
-        if (opt.isMember("target_mask") && !opt["target_mask"].isNull() && opt["target_mask"].asString() != "") {
-          DTSC::trackValidDefault = opt["target_mask"].asInt();
-        } else {
-          DTSC::trackValidDefault = TRACK_VALID_EXT_HUMAN | TRACK_VALID_EXT_PUSH;
-        }
+        DTSC::trackValidDefault = outputTrackMask();
       }
 
       ~ProcessSink() {}
@@ -247,27 +272,19 @@ namespace Mist {
         // Each output resumes the track a previous run of this process left (live restarts would
         // otherwise add a sprite, VTT and preview track per run).
         const size_t lineage = streamName == opt["source"].asString() ? sourceTrackIdx : INVALID_TRACK_ID;
-        auto addOutput = [&](const std::string & output, const std::string & type, const std::string & codec,
-                             const std::string & lang, uint32_t width, uint32_t height) {
-          DTSC::TrackMetadata trkDta;
-          trkDta.type = type;
-          trkDta.codec = codec;
-          trkDta.lang = lang;
+        auto addOutput = [&](DTSC::TrackMetadata trkDta, uint32_t width, uint32_t height) {
           trkDta.width = width;
           trkDta.height = height;
-          trkDta.output = output;
           size_t idx = meta.addOrResumeTrack(trkDta, lineage);
           if (idx == INVALID_TRACK_ID) { return idx; }
           meta.setID(idx, idx);
           userSelect[idx].reload(streamName, idx, COMM_STATUS_ACTSOURCEDNT);
           return idx;
         };
-        // Sprite sheet JPEG track
-        spriteIdx = addOutput("sprite", "video", "JPEG", "thu", gridW, gridH);
-        // VTT subtitle track
-        vttIdx = addOutput("vtt", "meta", "thumbvtt", "", 0, 0);
-        // Preview JPEG track (single latest keyframe, lang="pre")
-        previewIdx = addOutput("preview", "video", "JPEG", "pre", cellWidth, cellHeight);
+        const std::vector<DTSC::TrackMetadata> outputs = thumbnailTracks();
+        spriteIdx = addOutput(outputs[0], gridW, gridH);
+        vttIdx = addOutput(outputs[1], 0, 0);
+        previewIdx = addOutput(outputs[2], cellWidth, cellHeight);
 
         publishedThumbWidth = cellWidth;
         publishedThumbHeight = cellHeight;
@@ -995,6 +1012,22 @@ void sinkThread() {
   conf.is_active = false;
 }
 
+namespace Mist {
+  /// The input selection and output tracks of this configuration (see process_outputs.h).
+  JSON::Value processDeclaration() {
+    Util::Config scratch;
+    JSON::Value sourceCapa;
+    ProcessSource::init(&scratch, sourceCapa);
+    JSON::Value declaration;
+    declaration["select"] =
+      declaredSelection(selectionQuery(opt.isMember("track_select") ? opt["track_select"].asString() : ""), sourceCapa);
+    for (const DTSC::TrackMetadata & trk : thumbnailTracks()) {
+      declaration["outputs"].append(declaredOutput(trk, outputTrackMask()));
+    }
+    return declaration;
+  }
+} // namespace Mist
+
 void sourceThread() {
   Util::nameThread("sourceThread");
   JSON::Value capa;
@@ -1070,6 +1103,7 @@ int main(int argc, char *argv[]) {
     optJ["help"] = "Output connector info in JSON format, then exit.";
     optJ["value"].append(0);
     config.addOption("json", optJ);
+    Mist::addDescribeOutputsOption(config);
   }
 
   capa["codecs"][0u][0u].append("H264");
@@ -1206,6 +1240,8 @@ int main(int argc, char *argv[]) {
   }
 
   maxCacheSize = (size_t)gridCols * gridRows * 3;
+
+  if (Mist::describeOrDeclare(config, Mist::processDeclaration())) { return 0; }
 
   ProcState::publishStartup(procStatsPage, 8.0, PRC_RESOURCE_CPU);
 

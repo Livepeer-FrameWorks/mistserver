@@ -50,6 +50,7 @@ namespace DTSC{
   uint8_t trackValidDefault = TRACK_VALID_ALL;
 
   std::string outputKeyScope;
+  JSON::Value declaredOutputs;
 
   static uint64_t fnv1a64(const std::string & data) {
     uint64_t hash = 1469598103934665603ull;
@@ -2366,7 +2367,21 @@ namespace DTSC{
   /// that still holds the claim gets five seconds to let go, a dead one loses it at once. A track
   /// whose description changed (another init or video size) is replaced: a new track gets the key
   /// and the old one is left unclaimed for the buffer to retire. No other track is ever taken.
+  /// Warns when a process registers an output its declaration does not list (see declaredOutputs).
+  static void checkDeclaredOutput(const TrackMetadata & trkDta) {
+    if (!declaredOutputs.isArray()) { return; }
+    jsonForEachConst (declaredOutputs, it) {
+      if ((*it)["output"].asString() == trkDta.output && (*it)["type"].asString() == trkDta.type &&
+          (*it)["codec"].asString() == trkDta.codec) {
+        return;
+      }
+    }
+    WARN_MSG("Registering output %s (%s %s), which this process did not declare for its configuration; it declared: %s",
+             trkDta.output.c_str(), trkDta.type.c_str(), trkDta.codec.c_str(), declaredOutputs.toString().c_str());
+  }
+
   size_t Meta::addOrResumeKeyedTrack(const TrackMetadata & trkDta, const std::string & key, size_t sourceTrack, bool delayed) {
+    checkDeclaredOutput(trkDta);
     uint8_t oldMask = trackValidMask;
     trackValidMask = TRACK_VALID_ALL;
     reloadReplacedPagesIfNeeded();
