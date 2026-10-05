@@ -46,15 +46,10 @@ int main() {
     return fail("startup contract did not round-trip");
   }
 
-  ProcState::publishOutputContract(page, 2, PRC_INPUT_VIDEO);
-  if (!ProcState::readSnapshot(page, snapshot) || !(snapshot.flags & PRC_FLAG_OUTPUT_CONTRACT_VALID) ||
-      snapshot.expectedOutputTracks != 2 || snapshot.inputModality != PRC_INPUT_VIDEO) {
-    return fail("process output contract did not round-trip");
-  }
+  writer->flags |= PRC_FLAG_CAPACITY_VALID;
   ProcState::publishStartup(page, 1.0, PRC_RESOURCE_GPU);
-  if (!ProcState::readSnapshot(page, snapshot) || !(snapshot.flags & PRC_FLAG_OUTPUT_CONTRACT_VALID) ||
-      snapshot.expectedOutputTracks != 2 || snapshot.inputModality != PRC_INPUT_VIDEO) {
-    return fail("startup publication discarded the resolved output contract");
+  if (!ProcState::readSnapshot(page, snapshot) || snapshot.flags || snapshot.primaryResource != PRC_RESOURCE_GPU) {
+    return fail("a startup publication must restart the measured contract");
   }
 
   writer->beginPublish();

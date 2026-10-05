@@ -180,12 +180,8 @@ if [ "$data_packets" -lt 20 ]; then
   echo "recording contains only $data_packets ONNX result packets" >&2
   exit 1
 fi
-if ! grep -q 'Waiting for processing tracks' "$work/output.log"; then
-  echo "recording never observed the ONNX output-contract readiness gate" >&2
-  exit 1
-fi
-if ! grep -q 'Waiting for processing process expectations' "$work/output.log"; then
-  echo "recording did not start before the chained ONNX process contract resolved" >&2
+if ! grep -q 'Recording header: .* 1/1 expected processing outputs ready' "$work/output.log"; then
+  echo "the recording header did not wait for the ONNX results track the processing graph expects" >&2
   exit 1
 fi
 if ! grep -q 'ONNX model loaded successfully' "$work/input.log"; then
@@ -197,6 +193,6 @@ if [ -z "$onnx_pid" ]; then
   echo "could not identify the ONNX process for shared-state validation" >&2
   exit 1
 fi
-TMP="$ipc_root" "$proc_state_probe" "$onnx_pid" 20 1 1 >"$work/proc-state.log"
+TMP="$ipc_root" "$proc_state_probe" "$onnx_pid" 20 >"$work/proc-state.log"
 
 echo "model-backed ONNX recording captured $data_packets results through $last_data_time seconds with complete A/V"

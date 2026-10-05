@@ -236,6 +236,10 @@ static inline void show_stackframe(){}
 #define SHM_STREAM_POUT "/MstPOut%s" //%s stream name
 #define PROCESS_OUTPUT_TRACKS 1024
 #define PROCESS_OUTPUTS_PAGE_LEN (4096 + PROCESS_OUTPUT_TRACKS * (128 + 8))
+// The processing graph of a process-controlled stream: the outputs its configured processes will
+// add, published by the stream's buffer for its recordings (see src/process_graph.h).
+#define SHM_STREAM_PGRAPH "/MstPGrf%s" //%s stream name
+#define PROCESS_GRAPH_PAGE_LEN 65536
 #define SHM_GLOBAL_CONF "/MstGlobalConfig"
 #define SHM_STREAMKEYS "/MstStrmKeys"
 // Stream state values stored at SHM_STREAM_STATE byte 0.
@@ -255,10 +259,8 @@ static inline void show_stackframe(){}
 #define STRMSTAT_INVALID 255
 
 // Extra bytes in SHM_STREAM_STATE for process-controlled realtime streams.
-// byte 0 remains stream status, byte 1 remains startup progress.
-#define STRMSTATE_PROCESS_OUTPUTS_RESOLVED_OFFSET 2
+// byte 0 remains stream status, byte 1 remains startup progress; bytes 2, 4 and 5 are unused.
 #define STRMSTATE_PROCESS_FEED_PAUSED_OFFSET 3
-#define STRMSTATE_PROCESS_OUTPUTS_EXPECTED_OFFSET 4
 #define STRMSTATE_PROCESS_SOURCE_EOF_OFFSET 6 // u8 producer ended after previously supplying media
 #define STRMSTATE_PROCESS_PRODUCERS_FINISHED_OFFSET 7 // u8 configured processors have exited after source EOF
 #define STRMSTATE_EFFECTIVE_SPEED_OFFSET 8

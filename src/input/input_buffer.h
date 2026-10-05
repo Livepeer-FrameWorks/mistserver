@@ -66,14 +66,11 @@ namespace Mist{
     void userLeadOut();
     bool hasProcessDrainConsumers() const;
     bool hasActiveProcessProducers() const;
-    bool processingProcessMatchesSource(const JSON::Value & proc) const;
-    bool processingProcessMayMatchTranscodeOutput(const JSON::Value & proc, const JSON::Value & procs) const;
     bool processingProcessRetired(const JSON::Value & proc) const;
     bool processWillProduce(const JSON::Value & proc) const;
     JSON::Value processDeclaration(const std::string & config, const JSON::Value & args);
     const ProcessGraph & resolveProcessGraph(const JSON::Value & procs);
-    size_t expectedProcessingOutputTracks(const JSON::Value & procs, bool & resolved) const;
-    void publishProcessingOutputExpectation(const JSON::Value & procs);
+    void publishProcessGraph(const ProcessGraph & graph);
     void publishFeedPaused();
     uint64_t holdingReaderLeadMs(uint64_t & targetDurationMs) const;
     // This is used for an ugly fix to prevent metadata from disappearing in some cases.
@@ -96,6 +93,8 @@ namespace Mist{
     ProcessGraph processGraph;
     std::map<std::string, ProcessGraphNode> processGraphNodes;
     std::string processGraphInputs;
+    IPC::sharedPage processGraphPage;
+    std::string publishedProcessGraph;
     std::map<std::string, uint32_t> procBoots;
     std::map<std::string, uint64_t> procNextBoot;
     std::set<std::string> procHardFailed; // configs that hit unrecoverable error
@@ -107,7 +106,7 @@ namespace Mist{
     // and every replacement config, so a failing replacement cannot start a replacement loop.
     std::set<std::string> replaceAttempted;
 
-    // Generic proc-authored rate and output-contract state (ProcState v4).
+    // Generic proc-authored rate state (ProcState).
     uint64_t effectiveSpeed;
     bool startupSeedApplied;
     uint64_t lastRateUpdateMs;

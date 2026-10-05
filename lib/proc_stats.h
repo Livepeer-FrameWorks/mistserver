@@ -19,7 +19,7 @@
 /// ProcState schema version. Bump on any layout change.
 /// Old/new MistProc binaries on the same node are unsupported; readers reject pages
 /// with a different version or a structSize smaller than their own sizeof(ProcState).
-static constexpr uint32_t PROC_STATE_VERSION = 4;
+static constexpr uint32_t PROC_STATE_VERSION = 5;
 static constexpr uint32_t NODE_PRESSURE_VERSION = 1;
 
 enum ProcLifecyclePhase : uint8_t {
@@ -42,16 +42,6 @@ enum ProcStateFlags : uint16_t {
   PRC_FLAG_SOURCE_LIMITED = 1 << 0,
   PRC_FLAG_PROCESSOR_LIMITED = 1 << 1,
   PRC_FLAG_CAPACITY_VALID = 1 << 2,
-  PRC_FLAG_OUTPUT_CONTRACT_VALID = 1 << 3,
-};
-
-/// Coarse input modality for diagnostics and output-contract interpretation.
-/// This deliberately describes the process input, not a codec or model type.
-enum ProcInputModality : uint8_t {
-  PRC_INPUT_UNKNOWN = 0,
-  PRC_INPUT_VIDEO = 1,
-  PRC_INPUT_AUDIO = 2,
-  PRC_INPUT_TENSOR = 3,
 };
 
 enum NodePressureFlags : uint16_t {
@@ -95,15 +85,6 @@ struct ProcState {
     uint32_t outputSpeedQ16_16; ///< achieved sink media-time / wall-time
     uint16_t confidenceQ0_16; ///< confidence in measured capacity; 0 during startup
     uint16_t _contractPad;
-
-    // --- Proc-authored output contract ---
-    // Some processes create tracks lazily, so config alone cannot tell a recorder
-    // how many derived tracks to await. The process publishes this after resolving
-    // its actual model/mode. PRC_FLAG_OUTPUT_CONTRACT_VALID distinguishes a real
-    // zero-output contract from an unresolved one.
-    uint16_t expectedOutputTracks;
-    uint8_t inputModality; ///< ProcInputModality
-    uint8_t _outputContractPad;
 
     // --- Timing ---
     uint64_t lastUpdateMs; ///< Util::bootMS() of last write (0 = never written)
@@ -182,17 +163,6 @@ struct ProcState {
       return (uint32_t)(speed * 65536.0);
     }
 
-    static void publishOutputContract(IPC::sharedPage & page, uint16_t expectedTracks, ProcInputModality modality = PRC_INPUT_UNKNOWN) {
-      if (!isValid(page)) { return; }
-      ProcState *s = (ProcState *)page.mapped;
-      s->beginPublish();
-      s->expectedOutputTracks = expectedTracks;
-      s->inputModality = modality;
-      s->flags |= PRC_FLAG_OUTPUT_CONTRACT_VALID;
-      s->lastUpdateMs = Util::bootMS();
-      s->endPublish();
-    }
-
     static void publishStartup(IPC::sharedPage & page, double feedSpeed, ProcPrimaryResource resource) {
       if (!isValid(page)) { return; }
       ProcState *s = (ProcState *)page.mapped;
@@ -204,7 +174,7 @@ struct ProcState {
       s->inputSpeedQ16_16 = 0;
       s->outputSpeedQ16_16 = 0;
       s->confidenceQ0_16 = 0;
-      s->flags &= PRC_FLAG_OUTPUT_CONTRACT_VALID;
+      s->flags = 0;
       s->lastUpdateMs = Util::bootMS();
       s->canAcceptMore = 1;
       s->endPublish();

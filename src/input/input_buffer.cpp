@@ -916,9 +916,11 @@ namespace Mist{
         processControlledRealtime = streamCfg.getMember("process_controlled_realtime").asBool();
         checkProcesses(configuredProcesses);
         releaseRetiredReservations();
-        // Published after checkProcesses so retired procs (hard-failed or
-        // restart-disabled) drop out of the expectation on the same tick.
-        if (processControlledRealtime) { publishProcessingOutputExpectation(configuredProcesses); }
+        // Published after checkProcesses so retired processes (hard-failed or restart-disabled) drop
+        // out on the same tick, and replacements it scheduled are expected before they start.
+        if (processControlledRealtime) {
+          publishProcessGraph(resolveProcessGraph(applyProcessReplacements(configuredProcesses)));
+        }
       }else{
         processControlledRealtime = false;
         //If there is no config, we assume all processes are running, since, well, there can't be any
@@ -1049,108 +1051,11 @@ namespace Mist{
     return processUsers.size() || runningProcs.size();
   }
 
-  bool InputBuffer::processingProcessMatchesSource(const JSON::Value & proc) const {
-    if (!proc.isObject()) { return false; }
-    if (proc.isMember("sink") && proc["sink"].isString() && proc["sink"].asStringRef().size()) {
-      std::string sink = proc["sink"].asStringRef();
-      Util::streamVariables(sink, streamName);
-      if (sink != streamName) { return false; }
-    }
-    if (proc.isMember("tags_inhibit")) {
-      std::set<std::string> tags = Util::streamTags(streamName);
-      auto matchesTag = [&tags](const JSON::Value & J) {
-        if (!J.isString()) { return false; }
-        const std::string & tag = J.asStringRef();
-        if (tag.size() && tag[0] == '#') { return tags.count(tag.substr(1)) != 0; }
-        return tags.count(tag) != 0;
-      };
-      const JSON::Value & inhib = proc["tags_inhibit"];
-      if (inhib.isString() && matchesTag(inhib)) { return false; }
-      if (inhib.isArray()) {
-        jsonForEachConst (inhib, it) {
-          if (matchesTag(*it)) { return false; }
-        }
-      }
-    }
-
-    if (proc.isMember("source_track")) {
-      std::set<size_t> tracks = Util::findTracks(M, JSON::Value(), "", proc["source_track"].asStringRef());
-      if (!tracks.size()) { return false; }
-    }
-    if (proc.isMember("track_select")) {
-      std::set<size_t> tracks = Util::wouldSelect(M, proc["track_select"].asStringRef());
-      if (!tracks.size()) { return false; }
-    }
-    if (proc.isMember("track_inhibit") && Util::inhibitorMatchesSource(M, proc["track_inhibit"].asStringRef())) {
-      return false;
-    }
-    return true;
-  }
-
-  bool InputBuffer::processingProcessMayMatchTranscodeOutput(const JSON::Value & proc, const JSON::Value & procs) const {
-    if (!proc.isObject() || !proc.isMember("track_select") || !proc["track_select"].isString() ||
-        proc["track_select"].asStringRef().empty()) {
-      return false;
-    }
-    if (proc.isMember("source_track")) { return false; }
-    if (proc.isMember("sink") && proc["sink"].isString() && proc["sink"].asStringRef().size()) {
-      std::string sink = proc["sink"].asStringRef();
-      Util::streamVariables(sink, streamName);
-      if (sink != streamName) { return false; }
-    }
-    if (proc.isMember("tags_inhibit")) {
-      std::set<std::string> tags = Util::streamTags(streamName);
-      auto inhibited = [&tags](const JSON::Value & value) {
-        if (!value.isString()) { return false; }
-        const std::string & tag = value.asStringRef();
-        return tags.count(tag.size() && tag[0] == '#' ? tag.substr(1) : tag) != 0;
-      };
-      if (proc["tags_inhibit"].isString() && inhibited(proc["tags_inhibit"])) { return false; }
-      if (proc["tags_inhibit"].isArray()) {
-        jsonForEachConst (proc["tags_inhibit"], tagIt) {
-          if (inhibited(*tagIt)) { return false; }
-        }
-      }
-    }
-
-    DTSC::Meta potential;
-    potential.reInit("", true);
-    if (!procs.isArray()) { return false; }
-    jsonForEachConst (procs, candidate) {
-      if (!candidate->isObject() || !candidate->isMember("process")) { continue; }
-      const std::string producer = (*candidate)["process"].asString();
-      if (producer != "AV" && producer != "FFmpeg") { continue; }
-      if (!candidate->isMember("codec") || !(*candidate)["codec"].isString() || (*candidate)["codec"].asStringRef().empty()) {
-        continue;
-      }
-      if (candidate->isMember("target_mask") && !(*candidate)["target_mask"].isNull() &&
-          (*candidate)["target_mask"].asString() != "" && !((*candidate)["target_mask"].asInt() & TRACK_VALID_INT_PROCESS)) {
-        continue;
-      }
-      if (!processingProcessMatchesSource(*candidate) || processingProcessRetired(*candidate)) { continue; }
-
-      std::string type = (*candidate)["x-LSP-kind"].asString();
-      const std::string codec = (*candidate)["codec"].asString();
-      if (type != "audio" && type != "video") {
-        static const std::set<std::string> audioCodecs = {"AAC",  "AC3", "ALAW", "FLAC",  "MP3",
-                                                          "opus", "PCM", "ULAW", "vorbis"};
-        type = audioCodecs.count(codec) ? "audio" : "video";
-      }
-      const size_t track = potential.addTrack();
-      potential.setID(track, track + 1);
-      potential.setType(track, type);
-      potential.setCodec(track, codec);
-      potential.validateTrack(track, TRACK_VALID_ALL);
-      potential.update(0, 0, track, 1, 0, true, 1);
-    }
-    return Util::wouldSelect(potential, proc["track_select"].asStringRef()).size() != 0;
-  }
-
   // A retired process will never (re)produce output tracks: it exited
   // unrecoverably (checkProcesses disabled its restart) or has restarts
   // disabled and its only boot already ended. Retired processes drop out of
-  // the published output expectation, so recordings waiting on that
-  // expectation unblock instead of waiting for tracks that will never come
+  // the outputs the processing graph expects, so recordings waiting on them
+  // unblock instead of waiting for tracks that will never come
   // (e.g. a fallback to source passthrough). Uses the same config-key
   // construction as checkProcesses so the lookups match.
   bool InputBuffer::processingProcessRetired(const JSON::Value & proc) const {
@@ -1248,138 +1153,26 @@ namespace Mist{
     return processGraph;
   }
 
-  size_t InputBuffer::expectedProcessingOutputTracks(const JSON::Value & procs, bool & resolved) const {
-    resolved = true;
-    if (!procs.isArray() || !procs.size()) { return 0; }
-    size_t expectedOutputTracks = 0;
-    std::set<size_t> readyOutputs;
-    for (const size_t track : M.getValidTracks(true)) {
-      if (M.getSourceTrack(track) != INVALID_TRACK_ID && (M.trackValid(track) & TRACK_VALID_EXT_PUSH)) {
-        readyOutputs.insert(track);
-      }
+  /// Publishes the outputs the processing graph expects for recordings (see src/process_graph.h),
+  /// resolved once the stream has its source tracks.
+  void InputBuffer::publishProcessGraph(const ProcessGraph & graph) {
+    if (!processGraphPage) {
+      char pageName[NAME_BUFFER_SIZE];
+      snprintf(pageName, sizeof(pageName), SHM_STREAM_PGRAPH, streamName.c_str());
+      processGraphPage.init(pageName, PROCESS_GRAPH_PAGE_LEN, true, false);
+      if (!processGraphPage) { return; }
     }
-    // Completed producers leave their tracks in the stream. Count those tracks
-    // plus each active producer's missing outputs, so completed thumbnails cannot
-    // satisfy the expectation for video renditions that have not arrived yet.
-    expectedOutputTracks = readyOutputs.size();
-    jsonForEachConst (procs, it) {
-      if (!it->isObject() || !it->isMember("process")) { continue; }
-      const std::string procName = (*it)["process"].asString();
-      if (procName != "AV" && procName != "Livepeer" && procName != "FFmpeg" && procName != "ONNX" && procName != "Thumbs") {
-        continue;
-      }
-      const bool matchesCurrentSource = processingProcessMatchesSource(*it);
-      const bool mayMatchConfiguredOutput =
-        !matchesCurrentSource && procName == "ONNX" && processingProcessMayMatchTranscodeOutput(*it, procs);
-      if (!matchesCurrentSource && !mayMatchConfiguredOutput) { continue; }
-      if (processingProcessRetired(*it)) { continue; }
-      // File outputs select TRACK_VALID_EXT_PUSH. Do not make them wait for
-      // derived tracks their own validity mask prevents them from selecting.
-      // This is especially important for raw AV/ONNX intermediate tracks in
-      // multi-stage processing chains.
-      bool recordingVisible = true;
-      if (it->isMember("target_mask") && !(*it)["target_mask"].isNull() && (*it)["target_mask"].asString() != "") {
-        recordingVisible = ((*it)["target_mask"].asInt() & TRACK_VALID_EXT_PUSH) != 0;
-      } else if (procName == "AV") {
-        const std::string codec = (*it)["codec"].asString();
-        if (codec == "UYVY" || codec == "YUYV" || codec == "I420" || codec == "PCM" || codec == "NV12") {
-          recordingVisible = false;
-        }
-      }
-      if (!recordingVisible) { continue; }
-      size_t producerExpected = 0;
-      if (procName == "Livepeer" && it->isMember("target_profiles") && (*it)["target_profiles"].isArray()) {
-        jsonForEachConst ((*it)["target_profiles"], prof) {
-          if (!prof->isObject()) { continue; }
-          if (prof->isMember("track_inhibit") && Util::inhibitorMatchesSource(M, (*prof)["track_inhibit"].asStringRef())) {
-            continue;
-          }
-          ++producerExpected;
-        }
-      } else if (procName == "Thumbs") {
-        // Sprite JPEG, VTT and preview JPEG must exist before a recording
-        // freezes its track declarations. Retired processes are excluded above.
-        producerExpected = 3;
-      } else if (procName == "ONNX") {
-        JSON::Value keyed = *it;
-        keyed["source"] = streamName;
-        std::map<std::string, pid_t>::const_iterator running = runningProcs.find(keyed.toString());
-        if (running == runningProcs.end() || !running->second) {
-          resolved = false;
-          continue;
-        }
-        char pageName[NAME_BUFFER_SIZE];
-        snprintf(pageName, sizeof(pageName), SHM_PROC_STATE, running->second);
-        IPC::sharedPage page(pageName, 0, false, false);
-        ProcState state;
-        const bool hasContract = ProcState::readSnapshot(page, state) && (state.flags & PRC_FLAG_OUTPUT_CONTRACT_VALID);
-        if (page) { page.master = false; }
-        if (!hasContract) {
-          resolved = false;
-          continue;
-        }
-        producerExpected = state.expectedOutputTracks;
-      } else {
-        producerExpected = 1;
-      }
-      JSON::Value keyed = *it;
-      keyed["source"] = streamName;
-      const auto running = runningProcs.find(keyed.toString());
-      const bool producerRunning = running != runningProcs.end() && running->second && Util::Procs::isActive(running->second);
-      // A producer that exited after the source ended (Thumbs completing its
-      // VOD sheet) has nothing left to produce: what it made is still in the
-      // stream and counted above, but its released tracks no longer carry its
-      // pid, so counting its outputs as missing would hold the header forever.
-      const auto boots = procBoots.find(keyed.toString());
-      if (!producerRunning && everHadPush && !hasPush && boots != procBoots.end() && boots->second) { continue; }
-      // A producer's outputs are the tracks carrying its output keys, whichever run of it
-      // registered them and whether or not it still claims them: its input side releases the
-      // claims when it finishes, while the process keeps running to write its results. An output
-      // without data (or only reserved) is still missing. Outputs registered without a key are
-      // attributed by the running process's pid.
-      const std::string identity = DTSC::processIdentity(keyed.toString());
-      std::set<std::string> readyKeys;
-      size_t producerReady = 0;
-      for (const size_t track : readyOutputs) {
-        const std::string key = M.getOutputKey(track);
-        if (key.size()) {
-          if (DTSC::outputKeyIdentity(key) == identity) { readyKeys.insert(key); }
-          continue;
-        }
-        if (!producerRunning) { continue; }
-        const auto producer = processTrackProducers.find(track);
-        if ((producer != processTrackProducers.end() && producer->second == running->second) ||
-            M.isClaimedBy(track) == (uint64_t)running->second) {
-          ++producerReady;
-        }
-      }
-      producerReady += readyKeys.size();
-      if (producerExpected > producerReady) { expectedOutputTracks += producerExpected - producerReady; }
+    JSON::Value published;
+    published["resolved"] = M.getValidTracks().size() != 0;
+    published["outputs"] = graph.outputs;
+    const std::string json = published.toString();
+    if (json == publishedProcessGraph) { return; }
+    if (!writeProcessGraphPage(processGraphPage, json)) {
+      WARN_MSG("The processing graph (%zu bytes) does not fit its page; recordings wait for no process output", json.size());
+      published["outputs"].shrink(0);
+      writeProcessGraphPage(processGraphPage, published.toString());
     }
-    return expectedOutputTracks;
-  }
-
-  void InputBuffer::publishProcessingOutputExpectation(const JSON::Value & procs) {
-    if (!streamStatus || streamStatus.len < 16) { return; }
-    auto publish = [this](bool resolved, uint16_t expected) {
-      streamStatus.mapped[STRMSTATE_PROCESS_OUTPUTS_RESOLVED_OFFSET] = resolved;
-      memcpy(streamStatus.mapped + STRMSTATE_PROCESS_OUTPUTS_EXPECTED_OFFSET, &expected, sizeof(uint16_t));
-    };
-    if (!M.getValidTracks().size()) {
-      publish(false, 0);
-      return;
-    }
-    bool resolved = false;
-    // checkProcesses may schedule replacements while its caller still holds
-    // the retired producer's list. Keep their output contract in this tick so
-    // a recorder cannot freeze its header before the replacements start.
-    size_t expected = expectedProcessingOutputTracks(applyProcessReplacements(procs), resolved);
-    if (!resolved) {
-      publish(false, 0);
-      return;
-    }
-    if (expected > 0xFFFF) { expected = 0xFFFF; }
-    publish(true, (uint16_t)expected);
+    publishedProcessGraph = json;
   }
 
   void InputBuffer::publishFeedPaused() {

@@ -5,6 +5,7 @@
 #include <mist/json.h>
 #include <mist/stream.h>
 
+#include <cstring>
 #include <map>
 #include <set>
 #include <string>
@@ -254,5 +255,83 @@ namespace Mist {
     const std::map<size_t, std::string> producers =
       buildCandidates(C, M, std::map<std::string, std::map<std::string, JSON::Value>>(), std::set<std::string>());
     return nodeSelects(C, producers, node);
+  }
+
+  /// The page a processing stream's buffer publishes its graph on (SHM_STREAM_PGRAPH): a sequence
+  /// number that is odd while the buffer writes, the length of the JSON that follows, and
+  /// {"resolved": bool, "outputs": [...]} with the expected outputs of ProcessGraph::outputs.
+  /// The graph is resolved once the stream has its source tracks.
+  static const size_t PROCESS_GRAPH_HEADER_LEN = 8;
+
+  inline bool writeProcessGraphPage(IPC::sharedPage & page, const std::string & json) {
+    if (!page.mapped || page.len < PROCESS_GRAPH_HEADER_LEN + json.size()) { return false; }
+    uint32_t *seq = (uint32_t *)page.mapped;
+    uint32_t next = __atomic_load_n(seq, __ATOMIC_RELAXED) | 1;
+    __atomic_store_n(seq, next, __ATOMIC_RELEASE);
+    __atomic_thread_fence(__ATOMIC_SEQ_CST);
+    const uint32_t len = json.size();
+    memcpy(page.mapped + 4, &len, sizeof(len));
+    memcpy(page.mapped + PROCESS_GRAPH_HEADER_LEN, json.data(), json.size());
+    __atomic_store_n(seq, next + 1, __ATOMIC_RELEASE);
+    return true;
+  }
+
+  inline bool readProcessGraphPage(const IPC::sharedPage & page, JSON::Value & graph) {
+    if (!page.mapped || page.len < PROCESS_GRAPH_HEADER_LEN) { return false; }
+    const uint32_t *seq = (const uint32_t *)page.mapped;
+    for (size_t attempt = 0; attempt < 3; ++attempt) {
+      const uint32_t before = __atomic_load_n(seq, __ATOMIC_ACQUIRE);
+      if (before & 1) { continue; }
+      uint32_t len = 0;
+      memcpy(&len, page.mapped + 4, sizeof(len));
+      if (len > page.len - PROCESS_GRAPH_HEADER_LEN) { return false; }
+      const std::string json(page.mapped + PROCESS_GRAPH_HEADER_LEN, len);
+      __atomic_thread_fence(__ATOMIC_ACQUIRE);
+      if (__atomic_load_n(seq, __ATOMIC_ACQUIRE) != before) { continue; }
+      graph = JSON::fromString(json);
+      return graph.isObject();
+    }
+    return false;
+  }
+
+  /// Of the outputs a processing graph expects (ProcessGraph::outputs), those a recording selects
+  /// from the stream as it will be once they all exist: the selection runs over the tracks of M
+  /// plus every expected output, with the recording's own target parameters, capabilities and
+  /// validity mask. Counts how many of them it selects, and how many of those carry data already.
+  inline void recordingExpectedOutputs(const DTSC::Meta & M, const JSON::Value & expected,
+                                       const std::map<std::string, std::string> & targetParams, const JSON::Value & capa,
+                                       const std::string & UA, size_t & selected, size_t & ready) {
+    selected = 0;
+    ready = 0;
+    std::map<std::string, const JSON::Value *> outputs;
+    jsonForEachConst (expected, it) { outputs[(*it)["key"].asString()] = &*it; }
+    DTSC::Meta C;
+    C.reInit("", true);
+    std::map<size_t, bool> expectedCandidates; // candidate -> carries data in M
+    const uint8_t mask = DTSC::trackValidMask;
+    DTSC::trackValidMask = TRACK_VALID_ALL;
+    const std::set<size_t> withData = M.getValidTracks(true);
+    const std::set<size_t> existing = M.getValidTracks();
+    DTSC::trackValidMask = mask;
+    std::set<std::string> existingKeys;
+    for (const size_t idx : existing) {
+      const std::string key = M.getOutputKey(idx);
+      const bool isExpected = key.size() && outputs.count(key);
+      const size_t candidate = addCandidateTrack(C, describeExistingTrack(M, idx, withData.count(idx) || isExpected));
+      if (!isExpected) { continue; }
+      existingKeys.insert(key);
+      expectedCandidates[candidate] = withData.count(idx);
+    }
+    for (const auto & output : outputs) {
+      if (existingKeys.count(output.first)) { continue; }
+      expectedCandidates[addCandidateTrack(C, *output.second)] = false;
+    }
+    const std::set<size_t> selection = Util::wouldSelect(C, targetParams, capa, UA);
+    for (const size_t idx : selection) {
+      std::map<size_t, bool>::const_iterator candidate = expectedCandidates.find(idx);
+      if (candidate == expectedCandidates.end()) { continue; }
+      ++selected;
+      if (candidate->second) { ++ready; }
+    }
   }
 } // namespace Mist

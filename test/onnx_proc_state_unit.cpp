@@ -14,13 +14,6 @@ namespace {
 int main() {
   using namespace Mist;
 
-  if (onnxExpectedOutputTracks(ONNX_PROC_VISION, false) != 1 || onnxExpectedOutputTracks(ONNX_PROC_VISION, true) != 2 ||
-      onnxExpectedOutputTracks(ONNX_PROC_AUDIO, true) != 1 || onnxExpectedOutputTracks(ONNX_PROC_TENSOR, true) != 1 ||
-      onnxInputModality(ONNX_PROC_VISION) != PRC_INPUT_VIDEO || onnxInputModality(ONNX_PROC_AUDIO) != PRC_INPUT_AUDIO ||
-      onnxInputModality(ONNX_PROC_TENSOR) != PRC_INPUT_TENSOR) {
-    return fail("ONNX modality did not resolve to the exact output contract");
-  }
-
   if (onnxExecutionProviderResource("CPUExecutionProvider") != PRC_RESOURCE_CPU ||
       onnxExecutionProviderResource("CUDAExecutionProvider") != PRC_RESOURCE_GPU ||
       onnxExecutionProviderResource("CoreMLExecutionProvider") != PRC_RESOURCE_GPU ||
@@ -105,7 +98,6 @@ int main() {
   IPC::sharedPage page(pageName, sizeof(ProcState), true, false);
   if (!page.mapped) { return fail("could not create ONNX ProcState test page"); }
   ProcState::initPage(page);
-  publishOnnxOutputContract(page, ONNX_PROC_AUDIO, true);
   OnnxProcPublishState history;
   sample = OnnxProcSample();
   sample.modality = ONNX_PROC_AUDIO;
@@ -122,11 +114,10 @@ int main() {
     }
   }
   ProcState snapshot;
-  if (!ProcState::readSnapshot(page, snapshot) || snapshot.phase != PRC_PHASE_READY || snapshot.primaryResource != PRC_RESOURCE_GPU ||
-      snapshot.totalWork != 750000 || snapshot.frameCount != 3 || snapshot.capacitySpeedQ16_16 != ProcState::speedToQ16(4.0) ||
-      snapshot.recommendedFeedQ16_16 != ProcState::speedToQ16(3.4) || !(snapshot.flags & PRC_FLAG_CAPACITY_VALID) ||
-      !(snapshot.flags & PRC_FLAG_OUTPUT_CONTRACT_VALID) || snapshot.expectedOutputTracks != 1 ||
-      snapshot.inputModality != PRC_INPUT_AUDIO || snapshot.confidenceQ0_16 != 65535) {
+  if (!ProcState::readSnapshot(page, snapshot) || snapshot.phase != PRC_PHASE_READY ||
+      snapshot.primaryResource != PRC_RESOURCE_GPU || snapshot.totalWork != 750000 || snapshot.frameCount != 3 ||
+      snapshot.capacitySpeedQ16_16 != ProcState::speedToQ16(4.0) || snapshot.recommendedFeedQ16_16 != ProcState::speedToQ16(3.4) ||
+      !(snapshot.flags & PRC_FLAG_CAPACITY_VALID) || snapshot.confidenceQ0_16 != 65535) {
     return fail("ONNX ProcState publisher did not persist a complete measured contract");
   }
 

@@ -241,10 +241,13 @@ namespace Mist {
     return taken;
   }
 
-  inline bool processingRecordingTrackCountsReady(bool expectationResolved, size_t expectedOutputTracks, size_t readyOutputTracks,
+  /// Whether a processing recording can write its header: the processing graph is resolved, every
+  /// expected process output its selection takes carries data (see recordingExpectedOutputs in
+  /// process_graph.h), as do the originals it needs and the process outputs it selected.
+  inline bool processingRecordingTrackCountsReady(bool graphResolved, size_t expectedOutputTracks, size_t readyOutputTracks,
                                                   size_t selectedOriginalTracks, size_t readyOriginalTracks,
                                                   size_t selectedOutputTracks, size_t readySelectedOutputTracks) {
-    return expectationResolved && readyOutputTracks >= expectedOutputTracks &&
+    return graphResolved && readyOutputTracks >= expectedOutputTracks &&
       readyOriginalTracks >= selectedOriginalTracks && readySelectedOutputTracks >= selectedOutputTracks;
   }
 

@@ -14,20 +14,6 @@ namespace Mist {
     ONNX_PROC_TENSOR = 2,
   };
 
-  inline ProcInputModality onnxInputModality(OnnxProcModality modality) {
-    if (modality == ONNX_PROC_AUDIO) { return PRC_INPUT_AUDIO; }
-    if (modality == ONNX_PROC_TENSOR) { return PRC_INPUT_TENSOR; }
-    return PRC_INPUT_VIDEO;
-  }
-
-  inline uint16_t onnxExpectedOutputTracks(OnnxProcModality modality, bool annotatedVideo) {
-    return 1 + (modality == ONNX_PROC_VISION && annotatedVideo ? 1 : 0);
-  }
-
-  inline void publishOnnxOutputContract(IPC::sharedPage & page, OnnxProcModality modality, bool annotatedVideo) {
-    ProcState::publishOutputContract(page, onnxExpectedOutputTracks(modality, annotatedVideo), onnxInputModality(modality));
-  }
-
   struct OnnxProcSample {
       OnnxProcModality modality = ONNX_PROC_VISION;
       ProcPrimaryResource resource = PRC_RESOURCE_UNKNOWN;
@@ -157,7 +143,7 @@ namespace Mist {
     state->outputSpeedQ16_16 = contract.outputSpeedQ16_16;
     state->capacitySpeedQ16_16 = history.lastCapacityQ16_16;
     state->recommendedFeedQ16_16 = history.lastRecommendedFeedQ16_16;
-    state->flags = flags | (state->flags & PRC_FLAG_OUTPUT_CONTRACT_VALID);
+    state->flags = flags;
     state->phase = history.capacitySamples >= 3 ? PRC_PHASE_READY : PRC_PHASE_MEASURING;
     state->confidenceQ0_16 = (uint16_t)std::min((uint32_t)65535, history.capacitySamples * 65535 / 3);
     state->pressureQ0_16 = contract.pressureQ0_16;

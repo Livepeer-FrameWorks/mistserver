@@ -2953,13 +2953,6 @@ int main(int argc, char *argv[]) {
   }
   onnxResource = Mist::onnxExecutionProviderResource(activeProvider);
   ProcState::publishStartup(procStatePage, 1.0, onnxResource);
-  Mist::OnnxProcModality procModality = Mist::ONNX_PROC_VISION;
-  if (activeModality == ONNX::ModelModality::AUDIO) {
-    procModality = Mist::ONNX_PROC_AUDIO;
-  } else if (activeModality == ONNX::ModelModality::TENSOR) {
-    procModality = Mist::ONNX_PROC_TENSOR;
-  }
-  Mist::publishOnnxOutputContract(procStatePage, procModality, annotatedVideo);
 
   // Mark ONNX as initialized
   {

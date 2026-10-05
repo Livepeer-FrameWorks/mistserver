@@ -138,124 +138,6 @@ namespace {
     return out;
   }
 
-  void testInhibitors(Util::Config & config) {
-    // 720p source with a source JSON meta track and the derived tracks of an earlier run.
-    {
-      InputBufferProbe input(&config);
-      input.initMetadata("inhibit-720-test");
-      const size_t video = input.addTrack("video", "H264", 1280, 720);
-      const size_t audio = input.addTrack("audio", "AAC", 0, 0);
-      input.addTrack("meta", "JSON", 0, 0);
-      const size_t derived = addDerivedClutter(input, video, audio);
-      const DTSC::Meta & M = input.meta;
-
-      check(!Util::inhibitorMatchesSource(M, inhibit360), "720p source must keep the 360p rendition");
-      check(!Util::inhibitorMatchesSource(M, inhibit480), "720p source must keep the 480p rendition");
-      check(!Util::inhibitorMatchesSource(M, inhibit720), "720p source must keep the 720p rendition");
-      check(Util::inhibitorMatchesSource(M, inhibit1080), "720p source must drop the 1080p rendition");
-      check(!Util::inhibitorMatchesSource(M, "audio=opus"), "opus produced by another process must not inhibit");
-      check(Util::inhibitorMatchesSource(M, "audio=aac"), "an AAC source must inhibit the AAC transcode");
-      check(!Util::inhibitorMatchesSource(M, "subtitle=all"), "no subtitle source means no subtitle inhibit");
-      // The plain selector still sees the previous-run 640x360 rendition; only the source filter ignores it.
-      check(Util::wouldSelect(M, std::string("audio=none&video=none&subtitle=none&meta=none&") + inhibit480).size() != 0,
-            "fixture sanity: the previous-run rendition must be selectable by the 480p inhibitor");
-
-      JSON::Value opusTranscode;
-      opusTranscode["process"] = "AV";
-      opusTranscode["codec"] = "opus";
-      opusTranscode["track_inhibit"] = "audio=opus";
-      check(input.processingProcessMatchesSource(opusTranscode), "readiness must not treat another producer's opus track as an inhibitor");
-
-      JSON::Value procs;
-      procs.append(livepeerWithLadder());
-      bool resolved = false;
-      check(input.expectedProcessingOutputTracks(procs, resolved) == derived + 3 && resolved,
-            "720p source must expect exactly the 360/480/720 renditions");
-    }
-
-    // 1080p source keeps all four renditions, even with a 160x90 JPEG preview present.
-    {
-      InputBufferProbe input(&config);
-      input.initMetadata("inhibit-1080-test");
-      const size_t video = input.addTrack("video", "H264", 1920, 1080);
-      const size_t audio = input.addTrack("audio", "AAC", 0, 0);
-      const size_t derived = addDerivedClutter(input, video, audio);
-      const DTSC::Meta & M = input.meta;
-      check(!Util::inhibitorMatchesSource(M, inhibit360) && !Util::inhibitorMatchesSource(M, inhibit480) &&
-              !Util::inhibitorMatchesSource(M, inhibit720) && !Util::inhibitorMatchesSource(M, inhibit1080),
-            "1080p source must keep all four renditions");
-      JSON::Value procs;
-      procs.append(livepeerWithLadder());
-      bool resolved = false;
-      check(input.expectedProcessingOutputTracks(procs, resolved) == derived + 4 && resolved,
-            "1080p source must expect all four renditions");
-    }
-
-    // An opus source does inhibit the opus transcode, in readiness and in the supervisor.
-    {
-      InputBufferProbe input(&config);
-      input.initMetadata("inhibit-opus-source-test");
-      input.addTrack("video", "H264", 1280, 720);
-      input.addTrack("audio", "opus", 0, 0);
-      check(Util::inhibitorMatchesSource(input.meta, "audio=opus"), "an opus source must inhibit the opus transcode");
-      JSON::Value opusTranscode;
-      opusTranscode["process"] = "AV";
-      opusTranscode["codec"] = "opus";
-      opusTranscode["track_inhibit"] = "audio=opus";
-      check(!input.processingProcessMatchesSource(opusTranscode), "readiness must honour an opus source inhibitor");
-    }
-  }
-
-  /// Runs rate-controller ticks with the given procs registered as running
-  /// and returns the effective speed after each tick.
-  std::vector<uint64_t> rampSpeeds(Util::Config & config, const std::string & name, const JSON::Value & proc) {
-    std::vector<uint64_t> speeds;
-    pid_t child = fork();
-    if (child == 0) {
-      sleep(30);
-      _exit(0);
-    }
-    if (child < 0) {
-      check(false, "could not fork a stand-in process");
-      return speeds;
-    }
-    {
-      InputBufferProbe input(&config);
-      input.initMetadata(name);
-      input.runningProcs[proc.toString()] = child;
-      for (int i = 0; i < 12; ++i) {
-        input.lastRateUpdateMs = 0;
-        input.updateProcessingRate();
-        speeds.push_back(input.effectiveSpeed);
-      }
-      input.runningProcs.clear();
-    }
-    kill(child, SIGKILL);
-    waitpid(child, 0, 0);
-    return speeds;
-  }
-
-  void testUnconstrainedRamp(Util::Config & config) {
-    // Only an inconsequential proc (Thumbs) runs, as for chapter finalization:
-    // nothing constrains the feed, so the speed ramps up instead of staying 1x.
-    JSON::Value thumbs;
-    thumbs["process"] = "Thumbs";
-    thumbs["inconsequential"] = true;
-    std::vector<uint64_t> speeds = rampSpeeds(config, "unconstrained-ramp-test", thumbs);
-    check(speeds.size() == 12, "rate controller must run every tick");
-    if (speeds.size() == 12) {
-      check(speeds.front() <= 2, "unconstrained feed must ramp from 1x, got " + std::to_string(speeds.front()));
-      check(speeds.back() > 8, "unconstrained feed must ramp well past 1x, got " + std::to_string(speeds.back()));
-      check(speeds.back() <= Mist::PROCESSING_UNCONSTRAINED_SPEED, "unconstrained feed must respect its ceiling");
-    }
-
-    // A consequential proc that has not published its contract still holds 1x.
-    JSON::Value transcode;
-    transcode["process"] = "AV";
-    speeds = rampSpeeds(config, "constrained-hold-test", transcode);
-    check(speeds.size() == 12 && speeds.back() == 1, "a consequential proc without a contract must hold 1x");
-  }
-
   // Declarations as MistProcAV, MistProcONNX, MistProcThumbs and MistProcLivepeer print them with
   // --describe-outputs for these configurations.
   JSON::Value avDeclaration(const std::string & codec, const std::string & trackSelect, int mask) {
@@ -345,6 +227,123 @@ namespace {
     std::string all;
     for (const std::string & name : names) { all += name + " "; }
     return all;
+  }
+
+  void testInhibitors(Util::Config & config) {
+    // 720p source with a source JSON meta track and the derived tracks of an earlier run.
+    {
+      InputBufferProbe input(&config);
+      input.initMetadata("inhibit-720-test");
+      const size_t video = input.addTrack("video", "H264", 1280, 720);
+      const size_t audio = input.addTrack("audio", "AAC", 0, 0);
+      input.addTrack("meta", "JSON", 0, 0);
+      const size_t derived = addDerivedClutter(input, video, audio);
+      const DTSC::Meta & M = input.meta;
+
+      check(!Util::inhibitorMatchesSource(M, inhibit360), "720p source must keep the 360p rendition");
+      check(!Util::inhibitorMatchesSource(M, inhibit480), "720p source must keep the 480p rendition");
+      check(!Util::inhibitorMatchesSource(M, inhibit720), "720p source must keep the 720p rendition");
+      check(Util::inhibitorMatchesSource(M, inhibit1080), "720p source must drop the 1080p rendition");
+      check(!Util::inhibitorMatchesSource(M, "audio=opus"), "opus produced by another process must not inhibit");
+      check(Util::inhibitorMatchesSource(M, "audio=aac"), "an AAC source must inhibit the AAC transcode");
+      check(!Util::inhibitorMatchesSource(M, "subtitle=all"), "no subtitle source means no subtitle inhibit");
+      // The plain selector still sees the previous-run 640x360 rendition; only the source filter ignores it.
+      check(Util::wouldSelect(M, std::string("audio=none&video=none&subtitle=none&meta=none&") + inhibit480).size() != 0,
+            "fixture sanity: the previous-run rendition must be selectable by the 480p inhibitor");
+
+      JSON::Value opusTranscode;
+      opusTranscode["process"] = "AV";
+      opusTranscode["codec"] = "opus";
+      opusTranscode["track_inhibit"] = "audio=opus";
+      check(Mist::processInhibitReason(opusTranscode, M, std::set<std::string>()).empty(),
+            "another producer's opus track must not inhibit the opus transcode");
+
+      std::vector<Mist::ProcessGraphNode> nodes;
+      nodes.push_back(graphNode("inhibit-720-test", livepeerWithLadder(), livepeerDeclaration(livepeerWithLadder())));
+      check(Mist::buildProcessGraph(M, nodes).outputs.size() == 3 && derived,
+            "720p source must expect exactly the 360/480/720 renditions");
+    }
+
+    // 1080p source keeps all four renditions, even with a 160x90 JPEG preview present.
+    {
+      InputBufferProbe input(&config);
+      input.initMetadata("inhibit-1080-test");
+      const size_t video = input.addTrack("video", "H264", 1920, 1080);
+      const size_t audio = input.addTrack("audio", "AAC", 0, 0);
+      const size_t derived = addDerivedClutter(input, video, audio);
+      const DTSC::Meta & M = input.meta;
+      check(!Util::inhibitorMatchesSource(M, inhibit360) && !Util::inhibitorMatchesSource(M, inhibit480) &&
+              !Util::inhibitorMatchesSource(M, inhibit720) && !Util::inhibitorMatchesSource(M, inhibit1080),
+            "1080p source must keep all four renditions");
+      std::vector<Mist::ProcessGraphNode> nodes;
+      nodes.push_back(graphNode("inhibit-1080-test", livepeerWithLadder(), livepeerDeclaration(livepeerWithLadder())));
+      check(Mist::buildProcessGraph(M, nodes).outputs.size() == 4 && derived, "1080p source must expect all four renditions");
+    }
+
+    // An opus source does inhibit the opus transcode, in readiness and in the supervisor.
+    {
+      InputBufferProbe input(&config);
+      input.initMetadata("inhibit-opus-source-test");
+      input.addTrack("video", "H264", 1280, 720);
+      input.addTrack("audio", "opus", 0, 0);
+      check(Util::inhibitorMatchesSource(input.meta, "audio=opus"), "an opus source must inhibit the opus transcode");
+      JSON::Value opusTranscode;
+      opusTranscode["process"] = "AV";
+      opusTranscode["codec"] = "opus";
+      opusTranscode["track_inhibit"] = "audio=opus";
+      check(Mist::processInhibitReason(opusTranscode, input.meta, std::set<std::string>()).size(),
+            "an opus source must inhibit the opus transcode");
+    }
+  }
+
+  /// Runs rate-controller ticks with the given procs registered as running
+  /// and returns the effective speed after each tick.
+  std::vector<uint64_t> rampSpeeds(Util::Config & config, const std::string & name, const JSON::Value & proc) {
+    std::vector<uint64_t> speeds;
+    pid_t child = fork();
+    if (child == 0) {
+      sleep(30);
+      _exit(0);
+    }
+    if (child < 0) {
+      check(false, "could not fork a stand-in process");
+      return speeds;
+    }
+    {
+      InputBufferProbe input(&config);
+      input.initMetadata(name);
+      input.runningProcs[proc.toString()] = child;
+      for (int i = 0; i < 12; ++i) {
+        input.lastRateUpdateMs = 0;
+        input.updateProcessingRate();
+        speeds.push_back(input.effectiveSpeed);
+      }
+      input.runningProcs.clear();
+    }
+    kill(child, SIGKILL);
+    waitpid(child, 0, 0);
+    return speeds;
+  }
+
+  void testUnconstrainedRamp(Util::Config & config) {
+    // Only an inconsequential proc (Thumbs) runs, as for chapter finalization:
+    // nothing constrains the feed, so the speed ramps up instead of staying 1x.
+    JSON::Value thumbs;
+    thumbs["process"] = "Thumbs";
+    thumbs["inconsequential"] = true;
+    std::vector<uint64_t> speeds = rampSpeeds(config, "unconstrained-ramp-test", thumbs);
+    check(speeds.size() == 12, "rate controller must run every tick");
+    if (speeds.size() == 12) {
+      check(speeds.front() <= 2, "unconstrained feed must ramp from 1x, got " + std::to_string(speeds.front()));
+      check(speeds.back() > 8, "unconstrained feed must ramp well past 1x, got " + std::to_string(speeds.back()));
+      check(speeds.back() <= Mist::PROCESSING_UNCONSTRAINED_SPEED, "unconstrained feed must respect its ceiling");
+    }
+
+    // A consequential proc that has not published its contract still holds 1x.
+    JSON::Value transcode;
+    transcode["process"] = "AV";
+    speeds = rampSpeeds(config, "constrained-hold-test", transcode);
+    check(speeds.size() == 12 && speeds.back() == 1, "a consequential proc without a contract must hold 1x");
   }
 
   void testGraph(Util::Config & config) {

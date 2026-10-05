@@ -1,5 +1,6 @@
 #include "output.h"
 
+#include "../process_graph.h"
 #include "../processing_lifecycle.h"
 #include "dtsc.h"
 #include "recording_summary.h"
@@ -3773,41 +3774,30 @@ namespace Mist{
       return true;
     }
 
-    char tmpBuf[NAME_BUFFER_SIZE];
-    snprintf(tmpBuf, NAME_BUFFER_SIZE, SHM_STREAM_STATE, streamName.c_str());
-    IPC::sharedPage processingState(tmpBuf, 16, false, false);
-    const bool expectationResolved =
-      processingState && processingState.len >= 16 && processingState.mapped[STRMSTATE_PROCESS_OUTPUTS_RESOLVED_OFFSET];
-    if (!expectationResolved) {
-      if (recordingHeaderWaitLog.shouldLog("expectations", Util::bootMS())) {
-        INFO_MSG("Waiting for processing process expectations before recording header");
+    // The graph names the outputs the configured processes will add; this recording waits for the
+    // ones its own track selection takes from the stream once they all exist.
+    JSON::Value graph;
+    {
+      char pageName[NAME_BUFFER_SIZE];
+      snprintf(pageName, sizeof(pageName), SHM_STREAM_PGRAPH, streamName.c_str());
+      IPC::sharedPage graphPage(pageName, PROCESS_GRAPH_PAGE_LEN, false, false);
+      if (!readProcessGraphPage(graphPage, graph)) { graph.null(); }
+      graphPage.master = false;
+    }
+    const bool graphResolved = graph["resolved"].asBool();
+    if (!graphResolved) {
+      if (recordingHeaderWaitLog.shouldLog("graph", Util::bootMS())) {
+        INFO_MSG("Waiting for the processing graph before recording header");
       }
       return false;
     }
 
-    // The expectation is a live contract owned by the input buffer: it counts
-    // the output tracks the configured processes will produce and is revised
-    // down when a process retires (unrecoverable exit, restarts disabled, or
-    // dropped from the config). Comparing against it — rather than against
-    // whatever happens to be selected right now — is what holds the recording
-    // header until late process tracks exist, without blocking on tracks that
-    // will never come.
-    uint16_t expected16 = 0;
-    memcpy(&expected16, processingState.mapped + STRMSTATE_PROCESS_OUTPUTS_EXPECTED_OFFSET, sizeof(uint16_t));
-    size_t expectedOutputTracks = expected16;
-
     meta.reloadReplacedPagesIfNeeded();
     const std::set<size_t> validTracksWithData = processingRecordingSnapshotThenSelect(
       [this]() { return M.getValidTracks(true); }, [this]() { selectDefaultTracks(); });
-    // Process output tracks are counted stream-wide, not via userSelect: at
-    // header time a narrow selection may legitimately take fewer tracks than
-    // the processes produce, but a track can only be selected at all once it
-    // exists — so the stream must be complete per the expectation first. A
-    // track the selection saw leave the stream no longer counts.
+    size_t expectedOutputTracks = 0;
     size_t readyOutputTracks = 0;
-    for (std::set<size_t>::iterator it = validTracksWithData.begin(); it != validTracksWithData.end(); ++it) {
-      if (M.getSourceTrack(*it) != INVALID_TRACK_ID && M.trackValid(*it)) { ++readyOutputTracks; }
-    }
+    recordingExpectedOutputs(M, graph["outputs"], targetParams, capa, UA, expectedOutputTracks, readyOutputTracks);
 
     // Every original video and audio track must have data, selected or not: a
     // processing stream's media originals all come from its one input, and a
@@ -3837,7 +3827,7 @@ namespace Mist{
       if (validTracksWithData.count(it->first)) { ++readySelectedOutputTracks; }
     }
 
-    if (processingRecordingTrackCountsReady(expectationResolved, expectedOutputTracks, readyOutputTracks, selectedOriginalTracks,
+    if (processingRecordingTrackCountsReady(graphResolved, expectedOutputTracks, readyOutputTracks, selectedOriginalTracks,
                                             readyOriginalTracks, selectedOutputTracks, readySelectedOutputTracks)) {
       recordingHeaderWaitLog.clear();
       if (!sentHeader) {
