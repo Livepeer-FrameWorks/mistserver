@@ -296,4 +296,9 @@ if [ "${LIVEPEER_TEST_FAILING_GATEWAY:-}" = "1" ]; then
     exit 1
   fi
 fi
+reserved=$(sed -n 's/.*Reserved track \([0-9][0-9]*\) for output .*\/audit.*/\1/p' "$work/input.log" | head -n 1)
+if [ -z "$reserved" ] || ! grep -q "Claimed reserved track $reserved (output .*/audit)" "$work/input.log"; then
+  echo "the Livepeer rendition did not take the track the buffer reserved for it (${reserved:-none})" >&2
+  exit 1
+fi
 echo "Livepeer loopback recording retained the processed video tail through $video_tail seconds"

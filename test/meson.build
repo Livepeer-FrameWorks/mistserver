@@ -88,6 +88,9 @@ test('Embedded frame storage fills and wraps safely', embeddedframetest, suite: 
 dtscresumetest = executable('dtscresumetest', 'dtsc_resume_unit.cpp', header_tgts, dependencies: libmist_dep)
 dtscoutputkeytest = executable('dtscoutputkeytest', 'dtsc_output_key_unit.cpp', header_tgts, dependencies: libmist_dep)
 test('Process outputs resume by output key only', dtscoutputkeytest, suite: 'DTSC')
+dtscreservedoutputtest = executable('dtscreservedoutputtest', 'dtsc_reserved_output_unit.cpp', header_tgts,
+                                    dependencies: libmist_dep)
+test('Process outputs claim their reserved tracks by key', dtscreservedoutputtest, suite: 'DTSC')
 dtsclockbudgettest = executable('dtsclockbudgettest', 'dtsc_track_list_lock_budget_unit.cpp', header_tgts,
                                 dependencies: libmist_dep)
 test('Only appending, growing and claiming take the track list lock', dtsclockbudgettest, suite: 'DTSC')

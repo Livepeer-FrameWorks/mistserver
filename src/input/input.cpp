@@ -1272,6 +1272,23 @@ namespace Mist{
 
     /// This maps local track offsets to stream track offsets
     std::map<uint64_t, uint64_t> realTimeTrackMap;
+    /// Source tracks that will never carry data, and are therefore not fed at all. With a complete
+    /// index the tracks that will carry data are known before any is read, so they are all
+    /// registered up front, however short the source or late a track starts.
+    std::set<size_t> skippedTracks;
+    if (headerIndexComplete()) {
+      const std::set<size_t> sourceTracks = M.getValidTracks();
+      const std::set<size_t> tracksWithFrames = M.getValidTracks(true);
+      for (const size_t track : sourceTracks) {
+        const int keyframe = M.indexHasKeyframe(track);
+        const std::string skip =
+          realtimeTrackSkipReason(M.getType(track), tracksWithFrames.count(track), keyframe >= 0, keyframe == 1);
+        if (skip.empty()) { continue; }
+        WARN_MSG("Not registering source track %zu (%s %s): %s", track, M.getCodec(track).c_str(),
+                 M.getType(track).c_str(), skip.c_str());
+        skippedTracks.insert(track);
+      }
+    }
 
     //No time offset and/or no currently valid tracks?
     //That means this must be the first entry in this realtime stream. Create the tracks!
@@ -1280,6 +1297,7 @@ namespace Mist{
       validTracks = M.getValidTracks();
       size_t newID = 0;
       for (std::set<size_t>::iterator it = validTracks.begin(); it != validTracks.end(); ++it){
+        if (skippedTracks.count(*it)) { continue; }
         size_t newIdx = liveMeta.addTrack();
         realTimeTrackMap[*it] = newIdx;
         MEDIUM_MSG("Gonna write track %zu to %zu", *it, newIdx);
@@ -1298,6 +1316,7 @@ namespace Mist{
       validTracks = M.getValidTracks();
       std::set<size_t> validLive = liveMeta.getValidTracks();
       for (std::set<size_t>::iterator it = validTracks.begin(); it != validTracks.end(); ++it){
+        if (skippedTracks.count(*it)) { continue; }
         for (std::set<size_t>::iterator lit = validLive.begin(); lit != validLive.end(); ++lit){
           if (liveMeta.isClaimed(*lit)){continue;}
           if (liveMeta.getType(*lit) != M.getType(*it)){continue;}
@@ -1322,6 +1341,7 @@ namespace Mist{
         Util::logExitReason(ER_CLEAN_EOF, "no more data");
         break;
       }
+      if (skippedTracks.count(thisIdx)) { continue; }
       idx = realTimeTrackMap.count(thisIdx) ? realTimeTrackMap[thisIdx] : INVALID_TRACK_ID;
       if (idx == INVALID_TRACK_ID && thisIdx != INVALID_TRACK_ID && M.getCodec(thisIdx).size()) {
         std::set<size_t> validLive = liveMeta.getValidTracks();

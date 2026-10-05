@@ -26,6 +26,32 @@ int main() {
     return fail("the supervisor must start processors only while the stream can still produce media");
   }
 
+  {
+    JSON::Value thumbs, av, avAudio, avRaw, livepeer;
+    thumbs["process"] = "Thumbs";
+    av["process"] = "AV";
+    avAudio["process"] = "AV";
+    avAudio["codec"] = "opus";
+    avRaw["process"] = "AV";
+    avRaw["codec"] = "UYVY";
+    livepeer["process"] = "Livepeer";
+    const std::vector<std::string> thumbOutputs = processReservableOutputs(thumbs);
+    if (thumbOutputs.size() != 3 || thumbOutputs[0] != "sprite" || thumbOutputs[1] != "vtt" ||
+        thumbOutputs[2] != "preview" || processReservableOutputs(av) != std::vector<std::string>{"video"} ||
+        processReservableOutputs(avAudio) != std::vector<std::string>{"audio"} ||
+        processReservableOutputs(avRaw).size() || processReservableOutputs(livepeer).size()) {
+      return fail("AV and Thumbs outputs are reserved by their output names, raw AV outputs are not");
+    }
+  }
+  if (producerResumeDeadline(1000, 0) != 1000 + PRODUCER_RESUME_GRACE_MS ||
+      producerResumeDeadline(1000, 6000) != 6000 + PRODUCER_RESUME_GRACE_MS) {
+    return fail("a producer gets the restart grace after its next start, which may be a restart delay later");
+  }
+  if (!trackHeldForProducer(true, 31000, 30999) || trackHeldForProducer(true, 31000, 31000) ||
+      trackHeldForProducer(false, 31000, 1000)) {
+    return fail("a track is kept for its producer only while that producer restarts and within its deadline");
+  }
+
   const std::string payload = processExitTriggerPayload("camera", "AV", "{\"process\":\"AV\"}", 1234, -9, 3, "retrying",
                                                         "signal", "terminated by signal");
   const std::string expected = "camera\nAV\n{\"process\":\"AV\"}\n1234\n-9\n3\nretrying\nsignal\nterminated by signal";

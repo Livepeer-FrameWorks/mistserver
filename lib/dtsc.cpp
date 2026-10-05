@@ -2404,6 +2404,18 @@ namespace DTSC{
         }
       }
     }
+    if (T == INVALID_TRACK_ID) {
+      // The buffer reserved this output's track index before the producer ran.
+      const size_t reserved = findReservedOutputTrack(key);
+      if (reserved != INVALID_TRACK_ID) {
+        const size_t claimed = delayed ? createDescribedDelayedTrack(trkDta, key, reserved)
+                                       : createDescribedTrack(trkDta, sourceTrack, key, reserved);
+        if (claimed != INVALID_TRACK_ID) {
+          INFO_MSG("Claimed reserved track %zu (output %s)", claimed, key.c_str());
+          return claimed;
+        }
+      }
+    }
     return delayed ? createDescribedDelayedTrack(trkDta, key) : createDescribedTrack(trkDta, sourceTrack, key);
   }
 
@@ -2455,19 +2467,21 @@ namespace DTSC{
     return createDescribedTrack(trkDta, sourceTrack, "");
   }
 
-  /// Creates a validated track with the given description and output key: a raw track for codecs
-  /// with a static frame size, a standard track otherwise.
-  size_t Meta::createDescribedTrack(const TrackMetadata & trkDta, size_t sourceTrack, const std::string & key) {
+  /// Creates a validated track with the given description and output key, in the reserved record
+  /// reservedIdx when given: a raw track for codecs with a static frame size, a standard track
+  /// otherwise.
+  size_t Meta::createDescribedTrack(const TrackMetadata & trkDta, size_t sourceTrack, const std::string & key, size_t reservedIdx) {
     {
       // Create a new track and set the metadata
       size_t T = INVALID_TRACK_ID;
       size_t staticSize = Util::pixfmtToSize(trkDta.codec, trkDta.width, trkDta.height);
       if (staticSize) {
         // Known static frame sizes: raw track mode
-        T = addTrackRecord(0, 0, 0, 0, false, staticSize, key);
+        T = addTrackRecord(0, 0, 0, 0, false, staticSize, reservedIdx, key);
       } else {
         // Other cases: standard track mode
-        T = addTrackRecord(DEFAULT_FRAGMENT_COUNT, DEFAULT_KEY_COUNT, DEFAULT_PART_COUNT, DEFAULT_PAGE_COUNT, false, 0, key);
+        T = addTrackRecord(DEFAULT_FRAGMENT_COUNT, DEFAULT_KEY_COUNT, DEFAULT_PART_COUNT, DEFAULT_PAGE_COUNT, false, 0,
+                           reservedIdx, key);
       }
       if (T == INVALID_TRACK_ID) {
         FAIL_MSG("Could not create new track %zu: %s %s", T, trkDta.codec.c_str(), trkDta.type.c_str());
@@ -2561,11 +2575,13 @@ namespace DTSC{
     return createDescribedDelayedTrack(trkDta, "");
   }
 
-  /// Creates a delayed (not yet valid) track with the given description and output key.
-  size_t Meta::createDescribedDelayedTrack(const TrackMetadata & trkDta, const std::string & key) {
+  /// Creates a delayed (not yet valid) track with the given description and output key, in the
+  /// reserved record reservedIdx when given.
+  size_t Meta::createDescribedDelayedTrack(const TrackMetadata & trkDta, const std::string & key, size_t reservedIdx) {
     {
       // Create a new track and set the metadata
-      size_t T = addTrackRecord(DEFAULT_FRAGMENT_COUNT, DEFAULT_KEY_COUNT, DEFAULT_PART_COUNT, DEFAULT_PAGE_COUNT, false, 0, key);
+      size_t T = addTrackRecord(DEFAULT_FRAGMENT_COUNT, DEFAULT_KEY_COUNT, DEFAULT_PART_COUNT, DEFAULT_PAGE_COUNT,
+                                false, 0, reservedIdx, key);
       if (T == INVALID_TRACK_ID) {
         FAIL_MSG("Could not create new (delayed) track: %s %s", trkDta.codec.c_str(), trkDta.type.c_str());
         return T;
@@ -2593,13 +2609,98 @@ namespace DTSC{
   /// Adds a track to the metadata structure.
   /// To be called from the various inputs/outputs whenever they want to add a track.
   size_t Meta::addTrack(size_t fragCount, size_t keyCount, size_t partCount, size_t pageCount, bool setValid, size_t frameSize){
-    return addTrackRecord(fragCount, keyCount, partCount, pageCount, setValid, frameSize, "");
+    return addTrackRecord(fragCount, keyCount, partCount, pageCount, setValid, frameSize, INVALID_TRACK_ID, "");
   }
 
-  /// Creates a track carrying the output key (empty for a track that is no process output) in a
-  /// new track list record, appended while the track list is locked.
+  /// Starts recording, while an input indexes its source, which video tracks have a keyframe (the
+  /// index itself starts every track at a key, keyframe or not).
+  void Meta::startIndexKeyframes() {
+    inputLocalVars["keyframeids"] = ",";
+  }
+
+  /// Records that the indexed track has a keyframe; a no-op unless startIndexKeyframes was called.
+  void Meta::noteIndexKeyframe(size_t trackIdx) {
+    if (!inputLocalVars.isMember("keyframeids")) { return; }
+    const std::string id = std::to_string(getID(trackIdx)) + ",";
+    if (inputLocalVars["keyframeids"].asStringRef().find("," + id) == std::string::npos) {
+      inputLocalVars["keyframeids"] = inputLocalVars["keyframeids"].asString() + id;
+    }
+  }
+
+  /// Whether the index recorded a keyframe for this track: 1 when it did, 0 when it did not, -1
+  /// when the index does not record keyframes.
+  int Meta::indexHasKeyframe(size_t trackIdx) const {
+    if (!inputLocalVars.isMember("keyframeids")) { return -1; }
+    return inputLocalVars["keyframeids"].asStringRef().find("," + std::to_string(getID(trackIdx)) + ",") != std::string::npos;
+  }
+
+  /// Whether this track list record is an output reserved for its producer: it carries an output
+  /// key, but no track page, claim or validity yet.
+  bool Meta::isReservedTrack(size_t trackIdx) const {
+    if (trackIdx < trackList.getDeleted() || trackIdx >= trackList.getEndPos()) { return false; }
+    if (trackList.getInt(trackValidField, trackIdx) || trackList.getInt(trackPidField, trackIdx)) { return false; }
+    const char *page = trackList.getPointer(trackPageField, trackIdx);
+    return (!page || !*page) && getOutputKey(trackIdx).size();
+  }
+
+  /// The reserved record for an output key, or INVALID_TRACK_ID.
+  size_t Meta::findReservedOutputTrack(const std::string & key) const {
+    if (key.empty()) { return INVALID_TRACK_ID; }
+    for (size_t i = trackList.getDeleted(); i < trackList.getEndPos(); ++i) {
+      if (isReservedTrack(i) && getOutputKey(i) == key) { return i; }
+    }
+    return INVALID_TRACK_ID;
+  }
+
+  /// Every reserved output record.
+  std::set<size_t> Meta::getReservedTracks() const {
+    std::set<size_t> res;
+    for (size_t i = trackList.getDeleted(); i < trackList.getEndPos(); ++i) {
+      if (isReservedTrack(i)) { res.insert(i); }
+    }
+    return res;
+  }
+
+  /// Reserves a track index for a process output before its producer runs: a track list record
+  /// with the output key and nothing else, invisible to every reader until the producer claims it
+  /// (see addOrResumeKeyedTrack). Returns the existing track or reservation for the key if there
+  /// is one.
+  size_t Meta::reserveOutputTrack(const std::string & key) {
+    if (key.empty()) { return INVALID_TRACK_ID; }
+    allocateMemBufProcessOutputs();
+    TrackListLock lock(*this);
+    if (!lock.held()) { return INVALID_TRACK_ID; }
+    size_t tNumber = findOutputKeyTrack(key);
+    if (tNumber == INVALID_TRACK_ID) { tNumber = findReservedOutputTrack(key); }
+    if (tNumber == INVALID_TRACK_ID) {
+      // A reservation is only known by its key.
+      if (!hasProcessOutput(trackList.getPresent())) { return INVALID_TRACK_ID; }
+      if (trackList.getPresent() >= trackList.getRCount()) { resizeTrackList(trackList.getPresent() * 2); }
+      tNumber = trackList.getPresent();
+      trackList.setInt(trackValidField, 0, tNumber);
+      trackList.setString(trackPageField, "", tNumber);
+      trackList.setInt(trackPidField, 0, tNumber);
+      trackList.setInt(trackSourceTidField, INVALID_TRACK_ID, tNumber);
+      setOutputKey(tNumber, key);
+      setResumeUntil(tNumber, 0);
+      trackList.addRecords(1);
+      INFO_MSG("Reserved track %zu for output %s", tNumber, key.c_str());
+    }
+    return tNumber;
+  }
+
+  /// Gives up a reservation whose producer will not run (any more): the record stays, without key.
+  void Meta::releaseReservedTrack(size_t trackIdx) {
+    if (!isReservedTrack(trackIdx)) { return; }
+    INFO_MSG("Releasing reserved track %zu (output %s)", trackIdx, getOutputKey(trackIdx).c_str());
+    setOutputKey(trackIdx, "");
+  }
+
+  /// Creates a track carrying the output key (empty for a track that is no process output): in a
+  /// new track list record, appended while the track list is locked, or in the reserved record
+  /// reservedIdx (which fails if that record is no longer a reservation).
   size_t Meta::addTrackRecord(size_t fragCount, size_t keyCount, size_t partCount, size_t pageCount, bool setValid,
-                              size_t frameSize, const std::string & key) {
+                              size_t frameSize, size_t reservedIdx, const std::string & key) {
     char pageName[NAME_BUFFER_SIZE];
     TrackListLock lock(*this);
     if (!lock.held()) {
@@ -2611,8 +2712,10 @@ namespace DTSC{
       return INVALID_TRACK_ID;
     }
 
+    if (reservedIdx != INVALID_TRACK_ID && !isReservedTrack(reservedIdx)) { return INVALID_TRACK_ID; }
+
     // Resize track list if we're running out of tracks
-    if (trackList.getPresent() >= trackList.getRCount()){
+    if (reservedIdx == INVALID_TRACK_ID && trackList.getPresent() >= trackList.getRCount()) {
       resizeTrackList(trackList.getPresent() * 2);
     }
 
@@ -2627,7 +2730,7 @@ namespace DTSC{
       pageSize = TRACK_TRACK_OFFSET + TRACK_TRACK_RECORDSIZE + RAW_FRAME_TABLE_OVERHEAD + (8 + frameSize) * RAW_FRAME_COUNT;
     }
 
-    size_t tNumber = trackList.getPresent();
+    size_t tNumber = reservedIdx != INVALID_TRACK_ID ? reservedIdx : trackList.getPresent();
 
     snprintf(pageName, NAME_BUFFER_SIZE, SHM_STREAM_TM, streamName.c_str(), getpid(), tNumber);
 
@@ -2650,10 +2753,12 @@ namespace DTSC{
     trackList.setString(trackPageField, pageName, tNumber);
     trackList.setInt(trackPidField, getpid(), tNumber);
     trackList.setInt(trackSourceTidField, INVALID_TRACK_ID, tNumber);
-    setOutputKey(tNumber, key);
-    setResumeUntil(tNumber, 0);
-    trackList.addRecords(1);
-    if (setValid){validateTrack(tNumber, trackValidDefault);}
+    if (reservedIdx == INVALID_TRACK_ID) {
+      setOutputKey(tNumber, key);
+      setResumeUntil(tNumber, 0);
+      trackList.addRecords(1);
+    }
+    if (setValid) { validateTrack(tNumber, trackValidDefault); }
     return tNumber;
   }
 

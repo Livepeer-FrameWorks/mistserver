@@ -118,6 +118,7 @@ namespace Mist{
     bool hasMoov = false;
     readBuffer.truncate(0);
     readPos = 0;
+    meta.startIndexKeyframes();
 
     // first we get the necessary header parts
     size_t tNumber = 0;
@@ -268,6 +269,7 @@ namespace Mist{
               bool prtKey = false;
               it->getPart(partNo, &prtBpos, &prtBlen, &prtTime, &prtTimeOff, &prtKey);
               meta.update(prtTime, prtTimeOff, tNumber, prtBlen, moovPos, prtKey && it->trackType != "audio");
+              if (prtKey && it->trackType == "video") { meta.noteIndexKeyframe(tNumber); }
               sawParts = true;
             }
             bps += M.getBps(tNumber);
@@ -306,6 +308,7 @@ namespace Mist{
             if (inFile.getSize() != std::string::npos && prtBpos + prtBlen > inFile.getSize()){continue;}
             // Note: we set the byte position to the position of the moof, so we can re-read it later with ease
             meta.update(prtTime, prtTimeOff, tNumber, prtBlen, moofPos, prtKey && it->trackType != "audio");
+            if (prtKey && it->trackType == "video") { meta.noteIndexKeyframe(tNumber); }
             sawParts = true;
           }
         }
@@ -340,6 +343,7 @@ namespace Mist{
           bool prtKey = false;
           it->getPart(partNo, &prtBpos, &prtBlen, &prtTime, &prtTimeOff, &prtKey);
           meta.update(prtTime, prtTimeOff, tNumber, prtBlen, prtBpos, prtKey && it->trackType != "audio");
+          if (prtKey && it->trackType == "video") { meta.noteIndexKeyframe(tNumber); }
           sawParts = true;
         }
         bps += M.getBps(tNumber);

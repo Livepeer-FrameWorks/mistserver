@@ -410,6 +410,7 @@ namespace Mist{
     // A removed track's index can be reused by the next session's tracks.
     retainedSourceTracks.erase(tid);
     processTrackProducers.erase(tid);
+    producerHoldUntil.erase(tid);
     size_t lastUser = users.recordCount();
     for (size_t i = 0; i < lastUser; ++i){
       if (users.getStatus(i) == COMM_STATUS_INVALID){continue;}
@@ -455,12 +456,62 @@ namespace Mist{
     }
   }
 
+  /// Decides which tracks without a producer the buffer keeps for a returning producer, and
+  /// publishes until when (boot ms) per track, so bounded reads wait for the producer instead of
+  /// ending the track. A process output is kept while its configured process is restarted, up to
+  /// its resume deadline (producerResumeDeadline); once that process is retired it is not kept and
+  /// the idle timeout applies. A publisher's track kept for resume is held until the idle timeout
+  /// would remove it.
+  void InputBuffer::updateResumeHolds() {
+    const uint64_t now = Util::bootMS();
+    const std::set<size_t> validTracks = M.getValidTracks();
+    for (std::map<size_t, uint64_t>::iterator it = producerHoldUntil.begin(); it != producerHoldUntil.end();) {
+      if (validTracks.count(it->first)) {
+        ++it;
+      } else {
+        it = producerHoldUntil.erase(it);
+      }
+    }
+    for (const size_t track : validTracks) {
+      uint64_t resumeUntil = 0;
+      const bool producerAlive = M.isClaimed(track) && Util::Procs::isActive((pid_t)M.isClaimedBy(track));
+      const std::string key = M.getOutputKey(track);
+      if (producerAlive) {
+        producerHoldUntil.erase(track);
+      } else if (key.size()) {
+        std::map<std::string, std::string>::const_iterator producer =
+          configuredProcessIdentities.find(DTSC::outputKeyIdentity(key));
+        // A processing stream starts no process once its source ended.
+        const bool restartable = producer != configuredProcessIdentities.end() &&
+          !processingProcessRetired(JSON::fromString(producer->second)) &&
+          !(processControlledRealtime && everHadPush && !hasPush);
+        if (!restartable) {
+          if (producerHoldUntil.erase(track)) {
+            INFO_MSG("Track %zu (output %s) is no longer kept: its process was retired", track, key.c_str());
+          }
+        } else {
+          if (!producerHoldUntil.count(track)) {
+            std::map<std::string, uint64_t>::const_iterator nextBoot = procNextBoot.find(producer->second);
+            producerHoldUntil[track] = producerResumeDeadline(now, nextBoot == procNextBoot.end() ? 0 : nextBoot->second);
+            INFO_MSG("Keeping track %zu (output %s) for its restarting process for up to %" PRIu64 " ms", track,
+                     key.c_str(), producerHoldUntil[track] - now);
+          }
+          if (trackHeldForProducer(true, producerHoldUntil[track], now)) { resumeUntil = producerHoldUntil[track]; }
+        }
+      } else if (resumeMode && !processControlledRealtime && !M.isClaimed(track) && !bufferTrackIsDerived(M.getSourceTrack(track))) {
+        resumeUntil = M.getLastUpdated(track) * 1000 + idleTime;
+      }
+      if (M.getResumeUntil(track) != resumeUntil) { meta.setResumeUntil(track, resumeUntil); }
+    }
+  }
+
   void InputBuffer::removeUnused(){
     meta.reloadReplacedPagesIfNeeded();
     if (!meta){
       return;
     }
     retireReplacedOutputs();
+    updateResumeHolds();
     // first remove all tracks that have not been updated for too long
     bool changed = true;
     while (changed){
@@ -491,6 +542,9 @@ namespace Mist{
           }
           continue;
         }
+        // Kept for its restarting producer: the restarted process continues it.
+        std::map<size_t, uint64_t>::const_iterator hold = producerHoldUntil.find(i);
+        if (hold != producerHoldUntil.end() && trackHeldForProducer(true, hold->second, Util::bootMS())) { continue; }
         uint64_t lastUp = M.getLastUpdated(i);
         //Prevent issues when getLastUpdated > current time. This can happen if the second rolls over exactly during this loop.
         if (lastUp >= time){continue;}
@@ -836,6 +890,7 @@ namespace Mist{
         /*LTS-END*/
         processControlledRealtime = streamCfg.getMember("process_controlled_realtime").asBool();
         checkProcesses(configuredProcesses);
+        releaseRetiredReservations();
         // Published after checkProcesses so retired procs (hard-failed or
         // restart-disabled) drop out of the expectation on the same tick.
         if (processControlledRealtime) { publishProcessingOutputExpectation(configuredProcesses); }
@@ -1169,19 +1224,28 @@ namespace Mist{
       // pid, so counting its outputs as missing would hold the header forever.
       const auto boots = procBoots.find(keyed.toString());
       if (!producerRunning && everHadPush && !hasPush && boots != procBoots.end() && boots->second) { continue; }
-      // A producer's outputs are the tracks it registered as their source, whether
-      // or not it still claims them: its input side releases the claims when it
-      // finishes, while the process keeps running to write its results.
+      // A producer's outputs are the tracks carrying its output keys, whichever run of it
+      // registered them and whether or not it still claims them: its input side releases the
+      // claims when it finishes, while the process keeps running to write its results. An output
+      // without data (or only reserved) is still missing. Outputs registered without a key are
+      // attributed by the running process's pid.
+      const std::string identity = DTSC::processIdentity(keyed.toString());
+      std::set<std::string> readyKeys;
       size_t producerReady = 0;
-      if (producerRunning) {
-        for (const size_t track : readyOutputs) {
-          const auto producer = processTrackProducers.find(track);
-          if ((producer != processTrackProducers.end() && producer->second == running->second) ||
-              M.isClaimedBy(track) == (uint64_t)running->second) {
-            ++producerReady;
-          }
+      for (const size_t track : readyOutputs) {
+        const std::string key = M.getOutputKey(track);
+        if (key.size()) {
+          if (DTSC::outputKeyIdentity(key) == identity) { readyKeys.insert(key); }
+          continue;
+        }
+        if (!producerRunning) { continue; }
+        const auto producer = processTrackProducers.find(track);
+        if ((producer != processTrackProducers.end() && producer->second == running->second) ||
+            M.isClaimedBy(track) == (uint64_t)running->second) {
+          ++producerReady;
         }
       }
+      producerReady += readyKeys.size();
       if (producerExpected > producerReady) { expectedOutputTracks += producerExpected - producerReady; }
     }
     return expectedOutputTracks;
@@ -1527,6 +1591,9 @@ namespace Mist{
       newProcs.insert(key);
     }
 
+    configuredProcessIdentities.clear();
+    for (const std::string & config : newProcs) { configuredProcessIdentities[DTSC::processIdentity(config)] = config; }
+
     // shut down deleted/changed processes
     if (runningProcs.size()){
       for (std::map<std::string, pid_t>::iterator it = runningProcs.begin(); it != runningProcs.end();) {
@@ -1691,6 +1758,7 @@ namespace Mist{
       }
       // Only count process as not-running if it's not inconsequential
       if (!args.isMember("inconsequential") || !args["inconsequential"].asBool()) { allProcsRunning = false; }
+      if (processControlledRealtime) { reserveProcessOutputs(config, args); }
       runningProcs[config] = Util::Procs::StartPiped(argarr, 0, 0, &err);
       processPidsWithUsers.erase(runningProcs[config]);
       INFO_MSG("Started process %zu: %s %s", (size_t)runningProcs[config], argarr[0].c_str(), argarr[1].c_str());
@@ -1698,6 +1766,43 @@ namespace Mist{
       procBoots[config]++;
       // Remove the delayed start counter
       procNextBoot.erase(config);
+    }
+  }
+
+  /// Reserves a track for every output a process will produce into this processing stream, before
+  /// starting it: Livepeer profiles (not inhibited by the source), AV encodes and the thumbnail
+  /// tracks. The process claims each reservation by output key, so its track indexes are fixed
+  /// before any data and a restarted run can only ever continue its own outputs.
+  void InputBuffer::reserveProcessOutputs(const std::string & config, const JSON::Value & args) {
+    if (args.isMember("sink") && args["sink"].isString() && args["sink"].asStringRef().size()) {
+      std::string sink = args["sink"].asStringRef();
+      Util::streamVariables(sink, streamName);
+      if (sink != streamName) { return; }
+    }
+    std::vector<std::string> outputs = processReservableOutputs(args);
+    if (args["process"].asString() == "Livepeer" && args["target_profiles"].isArray()) {
+      jsonForEachConst (args["target_profiles"], prof) {
+        if (!prof->isObject() || !(*prof)["name"].isString() || !(*prof)["name"].asStringRef().size()) { continue; }
+        if (prof->isMember("track_inhibit") && Util::inhibitorMatchesSource(M, (*prof)["track_inhibit"].asStringRef())) {
+          continue;
+        }
+        outputs.push_back((*prof)["name"].asStringRef());
+      }
+    }
+    const std::string identity = DTSC::processIdentity(config);
+    for (const std::string & output : outputs) { meta.reserveOutputTrack(DTSC::outputKey(identity, output)); }
+  }
+
+  /// Releases the reservations of processes that will not produce them any more: removed from the
+  /// configuration, replaced, hard-failed, or done with restarts disabled.
+  void InputBuffer::releaseRetiredReservations() {
+    for (const size_t track : M.getReservedTracks()) {
+      std::map<std::string, std::string>::const_iterator producer =
+        configuredProcessIdentities.find(DTSC::outputKeyIdentity(M.getOutputKey(track)));
+      if (producer != configuredProcessIdentities.end() && !processingProcessRetired(JSON::fromString(producer->second))) {
+        continue;
+      }
+      meta.releaseReservedTrack(track);
     }
   }
 

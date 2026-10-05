@@ -42,6 +42,8 @@ namespace Mist{
     void getNext(size_t idx = INVALID_TRACK_ID);
     void seek(uint64_t seekTime, size_t idx = INVALID_TRACK_ID);
     bool readExistingHeader();
+    bool indexesWholeFile();
+    bool headerIndexComplete();
     void applyLiveOffset();
     void parseStreamHeader(){readHeader();}
     bool openStreamSource(){return true;}

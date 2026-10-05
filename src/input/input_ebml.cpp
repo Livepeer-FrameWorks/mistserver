@@ -237,7 +237,23 @@ namespace Mist{
       INFO_MSG("Header needs update, regenerating");
       return false;
     }
+    if (!needsLock() && indexesWholeFile() && !M.inputLocalVars.isMember("complete")) {
+      INFO_MSG("Header does not index the whole file, regenerating");
+      return false;
+    }
     return true;
+  }
+
+  /// Whether the header indexes every frame: always for a file served on demand, and for a
+  /// finished local file fed in real time, whose tracks are registered from that index.
+  bool InputEBML::indexesWholeFile() {
+    if (needsLock()) { return true; }
+    const std::string input = config->getString("input");
+    return config->getBool("realtime") && standAlone && input.find("://") == std::string::npos;
+  }
+
+  bool InputEBML::headerIndexComplete() {
+    return M.inputLocalVars.isMember("complete");
   }
 
   bool InputEBML::readHeader(){
@@ -250,6 +266,8 @@ namespace Mist{
     }
 
     parser.enableData(false);
+    const bool wholeFile = indexesWholeFile();
+    if (wholeFile) { meta.startIndexKeyframes(); }
 
     while (readElement()){
       if (!config->is_active){
@@ -259,7 +277,7 @@ namespace Mist{
       EBML::Element E(readBuffer + readBufferOffset, readingMinimal);
       if (E.getID() == EBML::EID_CLUSTER){
         // Live streams stop parsing the header as soon as the first Cluster is encountered
-        if (!needsLock()) { break; }
+        if (!wholeFile) { break; }
         //Set progress counter for non-live inputs
         if (streamStatus && streamStatus.len > 1 && inFile.getSize()){
           streamStatus.mapped[1] = (255 * (readPos + readBufferOffset)) / inFile.getSize();
@@ -275,6 +293,7 @@ namespace Mist{
     parser.enableData(true);
 
     meta.inputLocalVars["version"] = 2;
+    if (wholeFile) { meta.inputLocalVars["complete"] = 1; }
     return true;
   }
 

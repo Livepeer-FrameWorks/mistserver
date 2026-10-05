@@ -809,6 +809,7 @@ namespace EBML{
         while (TP.hasPackets()) {
           EBML::packetData & C = TP.getPacketData(meta.getType(thisIdx) == "video");
           meta.update(C.time, C.offset, thisIdx, C.dsize, C.bpos, C.key);
+          if (C.key && meta.getType(thisIdx) == "video") { meta.noteIndexKeyframe(thisIdx); }
           if (dateVal) {
             meta.setUTCOffset(dateVal - C.time, UTCSRC_PROTOCOL);
             if (!meta.getUTCOffset()) { meta.setUTCOffset(1, UTCSRC_PROTOCOL); }

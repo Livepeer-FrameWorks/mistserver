@@ -5,6 +5,7 @@
 
 #include <cstdint>
 #include <string>
+#include <vector>
 
 namespace Mist {
   inline const char *processExitStatus(int exitCode, const std::string & restartType, uint32_t bootCount) {
@@ -16,6 +17,46 @@ namespace Mist {
 
   inline bool processSupervisorMayStart(bool active, uint8_t streamState, bool sourceEof) {
     return active && !sourceEof && streamState != STRMSTAT_SHUTDOWN && streamState != STRMSTAT_OFF;
+  }
+
+  /// The outputs of an AV or Thumbs process that a processing buffer reserves a track for before
+  /// starting it, by output name (see DTSC::outputKey). Raw AV outputs are intermediate tracks in
+  /// their own track layout and are not reserved; other processes declare their outputs only once
+  /// they run.
+  inline std::vector<std::string> processReservableOutputs(const JSON::Value & proc) {
+    std::vector<std::string> outputs;
+    const std::string process = proc["process"].asString();
+    if (process == "Thumbs") {
+      outputs.push_back("sprite");
+      outputs.push_back("vtt");
+      outputs.push_back("preview");
+    } else if (process == "AV") {
+      const std::string codec = proc.isMember("codec") && proc["codec"].isString() ? proc["codec"].asString() : "";
+      if (codec.empty() || codec == "H264" || codec == "AV1" || codec == "JPEG") { outputs.push_back("video"); }
+      if (codec == "opus" || codec == "AAC") { outputs.push_back("audio"); }
+    }
+    return outputs;
+  }
+
+  /// How long after its (re)start a producer gets to register its outputs again. It covers the
+  /// process boot (about a second), waiting for a source keyframe (GOPs of up to 10 s), and one
+  /// segment's processing deadline with gateway retries (Livepeer: the segment duration plus one
+  /// second per attempt).
+  const uint64_t PRODUCER_RESUME_GRACE_MS = 30000;
+
+  /// Until when the buffer keeps a track whose producer went away, for the restarted producer to
+  /// continue it: the restart grace after the producer's next start, which is the loss itself or
+  /// a configured restart delay later. A producer that keeps failing before it registers does not
+  /// extend this: the deadline is fixed when the track loses its producer.
+  inline uint64_t producerResumeDeadline(uint64_t lostAtMs, uint64_t nextStartMs) {
+    return (nextStartMs > lostAtMs ? nextStartMs : lostAtMs) + PRODUCER_RESUME_GRACE_MS;
+  }
+
+  /// Whether the buffer keeps a track without a producer instead of erasing it when it idles:
+  /// only while the process that produced it is still configured and will be restarted, and its
+  /// resume deadline has not passed.
+  inline bool trackHeldForProducer(bool producerRestartable, uint64_t deadlineMs, uint64_t nowMs) {
+    return producerRestartable && nowMs < deadlineMs;
   }
 
   inline std::string processExitTriggerPayload(const std::string & streamName, const std::string & processType,

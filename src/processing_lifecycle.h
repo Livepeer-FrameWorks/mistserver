@@ -142,6 +142,17 @@ namespace Mist {
     return type == "video" || type == "audio" || selected;
   }
 
+  /// Why a realtime feeder does not register a track its source file declares, given the file's
+  /// complete index; empty when it registers it. A track without any frame will never carry data,
+  /// and a video track without a keyframe never gets past the buffer, which only starts a track
+  /// at a keyframe. Every track with data is registered, however short or late it starts.
+  /// keyframeKnown tells whether the index records which video frames are keyframes.
+  inline std::string realtimeTrackSkipReason(const std::string & type, size_t frames, bool keyframeKnown, bool hasKeyframe) {
+    if (!frames) { return "it has no frames"; }
+    if (type == "video" && keyframeKnown && !hasKeyframe) { return "it has no keyframe"; }
+    return "";
+  }
+
   /// Whether the buffer removes an older track carrying the same output key as a newer one: once
   /// the producer registered the newer one (claims it) and let go of the older one, the older one
   /// was replaced. While the older one is still claimed, its producer is still writing it.

@@ -64,6 +64,10 @@ namespace Mist {
     virtual bool preRun(){return true;}
     virtual bool isThread(){return false;}
     virtual bool isSingular(){return !config->getBool("realtime");}
+    /// Whether the header lists every frame of the source (a finished file indexed completely),
+    /// so a track without frames in it has none. Realtime feeders then register only tracks that
+    /// will carry data.
+    virtual bool headerIndexComplete() { return false; }
     virtual bool readExistingHeader();
     virtual bool atKeyFrame();
     virtual void getNext(size_t idx = INVALID_TRACK_ID){}

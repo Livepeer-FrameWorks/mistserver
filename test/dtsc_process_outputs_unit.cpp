@@ -112,6 +112,8 @@ namespace {
       DTSC::Meta restarted(streamName, false, false);
       const size_t second = restarted.addOrResumeTrack(sprite());
       expect(second != INVALID_TRACK_ID && second != first, "a restarted producer registers its output as a new track");
+      expect(restarted.reserveOutputTrack(DTSC::outputKey(identity, "other")) == INVALID_TRACK_ID,
+             "no output is reserved without a key to find it by");
       expect(!restarted.getResumeUntil(first), "no track is held");
       DTSC::outputKeyScope.clear();
     }

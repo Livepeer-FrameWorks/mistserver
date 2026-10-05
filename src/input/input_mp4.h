@@ -21,6 +21,8 @@ namespace Mist{
     bool preRun();
     bool readHeader();
     bool needHeader();
+    /// The header is built from the sample tables (and every fragment), so it lists every frame.
+    bool headerIndexComplete() { return true; }
     void getNext(size_t idx = INVALID_TRACK_ID);
     void seek(uint64_t seekTime, size_t idx = INVALID_TRACK_ID);
     bool shiftTo(size_t pos, size_t len);

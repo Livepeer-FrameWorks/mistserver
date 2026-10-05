@@ -54,6 +54,9 @@ namespace Mist{
     bool removeKey(size_t tid);
     void removeUnused();
     void retireReplacedOutputs();
+    void updateResumeHolds();
+    void reserveProcessOutputs(const std::string & config, const JSON::Value & args);
+    void releaseRetiredReservations();
     void finish();
 
     void userLeadIn();
@@ -129,6 +132,12 @@ namespace Mist{
     // releases its claim on the track, which its input side does when it
     // finishes while the process itself is still running.
     std::map<size_t, pid_t> processTrackProducers;
+    // The configured process (its runningProcs key) behind each process identity, so an output
+    // track's key leads to the process that produces it.
+    std::map<std::string, std::string> configuredProcessIdentities;
+    // Output tracks that lost their producer while it is being restarted, and until when (boot ms)
+    // they are kept for it.
+    std::map<size_t, uint64_t> producerHoldUntil;
     size_t drainConsumerUsers;
     size_t lastBPS; ///< Used for STREAM_BANDWIDTH trigger
   };

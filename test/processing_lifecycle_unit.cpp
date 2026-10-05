@@ -149,6 +149,18 @@ int main() {
     return fail("a shutting-down stream still waits for a running producer's outputs, such as thumbnails made after "
                 "the source ended");
   }
+  if (realtimeTrackSkipReason("video", 0, true, false).empty() || realtimeTrackSkipReason("audio", 0, false, false).empty() ||
+      realtimeTrackSkipReason("meta", 0, false, false).empty()) {
+    return fail("a declared track without frames is not registered");
+  }
+  if (realtimeTrackSkipReason("video", 40, true, false).empty()) {
+    return fail("a video track without a keyframe is not registered");
+  }
+  if (realtimeTrackSkipReason("video", 1, true, true).size() || realtimeTrackSkipReason("audio", 1, true, false).size() ||
+      realtimeTrackSkipReason("video", 3, false, false).size()) {
+    return fail("a one-frame track, audio, and video whose keyframes the index does not record are registered");
+  }
+
   if (!bufferRetiresReplacedOutput(false, true)) {
     return fail("an output replaced by a registered newer track of its key goes at once");
   }

@@ -422,6 +422,14 @@ namespace DTSC{
     size_t findOutputKeyTrack(const std::string & key) const;
     void setResumeUntil(size_t trackIdx, uint64_t bootMs);
     uint64_t getResumeUntil(size_t trackIdx) const;
+    void startIndexKeyframes();
+    void noteIndexKeyframe(size_t trackIdx);
+    int indexHasKeyframe(size_t trackIdx) const;
+    size_t reserveOutputTrack(const std::string & key);
+    void releaseReservedTrack(size_t trackIdx);
+    bool isReservedTrack(size_t trackIdx) const;
+    size_t findReservedOutputTrack(const std::string & key) const;
+    std::set<size_t> getReservedTracks() const;
     void resizeTrack(size_t source, size_t fragCount = DEFAULT_FRAGMENT_COUNT, size_t keyCount = DEFAULT_KEY_COUNT,
                      size_t partCount = DEFAULT_PART_COUNT, size_t pageCount = DEFAULT_PAGE_COUNT, const char * reason = "",
                      size_t frameSize = 0);
@@ -683,10 +691,11 @@ namespace DTSC{
     bool replacementGivenUp = false;
 
     size_t addOrResumeKeyedTrack(const TrackMetadata & trkDta, const std::string & key, size_t sourceTrack, bool delayed);
-    size_t createDescribedTrack(const TrackMetadata & trkDta, size_t sourceTrack, const std::string & key);
-    size_t createDescribedDelayedTrack(const TrackMetadata & trkDta, const std::string & key);
+    size_t createDescribedTrack(const TrackMetadata & trkDta, size_t sourceTrack, const std::string & key,
+                                size_t reservedIdx = INVALID_TRACK_ID);
+    size_t createDescribedDelayedTrack(const TrackMetadata & trkDta, const std::string & key, size_t reservedIdx = INVALID_TRACK_ID);
     size_t addTrackRecord(size_t fragCount, size_t keyCount, size_t partCount, size_t pageCount, bool setValid,
-                          size_t frameSize, const std::string & key);
+                          size_t frameSize, size_t reservedIdx, const std::string & key);
 
     std::map<size_t, jitterTimer> theJitters;
     // Internal buffers so we don't always need to search for everything
