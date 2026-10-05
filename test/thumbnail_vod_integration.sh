@@ -259,9 +259,12 @@ if grep -q 'which this process did not declare' "$work/input.log"; then
   echo "a process registered an output it did not declare with --describe-outputs" >&2
   exit 1
 fi
+# Sprites are regenerated at most once per 2s interval while the source (at most 8s, read in
+# real time) plays, plus the final generation at its end: 2 to 5 generations, however many
+# keyframes it holds.
 compose_count=$(grep -c 'Buffered sprite sheet:' "$work/input.log")
-if [ "$compose_count" -lt 2 ] || [ "$compose_count" -gt 3 ]; then
-  echo "thumbnail interval produced $compose_count sprite encodes; expected 2-3 coalesced generations" >&2
+if [ "$compose_count" -lt 2 ] || [ "$compose_count" -gt 5 ]; then
+  echo "thumbnail interval produced $compose_count sprite encodes; expected 2-5 coalesced generations" >&2
   exit 1
 fi
 

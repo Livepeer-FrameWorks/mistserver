@@ -292,8 +292,10 @@ if [ "$started_processes" -ne 1 ]; then
   echo "processor restarted $started_processes times after source EOF; expected one initial start" >&2
   exit 1
 fi
-if ! grep -q 'Waiting for processing' "$work/output.log"; then
-  echo "recording never observed the late processing-track readiness gate" >&2
+# The source video is masked from recordings, so the header can only be written with the AV
+# output the processing graph expects.
+if ! grep -q 'Recording header: .* 1/1 expected processing outputs ready' "$work/output.log"; then
+  echo "the recording header did not wait for the AV output the processing graph expects" >&2
   exit 1
 fi
 
