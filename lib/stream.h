@@ -64,18 +64,19 @@ namespace Util{
   extern trackSortOrder defaultTrackSortOrder;
   void sortTracks(std::set<size_t> & validTracks, const DTSC::Meta & M, trackSortOrder sorting, std::list<size_t> & srtTrks);
 
-  /// This struct keeps packet information sorted in playback order
+  /// This struct keeps packet information sorted in playback order. Every field starts out defined:
+  /// callers fill in only what their kind of track uses.
   struct sortedPageInfo{
     bool operator<(const sortedPageInfo &rhs) const{
       if (time < rhs.time){return true;}
       return (time == rhs.time && tid < rhs.tid);
     }
-    size_t tid;
-    uint64_t time;
-    uint64_t offset;
-    size_t partIndex;
-    bool ghostPacket;
-    bool unavailable;
+    size_t tid = 0;
+    uint64_t time = 0;
+    uint64_t offset = 0;
+    size_t partIndex = 0;
+    bool ghostPacket = false;
+    bool unavailable = false;
   };
 
   /// Packet sorter used to determine which packet should be output next
