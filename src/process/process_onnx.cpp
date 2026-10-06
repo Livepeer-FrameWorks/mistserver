@@ -902,6 +902,8 @@ namespace Mist {
 
         INFO_MSG("ProcessSink thread ended, ingested %" PRIu64 " metadata packets and %" PRIu64 " video frames",
                  (uint64_t)metadataCount, (uint64_t)videoFrameCount);
+        // The loop ends once the source thread ended or the processing thread finished.
+        Util::logExitReason(ER_CLEAN_EOF, "source thread finished");
       }
   };
 

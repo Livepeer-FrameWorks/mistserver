@@ -269,6 +269,23 @@ if grep -q 'which this process did not declare' "$work/input.log"; then
   echo "a process registered an output it did not declare with --describe-outputs" >&2
   exit 1
 fi
+# The ONNX process ends on its own once its source ended, and reports that as a clean exit.
+if [ "$mode" != av-latency ]; then
+  attempt=0
+  while [ "$attempt" -lt 100 ] && ! grep -q 'MistProcONNX.*Stop sink thread' "$work/input.log"; do
+    attempt=$((attempt + 1))
+    sleep 0.1
+  done
+  if ! grep -q 'MistProcONNX.*Stop sink thread' "$work/input.log"; then
+    echo "the ONNX process did not end after its source ended" >&2
+    exit 1
+  fi
+  if grep 'MistProcONNX' "$work/input.log" | grep -q 'Logging unclean exit reason'; then
+    echo "the ONNX process reported an unclean exit after its source ended:" >&2
+    grep 'MistProcONNX.*Logging unclean exit reason' "$work/input.log" >&2
+    exit 1
+  fi
+fi
 "$ffmpeg" -hide_banner -loglevel error -i "$recording" -map 0:v:0 -map 0:a:0 -f null - 2>"$work/decode.log"
 if [ -s "$work/decode.log" ]; then
   echo "the recording emitted decoder/demuxer diagnostics" >&2
