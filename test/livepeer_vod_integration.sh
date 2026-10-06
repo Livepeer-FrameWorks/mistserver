@@ -91,19 +91,20 @@ trap 'exit 130' INT
 trap 'exit 143' TERM
 
 source_mkv="$work/source.mkv"
-source_mask=",\"source_mask\":4"
+source_options=",\"source_mask\":4"
 recording_selection=
 if [ "${LIVEPEER_TEST_UNALIGNED_KEYS:-}" = "1" ]; then
   # Two source videos whose keyframes are not aligned: the first, which the recording starts by,
   # begins 0.5 s into the stream, while the second (which Livepeer transcodes) has its keyframe at
-  # 0. The recording keeps every track, as the processing pipeline records it.
+  # 0. The recording keeps every track, as the processing pipeline records it; Livepeer reads the
+  # larger one.
   "$ffmpeg" -hide_banner -loglevel error -y \
     -itsoffset 0.5 -f lavfi -i testsrc2=size=160x90:rate=10:duration=29.5 \
     -f lavfi -i testsrc2=size=320x180:rate=10:duration=30 \
     -f lavfi -i sine=frequency=701:sample_rate=48000:duration=30 \
     -map 0:v -map 1:v -map 2:a -c:v libx264 -pix_fmt yuv420p -preset veryfast -g 20 -keyint_min 20 -bf 0 \
     -sc_threshold 0 -b:v:0 100k -b:v:1 600k -c:a aac -b:a 96k "$source_mkv"
-  source_mask=
+  source_options=",\"source_track\":\"maxres\""
   recording_selection="&video=all&audio=all"
 else
   "$ffmpeg" -hide_banner -loglevel error -y \
@@ -216,7 +217,7 @@ restart_type=disabled
 if [ "${LIVEPEER_TEST_KILL_MIDWAY:-}" = "1" ]; then restart_type=fixed; fi
 config="$work/config.json"
 printf '%s\n' \
-  "{\"account\":{\"test\":{\"password\":\"098f6bcd4621d373cade4e832627b4f6\"}},\"auto_push\":null,\"bandwidth\":{\"exceptions\":[\"::1\",\"127.0.0.0/8\"]},\"config\":{\"accesslog\":\"LOG\",\"controller\":{\"interface\":\"127.0.0.1\",\"port\":$controller_port,\"username\":null},\"debug\":4,\"defaultStream\":null,\"prometheus\":\"\",\"protocols\":[],\"serverid\":null,\"sessionInputMode\":15,\"sessionOutputMode\":15,\"sessionStreamInfoMode\":1,\"sessionUnspecifiedMode\":0,\"sessionViewerMode\":14,\"tknMode\":15,\"triggers\":$triggers,\"trustedproxy\":[]},\"extwriters\":null,\"jwks\":null,\"push_settings\":{\"maxspeed\":0,\"wait\":3},\"streamkeys\":null,\"streams\":{\"$stream\":{\"name\":\"$stream\",\"source\":\"$source_mkv\",\"process_controlled_realtime\":true,\"realtime_speed\":4,\"processes\":[{\"process\":\"Livepeer\",\"hardcoded_broadcasters\":$broadcasters,\"target_profiles\":[{\"name\":\"audit\",\"bitrate\":500000,\"width\":320,\"height\":180,\"fps\":10,\"gop\":\"2.0\"}],\"target_mask\":2$source_mask,\"restart_type\":\"$restart_type\"$livepeer_options}$extra_processes]}},\"variables\":null}" \
+  "{\"account\":{\"test\":{\"password\":\"098f6bcd4621d373cade4e832627b4f6\"}},\"auto_push\":null,\"bandwidth\":{\"exceptions\":[\"::1\",\"127.0.0.0/8\"]},\"config\":{\"accesslog\":\"LOG\",\"controller\":{\"interface\":\"127.0.0.1\",\"port\":$controller_port,\"username\":null},\"debug\":4,\"defaultStream\":null,\"prometheus\":\"\",\"protocols\":[],\"serverid\":null,\"sessionInputMode\":15,\"sessionOutputMode\":15,\"sessionStreamInfoMode\":1,\"sessionUnspecifiedMode\":0,\"sessionViewerMode\":14,\"tknMode\":15,\"triggers\":$triggers,\"trustedproxy\":[]},\"extwriters\":null,\"jwks\":null,\"push_settings\":{\"maxspeed\":0,\"wait\":3},\"streamkeys\":null,\"streams\":{\"$stream\":{\"name\":\"$stream\",\"source\":\"$source_mkv\",\"process_controlled_realtime\":true,\"realtime_speed\":4,\"processes\":[{\"process\":\"Livepeer\",\"hardcoded_broadcasters\":$broadcasters,\"target_profiles\":[{\"name\":\"audit\",\"bitrate\":500000,\"width\":320,\"height\":180,\"fps\":10,\"gop\":\"2.0\"}],\"target_mask\":2$source_options,\"restart_type\":\"$restart_type\"$livepeer_options}$extra_processes]}},\"variables\":null}" \
   >"$config"
 
 TMP="$ipc_root" MIST_CONTROL=1 "$controller" -c "$config" -C r -L "$work/controller.log" &
