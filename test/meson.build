@@ -165,6 +165,10 @@ if get_option('b_sanitize') == 'none' and startup_timeout_program.found()
        args: [exec_tgts.get('MistController'), exec_tgts.get('MistInBuffer'),
               exec_tgts.get('MistInRawGenerator'), startup_timeout_program],
        suite: 'Inputs', timeout: 30, is_parallel: false)
+  controllerstartupstoptest = find_program('controller_startup_stop_integration.sh')
+  test('A controller told to stop during startup stops', controllerstartupstoptest,
+       args: [exec_tgts.get('MistController')],
+       suite: 'Controller', timeout: 30, is_parallel: false)
   nukerestarttest = find_program('nuke_restart_integration.sh')
   test('A nuke leaves a stream generation that started during it alone', nukerestarttest,
        args: [exec_tgts.get('MistController'), exec_tgts.get('MistInBuffer'),

@@ -870,6 +870,8 @@ int main_loop(int argc, char **argv){
   if (!boundPort) { Controller::E.addInterval(attemptBind, 10000); }
 
   Controller::conf.activate();
+  // activate() marks the controller active again; a stop requested while it was starting up still applies.
+  if (Util::Config::stopRequested()) { Controller::conf.is_active = false; }
 
 #ifdef UPDATER
   Controller::E.addInterval(Controller::updaterCheck, 3600000);
