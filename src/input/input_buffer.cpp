@@ -997,9 +997,12 @@ namespace Mist{
   void InputBuffer::userOnDisconnect(size_t id){
     if (processUsers.count(id)) {
       pid_t procPid = users.getPid(id);
-      if (meta.isClaimed(processUsers[id])) {
+      // A process restarted before this disconnect was handled may already own the track again.
+      if (meta.isClaimed(processUsers[id]) && meta.isClaimedBy(processUsers[id]) == (uint64_t)procPid) {
         INFO_MSG("Track %zu lost its process, but is still claimed! Reclaiming for resume...", processUsers[id]);
         meta.breakClaim(processUsers[id]);
+      } else if (meta.isClaimed(processUsers[id])) {
+        INFO_MSG("Track %zu lost its previous process and is claimed by its current one", processUsers[id]);
       } else {
         INFO_MSG("Track %zu lost its process and is now unclaimed, keeping it around for resume", processUsers[id]);
       }
@@ -1017,9 +1020,11 @@ namespace Mist{
         if (retainedSourceTrackGoesStale(processControlledRealtime, M.getCodec(sourceUsers[id]) == "rawhls")) {
           retainedSourceTracks.insert(sourceUsers[id]);
         }
-        if (meta.isClaimed(sourceUsers[id])) {
+        if (meta.isClaimed(sourceUsers[id]) && meta.isClaimedBy(sourceUsers[id]) == (uint64_t)users.getPid(id)) {
           INFO_MSG("Track %zu lost its source, but is still claimed! Reclaiming for resume...", sourceUsers[id]);
           meta.breakClaim(sourceUsers[id]);
+        } else if (meta.isClaimed(sourceUsers[id])) {
+          INFO_MSG("Track %zu lost its previous source and is claimed by its current one", sourceUsers[id]);
         } else {
           if (M.getType(sourceUsers[id]) == "meta") {
             HIGH_MSG("Track %zu lost its source and is now unclaimed, keeping it around for resume", sourceUsers[id]);

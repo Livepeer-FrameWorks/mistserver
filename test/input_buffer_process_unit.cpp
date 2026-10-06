@@ -677,6 +677,33 @@ namespace {
     unlink(failPath.c_str());
     unlink(sleepPath.c_str());
   }
+
+  // A killed process's disconnect can be handled after its restarted process claimed the track
+  // again: only the disconnected process's own claim is broken.
+  void testDisconnectKeepsReplacementClaim(Util::Config & config) {
+    InputBufferProbe input(&config);
+    const std::string stream = "claimUnit" + std::to_string(getpid());
+    input.initMetadata(stream);
+    const size_t track = input.addTrack("video", "H264", 320, 180);
+    input.users.reload(stream, true);
+    if (!input.users) {
+      check(false, "could not create the stream's user page");
+      return;
+    }
+    const uint32_t killedPid = 0x7ffffff0;
+    const uint32_t restartedPid = 0x7ffffff1;
+    input.users.setPid(killedPid, 0);
+
+    input.processUsers[0] = track;
+    input.meta.trackList.setInt(input.meta.trackPidField, restartedPid, track);
+    input.userOnDisconnect(0);
+    check(input.M.isClaimedBy(track) == restartedPid, "the late disconnect of a killed process broke its restarted process's claim");
+
+    input.processUsers[0] = track;
+    input.meta.trackList.setInt(input.meta.trackPidField, killedPid, track);
+    input.userOnDisconnect(0);
+    check(!input.M.isClaimed(track), "the disconnect of the process that claimed the track kept its claim");
+  }
 } // namespace
 
 int main() {
@@ -686,6 +713,7 @@ int main() {
   testGraphSupervisor(config);
   testUnconstrainedRamp(config);
   testSupervisor(config);
+  testDisconnectKeepsReplacementClaim(config);
   if (failures) {
     std::cerr << failures << " failure(s)" << std::endl;
     return 1;
