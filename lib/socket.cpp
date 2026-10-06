@@ -15,10 +15,12 @@
 #define G_IPV6_PKTINFO IPV6_RECVPKTINFO
 #endif
 
+#include "config.h"
 #include "defines.h"
 #include "socket.h"
 #include "timing.h"
 
+#include <algorithm>
 #include <arpa/inet.h>
 #include <cstdlib>
 #include <ifaddrs.h>
@@ -62,20 +64,36 @@ static const char *gai_strmagic(int errcode){
   }
 }
 
+/// How long an outbound connection may take to resolve its host, and then to connect.
+static const uint64_t connectTimeoutMs = 5000;
+
 static Socket::AddrInfoResolver addrInfoResolver = 0;
+
+/// Whether a getaddrinfo result means the lookup may succeed when tried again.
+static bool isTemporaryResolveError(int errcode) {
+  return errcode == EAI_AGAIN || (errcode == EAI_SYSTEM && (errno == EAGAIN || errno == EINTR));
+}
 
 void Socket::setAddrInfoResolver(AddrInfoResolver resolver) {
   addrInfoResolver = resolver;
 }
 
 int Socket::getAddrInfo(const char *node, const char *service, const struct addrinfo *hints, struct addrinfo **res) {
-  static const uint32_t retryDelaysMs[] = {100, 250, 500};
   AddrInfoResolver resolve = addrInfoResolver ? addrInfoResolver : ::getaddrinfo;
+  uint64_t deadline = Util::bootMS() + connectTimeoutMs;
+  uint64_t delay = 100;
   int ret = resolve(node, service, hints, res);
-  for (size_t i = 0; ret == EAI_AGAIN && i < sizeof(retryDelaysMs) / sizeof(retryDelaysMs[0]); ++i) {
-    WARN_MSG("Temporary failure resolving %s, retrying in %" PRIu32 " ms", node ? node : "(null)", retryDelaysMs[i]);
-    Util::sleep(retryDelaysMs[i]);
+  while (isTemporaryResolveError(ret) && !Util::Config::stopRequested()) {
+    uint64_t now = Util::bootMS();
+    if (now >= deadline) { break; }
+    if (delay > deadline - now) { delay = deadline - now; }
+    WARN_MSG("Temporary failure resolving %s, retrying in %" PRIu64 " ms", node ? node : "(null)", delay);
+    for (uint64_t until = now + delay; Util::bootMS() < until && !Util::Config::stopRequested();) {
+      Util::sleep(std::min<uint64_t>(until - Util::bootMS(), 100));
+    }
+    if (Util::Config::stopRequested()) { break; }
     ret = resolve(node, service, hints, res);
+    delay = std::min<uint64_t>(delay * 2, 1000);
   }
   return ret;
 }
@@ -1422,7 +1440,7 @@ void Socket::Connection::open(std::string host, int port, bool nonblock, bool wi
     int sockErr;
     socklen_t sockErrLen = sizeof sockErr;
     sockErr = errno;
-    size_t waitTime = 5;
+    size_t waitTime = connectTimeoutMs / 1000;
     while (ret && sockErr == EINPROGRESS && waitTime){
       struct timeval timeout;
       timeout.tv_sec = 1;

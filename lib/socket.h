@@ -104,8 +104,10 @@ namespace Socket{
   /// Signature of getaddrinfo(3).
   typedef int (*AddrInfoResolver)(const char *node, const char *service, const struct addrinfo *hints, struct addrinfo **res);
   /// getaddrinfo(3) for every socket in this library. A temporary resolver
-  /// failure (EAI_AGAIN) is retried after 100, 250 and 500 ms; any other
-  /// result, including a permanent failure, is returned at once.
+  /// failure (EAI_AGAIN, or EAI_SYSTEM with EAGAIN or EINTR) is retried with a backoff from 100 ms up to 1 s for
+  /// as long as a connection may take to connect (5 s), or until this process
+  /// is told to stop; any other result, including a permanent failure, is
+  /// returned at once.
   int getAddrInfo(const char *node, const char *service, const struct addrinfo *hints, struct addrinfo **res);
   /// Replaces the resolver behind getAddrInfo; null restores getaddrinfo(3).
   void setAddrInfoResolver(AddrInfoResolver resolver);
