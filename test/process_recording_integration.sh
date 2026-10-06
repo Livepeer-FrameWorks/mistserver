@@ -147,6 +147,47 @@ if [ "$started" -ne 1 ]; then
   exit 1
 fi
 
+check_clean_process_exit() {
+  attempt=0
+  while [ "$attempt" -lt 300 ] && [ ! -s "$process_trigger_file" ]; do
+    attempt=$((attempt + 1))
+    sleep 0.1
+  done
+  if [ ! -s "$process_trigger_file" ]; then
+    echo "PROCESS_EXIT trigger was not captured after source EOF" >&2
+    exit 1
+  fi
+  if [ "$(sed -n '1p' "$process_trigger_file")" != "PROCESS_EXIT" ] ||
+     [ "$(sed -n '3p' "$process_trigger_file")" != "AV" ] ||
+     [ "$(sed -n '8p' "$process_trigger_file")" != "clean" ]; then
+    echo "PROCESS_EXIT did not report the clean AV processor lifecycle" >&2
+    sed -n '1,10p' "$process_trigger_file" >&2
+    exit 1
+  fi
+}
+
+check_processor_started_once() {
+  if grep -q 'which this process did not declare' "$work/input.log"; then
+    echo "a process registered an output it did not declare with --describe-outputs" >&2
+    exit 1
+  fi
+  started_processes=$(grep -c 'Started process .*MistProcAV' "$work/input.log" || true)
+  if [ "$started_processes" -ne 1 ]; then
+    echo "processor restarted $started_processes times after source EOF; expected one initial start" >&2
+    exit 1
+  fi
+}
+
+# A single-frame source hands the encoder's only packet to the processor's sink thread while
+# that thread still sets up its first frame, so the source thread ends while the sink thread is
+# between frames. This mode checks only the processor's exit, without a recording.
+if [ "${MIST_PROCESS_ONLY:-}" = "1" ]; then
+  check_clean_process_exit
+  check_processor_started_once
+  echo "the AV processor reported a clean exit after its source ended"
+  exit 0
+fi
+
 recording="$work/recording.mkv"
 if [ "${MIST_PROCESS_EXPECT_EOF:-}" = "1" ]; then
   "$timeout_program" 60 env TMP="$ipc_root" MIST_CONTROL=1 "$output_ebml" -s "$stream" "$recording" \
@@ -266,32 +307,9 @@ fi
 # A duration-bounded recording is only a consumer stop: its finite source and processor are
 # expected to remain online. PROCESS_EXIT is required only when this fixture drives source EOF.
 if [ "${MIST_PROCESS_EXPECT_EOF:-}" = "1" ]; then
-  attempt=0
-  while [ "$attempt" -lt 50 ] && [ ! -s "$process_trigger_file" ]; do
-    attempt=$((attempt + 1))
-    sleep 0.1
-  done
-  if [ ! -s "$process_trigger_file" ]; then
-    echo "PROCESS_EXIT trigger was not captured after source EOF" >&2
-    exit 1
-  fi
-  if [ "$(sed -n '1p' "$process_trigger_file")" != "PROCESS_EXIT" ] ||
-     [ "$(sed -n '3p' "$process_trigger_file")" != "AV" ] ||
-     [ "$(sed -n '8p' "$process_trigger_file")" != "clean" ]; then
-    echo "PROCESS_EXIT did not report the clean AV processor lifecycle" >&2
-    sed -n '1,10p' "$process_trigger_file" >&2
-    exit 1
-  fi
+  check_clean_process_exit
 fi
-if grep -q 'which this process did not declare' "$work/input.log"; then
-  echo "a process registered an output it did not declare with --describe-outputs" >&2
-  exit 1
-fi
-started_processes=$(grep -c 'Started process .*MistProcAV' "$work/input.log" || true)
-if [ "$started_processes" -ne 1 ]; then
-  echo "processor restarted $started_processes times after source EOF; expected one initial start" >&2
-  exit 1
-fi
+check_processor_started_once
 # The source video is masked from recordings, so the header can only be written with the AV
 # output the processing graph expects.
 if ! grep -q 'Recording header: .* 1/1 expected processing outputs ready' "$work/output.log"; then

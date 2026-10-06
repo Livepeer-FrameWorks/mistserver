@@ -396,6 +396,8 @@ namespace Mist{
           }
         }
       }
+      // The source thread can end while this thread is between frames.
+      Util::logExitReason(ER_CLEAN_EOF, "source thread finished");
     }
 
     /// \brief Sets init data based on the last loaded SPS and PPS data

@@ -365,6 +365,15 @@ if get_option('b_sanitize') == 'none' and ffmpeg_program.found() and ffprobe_pro
          env: {'MIST_PROCESS_EXPECT_EOF': '1', 'MIST_PROCESS_SOURCE_DURATION': '8',
                'MIST_PROCESS_SOURCE_BFRAMES': '2'},
          suite: 'Processing', timeout: 120, is_parallel: false)
+    test('ProcAV exits cleanly when its source ends while its sink is between frames', processrecordingtest,
+         args: [ffmpeg_program, ffprobe_program, exec_tgts.get('MistController'),
+                exec_tgts.get('MistInMP4'), exec_tgts.get('MistInBuffer'),
+                exec_tgts.get('MistProcAV'), exec_tgts.get('MistOutEBML'),
+                exec_tgts.get('MistSession'), exec_tgts.get('MistUtilLog'),
+                exec_tgts.get('MistUtilNuke'), timeout_program],
+         env: {'MIST_PROCESS_ONLY': '1', 'MIST_PROCESS_SOURCE_DURATION': '0.04',
+               'MIST_PROCESS_SOURCE_BFRAMES': '2'},
+         suite: 'Processing', timeout: 120, is_parallel: false)
     boundedcuttest = find_program('bounded_cut_integration.sh')
     test('A bounded live cut over a stopped rendition ends without waiting for it', boundedcuttest,
          args: [ffmpeg_program, ffprobe_program, exec_tgts.get('MistController'), exec_tgts.get('MistInBuffer'),
