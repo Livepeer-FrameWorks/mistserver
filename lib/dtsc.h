@@ -55,7 +55,9 @@ namespace DTSC{
   /// registers that matches none of them in output name, type and codec is logged as a warning.
   extern JSON::Value declaredOutputs;
   /// Identity of a configured process: a hash of the configuration string the buffer keys it by and
-  /// passes as its first argument. A changed or replacement configuration has another identity.
+  /// passes as its first argument, without the options that differ per run (a Livepeer job token
+  /// and its gateways), so a restart with a new session's credentials continues the same outputs.
+  /// Any other changed or replacement configuration has another identity.
   std::string processIdentity(const std::string & processConfig);
   /// The key of one output of a configured process: "<identity>/<output name>". Output names longer
   /// than 100 bytes are replaced by a hash. Empty when either part is empty.

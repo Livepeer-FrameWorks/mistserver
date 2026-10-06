@@ -30,6 +30,10 @@
 #                 killed; the buffer does not restart it while the publisher is
 #                 away, and a returning publisher gets its process and
 #                 renditions back.
+#   republish     the publisher of a resumable stream leaves and comes back within seconds; the
+#                 buffer asks STREAM_PROCESS again and gets the same process with another job token
+#                 (Foghorn signs one per publisher session), and the restarted process continues
+#                 the same rendition track instead of adding a second one next to it.
 #   stop-sessions the sessions of a resumable stream are stopped through the API
 #                 while the publisher is live (as at a platform stream stop);
 #                 the process exits by itself within seconds, and the buffer
@@ -69,7 +73,7 @@ fi
 
 mode=${MIST_LIVEPEER_LIVE_MODE:-backpressure}
 case "$mode" in
-  backpressure | stop-stall | restart | kill-resume | stall-kill | resolution | live-end | live-end-resume) ;;
+  backpressure | stop-stall | restart | kill-resume | stall-kill | resolution | live-end | live-end-resume | republish) ;;
   stop-sessions)
     if ! command -v curl >/dev/null 2>&1; then
       echo "curl is required to stop the stream's sessions through the API" >&2
@@ -169,11 +173,26 @@ chmod +x "$handler"
 
 config="$work/config.json"
 resume_setting=
-if [ "$mode" = live-end-resume ]; then resume_setting=',"resume":1'; fi
+if [ "$mode" = live-end-resume ] || [ "$mode" = republish ]; then resume_setting=',"resume":1'; fi
 # As configured on the platform: a resumable stream that ends 12 s after its last activity.
 if [ "$mode" = stop-sessions ]; then resume_setting=',"resume":1,"inputtimeout":12'; fi
+triggers="{\"LIVE_TRACK_LIST\":[{\"handler\":\"$handler\",\"sync\":false,\"streams\":[\"$stream\"]}]}"
+resolves="$work/resolves"
+: >"$resolves"
+if [ "$mode" = republish ]; then
+  # STREAM_PROCESS answers the configured process with a job token that differs per call.
+  process_handler="$work/stream-process-handler.sh"
+  cat >"$process_handler" <<EOF
+#!/bin/sh
+cat >/dev/null
+echo resolved >>"$resolves"
+printf '[{"process":"Livepeer","job_token":"session-%s","hardcoded_broadcasters":"http://127.0.0.1:$broadcaster_port","target_profiles":[{"name":"audit","bitrate":400000,"width":320,"height":180,"fps":25,"gop":"2.0"}],"deadline_ms":120000,"target_mask":3,"restart_type":"fixed"}]' "\$(wc -l <"$resolves" | tr -d ' ')"
+EOF
+  chmod +x "$process_handler"
+  triggers="{\"LIVE_TRACK_LIST\":[{\"handler\":\"$handler\",\"sync\":false,\"streams\":[\"$stream\"]}],\"STREAM_PROCESS\":[{\"handler\":\"$process_handler\",\"sync\":true,\"streams\":[\"$stream\"]}]}"
+fi
 printf '%s\n' \
-  "{\"account\":{\"test\":{\"password\":\"098f6bcd4621d373cade4e832627b4f6\"}},\"auto_push\":null,\"bandwidth\":{\"exceptions\":[\"::1\",\"127.0.0.0/8\"]},\"config\":{\"accesslog\":\"LOG\",\"controller\":{\"interface\":\"127.0.0.1\",\"port\":$api_port,\"username\":null},\"debug\":4,\"defaultStream\":null,\"prometheus\":\"\",\"protocols\":[{\"connector\":\"RTMP\",\"interface\":\"127.0.0.1\",\"port\":$rtmp_port}],\"serverid\":null,\"sessionInputMode\":15,\"sessionOutputMode\":15,\"sessionStreamInfoMode\":1,\"sessionUnspecifiedMode\":0,\"sessionViewerMode\":14,\"tknMode\":15,\"triggers\":{\"LIVE_TRACK_LIST\":[{\"handler\":\"$handler\",\"sync\":false,\"streams\":[\"$stream\"]}]},\"trustedproxy\":[]},\"extwriters\":null,\"jwks\":null,\"push_settings\":{\"maxspeed\":0,\"wait\":3},\"streamkeys\":null,\"streams\":{\"$stream\":{\"name\":\"$stream\",\"source\":\"push://\"$resume_setting,\"processes\":[{\"process\":\"Livepeer\",\"hardcoded_broadcasters\":\"http://127.0.0.1:$broadcaster_port\",\"target_profiles\":[{\"name\":\"audit\",\"bitrate\":400000,\"width\":320,\"height\":180,\"fps\":25,\"gop\":\"2.0\"}],\"deadline_ms\":120000,\"target_mask\":3,\"restart_type\":\"fixed\"}]}},\"variables\":null}" \
+  "{\"account\":{\"test\":{\"password\":\"098f6bcd4621d373cade4e832627b4f6\"}},\"auto_push\":null,\"bandwidth\":{\"exceptions\":[\"::1\",\"127.0.0.0/8\"]},\"config\":{\"accesslog\":\"LOG\",\"controller\":{\"interface\":\"127.0.0.1\",\"port\":$api_port,\"username\":null},\"debug\":4,\"defaultStream\":null,\"prometheus\":\"\",\"protocols\":[{\"connector\":\"RTMP\",\"interface\":\"127.0.0.1\",\"port\":$rtmp_port}],\"serverid\":null,\"sessionInputMode\":15,\"sessionOutputMode\":15,\"sessionStreamInfoMode\":1,\"sessionUnspecifiedMode\":0,\"sessionViewerMode\":14,\"tknMode\":15,\"triggers\":$triggers,\"trustedproxy\":[]},\"extwriters\":null,\"jwks\":null,\"push_settings\":{\"maxspeed\":0,\"wait\":3},\"streamkeys\":null,\"streams\":{\"$stream\":{\"name\":\"$stream\",\"source\":\"push://\"$resume_setting,\"processes\":[{\"process\":\"Livepeer\",\"hardcoded_broadcasters\":\"http://127.0.0.1:$broadcaster_port\",\"target_profiles\":[{\"name\":\"audit\",\"bitrate\":400000,\"width\":320,\"height\":180,\"fps\":25,\"gop\":\"2.0\"}],\"deadline_ms\":120000,\"target_mask\":3,\"restart_type\":\"fixed\"}]}},\"variables\":null}" \
   >"$config"
 
 TMP="$ipc_root" MIST_CONTROL=1 "$controller" -c "$config" -C r -L "$work/controller.log" &
@@ -423,6 +442,31 @@ case "$mode" in
     wait_for 30 "the Livepeer process for the returning publisher" running_livepeer
     wait_for 60 "renditions for the returning publisher" responded_at_least $((count + 3))
     echo "live-end-resume: no restart while the publisher was away; the returning publisher got its process back"
+    ;;
+  republish)
+    first=$(livepeer_pid)
+    stop_publisher
+    sleep 3
+    count=$(responses)
+    start_publisher
+    resolved_again() { [ "$(wc -l <"$resolves" | tr -d ' ')" -ge 2 ]; }
+    wait_for 30 "STREAM_PROCESS for the returning publisher" resolved_again
+    first_gone() { ! kill -0 "$first" 2>/dev/null; }
+    wait_for 30 "the first session's Livepeer process to stop" first_gone
+    wait_for 30 "the Livepeer process of the new session" running_livepeer
+    wait_for 60 "renditions for the returning publisher" responded_at_least $((count + 3))
+    sleep 3
+    if ! grep -qE "Resuming track $rendition \(output " "$work/controller.log"; then
+      echo "the new session's Livepeer process did not continue rendition track $rendition" >&2
+      exit 1
+    fi
+    videos=$(tail -n 1 "$track_lists" | grep -o '"type":"video"' | wc -l | tr -d ' ')
+    if [ "$videos" -ne 2 ]; then
+      echo "the stream lists $videos video tracks after the republish; expected the source and one rendition" >&2
+      exit 1
+    fi
+    livepeer_ended_clean
+    echo "republish: the new session's Livepeer process continued rendition track $rendition"
     ;;
   stop-sessions)
     pid=$(livepeer_pid)

@@ -68,7 +68,18 @@ namespace DTSC{
   }
 
   std::string processIdentity(const std::string & processConfig) {
-    return hex64(fnv1a64(processConfig));
+    // Options that change between runs of the same process without changing what it produces: a
+    // Livepeer job's per-session capability and the gateways (and their cells) it is sent to.
+    static const char *const runOptions[] = {"job_token", "hardcoded_broadcasters", "frameworks_gateway_cluster_ids"};
+    JSON::Value config = JSON::fromString(processConfig);
+    bool stripped = false;
+    for (const char *option : runOptions) {
+      if (config.isObject() && config.isMember(option)) {
+        config.removeMember(option);
+        stripped = true;
+      }
+    }
+    return hex64(fnv1a64(stripped ? config.toString() : processConfig));
   }
 
   std::string outputKey(const std::string & identity, const std::string & outputName) {

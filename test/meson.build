@@ -343,6 +343,9 @@ if get_option('b_sanitize') == 'none' and ffmpeg_program.found() and ffprobe_pro
     test('A resumable live stream restarts its processes only for a returning publisher', livepeerlivetest,
          args: livepeerliveargs, env: {'MIST_LIVEPEER_LIVE_MODE': 'live-end-resume'},
          suite: 'Processing', timeout: 180, is_parallel: false)
+    test('A republished live stream\'s Livepeer process with a new job token continues its rendition', livepeerlivetest,
+         args: livepeerliveargs, env: {'MIST_LIVEPEER_LIVE_MODE': 'republish'},
+         suite: 'Processing', timeout: 180, is_parallel: false)
     test('A live Livepeer process whose sessions are stopped exits without being killed', livepeerlivetest,
          args: livepeerliveargs, env: {'MIST_LIVEPEER_LIVE_MODE': 'stop-sessions'},
          suite: 'Processing', timeout: 150, is_parallel: false)

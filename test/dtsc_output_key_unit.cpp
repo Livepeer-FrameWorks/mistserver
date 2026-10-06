@@ -61,6 +61,20 @@ int main() {
   const std::string idB = DTSC::processIdentity(configB);
   expect(idA.size() == 16 && idA == DTSC::processIdentity(configA), "a process identity is a stable 16 hex digit hash");
   expect(idA != idB, "two configurations have different identities");
+  const std::string session1 =
+    "{\"process\":\"Livepeer\",\"source\":\"live+a\",\"target_profiles\":[],\"job_token\":\"v1.one\","
+    "\"hardcoded_broadcasters\":\"[{\\\"address\\\":\\\"https://gw1\\\"}]\","
+    "\"frameworks_gateway_cluster_ids\":[\"cell-1\"]}";
+  const std::string session2 =
+    "{\"process\":\"Livepeer\",\"source\":\"live+a\",\"target_profiles\":[],\"job_token\":\"v1.two\","
+    "\"hardcoded_broadcasters\":\"[{\\\"address\\\":\\\"https://gw2\\\"}]\","
+    "\"frameworks_gateway_cluster_ids\":[\"cell-2\"]}";
+  expect(DTSC::processIdentity(session1) == DTSC::processIdentity(session2),
+         "a new session's job token and gateways keep the process identity");
+  expect(DTSC::processIdentity(session1) !=
+           DTSC::processIdentity("{\"process\":\"Livepeer\",\"source\":\"live+a\",\"target_profiles\":[{"
+                                 "\"name\":\"720p\"}],\"job_token\":\"v1.one\"}"),
+         "changed renditions change the process identity");
   expect(DTSC::outputKey(idA, "720p") == idA + "/720p", "an output key is identity/output");
   expect(DTSC::outputKey(idA, "") == "" && DTSC::outputKey("", "720p") == "", "a key needs both parts");
   const std::string longName(150, 'x');
