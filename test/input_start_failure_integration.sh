@@ -53,9 +53,12 @@ printf '%s\n' \
 
 TMP="$ipc_root" MIST_CONTROL=1 "$controller_binary" -c "$config" -C r -L "$fixture_dir/controller.log" &
 controller_pid=$!
+# The controller runs every protocol binary before it is ready; the first run
+# of freshly linked binaries can take several seconds (macOS assesses each
+# new binary on its first exec), so allow up to 20 s.
 ready=0
 attempt=0
-while [ "$attempt" -lt 100 ]; do
+while [ "$attempt" -lt 400 ]; do
   if grep -q "Controller started" "$fixture_dir/controller.log" 2>/dev/null; then
     ready=1
     break
