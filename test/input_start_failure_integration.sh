@@ -53,21 +53,16 @@ printf '%s\n' \
 
 TMP="$ipc_root" MIST_CONTROL=1 "$controller_binary" -c "$config" -C r -L "$fixture_dir/controller.log" &
 controller_pid=$!
-# The controller runs every protocol binary before it is ready; the first run
-# of freshly linked binaries can take several seconds (macOS assesses each
-# new binary on its first exec), so allow up to 20 s.
+# The controller runs every protocol binary before it is ready, which can take
+# seconds (macOS assesses each freshly linked binary on its first exec). It is
+# awaited for as long as it runs; the meson test timeout bounds the wait.
 ready=0
-attempt=0
-while [ "$attempt" -lt 400 ]; do
+while kill -0 "$controller_pid" 2>/dev/null; do
   if grep -q "Controller started" "$fixture_dir/controller.log" 2>/dev/null; then
     ready=1
     break
   fi
-  if ! kill -0 "$controller_pid" 2>/dev/null; then
-    break
-  fi
   sleep 0.05
-  attempt=$((attempt + 1))
 done
 if [ "$ready" -ne 1 ]; then
   echo "test controller did not become ready" >&2
