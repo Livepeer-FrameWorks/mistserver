@@ -48,7 +48,10 @@ int main() {
   // waits instead of selecting nothing and ending; a processing reader and a
   // buffer that already has tracks never take this wait.
   const uint8_t bootingStates[] = {STRMSTAT_INIT, STRMSTAT_BOOT, STRMSTAT_WAIT};
-  for (uint8_t state : bootingStates) {
+  // An input marks the stream READY as it starts serving, before the buffer
+  // holds a valid track: an output attached then must wait as well.
+  const uint8_t trackWaitStates[] = {STRMSTAT_INIT, STRMSTAT_BOOT, STRMSTAT_WAIT, STRMSTAT_READY};
+  for (uint8_t state : trackWaitStates) {
     if (!Mist::outputWaitsForBootingBuffer(state, 0, false)) {
       return fail("an output must wait for a booting buffer that has no valid tracks yet");
     }
@@ -59,7 +62,7 @@ int main() {
       return fail("a buffer with valid tracks is left to the readiness check");
     }
   }
-  const uint8_t settledStates[] = {STRMSTAT_READY, STRMSTAT_OFF, STRMSTAT_SHUTDOWN, STRMSTAT_OFFLINE, STRMSTAT_INVALID};
+  const uint8_t settledStates[] = {STRMSTAT_OFF, STRMSTAT_SHUTDOWN, STRMSTAT_OFFLINE, STRMSTAT_INVALID};
   for (uint8_t state : settledStates) {
     if (Mist::outputWaitsForBootingBuffer(state, 0, false)) { return fail("only booting states make an output wait"); }
   }

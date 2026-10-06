@@ -36,10 +36,6 @@ namespace Mist {
     return startAttemptWasOffline ? STRMSTAT_OFFLINE : observed;
   }
 
-  /// A buffer that is still booting can expose its meta page before any track
-  /// is valid or the meta is marked live; an output attached in that window
-  /// would select nothing and end at once, so it waits for the buffer as well.
-  /// Processing readers attach to a waiting buffer on purpose and never wait.
   /// Bound on how long an output waits for a booting buffer: first for its
   /// meta page, then for playable tracks.
   static const uint64_t OUTPUT_BUFFER_BOOT_WAIT_MS = 45000;
@@ -53,8 +49,15 @@ namespace Mist {
     return streamAlive || streamStatus == STRMSTAT_INIT || streamStatus == STRMSTAT_BOOT || streamStatus == STRMSTAT_WAIT;
   }
 
+  /// A buffer that is still booting can expose its meta page before any track
+  /// is valid or the meta is marked live; an output attached in that window
+  /// would select nothing and end at once, so it waits for the buffer as well.
+  /// That includes READY: an input marks the stream READY when it starts
+  /// serving, before the buffer holds any valid track.
+  /// Processing readers attach to a waiting buffer on purpose and never wait.
   inline bool outputWaitsForBootingBuffer(uint8_t streamStatus, size_t validTracks, bool processingReader) {
     if (processingReader || validTracks) { return false; }
-    return streamStatus == STRMSTAT_INIT || streamStatus == STRMSTAT_BOOT || streamStatus == STRMSTAT_WAIT;
+    return streamStatus == STRMSTAT_INIT || streamStatus == STRMSTAT_BOOT || streamStatus == STRMSTAT_WAIT ||
+      streamStatus == STRMSTAT_READY;
   }
 } // namespace Mist
