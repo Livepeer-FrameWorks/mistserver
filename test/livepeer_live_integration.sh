@@ -15,9 +15,9 @@
 #                 the same rendition track (same index, no LIVE_TRACK_LIST
 #                 change), and an MKV viewer reading through the kills gets
 #                 the rendition with gaps.
-#   stall-kill    the gateway stalls for 48 s, then the stalled process is
-#                 killed; the rendition track outlives the idle timeout and the
-#                 restarted process continues it.
+#   stall-kill    the gateway stalls for 42 s, then the stalled process is
+#                 killed; the rendition track is kept while the process
+#                 restarts and the restarted process continues it.
 #   resolution    the process is killed and its restart gets renditions in
 #                 another resolution; the restarted process replaces the
 #                 rendition track explicitly and the buffer removes the old one
@@ -315,8 +315,14 @@ case "$mode" in
     echo "kill-resume: track $rendition resumed three times; the viewer kept it (${rendition_packets} packets, largest gap ${gap}s)"
     ;;
   stall-kill)
+    # The buffer erases a track its running producer has not updated for the idle timeout
+    # (50 s); only a restarting producer's track is kept. The stall starts right after a
+    # rendition arrived and lasts 42 s, so the stalled process is killed before that timeout even
+    # when the last update came up to two segments before the stall.
+    count=$(responses)
+    wait_for 20 "a rendition before the stall" responded_at_least $((count + 1))
     : >"$hold_file"
-    sleep 48
+    sleep 42
     kill_and_time "$(livepeer_pid)" >/dev/null
     rm -f "$hold_file"
     count=$(responses)
@@ -330,7 +336,7 @@ case "$mode" in
       echo "the restarted process did not continue rendition track $rendition" >&2
       exit 1
     fi
-    echo "stall-kill: track $rendition survived a 48 s stall and was resumed after the restart"
+    echo "stall-kill: track $rendition survived a 42 s stall and was resumed after the restart"
     ;;
   resolution)
     : >"$alt_flag"
