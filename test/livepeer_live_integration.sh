@@ -219,6 +219,16 @@ kill_and_time() {
   echo $((($(date +%s%N) - began) / 1000000))
 }
 
+# Every Livepeer process that ended so far, stopped or at the end of its stream, reported a clean end.
+livepeer_ended_clean() {
+  unclean=$(grep -E 'MistProcLivepeer' "$work/controller.log" | grep -E 'Logging unclean exit reason|thread failed' || true)
+  if [ -n "$unclean" ]; then
+    echo "a Livepeer process reported an unclean end:" >&2
+    printf '%s\n' "$unclean" >&2
+    exit 1
+  fi
+}
+
 wait_for 30 "the Livepeer process to start" running_livepeer
 wait_for 60 "renditions to flow" responded_at_least 4
 two_videos() { [ "$(tail -n 1 "$track_lists" | grep -o '"type":"video"' | wc -l)" -ge 2 ]; }
@@ -258,6 +268,7 @@ case "$mode" in
       echo "the stopped Livepeer process took ${took}s to exit while its uploads were stalled" >&2
       exit 1
     fi
+    livepeer_ended_clean
     echo "stop-stall: the stopped process exited after ${took}s despite stalled uploads"
     ;;
   restart)
@@ -388,6 +399,7 @@ case "$mode" in
       echo "the buffer stopped ${took}s after the publisher left" >&2
       exit 1
     fi
+    livepeer_ended_clean
     echo "live-end: the buffer stopped ${took}s after the publisher left, without restarting its process"
     ;;
   live-end-resume)
@@ -430,6 +442,7 @@ case "$mode" in
       echo "the Livepeer process exited ${took}s after its sessions were stopped" >&2
       exit 1
     fi
+    livepeer_ended_clean
     echo "stop-sessions: the Livepeer process exited ${took}s after its sessions were stopped, without SIGKILL"
     ;;
 esac

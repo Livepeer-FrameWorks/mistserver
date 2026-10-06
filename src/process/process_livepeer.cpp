@@ -132,7 +132,7 @@ namespace Mist{
       finishCurrentSegment();
       if (!ret) {
         livepeerSourceEOF.store(true, std::memory_order_release);
-        if (!livepeerStopRequested.load(std::memory_order_acquire)) {
+        if (!Util::Config::stopRequested()) {
           // Output::run may drop the shared active flag immediately after
           // onFinish returns. Enter drain mode before the sink observes that.
           conf.is_active = true;
@@ -148,6 +148,11 @@ namespace Mist{
         }
       }
       return ret;
+    }
+    /// A stop (a signal another thread handled, or requestLivepeerStop) ends this thread's read
+    /// without a reason of its own; it is no failure of the source.
+    virtual void determineExitReason() {
+      if (Util::Config::stopRequested()) { Util::logExitReason(ER_CLEAN_SIGNAL, "process stopped"); }
     }
     virtual void dropTrack(size_t trackId, const std::string &reason, bool probablyBad = true){
       if (opt.isMember("exit_unmask") && opt["exit_unmask"].asBool()){
@@ -357,6 +362,12 @@ namespace Mist{
     std::map<std::string, readySegment>::iterator segIt;
     std::map<size_t, uint64_t> resumedUntil; ///< last packet time of each rendition this run resumed
     bool needHeader(){return false;}
+    /// The loop also ends when the process is told to stop (a signal another thread handled, or
+    /// requestLivepeerStop) while this thread is between packets; that end is no failure.
+    virtual void streamMainLoop() {
+      Input::streamMainLoop();
+      if (Util::Config::stopRequested()) { Util::logExitReason(ER_CLEAN_SIGNAL, "process stopped"); }
+    }
     virtual void getNext(size_t idx = INVALID_TRACK_ID){
       thisPacket.null();
       int64_t timeOffset = 0;
@@ -525,7 +536,7 @@ void sinkThread(){
   // Without the sink nothing takes the queued renditions any more: a sink that ended (its input
   // session was stopped) before the queue drained stops the process instead of leaving the
   // source and upload threads waiting for it.
-  const bool stopped = livepeerStopRequested.load(std::memory_order_acquire);
+  const bool stopped = Util::Config::stopRequested();
   const bool sourceDone = livepeerSourceEOF.load(std::memory_order_acquire);
   if (stopped || !sourceDone || !Mist::livepeerQueuesDrained()) {
     std::string why = "sink thread ended before the segment queue drained";
@@ -617,7 +628,7 @@ void sourceThread(){
       livepeerSourceEOF.store(true, std::memory_order_release);
       procExit.log(sourceExitReason.size() ? sourceExitReason.c_str() : ER_CLEAN_EOF, 0, "%s",
                    sourceExitReason == ER_CLEAN_CONTROLLER_REQ ? Util::exitReason : "Source thread finished");
-      if (!livepeerStopRequested.load(std::memory_order_acquire)) {
+      if (!Util::Config::stopRequested()) {
         // Output::run uses Util::Config::is_active as a process-wide flag and
         // may clear it on clean VOD EOF. Keep the process alive long enough for
         // Livepeer uploads, retries and sink insertion to drain.
@@ -633,7 +644,8 @@ void sourceThread(){
                    Util::exitReason[0] ? Util::exitReason : "Source thread failed");
       livepeerStopRequested.store(true, std::memory_order_release);
     }
-    if (cleanExit) {
+    // A stopped process does not wait for its queued segments.
+    if (cleanExit && !Util::Config::stopRequested()) {
       if (!Mist::waitForLivepeerDrain()) { WARN_MSG("Livepeer drain did not complete cleanly"); }
     }
     INFO_MSG("Stopping source thread");
