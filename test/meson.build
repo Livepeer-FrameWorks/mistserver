@@ -314,6 +314,15 @@ if get_option('b_sanitize') == 'none' and ffmpeg_program.found() and ffprobe_pro
                 livepeerprocstateprobe],
          env: ['LIVEPEER_TEST_SLOW_REPLACE=1'],
          suite: 'Processing', timeout: 150, is_parallel: false)
+    test('A processing recording starts every video track, a late rendition included, with a keyframe', livepeervodtest,
+         args: [ffmpeg_program, ffprobe_program, exec_tgts.get('MistController'),
+                exec_tgts.get('MistInEBML'), exec_tgts.get('MistInBuffer'),
+                exec_tgts.get('MistProcLivepeer'), exec_tgts.get('MistOutEBML'),
+                exec_tgts.get('MistSession'), exec_tgts.get('MistUtilLog'),
+                exec_tgts.get('MistUtilNuke'), livepeerstub, timeout_program,
+                livepeerprocstateprobe],
+         env: ['LIVEPEER_TEST_UNALIGNED_KEYS=1'],
+         suite: 'Processing', timeout: 150, is_parallel: false)
     livepeerlivetest = find_program('livepeer_live_integration.sh')
     livepeerliveargs = [ffmpeg_program, ffprobe_program, exec_tgts.get('MistController'),
                         exec_tgts.get('MistInBuffer'), exec_tgts.get('MistOutRTMP'),

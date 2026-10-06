@@ -719,7 +719,7 @@ namespace Mist{
             seek(*it, seekTargets[*it], false);
           }else{
             if (buffer.getSyncMode()){
-              seek(*it, seekTargets.begin()->second, false);
+              seek(*it, recordingTrackStart(*it, seekTargets.begin()->second), false);
             }else{
               seek(*it, 0, false);
             }
@@ -1119,11 +1119,23 @@ namespace Mist{
       }
     }
     bool ret = seekTracks.size();
-    for (const size_t T : seekTracks) { ret &= seek(T, pos, false); }
+    for (const size_t T : seekTracks) { ret &= seek(T, recordingTrackStart(T, pos), false); }
 
     resetTiming(currentTime());
 
     return ret;
+  }
+
+  /// Where a recording that has not written its header yet starts a track it seeks to pos: a video
+  /// track at its keyframe at or before pos, so one whose keyframes are not aligned with the track
+  /// pos came from (a transcoded rendition next to its source) starts with a keyframe instead of
+  /// mid-GOP. Any other track, and every track of a recording past its header, starts at pos.
+  uint64_t Output::recordingTrackStart(size_t tid, uint64_t pos) {
+    if (!isRecordingToFile || sentHeader || !M.trackLoaded(tid) || M.getType(tid) != "video") { return pos; }
+    const uint32_t keyNum = M.getKeyNumForTime(tid, pos);
+    if (keyNum == INVALID_KEY_NUM) { return pos; }
+    const uint64_t keyTime = DTSC::Keys(M.getKeys(tid)).getTime(keyNum);
+    return keyTime < pos ? keyTime : pos;
   }
 
   bool Output::seek(size_t tid, uint64_t pos, bool getNextKey) {

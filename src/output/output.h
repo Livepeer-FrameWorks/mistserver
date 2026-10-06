@@ -44,6 +44,7 @@ namespace Mist{
     virtual void stats(bool force = false);
     bool seek(uint64_t pos, bool toKey = false);
     bool seek(size_t tid, uint64_t pos, bool getNextKey);
+    uint64_t recordingTrackStart(size_t tid, uint64_t pos);
     void seekKeyframesIn(unsigned long long pos, unsigned long long maxDelta);
     void stop();
     uint64_t currentTime();
