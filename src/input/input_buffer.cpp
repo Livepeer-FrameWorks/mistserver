@@ -980,10 +980,14 @@ namespace Mist{
         }
         sourceUsers[id] = newTrack;
       }
-      // A disconnecting publisher is gone: this scan handles its disconnect right after.
+      // A disconnecting publisher is gone: this scan handles its disconnect right after. It did
+      // supply the stream, also when it ended before any scan saw it connected.
       const bool disconnecting = users.getStatus(id) & COMM_STATUS_DISCONNECT;
       // GeneratePids holds the pids of the process that generate data, so ignore those for determining if a push is ingested.
-      if (!isProcess && !disconnecting && M.trackValid(users.getTrack(id))) { hasPush = true; }
+      if (!isProcess && M.trackValid(users.getTrack(id))) {
+        everHadPush = true;
+        if (!disconnecting) { hasPush = true; }
+      }
     }
 
     if (!(users.getStatus(id) & COMM_STATUS_DONOTTRACK)) {

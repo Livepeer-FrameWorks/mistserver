@@ -171,6 +171,19 @@ namespace {
 
       bool feedPaused() const { return streamStatus.mapped[STRMSTATE_PROCESS_FEED_PAUSED_OFFSET] != 0; }
 
+      /// Runs one user scan over the record of a publisher of track 0 that pushed and disconnected
+      /// before the buffer scanned its users, as a source that ends within one tick does. Returns
+      /// the published source-EOF flag.
+      bool scanDepartedPublisher() {
+        users.reload(streamName, true);
+        {
+          Comms::Users publisher;
+          publisher.reload(streamName, (size_t)0, (uint8_t)COMM_STATUS_SOURCE);
+        }
+        COMM_LOOP(users, userOnActive(id), userOnDisconnect(id));
+        userLeadOut();
+        return streamStatus.mapped[STRMSTATE_PROCESS_SOURCE_EOF_OFFSET];
+      }
   };
 } // namespace
 
@@ -237,6 +250,15 @@ int main() {
   input.reset(false, false, true, false, 0);
   if (input.tick() != STRMSTAT_SHUTDOWN || input.active()) {
     return fail("ordinary non-resumable producer EOF must stop the input");
+  }
+
+  // A source that publishes and ends between two buffer ticks is first seen disconnected. It still
+  // supplied the stream, so its readers must learn that it ended, or they wait for more data.
+  input.initMetadata("departed" + std::to_string(getpid()));
+  input.addSourceData();
+  input.reset(true, false, false, false, 0);
+  if (!input.scanDepartedPublisher()) {
+    return fail("a publisher that ended before the buffer first saw it must count as a source that ended");
   }
 
   input.initMetadata("pgexpect");
