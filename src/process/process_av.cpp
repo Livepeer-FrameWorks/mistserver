@@ -5,6 +5,7 @@
 #include "process.hpp"
 #include "process_av_bitrate.h"
 #include "process_outputs.h"
+#include "reader_keepalive.h"
 
 #include <mist/h264.h>
 #include <mist/mp4_generic.h>
@@ -1761,11 +1762,18 @@ namespace Mist{
       return true;
     }
 
+    /// Updates this reader's session while it waits for the sink to take a frame.
+    void keepSession() {
+      thisBootMs = Util::bootMS();
+      stats();
+    }
+
     /// @brief Takes raw video buffer and encode it to create an output packet
     bool waitForSinkPacketSlot() {
       uint64_t sleepTime = Util::getMicros();
       std::unique_lock<std::mutex> lk(avMutex);
-      avCV.wait(lk, []() { return !frameReady || !conf.is_active || !co.is_active; });
+      waitKeepingSession(lk, avCV, []() { return !frameReady || !conf.is_active || !co.is_active; },
+                         [this]() { keepSession(); });
       totalSourceSleep += Util::getMicros(sleepTime);
       return conf.is_active && co.is_active;
     }
@@ -2087,7 +2095,8 @@ namespace Mist{
         {
           uint64_t sleepTime = Util::getMicros();
           std::unique_lock<std::mutex> lk(avMutex);
-          avCV.wait(lk, [this]() { return !frameReady || !config->is_active; });
+          waitKeepingSession(lk, avCV, [this]() { return !frameReady || !config->is_active; },
+                             [this]() { keepSession(); });
           totalSourceSleep += Util::getMicros(sleepTime);
           // Adjust ptr size to how many bytes were actually written
           ptr.append(0, bytes);
@@ -2126,7 +2135,8 @@ namespace Mist{
           {
             uint64_t sleepTime = Util::getMicros();
             std::unique_lock<std::mutex> lk(avMutex);
-            avCV.wait(lk, [this]() { return !frameReady || !config->is_active; });
+            waitKeepingSession(lk, avCV, [this]() { return !frameReady || !config->is_active; },
+                               [this]() { keepSession(); });
             totalSourceSleep += Util::getMicros(sleepTime);
             frameTimes.push_back(thisTime);
             skipPacket = true;

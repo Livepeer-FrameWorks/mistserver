@@ -600,6 +600,10 @@ processsupervisortest = executable('processsupervisortest', 'process_supervisor_
                                    dependencies: libmist_dep)
 test('Process supervisor exit and restart contract', processsupervisortest, suite: 'Processing')
 
+readerkeepalivetest = executable('readerkeepalivetest', 'reader_keepalive_unit.cpp', header_tgts,
+                                 dependencies: libmist_dep)
+test('A process reader waiting on its process keeps its session alive', readerkeepalivetest, suite: 'Processing')
+
 dropdiagnosticstest = executable('dropdiagnosticstest', 'drop_diagnostics_unit.cpp')
 test('Packet and segment drop diagnostic policy', dropdiagnosticstest, suite: 'Processing')
 

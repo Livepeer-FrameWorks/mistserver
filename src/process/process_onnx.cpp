@@ -7,6 +7,7 @@
 #include "process.hpp"
 #include "process_onnx_audio.h"
 #include "process_outputs.h"
+#include "reader_keepalive.h"
 
 #include <mist/defines.h>
 #include <mist/onnx.h>
@@ -475,9 +476,12 @@ namespace Mist {
           }
           if (orderedVision) {
             std::unique_lock<std::mutex> lock(latestVideoMutex);
-            while (videoQueue.size() >= VISION_QUEUE_CAPACITY && isActive && keepGoing()) {
-              videoQueueSpace.wait_for(lock, std::chrono::milliseconds(100));
-            }
+            waitKeepingSession(lock, videoQueueSpace, [this]() {
+              return videoQueue.size() < VISION_QUEUE_CAPACITY || !isActive || !keepGoing();
+            }, [this]() {
+              thisBootMs = Util::bootMS();
+              stats();
+            });
             visionReceivedFrames++;
             videoQueue.push_back(vp);
           } else {
