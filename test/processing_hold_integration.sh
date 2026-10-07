@@ -1,8 +1,9 @@
 #!/bin/sh
 # A process-controlled recording of a long source, fed at the unconstrained
 # 32x ceiling (only an inconsequential Thumbs process runs), written through a
-# sink slower than the feed that starts draining only 5 s after the recorder
-# attached, so the recording stalls right behind its header while the feed ramps.
+# sink that reads nothing until the buffer paused the feed for the stalled
+# recording, then drains slower than the feed. However fast the host lets the
+# feed ramp, the recording stalls right behind its header until the hold.
 # The recording must still contain the whole source: the buffer may not evict
 # keys the recorder has not written, and the feed has to wait for it.
 set -eu
@@ -39,7 +40,6 @@ if ! "$ffmpeg" -hide_banner -encoders 2>/dev/null | grep -q 'libx264'; then
 fi
 
 source_duration=${MIST_HOLD_SOURCE_DURATION:-180}
-header_delay=${MIST_HOLD_HEADER_DELAY:-5}
 # Sink throughput as a multiple of the source bitrate: well below the 32x feed.
 sink_speed=${MIST_HOLD_SINK_SPEED:-4}
 
@@ -133,15 +133,21 @@ if [ "$started" -ne 1 ]; then
   exit 1
 fi
 
-# The recording goes to stdout. The sink reads nothing for header_delay
-# seconds, then drains at sink_speed x the source bitrate, like an upload that
-# is slow to start and cannot keep up with the 32x feed.
+# The recording goes to stdout. The sink reads nothing until the buffer logs that
+# it paused the feed for the recording (or 120 s passed, which fails the hold
+# check below), then drains at sink_speed x the source bitrate, like an upload
+# that cannot keep up with the 32x feed.
 recording="$work/recording.mkv"
 throttle="$work/throttle.py"
 cat >"$throttle" <<'EOF'
 import sys, time
-dst, rate, delay = sys.argv[1], int(sys.argv[2]), float(sys.argv[3])
-time.sleep(delay)
+dst, rate, log = sys.argv[1], int(sys.argv[2]), sys.argv[3]
+deadline = time.monotonic() + 120
+while time.monotonic() < deadline:
+    with open(log, errors='replace') as f:
+        if 'Processing feed paused: source leads the slowest recorder' in f.read():
+            break
+    time.sleep(0.1)
 with open(dst, 'wb') as o:
     start = time.monotonic()
     n = 0
@@ -156,7 +162,7 @@ with open(dst, 'wb') as o:
             time.sleep(ahead)
 EOF
 "$timeout_program" 150 env TMP="$ipc_root" MIST_CONTROL=1 "$output_ebml" -s "$stream" - 2>"$work/output.log" | \
-  "$python" "$throttle" "$recording" "$sink_rate" "$header_delay" || true
+  "$python" "$throttle" "$recording" "$sink_rate" "$work/input.log" || true
 
 if [ ! -s "$recording" ]; then
   echo "recording is empty" >&2
