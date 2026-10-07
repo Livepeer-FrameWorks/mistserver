@@ -324,10 +324,15 @@ if [ "$result_count" -lt 10 ] || ! exceeds "$last_result" "$((recording_seconds 
   echo "ONNX results do not cover the end of the recording: $result_count results from $first_result to $last_result" >&2
   exit 1
 fi
-# Every second frame is processed (process_every_nth=2 at 10fps): the results start with the
-# first frames of the recording, however late the ONNX process started reading.
-if exceeds "$first_result" 0.5; then
+# Every second frame is processed (process_every_nth=2 at 10fps), starting with the first: the
+# results start with the recording's first frame, however late the ONNX process started reading.
+if exceeds "$first_result" 0.05; then
   echo "ONNX results do not cover the start of the recording: the first is at ${first_result}s" >&2
+  exit 1
+fi
+# The AV process hands ONNX every frame it decoded, the first one included, with its picture.
+if grep -q 'ProcessSource got video packet with no data' "$work/input.log"; then
+  echo "the AV process published an empty NV12 frame" >&2
   exit 1
 fi
 

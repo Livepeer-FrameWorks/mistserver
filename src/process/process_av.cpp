@@ -2088,24 +2088,27 @@ namespace Mist{
       // DTSC raw-video packets have no stride field, so emit canonical tightly packed planes
       // even when LibAV allocated aligned source rows.
       int sizeNeeded = av_image_get_buffer_size((AVPixelFormat)frameConverted->format, frameConverted->width, frameConverted->height, 1);
-      ptr.allocate(sizeNeeded);
-      ptr.truncate(0);
-      int bytes = av_image_copy_to_buffer((uint8_t*)(char*)ptr, ptr.rsize(), frameConverted->data, frameConverted->linesize, (AVPixelFormat)frameConverted->format, frameConverted->width, frameConverted->height, 1);
-      if (bytes > 0){
-        {
-          uint64_t sleepTime = Util::getMicros();
-          std::unique_lock<std::mutex> lk(avMutex);
-          waitKeepingSession(lk, avCV, [this]() { return !frameReady || !config->is_active; },
-                             [this]() { keepSession(); });
-          totalSourceSleep += Util::getMicros(sleepTime);
+      int bytes = 0;
+      {
+        uint64_t sleepTime = Util::getMicros();
+        std::unique_lock<std::mutex> lk(avMutex);
+        // The sink thread buffers the previous frame straight from ptr: write the next one only
+        // once it took that one.
+        waitKeepingSession(lk, avCV, [this]() { return !frameReady || !config->is_active; }, [this]() { keepSession(); });
+        totalSourceSleep += Util::getMicros(sleepTime);
+        ptr.allocate(sizeNeeded);
+        ptr.truncate(0);
+        bytes = av_image_copy_to_buffer((uint8_t *)(char *)ptr, ptr.rsize(), frameConverted->data, frameConverted->linesize,
+                                        (AVPixelFormat)frameConverted->format, frameConverted->width, frameConverted->height, 1);
+        if (bytes > 0) {
           // Adjust ptr size to how many bytes were actually written
           ptr.append(0, bytes);
           frameTimes.push_back(thisTime);
           ++outputFrameCount;
           frameReady = true;
         }
-        avCV.notify_all();
       }
+      if (bytes > 0) { avCV.notify_all(); }
     }
 
     void sendNext(){
