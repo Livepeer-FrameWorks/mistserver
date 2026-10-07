@@ -666,6 +666,8 @@ void Util::Config::activate(){
     setUser(getString("username"));
     vals.removeMember("username");
   }
+  // The stop-signal handler may print a backtrace (see signal_handler).
+  prime_stackframe();
   struct sigaction new_action;
   struct sigaction cur_action;
   new_action.sa_sigaction = signal_handler;
@@ -726,6 +728,13 @@ static int signalLogLevel(int signum) {
 /// a SIGINT, SIGHUP or SIGTERM signal, reaps children for the SIGCHLD
 /// signal, and ignores all other signals.
 void Util::Config::signal_handler(int signum, siginfo_t *sigInfo, void *ignore){
+#if DEBUG >= DLVL_DEVEL
+  // A debug process that keeps receiving stop signals while it stops shows where it is.
+  static int ctr = 0;
+  if ((signum == SIGINT || signum == SIGTERM || signum == SIGHUP) && !is_active && ++ctr > 4) {
+    show_stackframe_signalsafe();
+  }
+#endif
   switch (signum){
     case SIGINT: // these three signals will set is_active to false.
     case SIGTERM:

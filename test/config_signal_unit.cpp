@@ -5,6 +5,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <fcntl.h>
+#include <string>
 #include <sys/wait.h>
 #include <unistd.h>
 
@@ -100,14 +101,20 @@ namespace {
   /// every 10 ms, and a buffer's exit handler adds its own. Each one may interrupt the heap
   /// allocator, which the exiting process uses (destructors, the gcov dump at exit). The handler
   /// must then return without touching the heap: an allocation from the handler deadlocks on the
-  /// allocator lock or corrupts the heap.
+  /// allocator lock or corrupts the heap. A debug build still writes the backtrace of a process
+  /// that receives a fifth stop signal while stopping.
   void repeatedStopSignalsDuringHeapUseAreHarmless() {
     int done[2], ready[2];
     assert(pipe(done) == 0);
     assert(pipe(ready) == 0);
+    char logPath[] = "/tmp/config-signal-log.XXXXXX";
+    int log = mkstemp(logPath);
+    assert(log >= 0);
     pid_t child = fork();
     assert(child >= 0);
     if (!child) {
+      dup2(log, STDERR_FILENO);
+      close(log);
       close(done[1]);
       close(ready[0]);
       fcntl(done[0], F_SETFL, O_NONBLOCK);
@@ -147,6 +154,26 @@ namespace {
     assert(ret == child);
     assert(WIFEXITED(status));
     assert(WEXITSTATUS(status) == 0);
+
+    std::string written;
+    char buf[65536];
+    ssize_t got;
+    assert(lseek(log, 0, SEEK_SET) == 0);
+    while ((got = read(log, buf, sizeof(buf))) > 0) { written.append(buf, got); }
+    close(log);
+    unlink(logPath);
+#if DEBUG >= DLVL_DEVEL && defined(HASEXECINFO)
+    const std::string header = "Backtrace of a stopping process that received another stop signal:\n";
+    size_t at = written.find(header);
+    if (at == std::string::npos) { fprintf(stderr, "no backtrace was written after repeated stop signals\n"); }
+    assert(at != std::string::npos);
+    // Frames follow the header, one per line, each naming its address.
+    size_t frameEnd = written.find('\n', at + header.size());
+    assert(frameEnd != std::string::npos);
+    assert(written.substr(at + header.size(), frameEnd - at - header.size()).find("[0x") != std::string::npos);
+#else
+    assert(written.find("Backtrace") == std::string::npos);
+#endif
   }
 
   void componentConstructionCannotOverwriteProcessType() {

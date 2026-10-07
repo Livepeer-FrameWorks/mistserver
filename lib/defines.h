@@ -79,8 +79,26 @@ static const char *DBG_LVL_LIST[] ={"NONE", "FAIL",     "ERROR",   "WARN",   "IN
 
 #if !defined(HASEXECINFO) || defined(_WIN32) || defined(__CYGWIN__) || DEBUG < DLVL_DEVEL
 static inline void show_stackframe(){}
+static inline void show_stackframe_signalsafe() {}
+static inline void prime_stackframe() {}
 #else
 #include <execinfo.h>
+#include <unistd.h>
+      /// show_stackframe for a signal handler. backtrace_symbols allocates, which deadlocks or
+      /// corrupts the heap of a process the signal interrupted inside malloc; backtrace_symbols_fd
+      /// writes the frames without allocating. backtrace allocates on its first call only (it loads
+      /// the unwinder), so prime_stackframe makes that call before the handlers are installed.
+      static inline void show_stackframe_signalsafe() {
+        static const char header[] = "Backtrace of a stopping process that received another stop signal:\n";
+        void *trace[16];
+        int trace_size = backtrace(trace, 16);
+        if (write(STDERR_FILENO, header, sizeof(header) - 1) < 0) { return; }
+        if (trace_size > 1) { backtrace_symbols_fd(trace + 1, trace_size - 1, STDERR_FILENO); }
+      }
+      static inline void prime_stackframe() {
+        void *trace[1];
+        backtrace(trace, 1);
+      }
       static inline void show_stackframe() {
         void *trace[16];
         char **messages = 0;
@@ -99,6 +117,8 @@ static inline void show_stackframe(){}
 
 #define DEBUG_MSG(lvl, msg, ...) // Debugging disabled.
 static inline void show_stackframe(){}
+static inline void show_stackframe_signalsafe() {}
+static inline void prime_stackframe() {}
 
 #endif
 
