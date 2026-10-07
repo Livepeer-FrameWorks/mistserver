@@ -2,6 +2,9 @@
 
 #include <cassert>
 #include <csignal>
+#include <cstdio>
+#include <cstdlib>
+#include <fcntl.h>
 #include <sys/wait.h>
 #include <unistd.h>
 
@@ -93,6 +96,59 @@ namespace {
     assert(!config.is_active);
   }
 
+  /// A process that is already stopping keeps receiving stop signals: MistUtilNuke repeats its stop
+  /// every 10 ms, and a buffer's exit handler adds its own. Each one may interrupt the heap
+  /// allocator, which the exiting process uses (destructors, the gcov dump at exit). The handler
+  /// must then return without touching the heap: an allocation from the handler deadlocks on the
+  /// allocator lock or corrupts the heap.
+  void repeatedStopSignalsDuringHeapUseAreHarmless() {
+    int done[2], ready[2];
+    assert(pipe(done) == 0);
+    assert(pipe(ready) == 0);
+    pid_t child = fork();
+    assert(child >= 0);
+    if (!child) {
+      close(done[1]);
+      close(ready[0]);
+      fcntl(done[0], F_SETFL, O_NONBLOCK);
+      Util::Config config("config-signal-test");
+      config.activate();
+      char byte = 0;
+      if (write(ready[1], &byte, 1) != 1) { _exit(2); }
+      while (read(done[0], &byte, 1) != 1) {
+        for (size_t size = 16; size < 65536; size *= 2) { free(malloc(size)); }
+      }
+      _exit(config.is_active ? 1 : 0);
+    }
+    close(done[0]);
+    close(ready[1]);
+    char byte;
+    assert(read(ready[0], &byte, 1) == 1);
+    close(ready[0]);
+    signal(SIGPIPE, SIG_IGN);
+    for (int i = 0; i < 1000; ++i) {
+      assert(kill(child, SIGTERM) == 0);
+      usleep(200);
+    }
+    if (write(done[1], "x", 1) != 1) { perror("write"); }
+    close(done[1]);
+
+    // A deadlocked child never exits: give it 20 s, then fail.
+    int status = 0;
+    pid_t ret = 0;
+    for (int i = 0; i < 2000 && !(ret = waitpid(child, &status, WNOHANG)); ++i) { usleep(10000); }
+    if (!ret) {
+      kill(child, SIGKILL);
+      waitpid(child, &status, 0);
+    }
+    if (ret != child || !WIFEXITED(status) || WEXITSTATUS(status)) {
+      fprintf(stderr, "child %s (status %d)\n", ret == child ? "ended badly" : "deadlocked", status);
+    }
+    assert(ret == child);
+    assert(WIFEXITED(status));
+    assert(WEXITSTATUS(status) == 0);
+  }
+
   void componentConstructionCannotOverwriteProcessType() {
     Util::Config::binaryType = Util::UNSET;
     assert(Util::Config::claimBinaryType(Util::INPUT) == Util::INPUT);
@@ -111,5 +167,6 @@ int main() {
   runChild(explicitIgnoreIsPreserved);
   runChild(shutdownAndUnrelatedSignalsKeepTheirContracts);
   runChild(componentConstructionCannotOverwriteProcessType);
+  repeatedStopSignalsDuringHeapUseAreHarmless();
   return 0;
 }

@@ -737,10 +737,6 @@ void Util::Config::signal_handler(int signum, siginfo_t *sigInfo, void *ignore){
         if (mutabort) { mutabort->unlock(); }
       }
     case SIGHUP:
-#if DEBUG >= DLVL_DEVEL
-    static int ctr = 0;
-    if (!is_active && ++ctr > 4){BACKTRACE;}
-#endif
     switch (sigInfo->si_code){
     case SI_USER:
     case SI_QUEUE:
