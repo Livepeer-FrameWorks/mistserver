@@ -14,6 +14,7 @@
 #include <fcntl.h>
 #include <sys/mman.h>
 #include <sys/sem.h>
+#include <sys/stat.h>
 #include <unistd.h>
 #include <utility>
 
@@ -31,6 +32,20 @@ namespace IPC{
           Util::sleep(std::min<uint64_t>(100, until - now));
         }
         handle = tryOpen();
+      }
+      return handle;
+    }
+
+    /// Calls open, and counts a page whose creator has not sized it yet as not there yet: the
+    /// creator makes the page, then sizes it, so a reader in between finds it empty.
+    template<typename Open> int openSized(Open tryOpen) {
+      int handle = tryOpen();
+      if (handle == -1) { return -1; }
+      struct stat buffStats;
+      if (fstat(handle, &buffStats) < 0 || !buffStats.st_size) {
+        ::close(handle);
+        errno = ENOENT;
+        return -1;
       }
       return handle;
     }
@@ -334,13 +349,18 @@ namespace IPC{
     if (name.size()) {
       INSANE_MSG("Opening page %s in %s mode %s auto-backoff", name.c_str(), master ? "master" : "client",
                  autoBackoff ? "with" : "without");
-      handle = shm_open(name.c_str(), (master ? O_CREAT | O_EXCL : 0) | O_RDWR, ACCESSPERMS);
+      if (master || !autoBackoff) {
+        handle = shm_open(name.c_str(), (master ? O_CREAT | O_EXCL : 0) | O_RDWR, ACCESSPERMS);
+      } else {
+        handle = openSized([this]() { return shm_open(name.c_str(), O_RDWR, ACCESSPERMS); });
+      }
       if (handle == -1) {
         if (master) {
           if (len > 1) { ERROR_MSG("Overwriting old page for %s", name.c_str()); }
           handle = shm_open(name.c_str(), O_CREAT | O_RDWR, ACCESSPERMS);
         } else if (autoBackoff) {
-          handle = openWithBackoff([this]() { return shm_open(name.c_str(), O_RDWR, ACCESSPERMS); });
+          handle = openWithBackoff(
+            [this]() { return openSized([this]() { return shm_open(name.c_str(), O_RDWR, ACCESSPERMS); }); });
         }
       }
       if (handle == -1) {
@@ -476,16 +496,23 @@ namespace IPC{
     mapped = 0;
     if (name.size()){
       /// \todo Use ACCESSPERMS instead of 0600?
-      handle = open(std::string(Util::getTmpFolder() + name).c_str(),
-                    (master ? O_CREAT | O_TRUNC | O_EXCL : 0) | O_RDWR, (mode_t)0600);
+      if (master || !autoBackoff) {
+        handle = open(std::string(Util::getTmpFolder() + name).c_str(),
+                      (master ? O_CREAT | O_TRUNC | O_EXCL : 0) | O_RDWR, (mode_t)0600);
+      } else {
+        handle =
+          openSized([this]() { return open(std::string(Util::getTmpFolder() + name).c_str(), O_RDWR, (mode_t)0600); });
+      }
       if (handle == -1){
         if (master){
           HIGH_MSG("Overwriting old file for %s", name.c_str());
           handle = open(std::string(Util::getTmpFolder() + name).c_str(),
                         O_CREAT | O_TRUNC | O_RDWR, (mode_t)0600);
         } else if (autoBackoff) {
-          handle = openWithBackoff(
-            [this]() { return open(std::string(Util::getTmpFolder() + name).c_str(), O_RDWR, (mode_t)0600); });
+          handle = openWithBackoff([this]() {
+            return openSized(
+              [this]() { return open(std::string(Util::getTmpFolder() + name).c_str(), O_RDWR, (mode_t)0600); });
+          });
         }
       }
       if (handle == -1){

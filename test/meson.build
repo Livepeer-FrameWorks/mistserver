@@ -557,6 +557,9 @@ test('A session that cannot start is reported at once and stops only viewers', s
 stopwaittest = executable('stopwaittest', 'stop_wait_unit.cpp', header_tgts, dependencies: libmist_dep)
 test('A process told to stop gives up its waits', stopwaittest, suite: ['Procs', 'Streams', 'DTSC'], timeout: 90)
 
+sharedpageopentest = executable('sharedpageopentest', 'shared_page_open_unit.cpp', header_tgts, dependencies: libmist_dep)
+test('A page opened before its creator sized it is waited for', sharedpageopentest, suite: 'Runtime')
+
 triggerconfigpolicytest = executable('triggerconfigpolicytest', 'trigger_config_policy_unit.cpp', header_tgts,
                                      dependencies: libmist_dep)
 test('Controller validates typed trigger failure policy', triggerconfigpolicytest, suite: 'Triggers')
