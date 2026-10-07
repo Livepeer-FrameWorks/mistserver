@@ -156,6 +156,15 @@ inputmp4retrytest = executable('inputmp4retrytest',
                                dependencies: libmist_dep)
 test('MP4 input retries incomplete ranged reads', inputmp4retrytest, suite: 'MP4')
 
+if get_option('b_sanitize') == 'none' and host_machine.system() == 'linux'
+  clockstep_preload = shared_module('clockstep_preload', 'clock_step_preload.cpp',
+                                    dependencies: ccpp.find_library('dl', required: false))
+  sessionsecondboundarytest = find_program('session_start_second_boundary_integration.sh')
+  test('A session that boots across a second boundary stays up', sessionsecondboundarytest,
+       args: [exec_tgts.get('MistController'), exec_tgts.get('MistSession'), clockstep_preload],
+       suite: 'Controller', timeout: 30, is_parallel: false)
+endif
+
 ffmpeg_program = find_program('ffmpeg', required: false)
 ffprobe_program = find_program('ffprobe', required: false)
 startup_timeout_program = find_program('timeout', 'gtimeout', required: false)

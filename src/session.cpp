@@ -122,7 +122,11 @@ int main(int argc, char **argv){
   Comms::Sessions sessions;
   Event::Loop evLp;
   evLp.setup();
-  uint64_t lastSeen = Util::bootSecs();
+  // The main loop compares now - lastSeen before it first updates now, so both start from one
+  // reading: a second boundary passed since now's static initialisation would underflow it and end
+  // the session before it serves any connection.
+  now = Util::bootSecs();
+  uint64_t lastSeen = now;
   Util::redirectLogsIfNeeded();
   signal(SIGUSR1, handleSignal);
 
