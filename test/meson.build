@@ -656,6 +656,14 @@ if get_option('b_sanitize') == 'none'
   test('The API account from the environment is stored and never reaches child processes', controllerenvaccounttest,
        args: [exec_tgts.get('MistController'), exec_tgts.get('MistOutHTTP')],
        suite: 'Controller', timeout: 60, is_parallel: false)
+  informationalflagstest = find_program('informational_flags_integration.sh')
+  test('Every binary prints its version as one process and exits, under any name', informationalflagstest,
+       args: [exec_tgts.get('MistController')], depends: exec_tgts.values(),
+       suite: 'Controller', timeout: 120, is_parallel: false)
+  controllerangeltest = find_program('controller_angel_integration.sh')
+  test('The controller angel runs one controller under any name', controllerangeltest,
+       args: [exec_tgts.get('MistController')],
+       suite: 'Controller', timeout: 60, is_parallel: false)
 endif
 
 bufferholdtest = executable('bufferholdtest', 'buffer_hold_unit.cpp', header_tgts, dependencies: libmist_dep)

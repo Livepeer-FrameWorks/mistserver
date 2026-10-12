@@ -32,6 +32,7 @@ namespace Mist {
       bool needsLock() { return false; }
       JSON::Value enumerateSources(const std::string & device);
       JSON::Value getSourceCapa(const std::string & device);
+      bool capabilitiesAvailable() { return ensureNDI(); }
 
       void parseStreamHeader() {}
       bool openStreamSource();
@@ -39,6 +40,8 @@ namespace Mist {
       void streamMainLoop();
 
     private:
+      bool ensureNDI();
+      bool ndiReady = false; ///< NDI::initialize() succeeded and dev/sourceFinder exist
       std::unique_ptr<NDI::Device> dev;
       std::unique_ptr<NDI::Discovery> sourceFinder;
       std::string ndiColorFormat;

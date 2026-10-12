@@ -319,6 +319,33 @@ void Util::Config::addOption(const std::string & optname, const char *jsonStr) {
   }
 }
 
+/// True when the command line asks for the version or usage text (-v, --version, -h, --help),
+/// which parseArgs prints before exiting. A binary that forks or re-executes itself before it
+/// parses its arguments checks this first, so such a request never starts anything.
+bool Util::Config::informationRequested(int argc, char *const *argv) {
+  for (int i = 1; i < argc && argv[i]; ++i) {
+    if (!strcmp(argv[i], "--")) { return false; }
+    if (informationFlag(argv[i])) { return true; }
+  }
+  return false;
+}
+
+/// True for -v, --version, -h and --help.
+bool Util::Config::informationFlag(const char *arg) {
+  return arg && (!strcmp(arg, "--version") || !strcmp(arg, "-v") || !strcmp(arg, "--help") || !strcmp(arg, "-h"));
+}
+
+/// For a binary that takes positional arguments instead of options: when the first argument is
+/// -v/--version or -h/--help, prints the version (after a usage line for help) and returns true.
+bool Util::Config::answerInformation(int argc, char *const *argv, const char *usage) {
+  if (argc < 2 || !informationFlag(argv[1])) { return false; }
+  if (!strcmp(argv[1], "-h") || !strcmp(argv[1], "--help")) {
+    std::cout << "Usage: " << argv[0] << " " << usage << std::endl;
+  }
+  printVersion(std::cout);
+  return true;
+}
+
 /// Prints a usage message to the given output.
 void Util::Config::printHelp(std::ostream &output){
   unsigned int longest = 0;
@@ -369,6 +396,57 @@ void Util::Config::printHelp(std::ostream &output){
   }
 }
 
+/// Prints the version, release and build flags of this binary.
+void Util::Config::printVersion(std::ostream & output) {
+  output << "Version: " PACKAGE_VERSION ", release " RELEASE << std::endl;
+#ifndef SHM_ENABLED
+  output << "- Flag: Shared memory disabled. Will use shared files in stead of shared "
+            "memory as IPC method."
+         << std::endl;
+#endif
+#ifdef WITH_THREADNAMES
+  output << "- Flag: With threadnames. Debuggers will show sensible human-readable thread "
+            "names."
+         << std::endl;
+#endif
+#ifdef STAT_CUTOFF
+  if (STAT_CUTOFF != 600) {
+    output << "- Setting: Stats cutoff point "
+           << STAT_CUTOFF << " seconds. Statistics and session cache are only kept for this long, as opposed to the default of 600 seconds."
+           << std::endl;
+  }
+#endif
+#ifndef SSL
+  output << "- Flag: SSL support disabled. HTTPS/RTMPS/WebRTC/WebSockets are either unavailable or may not function "
+            "fully."
+         << std::endl;
+#endif
+/*LTS-START*/
+#ifndef UPDATER
+  output << "- Flag: Updater disabled. Server will not call back home and attempt to search "
+            "for updates at regular intervals."
+         << std::endl;
+#endif
+#ifdef NOAUTH
+  output << "- Flag: No authentication. API calls do not require logging in with a valid "
+            "account first. Make sure access to API port isn't public!"
+         << std::endl;
+#endif
+#ifdef STATS_DELAY
+  if (STATS_DELAY != 15) {
+    output << "- Setting: Stats delay " << STATS_DELAY << ". Statistics of viewer counts are delayed by " << STATS_DELAY
+           << " seconds as opposed to the default of 15 seconds. ";
+    if (STATS_DELAY > 15) {
+      output << "This makes them more accurate." << std::endl;
+    } else {
+      output << "This makes them less accurate." << std::endl;
+    }
+  }
+#endif
+  /*LTS-END*/
+  output << "Built on " __DATE__ ", " __TIME__ << std::endl;
+}
+
 /// Parses commandline arguments.
 /// Calls exit if an unknown option is encountered, printing a help message.
 bool Util::Config::parseArgs(int &argc, char **&argv){
@@ -399,51 +477,8 @@ bool Util::Config::parseArgs(int &argc, char **&argv){
     switch (opt){
     case 'h':
     case '?': printHelp(std::cout);
-    case 'v': std::cout << "Version: " PACKAGE_VERSION ", release " RELEASE << std::endl;
-#ifndef SHM_ENABLED
-      std::cout << "- Flag: Shared memory disabled. Will use shared files in stead of shared "
-                   "memory as IPC method."
-                << std::endl;
-#endif
-#ifdef WITH_THREADNAMES
-      std::cout << "- Flag: With threadnames. Debuggers will show sensible human-readable thread "
-                   "names."
-                << std::endl;
-#endif
-#ifdef STAT_CUTOFF
-      if (STAT_CUTOFF != 600){
-        std::cout << "- Setting: Stats cutoff point "
-                  << STAT_CUTOFF << " seconds. Statistics and session cache are only kept for this long, as opposed to the default of 600 seconds."
-                  << std::endl;
-      }
-#endif
-#ifndef SSL
-      std::cout << "- Flag: SSL support disabled. HTTPS/RTMPS/WebRTC/WebSockets are either unavailable or may not function fully." << std::endl;
-#endif
-/*LTS-START*/
-#ifndef UPDATER
-      std::cout << "- Flag: Updater disabled. Server will not call back home and attempt to search "
-                   "for updates at regular intervals."
-                << std::endl;
-#endif
-#ifdef NOAUTH
-      std::cout << "- Flag: No authentication. API calls do not require logging in with a valid "
-                   "account first. Make sure access to API port isn't public!"
-                << std::endl;
-#endif
-#ifdef STATS_DELAY
-      if (STATS_DELAY != 15){
-        std::cout << "- Setting: Stats delay " << STATS_DELAY << ". Statistics of viewer counts are delayed by "
-                  << STATS_DELAY << " seconds as opposed to the default of 15 seconds. ";
-        if (STATS_DELAY > 15){
-          std::cout << "This makes them more accurate." << std::endl;
-        }else{
-          std::cout << "This makes them less accurate." << std::endl;
-        }
-      }
-#endif
-      /*LTS-END*/
-      std::cout << "Built on " __DATE__ ", " __TIME__ << std::endl;
+    case 'v':
+      printVersion(std::cout);
       exit(0);
       break;
     default:

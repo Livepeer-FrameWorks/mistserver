@@ -99,6 +99,9 @@ namespace Mist {
     virtual void parseHeader();
     virtual JSON::Value enumerateSources(const std::string &){ return JSON::Value(); };
     virtual JSON::Value getSourceCapa(const std::string &){ return JSON::Value(); };
+    /// False when this input cannot run on this host (a runtime library it loads is missing), in
+    /// which case it reports no capabilities.
+    virtual bool capabilitiesAvailable() { return true; }
 
     virtual uint64_t getSettingUInt64(const DTSC::Scan & streamCfg, const std::string & setting, const std::string & option = "");
 

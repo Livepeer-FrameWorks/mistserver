@@ -1,9 +1,12 @@
-#include <iostream>
+#include <mist/config.h>
 #include <mist/shared_memory.h>
-#include <mist/util.h>
 #include <mist/timing.h>
+#include <mist/util.h>
+
+#include <iostream>
 
 int main(int argc, char **argv){
+  if (Util::Config::answerInformation(argc, argv, "MEMORY_PAGE_NAME")) { return 0; }
   Util::redirectLogsIfNeeded();
   if (argc < 1){
     FAIL_MSG("Usage: %s MEMORY_PAGE_NAME", argv[0]);

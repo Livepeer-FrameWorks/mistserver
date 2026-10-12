@@ -1,3 +1,4 @@
+#include <mist/config.h>
 #include <mist/ev.h>
 #include <mist/procs.h>
 #include <mist/stream.h>
@@ -8,6 +9,7 @@
 #include <iostream>
 
 int main(int argc, char **argv) {
+  if (Util::Config::answerInformation(argc, argv, "(reports the health of the local MistController)")) { return 0; }
   bool degraded = false;
 
   // UDP API check

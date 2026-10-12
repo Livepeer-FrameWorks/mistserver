@@ -61,7 +61,11 @@ namespace Util{
     void addOption(const std::string & optname, const JSON::Value & option);
     void addOption(const std::string & optname, const char *jsonStr);
     void printHelp(std::ostream &output);
+    static void printVersion(std::ostream & output);
     bool parseArgs(int &argc, char **&argv);
+    static bool informationFlag(const char *arg);
+    static bool informationRequested(int argc, char *const *argv);
+    static bool answerInformation(int argc, char *const *argv, const char *usage);
     bool hasOption(const std::string & optname) const;
     JSON::Value & getOption(std::string optname, bool asArray = false);
     const JSON::Value & getOption(std::string optname, bool asArray = false) const;

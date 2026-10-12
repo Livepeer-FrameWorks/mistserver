@@ -425,6 +425,7 @@ namespace Mist{
     Util::setStreamName(streamName);
 
     if (config->getBool("json")){
+      if (!capabilitiesAvailable()) { return 1; }
       applyDisplayDefaultsToInputCapabilities(capa);
       capa["version"] = PACKAGE_VERSION;
       std::cout << capa.toString() << std::endl;

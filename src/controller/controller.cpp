@@ -977,37 +977,32 @@ int main(int argc, char **argv){
 
   Controller::conf = Util::Config(argv[0]);
   Util::Config::binaryType = Util::CONTROLLER;
+
+  // The argument parser in main_loop prints the version or usage text and exits; answering
+  // there directly keeps such a request from ever starting an angel or a controller.
+  if (Util::Config::informationRequested(argc, argv)) { return main_loop(argc, argv); }
+
   Controller::conf.activate();
   Controller::conf.setMutexAborter(&Controller::configMutex);
 
-#ifdef __linux__
-  // Ensure we have a parent; if not, the student becomes the master
-  if (getenv("CTRL_ATHEIST")) {
-    std::string proc_path = "/proc/" + std::to_string(getppid()) + "/exe";
-    char buffer[PATH_MAX];
-    size_t len = readlink(proc_path.c_str(), buffer, PATH_MAX);
-    if (len != -1) {
-      std::string parent(buffer, len);
-      std::string self = argv[0];
-
-      size_t slashPos = self.find_last_of('/');
-      if (slashPos != std::string::npos) { self = self.substr(slashPos + 1); }
-      slashPos = parent.find_last_of('/');
-      if (slashPos != std::string::npos) { parent = parent.substr(slashPos + 1); }
-      if (parent.size() < self.size() || parent.substr(0, self.size()) != self) {
-        WARN_MSG("Detected missing parent process (%s (%zu) != %s): the student becomes the master", parent.c_str(),
-                 (size_t)getppid(), self.c_str());
-        unsetenv("CTRL_ATHEIST");
-      }
+  // CTRL_ATHEIST holds the PID of the angel that started this controller. A process whose parent
+  // is not that angel (for example one that inherited the variable) becomes the angel itself.
+  // The match is on the PID, not on the executable's name, so a controller started under another
+  // name (a symlink, /proc/<pid>/exe) still recognises its angel instead of starting another one.
+  if (const char *angel = getenv("CTRL_ATHEIST")) {
+    char *end = 0;
+    long long angelPid = strtoll(angel, &end, 10);
+    if (end == angel || *end || angelPid != (long long)getppid()) {
+      WARN_MSG("Started by process %lld instead of angel %s: the student becomes the master", (long long)getppid(), angel);
+      unsetenv("CTRL_ATHEIST");
     }
   }
-#endif
 
   // If we're the child process _or_ we're running without angel process, go into the true main loop now.
   if (getenv("ATHEIST") || getenv("CTRL_ATHEIST")) { return main_loop(argc, argv); }
 
   // We're the angel process - set the environment variable indicating such and start child processes in a loop.
-  setenv("CTRL_ATHEIST", "1", 1);
+  setenv("CTRL_ATHEIST", std::to_string(getpid()).c_str(), 1);
 
   // Handle signals as parent
   Util::Procs::setHandler();
@@ -1027,7 +1022,7 @@ int main(int argc, char **argv){
 #ifdef __CYGWIN__
     setenv("NO_WIPE_SHM", "1", 1);
 #endif
-    if (pid == -1){
+    if (pid <= 0) {
       FAIL_MSG("Unable to spawn controller process!");
       return 2;
     }

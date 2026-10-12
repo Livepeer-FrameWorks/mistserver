@@ -1,7 +1,9 @@
+#include <mist/config.h>
 #include <mist/procs.h>
 #include <mist/util.h>
 
 int main(int argc, char **argv) {
+  if (Util::Config::answerInformation(argc, argv, "[COMMAND [ARGUMENTS...]]")) { return 0; }
   if (argc == 1) {
     Util::logParser(0, 1, isatty(1));
     return 0;

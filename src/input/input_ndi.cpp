@@ -33,14 +33,6 @@ namespace Mist {
     capa["always_match"] = capa["source_match"];
     capa["priority"] = 11;
 
-    // Initialize NDI library before creating any NDI objects
-    if (!NDI::initialize()) {
-      Util::logExitReason(ER_READ_START_FAILURE, "Failed to initialize NDI library");
-      exit(1);
-    }
-    dev.reset(new NDI::Device());
-    sourceFinder.reset(new NDI::Discovery());
-
     audioSampleRate = 0;
     audioSampleDepth = 0;
     audioChannels = 0;
@@ -151,7 +143,21 @@ namespace Mist {
   inNDI::~inNDI() {
     dev.reset();
     sourceFinder.reset();
-    NDI::deinitialize();
+    if (ndiReady) { NDI::deinitialize(); }
+  }
+
+  /// Loads the NDI runtime and creates the receiver and finder on first use, so the binary
+  /// answers --version and --help on hosts without the runtime.
+  bool inNDI::ensureNDI() {
+    if (ndiReady) { return true; }
+    if (!NDI::initialize()) {
+      Util::logExitReason(ER_READ_START_FAILURE, "Failed to initialize NDI library");
+      return false;
+    }
+    dev.reset(new NDI::Device());
+    sourceFinder.reset(new NDI::Discovery());
+    ndiReady = true;
+    return true;
   }
 
   uint64_t inNDI::ndiTimeToMs(int64_t timestamp, int64_t timecode) const {
@@ -475,6 +481,7 @@ namespace Mist {
       }
     }
     // Fallback: local discovery (blocking, ~5s)
+    if (!ensureNDI()) { return result; }
     uint32_t numSources = 0;
     const NDIlib_source_t *sources = sourceFinder->getSources(numSources);
     if (sources) {
@@ -495,6 +502,10 @@ namespace Mist {
 
   /// \brief Checks whether the device supports the given config. Stores refs to the NDI device for openStreamSource
   bool inNDI::checkArguments() {
+    if (!ensureNDI()) {
+      config->is_active = false;
+      return false;
+    }
     std::string device = config->getString("input");
     if (device.substr(0, 4) == "ndi:") { device = device.substr(4); }
     if (!device.size()) {
@@ -664,10 +675,11 @@ namespace Mist {
   }
 
   void inNDI::closeStreamSource() {
-    dev->disconnect();
+    if (dev) { dev->disconnect(); }
   }
 
   bool inNDI::switchSource(const std::string & sourceName) {
+    if (!ensureNDI()) { return false; }
     uint32_t numSources = 0;
     const NDIlib_source_t *sources = sourceFinder->getSources(numSources);
     if (!sources || !numSources) {

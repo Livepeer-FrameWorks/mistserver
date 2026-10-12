@@ -145,6 +145,7 @@ int leaveNewerGeneration(const char *step) {
 }
 
 int main(int argc, char **argv){
+  if (Util::Config::answerInformation(argc, argv, "STREAM_NAME")) { return 0; }
   Util::redirectLogsIfNeeded();
   if (argc < 2) {
     FAIL_MSG("Usage: %s STREAM_NAME", argv[0]);
