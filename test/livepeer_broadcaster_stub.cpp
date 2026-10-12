@@ -44,6 +44,9 @@ namespace {
   // differently (another resolution).
   const char *altFlag = 0;
   std::string altSegment;
+  // While the file named by LIVEPEER_STUB_NO_RESULT_FILE exists, every upload is answered 503
+  // after 500 ms: the gateway has no result for any segment.
+  const char *noResultFile = 0;
 
   bool fileExists(const char *path) {
     return path && access(path, F_OK) == 0;
@@ -148,6 +151,16 @@ namespace {
       fprintf(stdout, "deadline %llu %llu\n", (unsigned long long)segment, deadline);
       fflush(stdout);
     }
+    if (fileExists(noResultFile)) {
+      usleep(500000);
+      const std::string response = "HTTP/1.1 503 Service Unavailable\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
+      sendAll(fd, response.data(), response.size());
+      close(fd);
+      std::lock_guard<std::mutex> logGuard(logMutex);
+      fprintf(stdout, "noresult %llu\n", (unsigned long long)segment);
+      fflush(stdout);
+      return;
+    }
     if (failsEverything()) {
       usleep(rejectDelayMs * 1000);
       const std::string response =
@@ -235,6 +248,8 @@ int main(int argc, char **argv) {
   if (holdFile && !*holdFile) { holdFile = 0; }
   altFlag = getenv("LIVEPEER_STUB_ALT_FLAG");
   if (altFlag && !*altFlag) { altFlag = 0; }
+  noResultFile = getenv("LIVEPEER_STUB_NO_RESULT_FILE");
+  if (noResultFile && !*noResultFile) { noResultFile = 0; }
   const char *altFileEnv = getenv("LIVEPEER_STUB_ALT_FILE");
   if (altFileEnv && *altFileEnv) {
     FILE *alt = fopen(altFileEnv, "rb");

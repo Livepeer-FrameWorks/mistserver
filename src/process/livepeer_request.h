@@ -109,10 +109,24 @@ namespace Mist {
   static const uint32_t LIVEPEER_DOWNLOADER_RETRY_COUNT = 1;
 
   /// A 503 means the gateway had no result for the segment yet; its work goes
-  /// on until the deadline and a re-POST of the same segment joins it. Once the
-  /// segment's budget is spent without a result, Livepeer falls back.
+  /// on until the deadline and a re-POST of the same segment joins it.
   inline bool livepeerSegmentBudgetSpent(uint64_t elapsedMs, uint64_t deadlineMs) {
     return elapsedMs >= deadlineMs;
+  }
+
+  enum class LivepeerBudgetMissStep { SkipSegment, Fallback };
+
+  /// What to do with a segment whose budget was spent without a result.
+  /// `consecutiveMisses` counts it and the misses since the last delivered
+  /// segment. A live stream skips the segment, as it does a rejected one, and
+  /// falls back once the gateway missed as many consecutive segments as it may
+  /// reject; a VOD job cannot leave the hole and falls back at once.
+  inline LivepeerBudgetMissStep
+    livepeerBudgetMissStep(const JSON::Value & options, const std::string & streamName, uint32_t consecutiveMisses) {
+    if (livepeerRejectedSegmentStopsJob(options, streamName) || livepeerShouldFallback(consecutiveMisses)) {
+      return LivepeerBudgetMissStep::Fallback;
+    }
+    return LivepeerBudgetMissStep::SkipSegment;
   }
 
   inline JSON::Value buildLivepeerTranscodeConfiguration(const JSON::Value & options, uint64_t deadlineMs) {

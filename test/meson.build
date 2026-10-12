@@ -364,6 +364,12 @@ if get_option('b_sanitize') == 'none' and ffmpeg_program.found() and ffprobe_pro
     test('A republished live stream\'s Livepeer process with a new job token continues its rendition', livepeerlivetest,
          args: livepeerliveargs, env: {'MIST_LIVEPEER_LIVE_MODE': 'republish'},
          suite: 'Processing', timeout: 180, is_parallel: false)
+    test('A live Livepeer segment that misses its budget is skipped without stopping the process', livepeerlivetest,
+         args: livepeerliveargs, env: {'MIST_LIVEPEER_LIVE_MODE': 'late-segment'},
+         suite: 'Processing', timeout: 150, is_parallel: false)
+    test('A live Livepeer process falls back after consecutive segments miss their budget', livepeerlivetest,
+         args: livepeerliveargs, env: {'MIST_LIVEPEER_LIVE_MODE': 'gateway-down'},
+         suite: 'Processing', timeout: 150, is_parallel: false)
     test('A live Livepeer process whose sessions are stopped exits without being killed', livepeerlivetest,
          args: livepeerliveargs, env: {'MIST_LIVEPEER_LIVE_MODE': 'stop-sessions'},
          suite: 'Processing', timeout: 150, is_parallel: false)

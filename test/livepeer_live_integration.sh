@@ -34,6 +34,13 @@
 #                 buffer asks STREAM_PROCESS again and gets the same process with another job token
 #                 (Foghorn signs one per publisher session), and the restarted process continues
 #                 the same rendition track instead of adding a second one next to it.
+#   late-segment  the gateway has no result for one segment within its live
+#                 budget (segment duration plus one second); the process skips
+#                 that segment and keeps running, and the rendition continues
+#                 with the next segments.
+#   gateway-down  the gateway has no result for any segment; the process skips
+#                 segments until five consecutive ones missed their budget, then
+#                 exits unrecoverably so the stream falls back.
 #   stop-sessions the sessions of a resumable stream are stopped through the API
 #                 while the publisher is live (as at a platform stream stop);
 #                 the process exits by itself within seconds, and the buffer
@@ -73,7 +80,8 @@ fi
 
 mode=${MIST_LIVEPEER_LIVE_MODE:-backpressure}
 case "$mode" in
-  backpressure | stop-stall | restart | kill-resume | stall-kill | resolution | live-end | live-end-resume | republish) ;;
+  backpressure | stop-stall | restart | kill-resume | stall-kill | resolution | live-end | live-end-resume | republish | \
+    late-segment | gateway-down) ;;
   stop-sessions)
     if ! command -v curl >/dev/null 2>&1; then
       echo "curl is required to stop the stream's sessions through the API" >&2
@@ -150,6 +158,7 @@ wait_for() {
 logged() { grep -qE -- "$2" "$1" 2>/dev/null; }
 
 hold_file="$work/hold"
+no_result_file="$work/no-result"
 alt_flag="$work/alternate"
 alt_segment="$work/alternate.ts"
 "$ffmpeg" -hide_banner -loglevel error -y -f lavfi -i testsrc2=size=160x90:rate=25:duration=2 \
@@ -157,7 +166,7 @@ alt_segment="$work/alternate.ts"
 api_port=$((24000 + ($$ % 9000)))
 rtmp_port=$((api_port + 1))
 broadcaster_port=$((api_port + 2))
-LIVEPEER_STUB_HOLD_FILE="$hold_file" LIVEPEER_STUB_ALT_FLAG="$alt_flag" LIVEPEER_STUB_ALT_FILE="$alt_segment" \
+LIVEPEER_STUB_HOLD_FILE="$hold_file" LIVEPEER_STUB_NO_RESULT_FILE="$no_result_file" LIVEPEER_STUB_ALT_FLAG="$alt_flag" LIVEPEER_STUB_ALT_FILE="$alt_segment" \
   "$broadcaster_stub" "$broadcaster_port" >"$work/broadcaster.log" 2>&1 &
 stub_pid=$!
 wait_for 10 "the loopback broadcaster" logged "$work/broadcaster.log" '^ready$'
@@ -176,6 +185,10 @@ resume_setting=
 if [ "$mode" = live-end-resume ] || [ "$mode" = republish ]; then resume_setting=',"resume":1'; fi
 # As configured on the platform: a resumable stream that ends 12 s after its last activity.
 if [ "$mode" = stop-sessions ]; then resume_setting=',"resume":1,"inputtimeout":12'; fi
+# A long configured budget keeps the stall cases from giving segments up; the late-segment cases
+# use the live default, the segment duration plus one second.
+deadline_setting=',"deadline_ms":120000'
+if [ "$mode" = late-segment ] || [ "$mode" = gateway-down ]; then deadline_setting=; fi
 triggers="{\"LIVE_TRACK_LIST\":[{\"handler\":\"$handler\",\"sync\":false,\"streams\":[\"$stream\"]}]}"
 resolves="$work/resolves"
 : >"$resolves"
@@ -192,7 +205,7 @@ EOF
   triggers="{\"LIVE_TRACK_LIST\":[{\"handler\":\"$handler\",\"sync\":false,\"streams\":[\"$stream\"]}],\"STREAM_PROCESS\":[{\"handler\":\"$process_handler\",\"sync\":true,\"streams\":[\"$stream\"]}]}"
 fi
 printf '%s\n' \
-  "{\"account\":{\"test\":{\"password\":\"098f6bcd4621d373cade4e832627b4f6\"}},\"auto_push\":null,\"bandwidth\":{\"exceptions\":[\"::1\",\"127.0.0.0/8\"]},\"config\":{\"accesslog\":\"LOG\",\"controller\":{\"interface\":\"127.0.0.1\",\"port\":$api_port,\"username\":null},\"debug\":4,\"defaultStream\":null,\"prometheus\":\"\",\"protocols\":[{\"connector\":\"RTMP\",\"interface\":\"127.0.0.1\",\"port\":$rtmp_port}],\"serverid\":null,\"sessionInputMode\":15,\"sessionOutputMode\":15,\"sessionStreamInfoMode\":1,\"sessionUnspecifiedMode\":0,\"sessionViewerMode\":14,\"tknMode\":15,\"triggers\":$triggers,\"trustedproxy\":[]},\"extwriters\":null,\"jwks\":null,\"push_settings\":{\"maxspeed\":0,\"wait\":3},\"streamkeys\":null,\"streams\":{\"$stream\":{\"name\":\"$stream\",\"source\":\"push://\"$resume_setting,\"processes\":[{\"process\":\"Livepeer\",\"hardcoded_broadcasters\":\"http://127.0.0.1:$broadcaster_port\",\"target_profiles\":[{\"name\":\"audit\",\"bitrate\":400000,\"width\":320,\"height\":180,\"fps\":25,\"gop\":\"2.0\"}],\"deadline_ms\":120000,\"target_mask\":3,\"restart_type\":\"fixed\"}]}},\"variables\":null}" \
+  "{\"account\":{\"test\":{\"password\":\"098f6bcd4621d373cade4e832627b4f6\"}},\"auto_push\":null,\"bandwidth\":{\"exceptions\":[\"::1\",\"127.0.0.0/8\"]},\"config\":{\"accesslog\":\"LOG\",\"controller\":{\"interface\":\"127.0.0.1\",\"port\":$api_port,\"username\":null},\"debug\":4,\"defaultStream\":null,\"prometheus\":\"\",\"protocols\":[{\"connector\":\"RTMP\",\"interface\":\"127.0.0.1\",\"port\":$rtmp_port}],\"serverid\":null,\"sessionInputMode\":15,\"sessionOutputMode\":15,\"sessionStreamInfoMode\":1,\"sessionUnspecifiedMode\":0,\"sessionViewerMode\":14,\"tknMode\":15,\"triggers\":$triggers,\"trustedproxy\":[]},\"extwriters\":null,\"jwks\":null,\"push_settings\":{\"maxspeed\":0,\"wait\":3},\"streamkeys\":null,\"streams\":{\"$stream\":{\"name\":\"$stream\",\"source\":\"push://\"$resume_setting,\"processes\":[{\"process\":\"Livepeer\",\"hardcoded_broadcasters\":\"http://127.0.0.1:$broadcaster_port\",\"target_profiles\":[{\"name\":\"audit\",\"bitrate\":400000,\"width\":320,\"height\":180,\"fps\":25,\"gop\":\"2.0\"}]$deadline_setting,\"target_mask\":3,\"restart_type\":\"fixed\"}]}},\"variables\":null}" \
   >"$config"
 
 TMP="$ipc_root" MIST_CONTROL=1 "$controller" -c "$config" -C r -L "$work/controller.log" &
@@ -467,6 +480,43 @@ case "$mode" in
     fi
     livepeer_ended_clean
     echo "republish: the new session's Livepeer process continued rendition track $rendition"
+    ;;
+  late-segment)
+    pid=$(livepeer_pid)
+    : >"$no_result_file"
+    wait_for 30 "a segment given up after its budget" logged "$work/controller.log" 'Skipping seg [0-9]+: no result within its'
+    rm -f "$no_result_file"
+    count=$(responses)
+    wait_for 30 "renditions after the late segment" responded_at_least $((count + 3))
+    if [ "$(livepeer_pid)" != "$pid" ]; then
+      echo "the Livepeer process (PID $pid) did not survive a segment that missed its budget" >&2
+      exit 1
+    fi
+    if grep -qE 'had no result for segment|exited with unrecoverable error' "$work/controller.log"; then
+      echo "a segment that missed its budget stopped Livepeer" >&2
+      exit 1
+    fi
+    skipped=$(grep -cE 'Skipping seg [0-9]+: no result within its' "$work/controller.log" || true)
+    echo "late-segment: PID $pid skipped $skipped late segment(s) and kept transcoding"
+    ;;
+  gateway-down)
+    pid=$(livepeer_pid)
+    : >"$no_result_file"
+    gone() { ! kill -0 "$pid" 2>/dev/null; }
+    wait_for 60 "the Livepeer process to give up on the gateway" gone
+    rm -f "$no_result_file"
+    skipped=$(grep -cE 'Skipping seg [0-9]+: no result within its' "$work/controller.log" || true)
+    if [ "$skipped" -lt 4 ]; then
+      echo "the Livepeer process skipped $skipped segments before giving up; expected four" >&2
+      exit 1
+    fi
+    if ! grep -qE 'had no result for segment [0-9]+ within its [0-9]+ ms budget \([0-9]+ consecutive\)' "$work/controller.log"; then
+      echo "the Livepeer process did not report the consecutive misses it gave up on" >&2
+      exit 1
+    fi
+    wait_for 10 "the buffer to disable the failed process" logged "$work/controller.log" \
+      "Process .Livepeer. \(PID $pid\) exited with unrecoverable error"
+    echo "gateway-down: PID $pid skipped $skipped segments, then exited unrecoverably"
     ;;
   stop-sessions)
     pid=$(livepeer_pid)

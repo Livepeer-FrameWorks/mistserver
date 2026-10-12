@@ -75,6 +75,9 @@ std::atomic<bool> isStuck{false};
 std::atomic<size_t> sourceIndex{INVALID_TRACK_ID};
 std::atomic<bool> livepeerSourceEOF{false};
 std::atomic<bool> livepeerStopRequested{false};
+// Segments whose budget was spent without a result since the last delivered
+// segment, across all upload threads.
+std::atomic<uint32_t> consecutiveBudgetMisses{0};
 std::string livepeerThreadStreamName;
 
 /// Stops both threads of this process. The reason is logged here because the other thread only
@@ -763,6 +766,23 @@ MultipartResult parseMultipart(const Mist::preparedSegment & mySeg, const std::s
   return result;
 }
 
+/// Gives up a segment without renditions: waits for its insertion turn and
+/// passes it, so the renditions continue with the next segment.
+void skipSegment(size_t myNum, Mist::preparedSegment & mySeg) {
+  uint64_t sinkWaitStart = Util::getMicros();
+  while (!insertOrder.isCurrent(myNum) && !livepeerStopRequested.load(std::memory_order_acquire)) { Util::sleep(100); }
+  statTotalSinkWaitUs.fetch_add(Util::getMicros(sinkWaitStart), std::memory_order_relaxed);
+  if (livepeerStopRequested.load(std::memory_order_acquire)) { return; }
+
+  mySeg.fullyWritten.store(false, std::memory_order_relaxed);
+  mySeg.fullyRead.store(true, std::memory_order_release);
+  statQueueDepth.fetch_sub(1, std::memory_order_relaxed);
+  if (!insertOrder.complete(myNum)) {
+    procExit.log(ER_FORMAT_SPECIFIC, 2, "Livepeer segment skip completed out of order");
+    requestLivepeerStop("segment skip completed out of order");
+  }
+}
+
 void segmentRejectedTrigger(size_t myNum, Mist::preparedSegment & mySeg, const std::string & bc1, const std::string & bc2) {
   if (Triggers::shouldTrigger("LIVEPEER_SEGMENT_REJECTED", Util::streamName)){
     FAIL_MSG("Segment could not be transcoded, skipping to next and submitting for analysis");
@@ -775,18 +795,7 @@ void segmentRejectedTrigger(size_t myNum, Mist::preparedSegment & mySeg, const s
   }else{
     FAIL_MSG("Segment could not be transcoded, skipping to next");
   }
-  uint64_t sinkWaitStart = Util::getMicros();
-  while (!insertOrder.isCurrent(myNum) && !livepeerStopRequested.load(std::memory_order_acquire)) { Util::sleep(100); }
-  statTotalSinkWaitUs.fetch_add(Util::getMicros(sinkWaitStart), std::memory_order_relaxed);
-  if (livepeerStopRequested.load(std::memory_order_acquire)) { return; }
-
-  mySeg.fullyWritten.store(false, std::memory_order_relaxed);
-  mySeg.fullyRead.store(true, std::memory_order_release);
-  statQueueDepth.fetch_sub(1, std::memory_order_relaxed);
-  if (!insertOrder.complete(myNum)) {
-    procExit.log(ER_FORMAT_SPECIFIC, 2, "Livepeer segment rejection completed out of order");
-    requestLivepeerStop("segment rejection completed out of order");
-  }
+  skipSegment(myNum, mySeg);
 }
 
 /// Gives up a segment every broadcaster rejected. Returns true when the job was
@@ -918,6 +927,7 @@ void uploadThread(size_t myNum){
           if (!Mist::livepeerSegmentInserted(mpResult.partsSeen, mpResult.renditionCount)) { return; }
           mySeg.fullyRead.store(true, std::memory_order_release);
           statQueueDepth.fetch_sub(1, std::memory_order_relaxed);
+          consecutiveBudgetMisses.store(0, std::memory_order_relaxed);
           if (!insertOrder.complete(myNum)) {
             procExit.log(ER_FORMAT_SPECIFIC, 2, "Livepeer response completed out of order");
             requestLivepeerStop("response completed out of order");
@@ -998,17 +1008,25 @@ void uploadThread(size_t myNum){
         } else if (upper.getStatusCode() == 503) {
           // No result yet: the gateway keeps working on the segment until its
           // deadline, and re-posting it to the same gateway joins that work.
-          // Fall back only once the segment's whole budget is spent.
+          // Once the segment's whole budget is spent it is given up.
           ++statFailN200;
           uint64_t elapsedMs = Util::bootMS() - segFirstSendMs;
           WARN_MSG("No result for seg %s from %s after %.2f ms (%" PRIu64 " of %" PRIu64 " ms budget used): %" PRIu32 " %s",
                    JSON::Value(mySeg.keyNo).asString().c_str(), target.getUrl().c_str(), uplTime / 1000.0, elapsedMs,
                    deadlineMs, upper.getStatusCode(), upper.getStatusText().c_str());
           if (Mist::livepeerSegmentBudgetSpent(elapsedMs, deadlineMs)) {
-            procExit.log(ER_FORMAT_SPECIFIC, 2, "Livepeer gateway had no result for segment %s within its %" PRIu64 " ms budget",
-                         JSON::Value(mySeg.keyNo).asString().c_str(), deadlineMs);
-            requestLivepeerStop("segment budget spent without a result");
-            return;
+            uint32_t misses = consecutiveBudgetMisses.fetch_add(1, std::memory_order_relaxed) + 1;
+            if (Mist::livepeerBudgetMissStep(Mist::opt, Util::streamName, misses) == Mist::LivepeerBudgetMissStep::Fallback) {
+              procExit.log(ER_FORMAT_SPECIFIC, 2,
+                           "Livepeer gateway had no result for segment %s within its %" PRIu64 " ms budget (%" PRIu32 " consecutive)",
+                           JSON::Value(mySeg.keyNo).asString().c_str(), deadlineMs, misses);
+              requestLivepeerStop("segment budget spent without a result");
+              return;
+            }
+            WARN_MSG("Skipping seg %s: no result within its %" PRIu64 " ms budget (%" PRIu32 " consecutive)",
+                     JSON::Value(mySeg.keyNo).asString().c_str(), deadlineMs, misses);
+            skipSegment(myNum, mySeg);
+            break;
           }
           uint64_t remainingMs = deadlineMs - elapsedMs;
           Util::sleep(remainingMs < 250 ? remainingMs : 250);
