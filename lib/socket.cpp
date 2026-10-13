@@ -78,6 +78,12 @@ void Socket::setAddrInfoResolver(AddrInfoResolver resolver) {
   addrInfoResolver = resolver;
 }
 
+static void (*blockedSendCallback)() = 0;
+
+void Socket::setBlockedSendCallback(void (*callback)()) {
+  blockedSendCallback = callback;
+}
+
 int Socket::getAddrInfo(const char *node, const char *service, const struct addrinfo *hints, struct addrinfo **res) {
   AddrInfoResolver resolve = addrInfoResolver ? addrInfoResolver : ::getaddrinfo;
   uint64_t deadline = Util::bootMS() + connectTimeoutMs;
@@ -1670,6 +1676,22 @@ void Socket::Connection::send(const char *data, size_t len) {
   // Let's not write nothing, shall we?
   if (!len) { return; }
 
+  // A blocking send with a blocked-send callback writes non-blocking and waits for the
+  // destination in one-second poll() slices, so the callback runs while the destination is not
+  // reading. The descriptor's own flags are restored before returning.
+  int restoreFlags = -1;
+  bool sliceWaits = blocking && blockedSendCallback && sSend >= 0;
+#ifdef SSL
+  if (sslConnected) { sliceWaits = false; }
+#endif
+  if (sliceWaits) {
+    int flags = fcntl(sSend, F_GETFL, 0);
+    if (flags != -1 && !(flags & O_NONBLOCK) && fcntl(sSend, F_SETFL, flags | O_NONBLOCK) != -1) {
+      restoreFlags = flags;
+    }
+  }
+  const int sliceFd = sSend;
+
   // Attempt to send the (new) data immediately without buffering
   size_t i = 0;
   do {
@@ -1681,7 +1703,16 @@ void Socket::Connection::send(const char *data, size_t len) {
       break;
     }
     i += written;
+    if (!written && restoreFlags != -1 && i < len && connected()) {
+      struct pollfd pfd;
+      pfd.fd = sSend;
+      pfd.events = POLLOUT;
+      pfd.revents = 0;
+      if (poll(&pfd, 1, 1000) == 0) { blockedSendCallback(); }
+    }
   } while (i < len && connected());
+  // A send that failed closed the connection; its descriptor number may be reused already.
+  if (restoreFlags != -1 && sSend == sliceFd) { fcntl(sliceFd, F_SETFL, restoreFlags); }
 }
 
 /// Sends (potentially chunked) data immediately if blocking, buffers it for later (if needed) when non-blocking.

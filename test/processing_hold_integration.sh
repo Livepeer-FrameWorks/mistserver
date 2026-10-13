@@ -40,8 +40,28 @@ if ! "$ffmpeg" -hide_banner -encoders 2>/dev/null | grep -q 'libx264'; then
 fi
 
 source_duration=${MIST_HOLD_SOURCE_DURATION:-180}
-# Sink throughput as a multiple of the source bitrate: well below the 32x feed.
+# Sink throughput as a multiple of the source bitrate: well below the 32x feed. Below 1 it is
+# slower than real time, so the recorder keeps lagging even when node pressure holds the feed at 1x.
 sink_speed=${MIST_HOLD_SINK_SPEED:-4}
+# With MIST_HOLD_SINK_WAIT=1 the sink reads nothing until the buffer paused the feed for the
+# stalled recording; with 0 it drains from the start.
+sink_wait=${MIST_HOLD_SINK_WAIT:-1}
+# Seconds the sink keeps reading nothing after the hold, with the recorder blocked writing to it.
+# Longer than a session's inactivity timeout (15 s), it proves a recorder waiting on its sink is
+# not ended as an inactive session.
+sink_stall=${MIST_HOLD_SINK_STALL:-0}
+# With MIST_HOLD_RECORD_THUMBS=1 the recording also carries the Thumbs sprite, preview and VTT
+# tracks, and Thumbs is not restarted, as for a DVR chapter finalization: the recording only
+# completes if Thumbs keeps reading through every feed pause. A sink slower than real time makes
+# every pause last until the recorder caught up half the hold window, longer than a reader's
+# 25 s data wait, while the recorder keeps moving and so keeps its hold.
+record_thumbs=${MIST_HOLD_RECORD_THUMBS:-0}
+thumbs_restart=fixed
+recording_target=-
+if [ "$record_thumbs" = "1" ]; then
+  thumbs_restart=disabled
+  recording_target='/dev/stdout?audio=all&video=H264,JPEG&meta=all'
+fi
 
 work=$(mktemp -d "${TMPDIR:-/tmp}/mist-processing-hold.XXXXXX")
 ipc_root="$work/ipc"
@@ -95,12 +115,12 @@ source_media="$work/source.mp4"
   -c:v libx264 -pix_fmt yuv420p -preset veryfast -b:v 400k -g 50 -keyint_min 50 -bf 0 -sc_threshold 0 \
   -c:a aac -b:a 96k -movflags +faststart "$source_media"
 source_bytes=$(wc -c <"$source_media" | tr -d ' ')
-sink_rate=$((source_bytes / source_duration * sink_speed))
+sink_rate=$(awk -v b="$source_bytes" -v d="$source_duration" -v s="$sink_speed" 'BEGIN { printf "%d", b / d * s }')
 
 port=$((27000 + ($$ % 9000)))
 config="$work/config.json"
 printf '%s\n' \
-  "{\"account\":{\"test\":{\"password\":\"098f6bcd4621d373cade4e832627b4f6\"}},\"auto_push\":null,\"bandwidth\":{\"exceptions\":[\"::1\",\"127.0.0.0/8\"]},\"config\":{\"accesslog\":\"LOG\",\"controller\":{\"interface\":\"127.0.0.1\",\"port\":$port,\"username\":null},\"debug\":4,\"defaultStream\":null,\"prometheus\":\"\",\"protocols\":[],\"serverid\":null,\"sessionInputMode\":15,\"sessionOutputMode\":15,\"sessionStreamInfoMode\":1,\"sessionUnspecifiedMode\":0,\"sessionViewerMode\":14,\"tknMode\":15,\"triggers\":null,\"trustedproxy\":[]},\"extwriters\":null,\"jwks\":null,\"push_settings\":{\"maxspeed\":0,\"wait\":3},\"streamkeys\":null,\"streams\":{\"$stream\":{\"name\":\"$stream\",\"source\":\"$source_media\",\"process_controlled_realtime\":true,\"processes\":[{\"process\":\"Thumbs\",\"track_select\":\"video=H264\",\"inconsequential\":true,\"thumb_width\":80,\"thumb_height\":80,\"grid_cols\":3,\"grid_rows\":2,\"jpeg_quality\":80,\"interval\":2000,\"source_mask\":4,\"target_mask\":3,\"restart_type\":\"fixed\"}]}},\"variables\":null}" \
+  "{\"account\":{\"test\":{\"password\":\"098f6bcd4621d373cade4e832627b4f6\"}},\"auto_push\":null,\"bandwidth\":{\"exceptions\":[\"::1\",\"127.0.0.0/8\"]},\"config\":{\"accesslog\":\"LOG\",\"controller\":{\"interface\":\"127.0.0.1\",\"port\":$port,\"username\":null},\"debug\":4,\"defaultStream\":null,\"prometheus\":\"\",\"protocols\":[],\"serverid\":null,\"sessionInputMode\":15,\"sessionOutputMode\":15,\"sessionStreamInfoMode\":1,\"sessionUnspecifiedMode\":0,\"sessionViewerMode\":14,\"tknMode\":15,\"triggers\":null,\"trustedproxy\":[]},\"extwriters\":null,\"jwks\":null,\"push_settings\":{\"maxspeed\":0,\"wait\":3},\"streamkeys\":null,\"streams\":{\"$stream\":{\"name\":\"$stream\",\"source\":\"$source_media\",\"process_controlled_realtime\":true,\"processes\":[{\"process\":\"Thumbs\",\"track_select\":\"video=H264\",\"inconsequential\":true,\"thumb_width\":80,\"thumb_height\":80,\"grid_cols\":3,\"grid_rows\":2,\"jpeg_quality\":80,\"interval\":2000,\"source_mask\":4,\"target_mask\":3,\"restart_type\":\"$thumbs_restart\"}]}},\"variables\":null}" \
   >"$config"
 
 TMP="$ipc_root" MIST_CONTROL=1 "$controller" -c "$config" -C r -L "$work/controller.log" &
@@ -133,21 +153,22 @@ if [ "$started" -ne 1 ]; then
   exit 1
 fi
 
-# The recording goes to stdout. The sink reads nothing until the buffer logs that
-# it paused the feed for the recording (or 120 s passed, which fails the hold
-# check below), then drains at sink_speed x the source bitrate, like an upload
-# that cannot keep up with the 32x feed.
+# The recording goes to stdout. Unless sink_wait is 0, the sink reads nothing until the buffer
+# logs that it paused the feed for the recording (or 120 s passed, which fails the hold check
+# below), and for sink_stall seconds after that. It then drains at sink_speed x the source
+# bitrate, like an upload that cannot keep up with the 32x feed.
 recording="$work/recording.mkv"
 throttle="$work/throttle.py"
 cat >"$throttle" <<'EOF'
 import sys, time
-dst, rate, log = sys.argv[1], int(sys.argv[2]), sys.argv[3]
+dst, rate, log, stall, wait = sys.argv[1], int(sys.argv[2]), sys.argv[3], float(sys.argv[4]), sys.argv[5] == '1'
 deadline = time.monotonic() + 120
-while time.monotonic() < deadline:
+while wait and time.monotonic() < deadline:
     with open(log, errors='replace') as f:
         if 'Processing feed paused: source leads the slowest recorder' in f.read():
             break
     time.sleep(0.1)
+time.sleep(stall)
 with open(dst, 'wb') as o:
     start = time.monotonic()
     n = 0
@@ -161,8 +182,12 @@ with open(dst, 'wb') as o:
         if ahead > 0:
             time.sleep(ahead)
 EOF
-"$timeout_program" 150 env TMP="$ipc_root" MIST_CONTROL=1 "$output_ebml" -s "$stream" - 2>"$work/output.log" | \
-  "$python" "$throttle" "$recording" "$sink_rate" "$work/input.log" || true
+# Node CPU pressure holds the feed at 1x by design, so the recording may take as long as the
+# source plays (or the sink takes to drain it, if slower), plus the sink's stall.
+recording_timeout=$(awk -v d="$source_duration" -v s="$sink_speed" -v t="$sink_stall" \
+  'BEGIN { printf "%d", (s < 1 ? d / s : d) + t + 120 }')
+"$timeout_program" "$recording_timeout" env TMP="$ipc_root" MIST_CONTROL=1 "$output_ebml" -s "$stream" "$recording_target" 2>"$work/output.log" | \
+  "$python" "$throttle" "$recording" "$sink_rate" "$work/input.log" "$sink_stall" "$sink_wait" || true
 
 if [ ! -s "$recording" ]; then
   echo "recording is empty" >&2
@@ -171,6 +196,12 @@ fi
 if grep -E 'Data page .* was deleted|Timeout while waiting for requested key' \
   "$work/input.log" "$work/output.log"; then
   echo "processing readers lost source data" >&2
+  exit 1
+fi
+# The buffer withholds data while it pauses the feed; a reader that gives up on it (Thumbs above
+# all) ends its own tracks early.
+if grep -h 'data wait timeout' "$work"/*.log; then
+  echo "a processing reader gave up waiting for data the paused feed withheld" >&2
   exit 1
 fi
 if ! grep -q 'Processing feed paused: source leads the slowest recorder' "$work/input.log"; then
@@ -189,4 +220,18 @@ if [ "$recorded_packets" -ne "$source_packets" ]; then
   echo "recording holds $recorded_packets video packets ($first_time..$last_time s); source has $source_packets" >&2
   exit 1
 fi
-echo "processing recording kept all $recorded_packets video packets ($first_time..$last_time s) through a ${sink_speed}x sink"
+if [ "$record_thumbs" = "1" ]; then
+  sprite_last=$("$ffprobe" -v error -select_streams v -show_entries stream=index,codec_name -of csv=p=0 "$recording" |
+    awk -F, '$2 == "mjpeg" { print $1; exit }')
+  if [ -z "$sprite_last" ]; then
+    echo "the recording carries no Thumbs JPEG track" >&2
+    exit 1
+  fi
+  sprite_last=$("$ffprobe" -v error -select_streams "$sprite_last" -show_entries packet=pts_time -of csv=p=0 \
+    "$recording" | awk '{ last = $1 } END { printf "%d", last }')
+  if [ "$sprite_last" -lt $((source_duration - 10)) ]; then
+    echo "the Thumbs track in the recording ends at ${sprite_last} s of a ${source_duration} s source" >&2
+    exit 1
+  fi
+fi
+echo "processing recording kept all $recorded_packets video packets ($first_time..$last_time s) through a ${sink_speed}x sink stalled ${sink_stall} s"

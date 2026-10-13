@@ -6,6 +6,7 @@
 #include "../src/input/processing_rate.h"
 
 #include <mist/http_parser.h>
+#include <mist/proc_stats.h>
 #include <mist/stream.h>
 #include <mist/timing.h>
 
@@ -297,9 +298,19 @@ namespace {
   }
 
   /// Runs rate-controller ticks with the given procs registered as running
-  /// and returns the effective speed after each tick.
-  std::vector<uint64_t> rampSpeeds(Util::Config & config, const std::string & name, const JSON::Value & proc) {
+  /// and returns the effective speed after each tick. The node pressure the
+  /// controller sees comes from a page this test owns, republished fresh with
+  /// cpuSome before every tick, never from the host's Controller-written page.
+  std::vector<uint64_t> rampSpeeds(Util::Config & config, const std::string & name, const JSON::Value & proc, double cpuSome = 0) {
     std::vector<uint64_t> speeds;
+    const std::string pressureName = "/MstNodePressureTest_" + std::to_string(getpid());
+    IPC::sharedPage pressurePage(pressureName, sizeof(NodePressureState), true, false);
+    if (!pressurePage.mapped) {
+      check(false, "could not create the test's node pressure page");
+      return speeds;
+    }
+    NodePressureState::initPage(pressurePage);
+    NodePressureState *pressure = (NodePressureState *)pressurePage.mapped;
     pid_t child = fork();
     if (child == 0) {
       sleep(30);
@@ -312,8 +323,14 @@ namespace {
     {
       InputBufferProbe input(&config);
       input.initMetadata(name);
+      input.nodePressurePage = pressureName;
       input.runningProcs[proc.toString()] = child;
       for (int i = 0; i < 12; ++i) {
+        pressure->beginPublish();
+        pressure->lastUpdateMs = Util::bootMS();
+        pressure->flags = NODE_PRESSURE_HAS_PSI;
+        pressure->cpuSomeQ0_16 = (uint16_t)(cpuSome * 65535.0);
+        pressure->endPublish();
         input.lastRateUpdateMs = 0;
         input.updateProcessingRate();
         speeds.push_back(input.effectiveSpeed);
@@ -338,6 +355,12 @@ namespace {
       check(speeds.back() > 8, "unconstrained feed must ramp well past 1x, got " + std::to_string(speeds.back()));
       check(speeds.back() <= Mist::PROCESSING_UNCONSTRAINED_SPEED, "unconstrained feed must respect its ceiling");
     }
+
+    // The same unconstrained feed stays at 1x while the node reports CPU pressure.
+    speeds = rampSpeeds(config, "unconstrained-pressure-test", thumbs, 0.15);
+    check(speeds.size() == 12 && speeds.back() == 1,
+          "an unconstrained feed under node CPU pressure must hold 1x, got " +
+            (speeds.size() ? std::to_string(speeds.back()) : std::string("no ticks")));
 
     // A consequential proc that has not published its contract still holds 1x.
     JSON::Value transcode;

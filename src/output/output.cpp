@@ -42,6 +42,15 @@
 namespace Mist{
   std::string sourceOverride;
 
+  /// The session connection of this process's recording or push. A blocking send that waits for
+  /// the target to accept data keeps it current: a target that is slow to read leaves the output
+  /// waiting on it, not idle, and the target's own errors and timeouts end the output.
+  static Comms::Connections *targetWaitStats = 0;
+
+  static void keepTargetWaitStatsCurrent() {
+    if (targetWaitStats && *targetWaitStats) { targetWaitStats->setNow(Util::bootSecs()); }
+  }
+
   uint32_t getDTSCLen(char *mapped, uint64_t offset){return Bit::btohl(mapped + offset + 4);}
 
   uint64_t getDTSCTime(char *mapped, uint64_t offset){return Bit::btohll(mapped + offset + 12);}
@@ -3074,6 +3083,11 @@ namespace Mist{
         buffer.replaceFirst(nxt);
       }
 
+      // A process-controlled buffer that paused its feed for a slower recorder withholds this
+      // data on purpose and resumes once that recorder caught up; waiting for it is no stall.
+      if (lastReceive + dataWaitTimeout < thisBootMs && M.getLive() && processControlled && processingFeedPaused()) {
+        lastReceive = thisBootMs;
+      }
       // in sync mode, after ~25 seconds, give up and drop the track.
       if (lastReceive + dataWaitTimeout < thisBootMs){
         //curPage[nxt.tid].mapped + nxt.offset + preLoad.getDataLen()
@@ -3265,6 +3279,10 @@ namespace Mist{
       return;
     }
     lastStats = now;
+    if (!targetWaitStats && isRecording()) {
+      targetWaitStats = &statComm;
+      Socket::setBlockedSendCallback(keepTargetWaitStatsCurrent);
+    }
     VERYHIGH_MSG("Writing stats: %s, %s, %s, %" PRIu64 ", %" PRIu64, getConnectedHost().c_str(), streamName.c_str(),
              tkn.c_str(), myConn.dataUp(), myConn.dataDown());
     statComm.setNow(now);
@@ -3741,6 +3759,13 @@ namespace Mist{
     if (pidPage && pidPage.len >= sizeof(uint64_t)) { streamInputPid = (pid_t) * (uint64_t *)pidPage.mapped; }
     if (!streamInputPid) { return !hadInput; }
     return !kill(streamInputPid, 0) || errno == EPERM;
+  }
+
+  /// Whether the process-controlled buffer of this stream currently pauses its source feed.
+  bool Output::processingFeedPaused() const {
+    const IPC::sharedPage & statePage = Util::streamStatePage(streamName);
+    return statePage && statePage.len > STRMSTATE_PROCESS_FEED_PAUSED_OFFSET &&
+      statePage.mapped[STRMSTATE_PROCESS_FEED_PAUSED_OFFSET];
   }
 
   void Output::refreshProcessStreamState() {

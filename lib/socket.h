@@ -111,6 +111,10 @@ namespace Socket{
   int getAddrInfo(const char *node, const char *service, const struct addrinfo *hints, struct addrinfo **res);
   /// Replaces the resolver behind getAddrInfo; null restores getaddrinfo(3).
   void setAddrInfoResolver(AddrInfoResolver resolver);
+  /// Sets a function a blocking send calls after every second it waited for its destination to
+  /// accept more data. While one is set, blocking sends on plain descriptors wait in poll() instead
+  /// of inside write(); null restores waiting inside write().
+  void setBlockedSendCallback(void (*callback)());
   // Returns a list of local addresses
   void getLocal(std::deque<std::string> & addrs);
   /// Returns true if given human-readable address (address, not hostname) is a local address.

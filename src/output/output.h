@@ -87,6 +87,7 @@ namespace Mist{
 
     void selectAllTracks();
     bool processingControlledRealtime() const;
+    bool processingFeedPaused() const;
     mutable IPC::sharedPage streamConfPage; ///< the configuration page processingControlledRealtime read
     mutable Util::RelAccX streamConf;
     mutable std::string streamConfName;

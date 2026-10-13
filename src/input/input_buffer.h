@@ -112,6 +112,8 @@ namespace Mist{
     uint64_t lastRateUpdateMs;
     uint32_t rateJitterMs;
     uint32_t rampLockoutTicks; ///< # ticks remaining before speed-up allowed
+    // Node-wide CPU pressure page the rate controller reads; the Controller publishes it.
+    std::string nodePressurePage;
     // Highest ProcState.lastUpdateMs we've already acted on, per pid. Procs
     // publish about every second, independently of the jittered consumer tick.
     // Without this gate, the same publish could drive repeated ramp bumps. We only

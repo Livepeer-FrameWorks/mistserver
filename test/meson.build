@@ -27,6 +27,11 @@ socketresolvetest = executable('socketresolvetest', 'socket_resolve_unit.cpp', h
                                dependencies: libmist_dep)
 test('Socket name resolution retries temporary resolver failures', socketresolvetest, suite: 'Sockets')
 
+socketblockedsendtest = executable('socketblockedsendtest', 'socket_blocked_send_unit.cpp', header_tgts,
+                                   dependencies: libmist_dep)
+test('A blocking send keeps calling back while its destination reads nothing', socketblockedsendtest,
+     suite: 'Sockets')
+
 urireaderregressiontest = executable('urireaderregressiontest', 'urireader_regression.cpp', header_tgts,
                                      dependencies: libmist_dep)
 test('terminal ranged response can be reopened', urireaderregressiontest, suite: 'URIReader')
@@ -443,12 +448,20 @@ if get_option('b_sanitize') == 'none' and ffmpeg_program.found() and ffprobe_pro
     python_program = find_program('python3', required: false)
     if python_program.found()
       processingholdtest = find_program('processing_hold_integration.sh')
+      processingholdargs = [ffmpeg_program, ffprobe_program, exec_tgts.get('MistController'),
+                            exec_tgts.get('MistInMP4'), exec_tgts.get('MistInBuffer'),
+                            exec_tgts.get('MistProcThumbs'), exec_tgts.get('MistOutEBML'),
+                            exec_tgts.get('MistUtilNuke'), timeout_program, python_program]
       test('Processing recordings keep the whole source through a slow sink', processingholdtest,
-           args: [ffmpeg_program, ffprobe_program, exec_tgts.get('MistController'),
-                  exec_tgts.get('MistInMP4'), exec_tgts.get('MistInBuffer'),
-                  exec_tgts.get('MistProcThumbs'), exec_tgts.get('MistOutEBML'),
-                  exec_tgts.get('MistUtilNuke'), timeout_program, python_program],
-           suite: 'Processing', timeout: 240, is_parallel: false)
+           args: processingholdargs, suite: 'Processing', timeout: 420, is_parallel: false)
+      test('A processing recording keeps the whole source while its sink stalls past the session timeout',
+           processingholdtest, args: processingholdargs, env: {'MIST_HOLD_SINK_STALL': '20'},
+           suite: 'Processing', timeout: 420, is_parallel: false)
+      test('A processing recording with Thumbs tracks completes through feed pauses longer than a data wait',
+           processingholdtest, args: processingholdargs,
+           env: {'MIST_HOLD_RECORD_THUMBS': '1', 'MIST_HOLD_SOURCE_DURATION': '120', 'MIST_HOLD_SINK_SPEED': '0.6',
+                 'MIST_HOLD_SINK_WAIT': '0'},
+           suite: 'Processing', timeout: 420, is_parallel: false)
       processingdraintest = find_program('processing_drain_integration.sh')
       processingdrainargs = [ffmpeg_program, ffprobe_program, exec_tgts.get('MistController'),
                              exec_tgts.get('MistInMP4'), exec_tgts.get('MistInEBML'), exec_tgts.get('MistInBuffer'),

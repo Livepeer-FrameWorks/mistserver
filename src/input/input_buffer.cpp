@@ -49,6 +49,7 @@ namespace Mist{
     lastRateUpdateMs = 0;
     rateJitterMs = (uint32_t)(((uint64_t)getpid() * 1103515245u + 12345u) % 251u);
     rampLockoutTicks = 0;
+    nodePressurePage = SHM_NODE_PRESSURE;
 
     capa["optional"].removeMember("realtime");
 
@@ -768,7 +769,7 @@ namespace Mist{
 
     bool nodeHold = false, nodeSlow = false;
     if (anyCpuPrimary || unconstrained) {
-      IPC::sharedPage nodePage(SHM_NODE_PRESSURE, 0, false, false);
+      IPC::sharedPage nodePage(nodePressurePage, 0, false, false);
       NodePressureState node;
       if (NodePressureState::readSnapshot(nodePage, node) && node.lastUpdateMs && now >= node.lastUpdateMs &&
           now - node.lastUpdateMs <= 3000) {
@@ -1269,6 +1270,9 @@ namespace Mist{
         INFO_MSG("Processing feed %s: source leads the slowest recorder by %" PRIu64 "ms (hold at %" PRIu64 "ms)",
                  wasHeld ? "resumed" : "paused", lead, threshold);
       }
+      // A feed paused for a holding recorder brings no new data, but the stream is busy, not idle.
+      // A recorder whose position stops moving stops holding after BUFFER_HOLD_STALE_MS.
+      if (consumerLag.held()) { activityCounter = Util::bootSecs(); }
     } else {
       consumerLag.reset();
     }
