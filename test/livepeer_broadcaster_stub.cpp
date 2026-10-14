@@ -47,9 +47,26 @@ namespace {
   // While the file named by LIVEPEER_STUB_NO_RESULT_FILE exists, every upload is answered 503
   // after 500 ms: the gateway has no result for any segment.
   const char *noResultFile = 0;
+  // With LIVEPEER_STUB_NO_RESULT_SEGMENT set, uploads of that segment are answered 503 after
+  // 500 ms until LIVEPEER_STUB_NO_RESULT_MS passed since its first upload: the gateway misses
+  // that one segment's budget and transcodes it when it is sent again later.
+  long long noResultSegment = -1;
+  uint64_t noResultMs = 0;
+  std::mutex noResultMutex;
+  struct timespec noResultSince = {0, 0};
 
   bool fileExists(const char *path) {
     return path && access(path, F_OK) == 0;
+  }
+
+  bool segmentHasNoResultYet(uint64_t segment) {
+    if (noResultSegment < 0 || segment != (uint64_t)noResultSegment) { return false; }
+    struct timespec now;
+    clock_gettime(CLOCK_MONOTONIC, &now);
+    std::lock_guard<std::mutex> guard(noResultMutex);
+    if (!noResultSince.tv_sec && !noResultSince.tv_nsec) { noResultSince = now; }
+    const uint64_t elapsedMs = (uint64_t)(now.tv_sec - noResultSince.tv_sec) * 1000 + (now.tv_nsec - noResultSince.tv_nsec) / 1000000;
+    return elapsedMs < noResultMs;
   }
 
   bool failsEverything() {
@@ -151,7 +168,7 @@ namespace {
       fprintf(stdout, "deadline %llu %llu\n", (unsigned long long)segment, deadline);
       fflush(stdout);
     }
-    if (fileExists(noResultFile)) {
+    if (fileExists(noResultFile) || segmentHasNoResultYet(segment)) {
       usleep(500000);
       const std::string response = "HTTP/1.1 503 Service Unavailable\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
       sendAll(fd, response.data(), response.size());
@@ -250,6 +267,10 @@ int main(int argc, char **argv) {
   if (altFlag && !*altFlag) { altFlag = 0; }
   noResultFile = getenv("LIVEPEER_STUB_NO_RESULT_FILE");
   if (noResultFile && !*noResultFile) { noResultFile = 0; }
+  const char *noResultSegmentEnv = getenv("LIVEPEER_STUB_NO_RESULT_SEGMENT");
+  if (noResultSegmentEnv && *noResultSegmentEnv) { noResultSegment = strtoll(noResultSegmentEnv, 0, 10); }
+  const char *noResultMsEnv = getenv("LIVEPEER_STUB_NO_RESULT_MS");
+  if (noResultMsEnv) { noResultMs = strtoull(noResultMsEnv, 0, 10); }
   const char *altFileEnv = getenv("LIVEPEER_STUB_ALT_FILE");
   if (altFileEnv && *altFileEnv) {
     FILE *alt = fopen(altFileEnv, "rb");

@@ -1008,7 +1008,8 @@ void uploadThread(size_t myNum){
         } else if (upper.getStatusCode() == 503) {
           // No result yet: the gateway keeps working on the segment until its
           // deadline, and re-posting it to the same gateway joins that work.
-          // Once the segment's whole budget is spent it is given up.
+          // Once the segment's whole budget is spent it is given up or, for
+          // a VOD job, sent again with a new budget.
           ++statFailN200;
           uint64_t elapsedMs = Util::bootMS() - segFirstSendMs;
           WARN_MSG("No result for seg %s from %s after %.2f ms (%" PRIu64 " of %" PRIu64 " ms budget used): %" PRIu32 " %s",
@@ -1016,12 +1017,19 @@ void uploadThread(size_t myNum){
                    deadlineMs, upper.getStatusCode(), upper.getStatusText().c_str());
           if (Mist::livepeerSegmentBudgetSpent(elapsedMs, deadlineMs)) {
             uint32_t misses = consecutiveBudgetMisses.fetch_add(1, std::memory_order_relaxed) + 1;
-            if (Mist::livepeerBudgetMissStep(Mist::opt, Util::streamName, misses) == Mist::LivepeerBudgetMissStep::Fallback) {
+            Mist::LivepeerBudgetMissStep missStep = Mist::livepeerBudgetMissStep(Mist::opt, Util::streamName, misses);
+            if (missStep == Mist::LivepeerBudgetMissStep::Fallback) {
               procExit.log(ER_FORMAT_SPECIFIC, 2,
                            "Livepeer gateway had no result for segment %s within its %" PRIu64 " ms budget (%" PRIu32 " consecutive)",
                            JSON::Value(mySeg.keyNo).asString().c_str(), deadlineMs, misses);
               requestLivepeerStop("segment budget spent without a result");
               return;
+            }
+            if (missStep == Mist::LivepeerBudgetMissStep::ResendSegment) {
+              WARN_MSG("Re-sending seg %s with a new %" PRIu64 " ms budget (%" PRIu32 " consecutive misses)",
+                       JSON::Value(mySeg.keyNo).asString().c_str(), deadlineMs, misses);
+              segFirstSendMs = 0;
+              continue;
             }
             WARN_MSG("Skipping seg %s: no result within its %" PRIu64 " ms budget (%" PRIu32 " consecutive)",
                      JSON::Value(mySeg.keyNo).asString().c_str(), deadlineMs, misses);

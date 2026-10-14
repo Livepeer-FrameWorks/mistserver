@@ -454,12 +454,13 @@ namespace Mist{
     Util::sanitizeName(streamName);
     Util::setStreamName(streamName);
 
-    // Processing readers must be able to drain a live buffer after its finite
-    // feeder has ended. Waiting for READY there would block the very producers
-    // the buffer is keeping its input data alive for.
-    const uint8_t processingBufferState = Util::getStreamStatus(streamName);
-    const bool attachProcessingBuffer = DTSC::trackValidMask == TRACK_VALID_INT_PROCESS && processingControlledRealtime() &&
-      (processingBufferState == STRMSTAT_WAIT || processingBufferState == STRMSTAT_READY) && Util::streamAlive(streamName);
+    // Readers of a process-controlled buffer read it as it is, also after its finite feeder ended
+    // and while it drains. Waiting for READY there would block the very producers the buffer
+    // keeps its input data for, and a recorder would wait until the buffer exits and a new input
+    // replaces the processed result.
+    const bool attachProcessingBuffer = processingReaderAttachesBuffer(
+      processingControlledRealtime(), Util::getStreamStatus(streamName), Util::streamAlive(streamName));
+    const bool processReader = DTSC::trackValidMask == TRACK_VALID_INT_PROCESS;
     if (attachProcessingBuffer || targetParams.count("noinput") || (config->hasOption("noinput") && config->getBool("noinput"))) {
       if (!Util::streamAlive(streamName)){
         onFail("Stream not active already, aborting");
@@ -557,7 +558,8 @@ namespace Mist{
     }
 
     auto bufferStillBooting = [&]() {
-      return outputWaitsForBootingBuffer(Util::getStreamStatus(streamName), M ? M.getValidTracks().size() : 0, attachProcessingBuffer);
+      return outputWaitsForBootingBuffer(Util::getStreamStatus(streamName), M ? M.getValidTracks().size() : 0,
+                                         processReader && attachProcessingBuffer);
     };
 
     //live streams that are no push outputs (recordings), wait for stream to be ready

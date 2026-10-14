@@ -58,16 +58,19 @@ int main() {
   assert(!Mist::livepeerSegmentBudgetSpent(2999, 3000));
   assert(Mist::livepeerSegmentBudgetSpent(3000, 3000));
   assert(Mist::livepeerSegmentBudgetSpent(3600, 3000));
-  // A live segment that missed its budget is skipped until as many
-  // consecutive segments missed as may be rejected; VOD and processing jobs
-  // fall back at the first miss.
+  // Until as many consecutive budgets were missed as segments may be
+  // rejected, a live segment that missed its budget is skipped and a VOD or
+  // processing segment is sent again; then every job falls back.
   assert(Mist::livepeerBudgetMissStep(live, "live+stream", 1) == Mist::LivepeerBudgetMissStep::SkipSegment);
   assert(Mist::livepeerBudgetMissStep(live, "live+stream", 4) == Mist::LivepeerBudgetMissStep::SkipSegment);
   assert(Mist::livepeerBudgetMissStep(live, "live+stream", 5) == Mist::LivepeerBudgetMissStep::Fallback);
-  assert(Mist::livepeerBudgetMissStep(live, "processing+abc", 1) == Mist::LivepeerBudgetMissStep::Fallback);
+  assert(Mist::livepeerBudgetMissStep(live, "processing+abc", 1) == Mist::LivepeerBudgetMissStep::ResendSegment);
+  assert(Mist::livepeerBudgetMissStep(live, "processing+abc", 4) == Mist::LivepeerBudgetMissStep::ResendSegment);
+  assert(Mist::livepeerBudgetMissStep(live, "processing+abc", 5) == Mist::LivepeerBudgetMissStep::Fallback);
   JSON::Value vod;
   vod["workload"] = "vod";
-  assert(Mist::livepeerBudgetMissStep(vod, "vod+abc", 1) == Mist::LivepeerBudgetMissStep::Fallback);
+  assert(Mist::livepeerBudgetMissStep(vod, "vod+abc", 1) == Mist::LivepeerBudgetMissStep::ResendSegment);
+  assert(Mist::livepeerBudgetMissStep(vod, "vod+abc", 5) == Mist::LivepeerBudgetMissStep::Fallback);
 
   assert(!Mist::livepeerShouldFallback(4));
   assert(Mist::livepeerShouldFallback(5));

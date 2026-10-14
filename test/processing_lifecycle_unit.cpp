@@ -204,6 +204,20 @@ int main() {
     return fail("an output whose producer still writes it, or whose replacement is not registered, stays");
   }
 
+  for (uint8_t state : {STRMSTAT_WAIT, STRMSTAT_READY, STRMSTAT_SHUTDOWN}) {
+    if (!processingReaderAttachesBuffer(true, state, true)) {
+      return fail("a reader attaches to a living processing buffer that waits, serves, or drains");
+    }
+    if (processingReaderAttachesBuffer(true, state, false) || processingReaderAttachesBuffer(false, state, true)) {
+      return fail("only a living buffer of a process-controlled stream is attached to directly");
+    }
+  }
+  for (uint8_t state : {STRMSTAT_OFF, STRMSTAT_INIT, STRMSTAT_BOOT, STRMSTAT_OFFLINE, STRMSTAT_INVALID}) {
+    if (processingReaderAttachesBuffer(true, state, true)) {
+      return fail("a processing stream that is off or still booting goes through input startup");
+    }
+  }
+
   if (!processingReaderKeepsBufferAlive(true, PROCESSING_EOF_WAIT, true)) {
     return fail("a progressing recorder must keep a processing buffer alive after source EOF");
   }

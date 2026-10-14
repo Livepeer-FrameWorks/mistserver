@@ -114,18 +114,19 @@ namespace Mist {
     return elapsedMs >= deadlineMs;
   }
 
-  enum class LivepeerBudgetMissStep { SkipSegment, Fallback };
+  enum class LivepeerBudgetMissStep { SkipSegment, ResendSegment, Fallback };
 
   /// What to do with a segment whose budget was spent without a result.
   /// `consecutiveMisses` counts it and the misses since the last delivered
-  /// segment. A live stream skips the segment, as it does a rejected one, and
-  /// falls back once the gateway missed as many consecutive segments as it may
-  /// reject; a VOD job cannot leave the hole and falls back at once.
+  /// segment. Every job falls back once the gateway missed as many
+  /// consecutive budgets as it may reject segments. Before that, a live stream
+  /// skips the segment, as it does a rejected one; a VOD job cannot leave the
+  /// hole, and since its source stays available it sends the same segment
+  /// again with a new budget.
   inline LivepeerBudgetMissStep
     livepeerBudgetMissStep(const JSON::Value & options, const std::string & streamName, uint32_t consecutiveMisses) {
-    if (livepeerRejectedSegmentStopsJob(options, streamName) || livepeerShouldFallback(consecutiveMisses)) {
-      return LivepeerBudgetMissStep::Fallback;
-    }
+    if (livepeerShouldFallback(consecutiveMisses)) { return LivepeerBudgetMissStep::Fallback; }
+    if (livepeerRejectedSegmentStopsJob(options, streamName)) { return LivepeerBudgetMissStep::ResendSegment; }
     return LivepeerBudgetMissStep::SkipSegment;
   }
 

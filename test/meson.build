@@ -292,6 +292,24 @@ if get_option('b_sanitize') == 'none' and ffmpeg_program.found() and ffprobe_pro
                 livepeerprocstateprobe],
          env: ['LIVEPEER_STUB_NO_RESULT_FIRST=1'],
          suite: 'Processing', timeout: 150, is_parallel: false)
+    test('A VOD Livepeer segment that misses its budget is sent again and transcoded', livepeervodtest,
+         args: [ffmpeg_program, ffprobe_program, exec_tgts.get('MistController'),
+                exec_tgts.get('MistInEBML'), exec_tgts.get('MistInBuffer'),
+                exec_tgts.get('MistProcLivepeer'), exec_tgts.get('MistOutEBML'),
+                exec_tgts.get('MistSession'), exec_tgts.get('MistUtilLog'),
+                exec_tgts.get('MistUtilNuke'), livepeerstub, timeout_program,
+                livepeerprocstateprobe],
+         env: ['LIVEPEER_TEST_VOD_LATE_SEGMENT=1'],
+         suite: 'Processing', timeout: 150, is_parallel: false)
+    test('A VOD Livepeer job falls back after consecutive budgets are missed', livepeervodtest,
+         args: [ffmpeg_program, ffprobe_program, exec_tgts.get('MistController'),
+                exec_tgts.get('MistInEBML'), exec_tgts.get('MistInBuffer'),
+                exec_tgts.get('MistProcLivepeer'), exec_tgts.get('MistOutEBML'),
+                exec_tgts.get('MistSession'), exec_tgts.get('MistUtilLog'),
+                exec_tgts.get('MistUtilNuke'), livepeerstub, timeout_program,
+                livepeerprocstateprobe],
+         env: ['LIVEPEER_TEST_VOD_GATEWAY_DOWN=1'],
+         suite: 'Processing', timeout: 150, is_parallel: false)
     test('Livepeer upload threads failing on one gateway switch once and drop no segment', livepeervodtest,
          args: [ffmpeg_program, ffprobe_program, exec_tgts.get('MistController'),
                 exec_tgts.get('MistInEBML'), exec_tgts.get('MistInBuffer'),
@@ -484,6 +502,9 @@ if get_option('b_sanitize') == 'none' and ffmpeg_program.found() and ffprobe_pro
            suite: 'Processing', timeout: 120, is_parallel: false)
       test('Processing recordings keep a one-frame source video track', processingdraintest,
            args: processingdrainargs, env: {'MIST_DRAIN_MODE': 'one-frame'},
+           suite: 'Processing', timeout: 120, is_parallel: false)
+      test('Processing recordings started after the buffer drains read that buffer', processingdraintest,
+           args: processingdrainargs, env: {'MIST_DRAIN_MODE': 'after-drain'},
            suite: 'Processing', timeout: 120, is_parallel: false)
     endif
     thumbnailvodtest = find_program('thumbnail_vod_integration.sh')

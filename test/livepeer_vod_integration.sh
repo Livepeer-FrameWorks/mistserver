@@ -199,6 +199,21 @@ while True:
   extra_processes=",{\"process\":\"Livepeer\",\"hardcoded_broadcasters\":\"http://127.0.0.1:$dead_port\",\"target_profiles\":[{\"name\":\"spare\",\"bitrate\":200000,\"width\":160,\"height\":90,\"fps\":10,\"gop\":\"2.0\"}],\"target_mask\":2,\"source_mask\":4,\"restart_type\":\"disabled\"}"
   output_timeout=90
 fi
+if [ "${LIVEPEER_TEST_VOD_LATE_SEGMENT:-}" = "1" ]; then
+  # A VOD job with a 3 s segment budget whose gateway has no result for segment 3 during the first
+  # 4 s of its uploads: the segment misses one budget, and its next one gets the result.
+  livepeer_options=",\"workload\":\"vod\",\"deadline_ms\":3000"
+  LIVEPEER_STUB_NO_RESULT_SEGMENT=3
+  LIVEPEER_STUB_NO_RESULT_MS=4000
+  export LIVEPEER_STUB_NO_RESULT_SEGMENT LIVEPEER_STUB_NO_RESULT_MS
+fi
+if [ "${LIVEPEER_TEST_VOD_GATEWAY_DOWN:-}" = "1" ]; then
+  # A VOD job whose gateway has no result for any segment within its 2 s budget.
+  livepeer_options=",\"workload\":\"vod\",\"deadline_ms\":2000"
+  : >"$work/no-result"
+  LIVEPEER_STUB_NO_RESULT_FILE="$work/no-result"
+  export LIVEPEER_STUB_NO_RESULT_FILE
+fi
 "$broadcaster_stub" "$broadcaster_port" >"$work/broadcaster.log" 2>&1 &
 stub_pid=$!
 for log in $stub_logs; do
@@ -269,11 +284,36 @@ while [ "$attempt" -lt 150 ]; do
   attempt=$((attempt + 1))
   sleep 0.1
 done
-# Without a single transcoded segment (header-buffer-killed, slow-replace) the snapshot is not required.
+# Without a single transcoded segment (header-buffer-killed, slow-replace, vod-gateway-down) the
+# snapshot is not required.
 if [ "$proc_state_read" -ne 1 ] && [ "${LIVEPEER_TEST_HEADER_BUFFER_KILLED:-}" != "1" ] &&
-   [ "${LIVEPEER_TEST_SLOW_REPLACE:-}" != "1" ]; then
+   [ "${LIVEPEER_TEST_SLOW_REPLACE:-}" != "1" ] && [ "${LIVEPEER_TEST_VOD_GATEWAY_DOWN:-}" != "1" ]; then
   echo "Livepeer did not publish a readable ProcState snapshot while running" >&2
   exit 1
+fi
+if [ "${LIVEPEER_TEST_VOD_GATEWAY_DOWN:-}" = "1" ]; then
+  # Every send of a segment misses its budget; the job re-sends until as many consecutive budgets
+  # were missed as segments may be rejected, then falls back (the process exits unrecoverably).
+  attempt=0
+  while [ "$attempt" -lt 600 ] && [ -n "$livepeer_pid" ] && kill -0 "$livepeer_pid" 2>/dev/null; do
+    attempt=$((attempt + 1))
+    sleep 0.1
+  done
+  if [ -z "$livepeer_pid" ] || kill -0 "$livepeer_pid" 2>/dev/null; then
+    echo "the Livepeer process (PID ${livepeer_pid:-none}) did not give up on a gateway without results" >&2
+    exit 1
+  fi
+  resent=$(grep -cE 'Re-sending seg [0-9]+ with a new [0-9]+ ms budget' "$work/input.log" || true)
+  if [ "$resent" -ne 4 ]; then
+    echo "the Livepeer process re-sent $resent segments after a missed budget; expected four before falling back" >&2
+    exit 1
+  fi
+  if ! grep -qE 'had no result for segment [0-9]+ within its 2000 ms budget \(5 consecutive\)' "$work/input.log"; then
+    echo "the Livepeer process did not fall back at the fifth consecutive missed budget" >&2
+    exit 1
+  fi
+  echo "a VOD job whose gateway keeps missing re-sent $resent times, then fell back"
+  exit 0
 fi
 if [ "${LIVEPEER_TEST_HEADER_BUFFER_KILLED:-}" = "1" ]; then
   # The recording waits for the rendition before writing its header; the buffer dies under it.
@@ -477,6 +517,26 @@ if [ "${LIVEPEER_STUB_NO_RESULT_FIRST:-}" = "1" ]; then
   fi
   if grep -q 'fatal HTTP status\|had no result for segment\|Switched to new broadcaster' "$work/input.log"; then
     echo "Livepeer stopped or switched on a 503 within the segment's budget" >&2
+    exit 1
+  fi
+fi
+if [ "${LIVEPEER_TEST_VOD_LATE_SEGMENT:-}" = "1" ]; then
+  # Segment 3 missed its first budget; the job sent it again with a new one and Livepeer
+  # transcoded every segment, so the complete rendition checked above came from the gateway.
+  if ! grep -q '^noresult 3$' "$work/broadcaster.log"; then
+    echo "the gateway never withheld segment 3; the missed-budget path was not exercised" >&2
+    exit 1
+  fi
+  if ! grep -qE 'Re-sending seg 3 with a new 3000 ms budget' "$work/input.log"; then
+    echo "Livepeer did not re-send segment 3 after its budget ran out" >&2
+    exit 1
+  fi
+  if grep -q 'had no result for segment\|exited with unrecoverable error\|Skipping seg' "$work/input.log"; then
+    echo "Livepeer gave up on a VOD segment that its next budget transcodes" >&2
+    exit 1
+  fi
+  if ! grep -q '^responded 3$' "$work/broadcaster.log"; then
+    echo "the gateway never transcoded segment 3" >&2
     exit 1
   fi
 fi

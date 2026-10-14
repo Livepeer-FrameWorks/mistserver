@@ -90,6 +90,17 @@ namespace Mist {
     return PROCESSING_BUFFER_GONE;
   }
 
+  /// Whether a reader of a process-controlled stream attaches to its running buffer instead of
+  /// going through input startup. That buffer holds the whole stream its finite source fed and
+  /// is the only place the processed result exists: while it waits (for its processes, or after
+  /// source EOF for its readers), serves, or drains, it is alive and does not become READY again
+  /// once the source ended. Input startup would wait for READY until the buffer exits on
+  /// inactivity and then start a new input in its place.
+  inline bool processingReaderAttachesBuffer(bool processControlledRealtime, uint8_t streamState, bool streamAlive) {
+    return processControlledRealtime && streamAlive &&
+      (streamState == STRMSTAT_WAIT || streamState == STRMSTAT_READY || streamState == STRMSTAT_SHUTDOWN);
+  }
+
   /// Whether a process reading a process-controlled stream treats an unclaimed track as ended:
   /// only once the source ended, so no producer will claim it again.
   inline bool processingInputTrackEnded(bool processBinary, bool live, bool processControlledRealtime, bool claimed, bool sourceEof) {

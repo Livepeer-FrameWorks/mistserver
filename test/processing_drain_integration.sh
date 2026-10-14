@@ -18,6 +18,9 @@
 #                   tracks are registered before any data and recorded.
 #   one-frame       a source with a single video frame and 40 ms of audio; both
 #                   tracks are registered and recorded.
+#   after-drain     the one-frame source, recorded only once its buffer signalled
+#                   drain; the recorder reads that buffer instead of starting a new
+#                   input, and records both tracks.
 set -eu
 
 if [ "$#" -ne 11 ]; then
@@ -60,7 +63,7 @@ case "$mode" in
   slow-sink) source_duration=90 ;;
   stuck-sink) source_duration=20 ;;
   buffer-killed) source_duration=60 ;;
-  late-audio | one-frame) source_duration=2 ;;
+  late-audio | one-frame | after-drain) source_duration=2 ;;
   *)
     echo "unknown MIST_DRAIN_MODE $mode" >&2
     exit 2
@@ -173,7 +176,7 @@ if [ "$mode" = "late-audio" ]; then
   source_media=$media
   input_program=$input_ebml
 fi
-if [ "$mode" = "one-frame" ]; then
+if [ "$mode" = "one-frame" ] || [ "$mode" = "after-drain" ]; then
   media="$work/one-frame.mkv"
   "$ffmpeg" -hide_banner -loglevel error -y \
     -f lavfi -i testsrc2=size=320x180:rate=25 -f lavfi -i sine=frequency=997:sample_rate=48000 \
@@ -227,7 +230,10 @@ EOF
 
 start_time=$(date +%s)
 case "$mode" in
-  empty-original | late-audio | one-frame)
+  empty-original | late-audio | one-frame | after-drain)
+    if [ "$mode" = "after-drain" ]; then
+      wait_for 60 "the processing buffer to signal drain" logged "$work/input.log" 'signalling output drain'
+    fi
     "$timeout_program" 90 env TMP="$ipc_root" MIST_CONTROL=1 "$output_ebml" -s "$stream" "$recording" \
       >"$work/output.log" 2>&1 || true
     ;;
@@ -308,7 +314,7 @@ case "$mode" in
       exit 1
     fi
     ;;
-  late-audio | one-frame)
+  late-audio | one-frame | after-drain)
     audio_packets=$("$ffprobe" -v error -select_streams a -count_packets -show_entries stream=nb_read_packets \
       -of default=nw=1:nk=1 "$recording")
     case "$audio_packets" in '' | N/A | 0)
@@ -316,6 +322,12 @@ case "$mode" in
       exit 1
       ;;
     esac
+    # The draining buffer exits after 30 s without a reader; a recording that took that long
+    # waited for it to go instead of reading it.
+    if [ "$mode" = "after-drain" ] && [ "$elapsed" -ge 30 ]; then
+      echo "the recording of the draining buffer took ${elapsed}s" >&2
+      exit 1
+    fi
     ;;
 esac
 echo "$mode: the recording holds all $source_packets video packets after ${elapsed}s"
