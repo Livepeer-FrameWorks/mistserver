@@ -393,6 +393,12 @@ if get_option('b_sanitize') == 'none' and ffmpeg_program.found() and ffprobe_pro
     test('A live Livepeer process falls back after consecutive segments miss their budget', livepeerlivetest,
          args: livepeerliveargs, env: {'MIST_LIVEPEER_LIVE_MODE': 'gateway-down'},
          suite: 'Processing', timeout: 150, is_parallel: false)
+    test('A live Livepeer session warm-up lets the first segment absorb a slow session setup', livepeerlivetest,
+         args: livepeerliveargs, env: {'MIST_LIVEPEER_LIVE_MODE': 'session-setup'},
+         suite: 'Processing', timeout: 150, is_parallel: false)
+    test('Without a session warm-up a slow session setup costs the first live Livepeer segment', livepeerlivetest,
+         args: livepeerliveargs, env: {'MIST_LIVEPEER_LIVE_MODE': 'session-setup-no-warmup'},
+         suite: 'Processing', timeout: 150, is_parallel: false)
     test('A live Livepeer process whose sessions are stopped exits without being killed', livepeerlivetest,
          args: livepeerliveargs, env: {'MIST_LIVEPEER_LIVE_MODE': 'stop-sessions'},
          suite: 'Processing', timeout: 150, is_parallel: false)

@@ -41,6 +41,14 @@
 #   gateway-down  the gateway has no result for any segment; the process skips
 #                 segments until five consecutive ones missed their budget, then
 #                 exits unrecoverably so the stream falls back.
+#   session-setup the gateway's orchestrator takes 2.5 s to set the stream's session up, which
+#                 a first segment cannot absorb within its live budget (segment duration plus
+#                 one second, answered 500 ms early); the process posts the stream's first
+#                 keyframe as a session warm-up before segment 0 is complete, so the setup
+#                 starts then and segment 0 is transcoded within its budget.
+#   session-setup-no-warmup
+#                 as session-setup against a gateway that refuses the warm-up: the setup lands
+#                 in segment 0's budget, segment 0 is skipped, and the next segments flow.
 #   stop-sessions the sessions of a resumable stream are stopped through the API
 #                 while the publisher is live (as at a platform stream stop);
 #                 the process exits by itself within seconds, and the buffer
@@ -81,7 +89,7 @@ fi
 mode=${MIST_LIVEPEER_LIVE_MODE:-backpressure}
 case "$mode" in
   backpressure | stop-stall | restart | kill-resume | stall-kill | resolution | live-end | live-end-resume | republish | \
-    late-segment | gateway-down) ;;
+    late-segment | gateway-down | session-setup | session-setup-no-warmup) ;;
   stop-sessions)
     if ! command -v curl >/dev/null 2>&1; then
       echo "curl is required to stop the stream's sessions through the API" >&2
@@ -166,7 +174,14 @@ alt_segment="$work/alternate.ts"
 api_port=$((24000 + ($$ % 9000)))
 rtmp_port=$((api_port + 1))
 broadcaster_port=$((api_port + 2))
-LIVEPEER_STUB_HOLD_FILE="$hold_file" LIVEPEER_STUB_NO_RESULT_FILE="$no_result_file" LIVEPEER_STUB_ALT_FLAG="$alt_flag" LIVEPEER_STUB_ALT_FILE="$alt_segment" \
+session_setup_ms=
+refuse_warmup=
+case "$mode" in
+  session-setup) session_setup_ms=2500 ;;
+  session-setup-no-warmup) session_setup_ms=2500 refuse_warmup=1 ;;
+esac
+LIVEPEER_STUB_SESSION_SETUP_MS="$session_setup_ms" LIVEPEER_STUB_REFUSE_WARMUP="$refuse_warmup" \
+  LIVEPEER_STUB_HOLD_FILE="$hold_file" LIVEPEER_STUB_NO_RESULT_FILE="$no_result_file" LIVEPEER_STUB_ALT_FLAG="$alt_flag" LIVEPEER_STUB_ALT_FILE="$alt_segment" \
   "$broadcaster_stub" "$broadcaster_port" >"$work/broadcaster.log" 2>&1 &
 stub_pid=$!
 wait_for 10 "the loopback broadcaster" logged "$work/broadcaster.log" '^ready$'
@@ -188,7 +203,7 @@ if [ "$mode" = stop-sessions ]; then resume_setting=',"resume":1,"inputtimeout":
 # A long configured budget keeps the stall cases from giving segments up; the late-segment cases
 # use the live default, the segment duration plus one second.
 deadline_setting=',"deadline_ms":120000'
-if [ "$mode" = late-segment ] || [ "$mode" = gateway-down ]; then deadline_setting=; fi
+case "$mode" in late-segment | gateway-down | session-setup | session-setup-no-warmup) deadline_setting= ;; esac
 triggers="{\"LIVE_TRACK_LIST\":[{\"handler\":\"$handler\",\"sync\":false,\"streams\":[\"$stream\"]}]}"
 resolves="$work/resolves"
 : >"$resolves"
@@ -517,6 +532,48 @@ case "$mode" in
     wait_for 10 "the buffer to disable the failed process" logged "$work/controller.log" \
       "Process .Livepeer. \(PID $pid\) exited with unrecoverable error"
     echo "gateway-down: PID $pid skipped $skipped segments, then exited unrecoverably"
+    ;;
+  session-setup)
+    first=$(grep -m 1 -E '^deadline ' "$work/broadcaster.log" | cut -d' ' -f2)
+    if ! grep -qE '^warmup [0-9]+$' "$work/broadcaster.log"; then
+      echo "the Livepeer process sent no session warm-up" >&2
+      exit 1
+    fi
+    if [ "$(grep -m 1 -nE '^warmup ' "$work/broadcaster.log" | cut -d: -f1)" -gt \
+      "$(grep -m 1 -nE '^deadline ' "$work/broadcaster.log" | cut -d: -f1)" ]; then
+      echo "the session warm-up arrived after the first segment" >&2
+      exit 1
+    fi
+    if grep -qE "^budgetmiss $first\$" "$work/broadcaster.log" || grep -qE "Skipping seg $first: no result within its" "$work/controller.log"; then
+      echo "the first segment ($first) missed its budget despite the session warm-up" >&2
+      exit 1
+    fi
+    if ! grep -qE "^responded $first\$" "$work/broadcaster.log"; then
+      echo "the first segment ($first) was not transcoded" >&2
+      exit 1
+    fi
+    if grep -qE '^budgetmiss ' "$work/broadcaster.log"; then
+      echo "a segment missed its budget after the session warm-up" >&2
+      exit 1
+    fi
+    echo "session-setup: the warm-up started the 2.5 s session setup before segment $first, which made its budget"
+    ;;
+  session-setup-no-warmup)
+    first=$(grep -m 1 -E '^deadline ' "$work/broadcaster.log" | cut -d' ' -f2)
+    if ! grep -qE '^warmup-refused ' "$work/broadcaster.log"; then
+      echo "the Livepeer process sent no session warm-up for the gateway to refuse" >&2
+      exit 1
+    fi
+    if ! grep -qE "^budgetmiss $first\$" "$work/broadcaster.log"; then
+      echo "the first segment ($first) made its budget although the session setup landed in it" >&2
+      exit 1
+    fi
+    wait_for 20 "the first segment to be skipped" logged "$work/controller.log" "Skipping seg $first: no result within its"
+    if ! running_livepeer; then
+      echo "the Livepeer process did not survive the skipped first segment" >&2
+      exit 1
+    fi
+    echo "session-setup-no-warmup: without the warm-up segment $first missed its budget and was skipped"
     ;;
   stop-sessions)
     pid=$(livepeer_pid)

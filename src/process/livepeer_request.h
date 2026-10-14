@@ -2,8 +2,10 @@
 
 #include <mist/json.h>
 
+#include <cinttypes>
 #include <cstddef>
 #include <cstdint>
+#include <cstdio>
 #include <set>
 #include <string>
 
@@ -128,6 +130,49 @@ namespace Mist {
     if (livepeerShouldFallback(consecutiveMisses)) { return LivepeerBudgetMissStep::Fallback; }
     if (livepeerRejectedSegmentStopsJob(options, streamName)) { return LivepeerBudgetMissStep::ResendSegment; }
     return LivepeerBudgetMissStep::SkipSegment;
+  }
+
+  /// Seconds the session warm-up waits for the gateway's answer. The gateway answers a warm-up
+  /// before it does the work.
+  static const uint32_t LIVEPEER_SESSION_WARMUP_TIMEOUT_S = 2;
+
+  /// Whether this job sends the session warm-up: the stream's first keyframe, posted to the
+  /// gateway's /live/<id>/session so it sets the orchestrator session up while segment 0 is still
+  /// being read. Only a live stream needs it (a VOD job's budget absorbs the setup), and only a
+  /// gateway configured through hardcoded_broadcasters offers the endpoint; the hosted Livepeer
+  /// API (access_token) does not.
+  inline bool livepeerSessionWarmupWanted(const JSON::Value & options, const std::string & streamName) {
+    if (options.isMember("access_token") && options["access_token"].isString() && options["access_token"]) {
+      return false;
+    }
+    return !livepeerRejectedSegmentStopsJob(options, streamName);
+  }
+
+  /// The deadlineMs the warm-up carries: only a configured deadline_ms. Without an auth webhook
+  /// the gateway takes the deadline of the stream's first request as the stream's deadline, and a
+  /// live segment's own deadline depends on its duration, which the warm-up does not know.
+  inline uint64_t livepeerSessionWarmupDeadlineMs(const JSON::Value & options) {
+    int64_t configured = options.isMember("deadline_ms") ? options["deadline_ms"].asInt() : 0;
+    if (configured <= 0) { return 0; }
+    return (uint64_t)configured < LIVEPEER_MAX_DEADLINE_MS ? (uint64_t)configured : LIVEPEER_MAX_DEADLINE_MS;
+  }
+
+  /// The duration of the warm-up keyframe in ms: one frame at fpks (frames per 1000 s), or 40 ms
+  /// (one frame at 25 fps) when the frame rate is unknown.
+  inline uint64_t livepeerSessionWarmupFrameMs(uint64_t fpks) {
+    if (!fpks) { return 40; }
+    uint64_t ms = (1000000 + fpks / 2) / fpks;
+    return ms ? ms : 1;
+  }
+
+  /// The source frame rate the warm-up reports in Content-Frame-Rate, in frames per second with
+  /// three decimals, or empty when unknown. The gateway cannot probe it from a single frame, and
+  /// the stream it registers is checked against the job's profiles at that rate.
+  inline std::string livepeerSessionWarmupFrameRate(uint64_t fpks) {
+    if (!fpks) { return ""; }
+    char rate[32];
+    snprintf(rate, sizeof(rate), "%" PRIu64 ".%03" PRIu64, fpks / 1000, fpks % 1000);
+    return rate;
   }
 
   inline JSON::Value buildLivepeerTranscodeConfiguration(const JSON::Value & options, uint64_t deadlineMs) {

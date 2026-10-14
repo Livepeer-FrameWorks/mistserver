@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <arpa/inet.h>
 #include <cerrno>
 #include <csignal>
@@ -6,6 +7,7 @@
 #include <cstring>
 #include <ctime>
 #include <fcntl.h>
+#include <map>
 #include <mutex>
 #include <netinet/in.h>
 #include <set>
@@ -54,6 +56,43 @@ namespace {
   uint64_t noResultMs = 0;
   std::mutex noResultMutex;
   struct timespec noResultSince = {0, 0};
+  // With LIVEPEER_STUB_SESSION_SETUP_MS set, the stub answers like a gateway whose orchestrator
+  // sets the stream's session up first: the first warm-up or segment it gets starts that setup,
+  // and every segment is transcoded LIVEPEER_STUB_SESSION_WORK_MS (default 50) after both its
+  // first upload and the end of the setup. A segment that cannot be answered that way by its
+  // budget (its deadlineMs less the gateway's 500 ms answer margin, from its first upload) is
+  // answered 503 at that point and on every later upload ("budgetmiss" in the log). Every other
+  // segment is answered without the odd/even response delays.
+  uint64_t sessionSetupMs = 0;
+  uint64_t sessionWorkMs = 50;
+  // With LIVEPEER_STUB_REFUSE_WARMUP=1 warm-ups are answered 400 and start nothing, as by a
+  // gateway without the session warm-up endpoint.
+  bool refuseWarmup = false;
+  std::mutex sessionMutex;
+  bool sessionStarted = false;
+  uint64_t sessionReadyMs = 0;
+  std::map<uint64_t, uint64_t> segmentFirstUploadMs;
+
+  uint64_t monotonicMs() {
+    struct timespec now;
+    clock_gettime(CLOCK_MONOTONIC, &now);
+    return (uint64_t)now.tv_sec * 1000 + now.tv_nsec / 1000000;
+  }
+
+  /// Starts the session setup at nowMs unless it started before; returns when it ends.
+  uint64_t sessionReadyAt(uint64_t nowMs) {
+    std::lock_guard<std::mutex> guard(sessionMutex);
+    if (!sessionStarted) {
+      sessionStarted = true;
+      sessionReadyMs = nowMs + sessionSetupMs;
+    }
+    return sessionReadyMs;
+  }
+
+  void sleepUntilMs(uint64_t atMs) {
+    const uint64_t now = monotonicMs();
+    if (atMs > now) { usleep((useconds_t)((atMs - now) * 1000)); }
+  }
 
   bool fileExists(const char *path) {
     return path && access(path, F_OK) == 0;
@@ -158,7 +197,28 @@ namespace {
       return;
     }
 
+    const size_t requestLineEnd = request.find("\r\n");
+    if (request.rfind("/session ", requestLineEnd) != std::string::npos) {
+      // The session warm-up: the stream's first keyframe, MPEG-TS, with the source frame rate the
+      // gateway cannot probe from one frame (the test publishes 25 fps).
+      const bool valid = bodySize >= 188 && request[bodyStart] == 0x47 &&
+        lowerHeaders.find("\r\nlivepeer-transcode-configuration: {") != std::string::npos &&
+        lowerHeaders.find("\r\ncontent-frame-rate: 25.000\r\n") != std::string::npos;
+      const bool accept = valid && !refuseWarmup;
+      if (accept && sessionSetupMs) { sessionReadyAt(monotonicMs()); }
+      const std::string response = accept
+        ? "HTTP/1.1 202 Accepted\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+        : "HTTP/1.1 400 Bad Request\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
+      sendAll(fd, response.data(), response.size());
+      close(fd);
+      std::lock_guard<std::mutex> logGuard(logMutex);
+      fprintf(stdout, "%s %zu\n", accept ? "warmup" : (valid ? "warmup-refused" : "warmup-invalid"), bodySize);
+      fflush(stdout);
+      return;
+    }
+
     const uint64_t segment = segmentNumber(request);
+    unsigned long long segmentDeadlineMs = 0;
     {
       // Every upload carries the segment's budget as deadlineMs in the
       // transcode configuration header.
@@ -167,6 +227,30 @@ namespace {
       std::lock_guard<std::mutex> logGuard(logMutex);
       fprintf(stdout, "deadline %llu %llu\n", (unsigned long long)segment, deadline);
       fflush(stdout);
+      segmentDeadlineMs = deadline;
+    }
+    if (sessionSetupMs) {
+      const uint64_t now = monotonicMs();
+      uint64_t firstUpload;
+      {
+        std::lock_guard<std::mutex> guard(sessionMutex);
+        firstUpload = segmentFirstUploadMs.insert(std::make_pair(segment, now)).first->second;
+      }
+      const uint64_t ready = std::max(sessionReadyAt(now), now) + sessionWorkMs;
+      const uint64_t budget = segmentDeadlineMs ? segmentDeadlineMs : 3000;
+      const uint64_t respondBy = firstUpload + (budget > 500 ? budget - 500 : 0);
+      if (ready > respondBy) {
+        sleepUntilMs(respondBy);
+        const std::string response =
+          "HTTP/1.1 503 Service Unavailable\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
+        sendAll(fd, response.data(), response.size());
+        close(fd);
+        std::lock_guard<std::mutex> logGuard(logMutex);
+        fprintf(stdout, "budgetmiss %llu\nnoresult %llu\n", (unsigned long long)segment, (unsigned long long)segment);
+        fflush(stdout);
+        return;
+      }
+      sleepUntilMs(ready);
     }
     if (fileExists(noResultFile) || segmentHasNoResultYet(segment)) {
       usleep(500000);
@@ -211,7 +295,7 @@ namespace {
     // Return odd segments first. The processor must serialize insertion by
     // segment number even when parallel broadcaster responses complete out of
     // order. Slow even responses also exercise external backpressure.
-    usleep(segment % 2 ? 100000 : 1800000);
+    if (!sessionSetupMs) { usleep(segment % 2 ? 100000 : 1800000); }
     if (fileExists(holdFile)) {
       const time_t heldFrom = time(0);
       while (fileExists(holdFile) && active) { usleep(100000); }
@@ -271,6 +355,12 @@ int main(int argc, char **argv) {
   if (noResultSegmentEnv && *noResultSegmentEnv) { noResultSegment = strtoll(noResultSegmentEnv, 0, 10); }
   const char *noResultMsEnv = getenv("LIVEPEER_STUB_NO_RESULT_MS");
   if (noResultMsEnv) { noResultMs = strtoull(noResultMsEnv, 0, 10); }
+  const char *sessionSetupEnv = getenv("LIVEPEER_STUB_SESSION_SETUP_MS");
+  if (sessionSetupEnv) { sessionSetupMs = strtoull(sessionSetupEnv, 0, 10); }
+  const char *sessionWorkEnv = getenv("LIVEPEER_STUB_SESSION_WORK_MS");
+  if (sessionWorkEnv && *sessionWorkEnv) { sessionWorkMs = strtoull(sessionWorkEnv, 0, 10); }
+  const char *refuseWarmupEnv = getenv("LIVEPEER_STUB_REFUSE_WARMUP");
+  refuseWarmup = refuseWarmupEnv && !strcmp(refuseWarmupEnv, "1");
   const char *altFileEnv = getenv("LIVEPEER_STUB_ALT_FILE");
   if (altFileEnv && *altFileEnv) {
     FILE *alt = fopen(altFileEnv, "rb");

@@ -79,6 +79,10 @@ std::atomic<bool> livepeerStopRequested{false};
 // segment, across all upload threads.
 std::atomic<uint32_t> consecutiveBudgetMisses{0};
 std::string livepeerThreadStreamName;
+// The session warm-up (see startSessionWarmup): started at most once, joined at shutdown. The
+// thread is held by pointer so that a process ending through exit() never destroys it joinable.
+std::atomic<bool> sessionWarmupStarted{false};
+std::thread *sessionWarmupThread = 0;
 
 /// Stops both threads of this process. The reason is logged here because the other thread only
 /// sees that the process went inactive.
@@ -93,6 +97,47 @@ static uint32_t evenScaledDimension(uint32_t numerator, uint32_t requested, uint
   uint64_t scaled = ((uint64_t)numerator * requested + (denominator / 2)) / denominator;
   if (scaled & 1) { ++scaled; }
   return (uint32_t)scaled;
+}
+
+/// Posts the stream's first keyframe (MPEG-TS, the start of segment 0) to the gateway's session
+/// warm-up endpoint from a thread of its own, so the gateway has the orchestrator set the stream's
+/// session up while segment 0 is still being read, instead of within segment 0's budget. Runs at
+/// most once per process; a failed or unsupported warm-up changes nothing and is only logged.
+void startSessionWarmup(const std::string & keyframeTS, uint64_t width, uint64_t height, uint64_t fpks) {
+  if (sessionWarmupStarted.exchange(true)) { return; }
+  if (!Mist::livepeerSessionWarmupWanted(Mist::opt, Util::streamName)) { return; }
+  std::string addr;
+  {
+    std::lock_guard<std::mutex> guard(broadcasterMutex);
+    addr = Mist::currBroadAddr;
+  }
+  if (addr.empty()) { return; }
+  const HTTP::URL target(addr + "/live/" + Mist::lpID + "/session");
+  const std::string configuration =
+    Mist::buildLivepeerTranscodeConfiguration(Mist::opt, Mist::livepeerSessionWarmupDeadlineMs(Mist::opt)).toString();
+  const std::string resolution = JSON::Value(width).asString() + "x" + JSON::Value(height).asString();
+  const std::string duration = JSON::Value(Mist::livepeerSessionWarmupFrameMs(fpks)).asString();
+  const std::string frameRate = Mist::livepeerSessionWarmupFrameRate(fpks);
+  sessionWarmupThread = new std::thread([target, keyframeTS, configuration, resolution, duration, frameRate]() {
+    Util::setStreamName(livepeerThreadStreamName);
+    HTTP::Downloader warmup;
+    warmup.progressCallback = []() { return !livepeerStopRequested.load(std::memory_order_acquire); };
+    warmup.dataTimeout = Mist::LIVEPEER_SESSION_WARMUP_TIMEOUT_S;
+    warmup.retryCount = Mist::LIVEPEER_DOWNLOADER_RETRY_COUNT;
+    warmup.setHeader("Content-Type", "video/mp2t");
+    warmup.setHeader("Content-Resolution", resolution);
+    warmup.setHeader("Content-Duration", duration);
+    if (frameRate.size()) { warmup.setHeader("Content-Frame-Rate", frameRate); }
+    warmup.setHeader("Livepeer-Transcode-Configuration", configuration);
+    const uint64_t began = Util::bootMS();
+    if (warmup.post(target, keyframeTS) && warmup.getStatusCode() == 202) {
+      MEDIUM_MSG("Livepeer session warm-up of %zu bytes accepted by %s in %" PRIu64 " ms", keyframeTS.size(),
+                 target.getUrl().c_str(), Util::bootMS() - began);
+    } else {
+      MEDIUM_MSG("Livepeer session warm-up to %s failed after %" PRIu64 " ms: %" PRIu32 " %s", target.getUrl().c_str(),
+                 Util::bootMS() - began, warmup.getStatusCode(), warmup.getStatusText().c_str());
+    }
+  });
 }
 
 namespace Mist{
@@ -330,6 +375,13 @@ namespace Mist{
         }
       }
       TSOutput::sendNext();
+      // The first keyframe is all the gateway needs to have the orchestrator set the stream's
+      // session up; segment 0 is complete only at the next keyframe.
+      if (!sessionWarmupStarted.load(std::memory_order_relaxed) && thisPacket.getFlag("keyframe") &&
+          M.getType(thisIdx) == "video" && presegs[currPreSeg].data.size() > 187) {
+        startSessionWarmup(std::string(presegs[currPreSeg].data, presegs[currPreSeg].data.size()), M.getWidth(thisIdx),
+                           M.getHeight(thisIdx), M.getFpks(thisIdx));
+      }
     }
   };
 
@@ -1737,6 +1789,11 @@ int main(int argc, char *argv[]){
   source.join();
   uploader0.join();
   uploader1.join();
+  if (sessionWarmupThread) {
+    sessionWarmupThread->join();
+    delete sessionWarmupThread;
+    sessionWarmupThread = 0;
+  }
 
   INFO_MSG("Shutdown reason: %s", Util::exitReason);
   return procExit.flush(procStatePage);

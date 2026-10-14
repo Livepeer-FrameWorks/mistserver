@@ -153,5 +153,39 @@ int main() {
     assert(Mist::livepeerSwitchBroadcaster(current, "", std::set<std::string>(), two, pick) == Mist::LivepeerSwitchOutcome::Switched);
     assert(two.count(current));
   }
+
+  // The session warm-up is sent for live streams through a configured gateway only.
+  {
+    JSON::Value liveJob;
+    liveJob["hardcoded_broadcasters"] = "http://127.0.0.1:8935";
+    assert(Mist::livepeerSessionWarmupWanted(liveJob, "live+abc→live+abc"));
+    assert(!Mist::livepeerSessionWarmupWanted(liveJob, "processing+abc→processing+abc"));
+    JSON::Value vodJob = liveJob;
+    vodJob["workload"] = "vod";
+    assert(!Mist::livepeerSessionWarmupWanted(vodJob, "live+abc→live+abc"));
+    JSON::Value hosted = liveJob;
+    hosted["access_token"] = "secret";
+    assert(!Mist::livepeerSessionWarmupWanted(hosted, "live+abc→live+abc"));
+
+    // It never carries a duration-derived deadline, which a gateway without an auth webhook would
+    // take as the whole stream's deadline; a configured one it carries like every segment.
+    assert(Mist::livepeerSessionWarmupDeadlineMs(liveJob) == 0);
+    liveJob["deadline_ms"] = 12000;
+    assert(Mist::livepeerSessionWarmupDeadlineMs(liveJob) == 12000);
+    liveJob["deadline_ms"] = -1;
+    assert(Mist::livepeerSessionWarmupDeadlineMs(liveJob) == 0);
+    liveJob["deadline_ms"] = 999999999;
+    assert(Mist::livepeerSessionWarmupDeadlineMs(liveJob) == Mist::LIVEPEER_MAX_DEADLINE_MS);
+
+    assert(Mist::livepeerSessionWarmupFrameMs(25000) == 40);
+    assert(Mist::livepeerSessionWarmupFrameMs(30000) == 33);
+    assert(Mist::livepeerSessionWarmupFrameMs(0) == 40);
+    assert(Mist::livepeerSessionWarmupFrameMs(5000000) == 1);
+
+    // The gateway cannot probe a frame rate from the one keyframe; the warm-up states it.
+    assert(Mist::livepeerSessionWarmupFrameRate(15000) == "15.000");
+    assert(Mist::livepeerSessionWarmupFrameRate(29970) == "29.970");
+    assert(Mist::livepeerSessionWarmupFrameRate(0) == "");
+  }
   return 0;
 }
