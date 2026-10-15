@@ -1,6 +1,7 @@
 #include "../src/process/livepeer_request.h"
 
 #include <cassert>
+#include <map>
 #include <set>
 #include <string>
 
@@ -35,19 +36,44 @@ int main() {
   // duration plus one second, sent as an integer deadlineMs.
   JSON::Value live;
   live["target_profiles"] = JSON::fromString("[{\"name\":\"360p\"}]");
-  assert(Mist::livepeerSegmentDeadlineMs(live, 2000) == 3000);
-  assert(Mist::livepeerSegmentDeadlineMs(live, 4170) == 5170);
-  configuration = Mist::buildLivepeerTranscodeConfiguration(live, Mist::livepeerSegmentDeadlineMs(live, 2000));
+  assert(Mist::livepeerSegmentDeadlineMs(live, 2000, false) == 3000);
+  assert(Mist::livepeerSegmentDeadlineMs(live, 4170, false) == 5170);
+  configuration = Mist::buildLivepeerTranscodeConfiguration(live, Mist::livepeerSegmentDeadlineMs(live, 2000, false));
   assert(configuration["deadlineMs"].isInt());
   assert(configuration["deadlineMs"].asInt() == 3000);
+  // The segment that starts the session on a gateway also pays for the session setup there,
+  // and its socket outlasts that budget too.
+  assert(Mist::LIVEPEER_SESSION_SETUP_ALLOWANCE_MS == 2000);
+  assert(Mist::livepeerSegmentDeadlineMs(live, 2000, true) == 5000);
+  assert(Mist::livepeerSocketTimeoutSeconds(Mist::livepeerSegmentDeadlineMs(live, 2000, true)) == 6);
+  configuration = Mist::buildLivepeerTranscodeConfiguration(live, Mist::livepeerSegmentDeadlineMs(live, 2000, true));
+  assert(configuration["deadlineMs"].asInt() == 5000);
   live["deadline_ms"] = -5;
-  assert(Mist::livepeerSegmentDeadlineMs(live, 2000) == 3000);
+  assert(Mist::livepeerSegmentDeadlineMs(live, 2000, false) == 3000);
   // A configured deadline (VOD) wins over the segment duration and is capped
   // at the gateway's maximum.
-  assert(Mist::livepeerSegmentDeadlineMs(options, 2000) == 45000);
+  assert(Mist::livepeerSegmentDeadlineMs(options, 2000, false) == 45000);
+  assert(Mist::livepeerSegmentDeadlineMs(options, 2000, true) == 47000);
   options["deadline_ms"] = 7200000;
-  assert(Mist::livepeerSegmentDeadlineMs(options, 2000) == 3600000);
-  assert(Mist::livepeerSegmentDeadlineMs(live, 7200000) == 3600000);
+  assert(Mist::livepeerSegmentDeadlineMs(options, 2000, false) == 3600000);
+  assert(Mist::livepeerSegmentDeadlineMs(options, 2000, true) == 3600000);
+  assert(Mist::livepeerSegmentDeadlineMs(live, 7200000, false) == 3600000);
+
+  {
+    // Segment 0 starts the session on the first broadcaster, including its re-sends there;
+    // the concurrent segment 1 and every later one do not. After a switch, the first segment
+    // sent to the new broadcaster starts the session there; a re-send of segment 0 to the
+    // first broadcaster still does.
+    std::map<std::string, uint64_t> starts;
+    assert(Mist::livepeerSegmentStartsSession(starts, "http://a", 0));
+    assert(!Mist::livepeerSegmentStartsSession(starts, "http://a", 1));
+    assert(Mist::livepeerSegmentStartsSession(starts, "http://a", 0));
+    assert(!Mist::livepeerSegmentStartsSession(starts, "http://a", 2));
+    assert(Mist::livepeerSegmentStartsSession(starts, "http://b", 7));
+    assert(Mist::livepeerSegmentStartsSession(starts, "http://b", 7));
+    assert(!Mist::livepeerSegmentStartsSession(starts, "http://b", 8));
+    assert(!Mist::livepeerSegmentStartsSession(starts, "http://a", 9));
+  }
 
   assert(Mist::livepeerFatalUploadStatus(401));
   assert(Mist::livepeerFatalUploadStatus(403));

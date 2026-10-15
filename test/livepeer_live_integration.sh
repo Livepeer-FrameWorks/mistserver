@@ -47,8 +47,11 @@
 #                 keyframe as a session warm-up before segment 0 is complete, so the setup
 #                 starts then and segment 0 is transcoded within its budget.
 #   session-setup-no-warmup
-#                 as session-setup against a gateway that refuses the warm-up: the setup lands
-#                 in segment 0's budget, segment 0 is skipped, and the next segments flow.
+#                 against a gateway that refuses the warm-up, the orchestrator takes 3.5 s to
+#                 set the session up, all within segment 0's budget. Segment 0 starts the
+#                 session and carries the session setup allowance (segment duration plus three
+#                 seconds), so it is transcoded instead of skipped; the next segments carry
+#                 the steady budget (segment duration plus one second) and flow.
 #   stop-sessions the sessions of a resumable stream are stopped through the API
 #                 while the publisher is live (as at a platform stream stop);
 #                 the process exits by itself within seconds, and the buffer
@@ -178,7 +181,7 @@ session_setup_ms=
 refuse_warmup=
 case "$mode" in
   session-setup) session_setup_ms=2500 ;;
-  session-setup-no-warmup) session_setup_ms=2500 refuse_warmup=1 ;;
+  session-setup-no-warmup) session_setup_ms=3500 refuse_warmup=1 ;;
 esac
 LIVEPEER_STUB_SESSION_SETUP_MS="$session_setup_ms" LIVEPEER_STUB_REFUSE_WARMUP="$refuse_warmup" \
   LIVEPEER_STUB_HOLD_FILE="$hold_file" LIVEPEER_STUB_NO_RESULT_FILE="$no_result_file" LIVEPEER_STUB_ALT_FLAG="$alt_flag" LIVEPEER_STUB_ALT_FILE="$alt_segment" \
@@ -564,16 +567,23 @@ case "$mode" in
       echo "the Livepeer process sent no session warm-up for the gateway to refuse" >&2
       exit 1
     fi
-    if ! grep -qE "^budgetmiss $first\$" "$work/broadcaster.log"; then
-      echo "the first segment ($first) made its budget although the session setup landed in it" >&2
+    wait_for 20 "the first segment to be transcoded" logged "$work/broadcaster.log" "^responded $first\$"
+    wait_for 20 "two more segments" logged "$work/broadcaster.log" "^responded $((first + 2))\$"
+    if grep -qE '^budgetmiss ' "$work/broadcaster.log" || grep -qE 'Skipping seg [0-9]+: no result within its' "$work/controller.log"; then
+      echo "a segment missed its budget although segment $first carried the session setup allowance" >&2
       exit 1
     fi
-    wait_for 20 "the first segment to be skipped" logged "$work/controller.log" "Skipping seg $first: no result within its"
+    first_extra=$(awk -v seg="$first" '$1 == "deadline" && $2 == seg { print $3 - $4; exit }' "$work/broadcaster.log")
+    next_extra=$(awk -v seg="$((first + 1))" '$1 == "deadline" && $2 == seg { print $3 - $4; exit }' "$work/broadcaster.log")
+    if [ "$first_extra" != 3000 ] || [ "$next_extra" != 1000 ]; then
+      echo "segment $first carried its duration plus ${first_extra:-?} ms and segment $((first + 1)) plus ${next_extra:-?} ms; expected 3000 and 1000" >&2
+      exit 1
+    fi
     if ! running_livepeer; then
-      echo "the Livepeer process did not survive the skipped first segment" >&2
+      echo "the Livepeer process did not keep running" >&2
       exit 1
     fi
-    echo "session-setup-no-warmup: without the warm-up segment $first missed its budget and was skipped"
+    echo "session-setup-no-warmup: segment $first carried the session setup allowance and was transcoded after the 3.5 s setup"
     ;;
   stop-sessions)
     pid=$(livepeer_pid)

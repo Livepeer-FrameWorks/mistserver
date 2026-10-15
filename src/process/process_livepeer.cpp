@@ -33,6 +33,9 @@
 std::mutex segMutex;
 std::mutex broadcasterMutex;
 std::string cookie;
+// Per broadcaster, the segment that started this process's session there (see
+// Mist::livepeerSegmentStartsSession); guarded by broadcasterMutex.
+std::map<std::string, uint64_t> sessionStarts;
 
 //Stat related stuff
 JSON::Value pStat;
@@ -907,17 +910,24 @@ void uploadThread(size_t myNum){
     uint64_t segFirstSendMs = 0;
     do{
       HTTP::URL target;
+      bool startsSession = false;
       {
         std::lock_guard<std::mutex> guard(broadcasterMutex);
         if (segAddr.empty()) { segAddr = Mist::currBroadAddr; }
         target = HTTP::URL(segAddr + "/live/" + Mist::lpID + "/" + JSON::Value(mySeg.keyNo).asString() + ".ts");
         upper.setHeader("Cookie", cookie);
+        startsSession = Mist::livepeerSegmentStartsSession(sessionStarts, segAddr, mySeg.keyNo);
       }
       // The gateway owns orchestrator selection, retries and hedging within the
       // segment's deadline and answers before it ends; Mist's socket only needs
       // to outlast that, and makes one attempt per request so the loop below
-      // decides every re-send.
-      uint64_t deadlineMs = Mist::livepeerSegmentDeadlineMs(Mist::opt, mySeg.segDuration);
+      // decides every re-send. The segment that starts the session on its
+      // gateway also waits out the session setup there.
+      uint64_t deadlineMs = Mist::livepeerSegmentDeadlineMs(Mist::opt, mySeg.segDuration, startsSession);
+      if (startsSession && !segFirstSendMs) {
+        INFO_MSG("Seg %s starts the Livepeer session on %s: %" PRIu64 " ms budget",
+                 JSON::Value(mySeg.keyNo).asString().c_str(), segAddr.c_str(), deadlineMs);
+      }
       upper.dataTimeout = Mist::livepeerSocketTimeoutSeconds(deadlineMs);
       upper.retryCount = Mist::LIVEPEER_DOWNLOADER_RETRY_COUNT;
       upper.setHeader("Accept", "multipart/mixed");

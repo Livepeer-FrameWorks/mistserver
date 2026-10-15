@@ -132,6 +132,8 @@ if [ "${LIVEPEER_TEST_FAILING_GATEWAY:-}" = "1" ]; then
 fi
 triggers="{}"
 livepeer_options=
+# The deadline_ms livepeer_options configures, 0 for the live default.
+configured_deadline=0
 if [ "${LIVEPEER_TEST_HEADER_BUFFER_KILLED:-}" = "1" ]; then
   # Every transcode is held back (within a long segment budget), so the recording waits for its
   # header until the buffer dies.
@@ -203,6 +205,7 @@ if [ "${LIVEPEER_TEST_VOD_LATE_SEGMENT:-}" = "1" ]; then
   # A VOD job with a 3 s segment budget whose gateway has no result for segment 3 during the first
   # 4 s of its uploads: the segment misses one budget, and its next one gets the result.
   livepeer_options=",\"workload\":\"vod\",\"deadline_ms\":3000"
+  configured_deadline=3000
   LIVEPEER_STUB_NO_RESULT_SEGMENT=3
   LIVEPEER_STUB_NO_RESULT_MS=4000
   export LIVEPEER_STUB_NO_RESULT_SEGMENT LIVEPEER_STUB_NO_RESULT_MS
@@ -308,7 +311,9 @@ if [ "${LIVEPEER_TEST_VOD_GATEWAY_DOWN:-}" = "1" ]; then
     echo "the Livepeer process re-sent $resent segments after a missed budget; expected four before falling back" >&2
     exit 1
   fi
-  if ! grep -qE 'had no result for segment [0-9]+ within its 2000 ms budget \(5 consecutive\)' "$work/input.log"; then
+  # Segment 0 starts the session on the gateway and carries the 2000 ms session setup allowance on
+  # top of the configured budget; the fifth miss can be its own.
+  if ! grep -qE 'had no result for segment [0-9]+ within its (2000|4000) ms budget \(5 consecutive\)' "$work/input.log"; then
     echo "the Livepeer process did not fall back at the fifth consecutive missed budget" >&2
     exit 1
   fi
@@ -473,16 +478,32 @@ if [ "$first_response" != "1" ]; then
   echo "broadcaster did not complete segment 1 before segment 0; ordering path was not exercised" >&2
   exit 1
 fi
-# Live uploads carry a budget of their segment duration (2 s here, shorter for
-# the tail) plus one second.
-deadlines=$(cat $stub_logs | sed -n 's/^deadline [0-9]* //p')
-if [ -z "$deadlines" ]; then
+# Uploads carry the configured budget, or for live their segment duration (2 s here, shorter for
+# the tail) plus one second. The segment that starts a process's session on a broadcaster
+# carries 2000 ms more for the session setup, so every broadcaster that got uploads saw it.
+if ! grep -qs '^deadline ' $stub_logs; then
   echo "broadcaster saw no uploads" >&2
   exit 1
 fi
-for deadline in $deadlines; do
-  if [ "$deadline" -le 1000 ] || [ "$deadline" -gt 3500 ]; then
-    echo "an upload carried deadlineMs=$deadline; expected its segment duration plus 1000 ms" >&2
+for log in $stub_logs; do
+  if ! awk -v configured="$configured_deadline" '
+    /^deadline / {
+      uploads++
+      extra = $3 - (configured > 0 ? configured : $4 + 1000)
+      if (extra == 2000) {
+        starts++
+      } else if (extra != 0) {
+        printf "segment %s (%s ms) carried deadlineMs=%s\n", $2, $4, $3
+        bad = 1
+      }
+    }
+    END {
+      if (uploads && !starts) {
+        print "no upload carried the session setup allowance"
+        bad = 1
+      }
+      exit bad
+    }' "$log" >&2; then
     exit 1
   fi
 done

@@ -6,6 +6,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
+#include <map>
 #include <set>
 #include <string>
 
@@ -90,14 +91,37 @@ namespace Mist {
   /// Largest deadlineMs the gateway accepts.
   static const uint64_t LIVEPEER_MAX_DEADLINE_MS = 3600000;
 
+  /// Extra budget of a segment that starts this process's session on a gateway: the gateway
+  /// registers the stream and an orchestrator sets the session up before the segment's own
+  /// transcode. The gateway gives the same segment the same allowance (its session setup
+  /// allowance), so this process waits as long as the gateway works on it.
+  static const uint64_t LIVEPEER_SESSION_SETUP_ALLOWANCE_MS = 2000;
+
   /// The gateway's total budget for one segment, from its receipt of the
   /// upload to the end of the response, sent as deadlineMs on every upload. A
   /// configured deadline_ms (VOD) applies as is; live gets the segment duration
-  /// plus one second.
-  inline uint64_t livepeerSegmentDeadlineMs(const JSON::Value & options, uint64_t segmentDurationMs) {
+  /// plus one second. A segment that starts the session on its gateway
+  /// (livepeerSegmentStartsSession) gets LIVEPEER_SESSION_SETUP_ALLOWANCE_MS on top.
+  inline uint64_t livepeerSegmentDeadlineMs(const JSON::Value & options, uint64_t segmentDurationMs, bool startsSession) {
     int64_t configured = options.isMember("deadline_ms") ? options["deadline_ms"].asInt() : 0;
     uint64_t deadlineMs = configured > 0 ? (uint64_t)configured : segmentDurationMs + 1000;
+    if (startsSession) { deadlineMs += LIVEPEER_SESSION_SETUP_ALLOWANCE_MS; }
     return deadlineMs < LIVEPEER_MAX_DEADLINE_MS ? deadlineMs : LIVEPEER_MAX_DEADLINE_MS;
+  }
+
+  /// Whether segment keyNo, sent to the broadcaster at addr, starts this process's session
+  /// there: it is the first segment this process sends that broadcaster. `sessionStarts` holds,
+  /// per broadcaster, the segment that started the session; the first call for a broadcaster
+  /// claims it for keyNo. Re-sends of that segment to the same broadcaster start it as well.
+  /// Segment 0 starts the session on the broadcaster a process begins with, and the first
+  /// segment sent to a broadcaster after switching to it starts the session there.
+  inline bool livepeerSegmentStartsSession(std::map<std::string, uint64_t> & sessionStarts, const std::string & addr, uint64_t keyNo) {
+    std::map<std::string, uint64_t>::iterator it = sessionStarts.find(addr);
+    if (it == sessionStarts.end()) {
+      sessionStarts[addr] = keyNo;
+      return true;
+    }
+    return it->second == keyNo;
   }
 
   /// The gateway answers within its deadline, so the upload socket waits one

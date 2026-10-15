@@ -221,11 +221,14 @@ namespace {
     unsigned long long segmentDeadlineMs = 0;
     {
       // Every upload carries the segment's budget as deadlineMs in the
-      // transcode configuration header.
+      // transcode configuration header, logged with its Content-Duration.
       const size_t field = lowerHeaders.find("\"deadlinems\":");
       const unsigned long long deadline = field == std::string::npos ? 0 : strtoull(lowerHeaders.c_str() + field + 13, 0, 10);
+      const size_t durationField = lowerHeaders.find("\r\ncontent-duration:");
+      const unsigned long long duration =
+        durationField == std::string::npos ? 0 : strtoull(lowerHeaders.c_str() + durationField + 19, 0, 10);
       std::lock_guard<std::mutex> logGuard(logMutex);
-      fprintf(stdout, "deadline %llu %llu\n", (unsigned long long)segment, deadline);
+      fprintf(stdout, "deadline %llu %llu %llu\n", (unsigned long long)segment, deadline, duration);
       fflush(stdout);
       segmentDeadlineMs = deadline;
     }
