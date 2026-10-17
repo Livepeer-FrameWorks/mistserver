@@ -157,6 +157,54 @@ namespace {
     }
   }
 
+  // A reader whose stream exited and whose stream page is gone (a buffer that shut down while a
+  // process still reads its metadata) reloads to a view without tracks; reading it returns
+  // nothing instead of dereferencing the closed page.
+  void streamGone() {
+    const std::string stream = "sg" + std::to_string(getpid());
+    DTSC::Meta writer;
+    writer.reInit(stream, true);
+    writer.setLive(true);
+    writer.setSource("push://");
+    size_t video, audio;
+    addTracks(writer, video, audio);
+
+    DTSC::Meta reader;
+    reader.reInit(stream, false, false);
+    reader.reloadReplacedPagesIfNeeded();
+    check(reader.getLive(), "the reader sees the live stream");
+    check(reader.getValidTracks().size() == 2, "the reader sees both tracks");
+
+    char name[NAME_BUFFER_SIZE];
+    snprintf(name, NAME_BUFFER_SIZE, SHM_STREAM_META, stream.c_str());
+    {
+      IPC::sharedPage page(name, 0, false, false);
+      if (!page.mapped) {
+        fprintf(stderr, "FAIL: cannot open stream page %s\n", name);
+        ++failures;
+        return;
+      }
+      Util::RelAccX(page.mapped, false).setExit();
+    }
+#ifdef SHM_ENABLED
+    const int unlinked = shm_unlink(name);
+#else
+    const int unlinked = unlink((Util::getTmpFolder() + name).c_str());
+#endif
+    if (unlinked) {
+      fprintf(stderr, "FAIL: cannot unlink stream page %s: %s\n", name, strerror(errno));
+      ++failures;
+      return;
+    }
+    reader.reloadReplacedPagesIfNeeded();
+    check(!reader.getVod(), "a reader without a stream page is not VoD");
+    check(!reader.getLive(), "a reader without a stream page is not live");
+    check(reader.getSource().empty(), "a reader without a stream page has no source");
+    check(reader.getBootMsOffset() == 0, "a reader without a stream page has no boot offset");
+    check(reader.getValidTracks().empty(), "a reader without a stream page has no valid tracks");
+    check(!reader.reloadReplacedPagesIfNeeded(), "a reader without a stream page does not reload again");
+  }
+
   // swap exchanges two open pages without closing or unlinking either.
   void pageSwap() {
     const std::string nameA = "/MstSwpA" + std::to_string(getpid());
@@ -180,6 +228,7 @@ namespace {
 int main() {
   resizeWindow();
   fullReloadWindow();
+  streamGone();
   pageSwap();
   if (failures) {
     fprintf(stderr, "%d check(s) failed\n", failures);

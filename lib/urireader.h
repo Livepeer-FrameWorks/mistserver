@@ -53,6 +53,9 @@ namespace HTTP{
     void onProgress(bool (*progressCallback)(uint8_t));
     /// Sets minimum and maximum buffer size for read calls that use callbacks
     void setBounds(size_t minLen = 0, size_t maxLen = 0);
+    /// Marks what the next open() reads as optional (such as a .dtsh header that is generated
+    /// when absent): failing to open it is logged as a detail instead of as a failure.
+    void setOptional(bool isOptional);
 
     // Static getters
     bool isSeekable() const; ///< Returns true if seeking is possible in this URI.

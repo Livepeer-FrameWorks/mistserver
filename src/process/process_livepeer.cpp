@@ -349,6 +349,9 @@ namespace Mist{
         }
         if (shouldSplit) {
           sourceIndex.store(getMainSelectedTrack(), std::memory_order_relaxed);
+          // A segment number belongs to a segment that is sent. The first keyframe of a source
+          // whose timestamps start at a second or later (MPEG-TS over SRT starts near 1.4 s) is
+          // a split with nothing collected yet; it starts segment 0 instead of consuming its number.
           if (presegs[currPreSeg].data.size() > 187) {
             presegs[currPreSeg].keyNo = keyCount;
             presegs[currPreSeg].width = M.getWidth(thisIdx);
@@ -358,6 +361,7 @@ namespace Mist{
             presegs[currPreSeg].fullyWritten.store(true, std::memory_order_release);
             statQueueDepth.fetch_add(1, std::memory_order_relaxed);
             currPreSeg = (currPreSeg + 1) % PRESEG_COUNT;
+            ++keyCount;
           }
           // Both upload slots are busy (a slow gateway, or a segment waiting for its insert
           // turn). The wait keeps this output's session counted: MistSession ends a session whose
@@ -373,7 +377,6 @@ namespace Mist{
           needsLookAhead = 0;
           maxSkipAhead = 0;
           packCounter = 0;
-          ++keyCount;
           sendFirst = true;
         }
       }
@@ -901,7 +904,6 @@ void uploadThread(size_t myNum){
     const Mist::LivepeerSegmentInfo seg = {mySeg.keyNo, mySeg.time,   mySeg.segDuration,
                                            mySeg.width, mySeg.height, (uint64_t)mySeg.data.size()};
     size_t attempts = 0;
-    uint32_t rejectionsHere = 0;
     // Every attempt for this segment goes to segAddr; it only changes through
     // the broadcaster switch below, so a re-send meant for the same gateway
     // never follows another upload thread's switch.
@@ -1038,13 +1040,10 @@ void uploadThread(size_t myNum){
           }
           break;//Success: no need to retry
         }else if (upper.getStatusCode() == 422){
-          // Segment rejected by the broadcaster: re-send it there a few times
-          // with backoff, then try one other broadcaster, then give it up.
+          // Segment rejected by the broadcaster as faulty: try one other broadcaster, then give it
+          // up. The rejecting broadcaster never gets it again (see livepeerRejectionStep).
           ++statFailN200;
-          ++rejectionsHere;
-          // Same-broadcaster re-sends don't count towards the fallback
-          // threshold; each broadcaster's first rejection does.
-          if (rejectionsHere == 1) { ++consecutive422; }
+          ++consecutive422;
           WARN_MSG("Rejected upload of %zu bytes to %s after %.2f ms: %" PRIu32 " %s", mySeg.data.size(), target.getUrl().c_str(), uplTime/1000.0, upper.getStatusCode(), upper.getStatusText().c_str());
           if (Mist::livepeerShouldFallback(consecutive422)) {
             procExit.log(ER_FORMAT_SPECIFIC, 2,
@@ -1052,14 +1051,7 @@ void uploadThread(size_t myNum){
             requestLivepeerStop("consecutive segment rejections (422)");
             return;
           }
-          Mist::LivepeerRejectionStep step = Mist::livepeerRejectionStep(rejectionsHere, was422);
-          if (step == Mist::LivepeerRejectionStep::RetrySame) {
-            WARN_MSG("Re-sending rejected seg %s to the same broadcaster (%" PRIu32 "/%" PRIu32 ")",
-                     JSON::Value(mySeg.keyNo).asString().c_str(), rejectionsHere, Mist::LIVEPEER_SAME_BROADCASTER_422_RETRIES);
-            Util::sleep(Mist::livepeerRejectionBackoffMs(rejectionsHere));
-            continue;
-          }
-          if (step == Mist::LivepeerRejectionStep::RejectSegment) {
+          if (Mist::livepeerRejectionStep(was422) == Mist::LivepeerRejectionStep::RejectSegment) {
             if (rejectSegment(myNum, mySeg, prevURL, target.getUrl())) { return; }
             was422 = false;
             prevURL.clear();
@@ -1165,12 +1157,11 @@ void uploadThread(size_t myNum){
         }
         if (outcome != Mist::LivepeerSwitchOutcome::NoAlternative) {
           switchSuccess = true;
-          rejectionsHere = 0;
           segAddr = Mist::currBroadAddr;
         }
       }
       if (!switchSuccess && was422){
-        // No other broadcaster to try after the same-broadcaster re-sends.
+        // No other broadcaster to try the rejected segment on.
         if (rejectSegment(myNum, mySeg, prevURL, "N/A")) { return; }
         was422 = false;
         prevURL.clear();

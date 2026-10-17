@@ -44,6 +44,11 @@
 namespace Util{
   Util::DataCallback defaultDataCallback;
 
+  // What a RelAccX without a structure (one constructed from a null pointer, such as a Meta whose
+  // stream page is gone) reads: a header of zeroes, so it has no records, and an all-zero record,
+  // so a field accessor kept from a mapped structure reads 0 or "" instead of the null page.
+  static const uint64_t unbackedRelAccX[512] = {0};
+
   /// Helper function that cross-platform checks if a given directory exists.
   bool isDirectory(const std::string &path){
 #if defined(_WIN32)
@@ -933,6 +938,14 @@ namespace Util{
   RelAccX::RelAccX(char *data, bool waitReady){
     if (!data){
       p = 0;
+      char *zeroes = (char *)unbackedRelAccX;
+      hdrRecordCnt = (uint32_t *)(zeroes + 2);
+      hdrRecordSize = (uint32_t *)(zeroes + 6);
+      hdrStartPos = (uint32_t *)(zeroes + 10);
+      hdrDeleted = (uint64_t *)(zeroes + 14);
+      hdrPresent = (uint32_t *)(zeroes + 22);
+      hdrOffset = (uint16_t *)(zeroes + 26);
+      hdrEndPos = (uint64_t *)(zeroes + 28);
       return;
     }
     p = data;
@@ -1068,6 +1081,7 @@ namespace Util{
   }
 
   char *RelAccX::getPointer(const RelAccXFieldData &fd, uint64_t recordNo) const{
+    if (!p) { return (char *)unbackedRelAccX; }
     return RECORD_POINTER;
   }
 
@@ -1080,6 +1094,7 @@ namespace Util{
   }
 
   uint64_t RelAccX::getInt(const RelAccXFieldData &fd, uint64_t recordNo) const{
+    if (!p) { return 0; }
     char *ptr = RECORD_POINTER;
     if ((fd.type & 0xF0) == RAX_UINT){// unsigned int
       switch (fd.size){
@@ -1315,6 +1330,7 @@ namespace Util{
       WARN_MSG("Setting non-string data type to a string value");
       return;
     }
+    if (!p) { return; }
     char *ptr = RECORD_POINTER;
     memcpy(ptr, val.data(), std::min((uint32_t)val.size(), fd.size));
     if ((fd.type & 0xF0) == RAX_STRING){ptr[std::min((uint32_t)val.size(), fd.size - 1)] = 0;}
@@ -1332,6 +1348,7 @@ namespace Util{
   }
 
   void RelAccX::setInt(const RelAccXFieldData &fd, uint64_t val, uint64_t recordNo){
+    if (!p) { return; }
     char *ptr = RECORD_POINTER;
     if ((fd.type & 0xF0) == RAX_UINT){// unsigned int
       switch (fd.size){

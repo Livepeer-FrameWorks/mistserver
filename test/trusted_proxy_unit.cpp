@@ -58,7 +58,35 @@ int main() {
       return 1;
     }
   }
-  removePage(writer);
+  // A controller restarted in place (a rolling restart) publishes with a writer of its own while
+  // the previous generation's page still exists: the longer list must be readable in full and the
+  // previous generation's readers must be told to reload.
+  writer.master = false;
+  writer.close();
+  {
+    IPC::sharedPage generationReader(pageName, 0, false, false);
+    Util::RelAccX generationView(generationReader.mapped, false);
+    IPC::sharedPage nextGeneration;
+    const std::string longer = "192.0.2.1 2001:db8::/32 198.51.100.0/24 203.0.113.0/24 100.64.0.0/10";
+    if (!Util::publishTrustedProxyList(nextGeneration, pageName, longer)) {
+      std::cerr << "trusted-proxy publish over a previous generation's page failed" << std::endl;
+      return 1;
+    }
+    if (!generationView.isReload()) {
+      std::cerr << "the previous generation's trusted-proxy readers were not told to reload" << std::endl;
+      removePage(nextGeneration);
+      return 1;
+    }
+    IPC::sharedPage reader(pageName, 0, false, false);
+    const std::set<std::string> entries = Util::readTrustedProxyList(reader);
+    if (entries.size() != 5 || !contains(entries, "203.0.113.0/24") || !contains(entries, "100.64.0.0/10")) {
+      std::cerr << "the trusted-proxy list published over a previous generation's page is incomplete ("
+                << entries.size() << " entries)" << std::endl;
+      removePage(nextGeneration);
+      return 1;
+    }
+    removePage(nextGeneration);
+  }
 
   IPC::sharedPage incomplete(pageName, 128, true, false);
   const uint64_t start = Util::bootMS();

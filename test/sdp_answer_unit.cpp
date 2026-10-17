@@ -1,7 +1,11 @@
 #include <mist/sdp_media.h>
+#include <mist/socket.h>
+#include <mist/timing.h>
 
 #include <iostream>
+#include <netdb.h>
 #include <string>
+#include <vector>
 
 namespace {
   bool contains(const std::string & haystack, const std::string & needle) {
@@ -145,7 +149,63 @@ namespace {
   }
 } // namespace
 
+namespace {
+  std::vector<std::string> resolved;
+
+  // Fails a .local name the way unicast DNS does (EAI_AGAIN, "Temporary failure in name
+  // resolution"); resolves everything else normally.
+  int recordingResolver(const char *node, const char *service, const struct addrinfo *hints, struct addrinfo **res) {
+    resolved.push_back(node ? node : "");
+    if (node && SDP::isMdnsCandidateHost(node)) { return EAI_AGAIN; }
+    return getaddrinfo(node, service, hints, res);
+  }
+
+  // A browser's offer carries an mDNS host candidate next to a reflexive one. Only the address is
+  // resolved; the .local name is skipped instead of retried against unicast DNS for seconds.
+  bool mdnsCandidatesAreSkipped() {
+    const std::string offer =
+      "v=0\r\n"
+      "o=- 1 2 IN IP4 127.0.0.1\r\n"
+      "s=-\r\n"
+      "t=0 0\r\n"
+      "a=candidate:1 1 udp 2122260223 5b37985c-06ed-4a63-bc6d-929adb7789ac.local 54321 typ host\r\n"
+      "a=candidate:2 1 udp 1686052607 192.0.2.10 54322 typ srflx raddr 0.0.0.0 rport 0\r\n"
+      "m=video 9 UDP/TLS/RTP/SAVPF 96\r\n"
+      "a=mid:0\r\n"
+      "a=rtpmap:96 VP8/90000\r\n";
+    resolved.clear();
+    Socket::setAddrInfoResolver(recordingResolver);
+    SDP::Session session;
+    const uint64_t began = Util::bootMS();
+    session.parseSDP(offer);
+    const uint64_t took = Util::bootMS() - began;
+    Socket::setAddrInfoResolver(0);
+    bool ok = true;
+    for (const std::string & name : resolved) {
+      if (SDP::isMdnsCandidateHost(name)) {
+        std::cerr << "The mDNS candidate " << name << " was resolved through unicast DNS" << std::endl;
+        ok = false;
+      }
+    }
+    if (session.candidates.size() != 1) {
+      std::cerr << "Expected the reflexive candidate only, got " << session.candidates.size() << " candidates" << std::endl;
+      ok = false;
+    }
+    if (took > 1000) {
+      std::cerr << "Parsing the offer took " << took << " ms" << std::endl;
+      ok = false;
+    }
+    if (!SDP::isMdnsCandidateHost("abc.LOCAL") || SDP::isMdnsCandidateHost("local") ||
+        SDP::isMdnsCandidateHost("192.0.2.10") || SDP::isMdnsCandidateHost("host.localdomain")) {
+      std::cerr << "isMdnsCandidateHost misclassifies a host" << std::endl;
+      ok = false;
+    }
+    return ok;
+  }
+} // namespace
+
 int main() {
+  if (!mdnsCandidatesAreSkipped()) { return 1; }
   if (!oneMediaPerTypeAndCompleteBundle()) { return 1; }
   if (!singleEnabledMediaIsBundled()) { return 1; }
   if (!setupRoleFollowsTheOffer()) { return 1; }

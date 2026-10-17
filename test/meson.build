@@ -23,6 +23,11 @@ downloaderregressiontest = executable('downloaderregressiontest', 'downloader_re
                                       dependencies: libmist_dep)
 test('connection reuse and POST phase classification', downloaderregressiontest, suite: 'Downloader')
 
+urireaderrangetest = executable('urireaderrangetest', 'urireader_range_unit.cpp', header_tgts,
+                                dependencies: libmist_dep)
+test('URIReader seeks to the end without a range request and leaves an absent optional resource alone',
+     urireaderrangetest, suite: 'Downloader')
+
 socketresolvetest = executable('socketresolvetest', 'socket_resolve_unit.cpp', header_tgts,
                                dependencies: libmist_dep)
 test('Socket name resolution retries temporary resolver failures', socketresolvetest, suite: 'Sockets')
@@ -274,7 +279,7 @@ if get_option('b_sanitize') == 'none' and ffmpeg_program.found() and ffprobe_pro
                 exec_tgts.get('MistUtilNuke'), livepeerstub, timeout_program,
                 livepeerprocstateprobe],
          suite: 'Processing', timeout: 120, is_parallel: false)
-    test('Livepeer re-sends a rejected segment to the same broadcaster', livepeervodtest,
+    test('A rejected VOD Livepeer segment is not sent to its broadcaster again', livepeervodtest,
          args: [ffmpeg_program, ffprobe_program, exec_tgts.get('MistController'),
                 exec_tgts.get('MistInEBML'), exec_tgts.get('MistInBuffer'),
                 exec_tgts.get('MistProcLivepeer'), exec_tgts.get('MistOutEBML'),
@@ -402,6 +407,14 @@ if get_option('b_sanitize') == 'none' and ffmpeg_program.found() and ffprobe_pro
     test('A live Livepeer process whose sessions are stopped exits without being killed', livepeerlivetest,
          args: livepeerliveargs, env: {'MIST_LIVEPEER_LIVE_MODE': 'stop-sessions'},
          suite: 'Processing', timeout: 150, is_parallel: false)
+    if have_srt and exec_tgts.has_key('MistOutTSSRT')
+      test('A live Livepeer process sends an SRT stream from segment 0', livepeerlivetest,
+           args: livepeerliveargs,
+           env: {'MIST_LIVEPEER_LIVE_MODE': 'srt-first-segment',
+                 'MIST_LIVEPEER_TSSRT': exec_tgts.get('MistOutTSSRT').full_path()},
+           depends: exec_tgts.get('MistOutTSSRT'),
+           suite: 'Processing', timeout: 150, is_parallel: false)
+    endif
   endif
   if get_option('WITH_AV') and timeout_program.found()
     processrecordingtest = find_program('process_recording_integration.sh')
@@ -756,6 +769,11 @@ controlleralwaysontest = executable('controlleralwaysontest', 'controller_always
                                     dependencies: libmist_dep)
 test('Always-on inputs are adopted, not duplicated, after a rolling restart', controlleralwaysontest,
      suite: 'Controller')
+stalelockfixture = executable('stale_lock_fixture', 'stale_lock_fixture.cpp', header_tgts, dependencies: libmist_dep)
+alwaysonstalelocktest = find_program('always_on_stale_lock_integration.sh')
+test('An always-on input whose dead predecessor left its pull lock taken is started again', alwaysonstalelocktest,
+     args: [exec_tgts.get('MistController'), exec_tgts.get('MistInTS'), exec_tgts.get('MistUtilNuke'), stalelockfixture],
+     suite: 'Controller', timeout: 90, is_parallel: false)
 
 if get_option('WITH_AV')
   avcodecregistrytest = executable('avcodecregistrytest', 'av_codec_registry.cpp', header_tgts, dependencies: av_libs)
@@ -1044,6 +1062,11 @@ test('Live page flips read the meta being buffered into', iolivepageflip_test, s
 dtsc_reload_window_test = executable('dtsc_reload_window_test', 'dtsc_reload_window_unit.cpp', header_tgts,
   dependencies: libmist_dep)
 test('A track stays readable while its writer replaces its metadata page', dtsc_reload_window_test, suite: 'DTSC')
+
+process_graph_candidates_test = executable('process_graph_candidates_test', 'process_graph_candidates_unit.cpp', header_tgts,
+  dependencies: libmist_dep)
+test('Processing graph candidates are sized once instead of growing on every check', process_graph_candidates_test,
+     suite: 'DTSC')
 
 dtsc_part_time_test = executable('dtsc_part_time_test', 'dtsc_part_time_unit.cpp', header_tgts, dependencies: libmist_dep)
 test('DTSC part time skips deleted keys', dtsc_part_time_test)

@@ -7,6 +7,10 @@
 
 namespace Util {
   bool publishTrustedProxyList(IPC::sharedPage & page, const std::string & pageName, const std::string & trustedList) {
+    // The page this writer published before, or else one a previous controller generation left
+    // behind (a rolling restart keeps shared memory): readers holding it are told to reload, and it
+    // is removed so the list is written into a fresh page instead of into the old, ready one.
+    if (!page) { page.init(pageName, 0, false, false); }
     if (page) {
       RelAccX oldPage(page.mapped, false);
       if (oldPage.isReady()) { oldPage.setReload(); }

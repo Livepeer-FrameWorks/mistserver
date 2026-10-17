@@ -1,5 +1,7 @@
 #pragma once
 #include "dtsc.h"
+
+#include <cctype>
 #include <map>
 #include <set>
 #include <string>
@@ -13,6 +15,18 @@
   (1 << 2) /// Use FEC (See rtp.cpp, PacketRED). When used we try to add the correct `a=rtpmap` for RED and ULPFEC to the SDP when supported by the offer.
 
 namespace SDP{
+
+  /// Whether an ICE candidate address is a multicast DNS name (RFC 8838 obfuscated host candidate,
+  /// such as <uuid>.local), which unicast DNS cannot resolve.
+  inline bool isMdnsCandidateHost(const std::string & host) {
+    static const char suffix[] = ".local";
+    const size_t len = sizeof(suffix) - 1;
+    if (host.size() <= len) { return false; }
+    for (size_t i = 0; i < len; ++i) {
+      if (tolower((unsigned char)host[host.size() - len + i]) != suffix[i]) { return false; }
+    }
+    return true;
+  }
 
   /// A MediaFormat stores the infomation that is specific for an
   /// encoding.  With RTSP there is often just one media format

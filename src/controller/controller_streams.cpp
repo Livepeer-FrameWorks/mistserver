@@ -20,8 +20,22 @@
 ///\brief Holds everything unique to the controller.
 namespace Controller{
   std::map<std::string, pid_t> inputProcesses;
-  // Always-on streams served by an input whose PID could not be read; warned about once each.
-  static std::set<std::string> alwaysOnUnadopted;
+  // Always-on streams that look served without a running input, with the boot ms they were first
+  // seen that way (see alwaysOnAction).
+  static std::map<std::string, uint64_t> alwaysOnUnadopted;
+
+  /// Releases a stream lock (an input or pull semaphore) that no running process holds.
+  static void releaseAbandonedLock(const std::string & semName) {
+    IPC::semaphore lock(semName.c_str(), O_RDWR, ACCESSPERMS, 0, true);
+    if (!lock) { return; }
+    if (lock.tryWait()) {
+      lock.post();
+      return;
+    }
+    // Only its holder can give a taken semaphore back; removing it lets the next input create it
+    // afresh, untaken.
+    lock.unlink();
+  }
 
   /// Internal list of currently active processes
   class procInfo{
@@ -184,7 +198,20 @@ namespace Controller{
         const bool inputLock = Util::streamAlive(name);
         const bool pullLock = Util::streamPullAlive(name);
         if (inputLock || pullLock) { runningPid = Util::streamInputPid(name); }
-        action = alwaysOnAction(false, Util::getStreamStatus(name), inputLock, pullLock, runningPid);
+        std::map<std::string, uint64_t>::const_iterator since = alwaysOnUnadopted.find(name);
+        const uint64_t now = Util::bootMS();
+        const uint64_t servedWithoutInputMs = since == alwaysOnUnadopted.end() ? 0 : now - since->second;
+        action = alwaysOnAction(false, Util::getStreamStatus(name), inputLock, pullLock, runningPid, servedWithoutInputMs);
+      }
+      if (action == ALWAYS_ON_RECLAIM) {
+        WARN_MSG("Always-on input for stream %s looked served for %" PRIu64
+                 " ms without a running input; releasing the locks a dead input left and starting it",
+                 name.c_str(), Util::bootMS() - alwaysOnUnadopted[name]);
+        char semName[NAME_BUFFER_SIZE];
+        snprintf(semName, NAME_BUFFER_SIZE, SEM_INPUT, name.c_str());
+        releaseAbandonedLock(semName);
+        releaseAbandonedLock("/MstSemPull_" + name);
+        action = ALWAYS_ON_START;
       }
       if (action == ALWAYS_ON_START) {
         alwaysOnUnadopted.erase(name);
@@ -200,9 +227,10 @@ namespace Controller{
                  name.c_str(), (int)runningPid);
         inputProcesses[name] = runningPid;
       } else if (action == ALWAYS_ON_SKIP && !alwaysOnUnadopted.count(name)) {
-        alwaysOnUnadopted.insert(name);
-        WARN_MSG("Always-on input for stream %s is already running but its PID is not readable; not starting another",
-                 name.c_str());
+        alwaysOnUnadopted[name] = Util::bootMS();
+        INFO_MSG("Always-on input for stream %s looks served but no running input published its PID yet; waiting", name.c_str());
+      } else if (action == ALWAYS_ON_NONE) {
+        alwaysOnUnadopted.erase(name);
       }
     }
     // non-VoD stream

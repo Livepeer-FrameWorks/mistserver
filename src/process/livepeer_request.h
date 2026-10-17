@@ -22,28 +22,14 @@ namespace Mist {
     return consecutiveRejections >= LIVEPEER_MAX_CONSECUTIVE_REJECTIONS;
   }
 
-  /// Re-sends of one segment to the same broadcaster after a 422 before moving
-  /// on. A gateway can reject the very first segment of a new manifest while it
-  /// is still setting that manifest up; the identical segment is accepted a
-  /// moment later.
-  static const uint32_t LIVEPEER_SAME_BROADCASTER_422_RETRIES = 2;
+  enum class LivepeerRejectionStep { SwitchBroadcaster, RejectSegment };
 
-  enum class LivepeerRejectionStep { RetrySame, SwitchBroadcaster, RejectSegment };
-
-  /// What to do after the `rejectionsHere`-th 422 for one segment at the
-  /// current broadcaster: retry it there, try one other broadcaster, or give
-  /// the segment up.
-  inline LivepeerRejectionStep livepeerRejectionStep(uint32_t rejectionsHere, bool alreadySwitched) {
-    if (rejectionsHere <= LIVEPEER_SAME_BROADCASTER_422_RETRIES) { return LivepeerRejectionStep::RetrySame; }
-    if (!alreadySwitched) { return LivepeerRejectionStep::SwitchBroadcaster; }
-    return LivepeerRejectionStep::RejectSegment;
-  }
-
-  /// Backoff before re-sending a rejected segment to the same broadcaster.
-  inline uint64_t livepeerRejectionBackoffMs(uint32_t rejectionsHere) {
-    uint64_t ms = 250;
-    for (uint32_t i = 1; i < rejectionsHere && ms < 2000; ++i) { ms *= 2; }
-    return ms < 2000 ? ms : 2000;
+  /// What to do after a broadcaster rejected a segment (422): try one other broadcaster, or give
+  /// the segment up once one already rejected it too. A gateway answers 422 only for a segment
+  /// that is itself at fault (orchestrator failures and a spent budget are 503), so the same
+  /// broadcaster never gets the segment again; it would only find the segment already inserted.
+  inline LivepeerRejectionStep livepeerRejectionStep(bool alreadySwitched) {
+    return alreadySwitched ? LivepeerRejectionStep::RejectSegment : LivepeerRejectionStep::SwitchBroadcaster;
   }
 
   /// A live stream can skip a segment it cannot transcode; a VOD processing

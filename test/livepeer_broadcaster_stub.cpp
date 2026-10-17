@@ -21,8 +21,9 @@ namespace {
   int serverFd = -1;
   std::mutex logMutex;
   // With LIVEPEER_STUB_REJECT_FIRST=1 the first upload of every segment is
-  // answered 422, the way a gateway rejects segments of a manifest it is still
-  // setting up; the re-sent segment is transcoded normally.
+  // answered 422, the way a gateway rejects a segment it finds faulty; a later
+  // upload of the same segment (which a gateway would answer with the segment
+  // already inserted) is transcoded, so a re-send is visible in the log.
   bool rejectFirst = false;
   // With LIVEPEER_STUB_NO_RESULT_FIRST=1 that first answer is 503 instead: the
   // gateway had no result within the segment's budget yet.

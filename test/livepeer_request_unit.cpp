@@ -102,15 +102,9 @@ int main() {
   assert(Mist::livepeerShouldFallback(5));
   assert(Mist::livepeerShouldFallback(6));
 
-  assert(Mist::livepeerRejectionStep(1, false) == Mist::LivepeerRejectionStep::RetrySame);
-  assert(Mist::livepeerRejectionStep(2, false) == Mist::LivepeerRejectionStep::RetrySame);
-  assert(Mist::livepeerRejectionStep(2, true) == Mist::LivepeerRejectionStep::RetrySame);
-  assert(Mist::livepeerRejectionStep(3, false) == Mist::LivepeerRejectionStep::SwitchBroadcaster);
-  assert(Mist::livepeerRejectionStep(3, true) == Mist::LivepeerRejectionStep::RejectSegment);
-  assert(Mist::livepeerRejectionBackoffMs(1) == 250);
-  assert(Mist::livepeerRejectionBackoffMs(2) == 500);
-  assert(Mist::livepeerRejectionBackoffMs(3) == 1000);
-  assert(Mist::livepeerRejectionBackoffMs(9) == 2000);
+  // A first rejection moves the segment to another broadcaster; a second gives it up.
+  assert(Mist::livepeerRejectionStep(false) == Mist::LivepeerRejectionStep::SwitchBroadcaster);
+  assert(Mist::livepeerRejectionStep(true) == Mist::LivepeerRejectionStep::RejectSegment);
 
   JSON::Value vodOptions;
   vodOptions["workload"] = "vod";

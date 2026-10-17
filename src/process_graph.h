@@ -167,7 +167,6 @@ namespace Mist {
   inline std::map<size_t, std::string> buildCandidates(DTSC::Meta & C, const DTSC::Meta & M,
                                                        const std::map<std::string, std::map<std::string, JSON::Value>> & declared,
                                                        const std::set<std::string> & runs) {
-    C.reInit("", true);
     std::map<size_t, std::string> producers;
     std::map<std::string, const JSON::Value *> predicted;
     for (const std::string & config : runs) {
@@ -180,6 +179,8 @@ namespace Mist {
     const std::set<size_t> withData = M.getValidTracks(true);
     const std::set<size_t> existing = M.getValidTracks();
     DTSC::trackValidMask = oldMask;
+    // Room for every candidate up front: this runs on every buffer tick and recording check.
+    C.reInitMemory(existing.size() + predicted.size());
     std::set<std::string> existingKeys;
     for (const size_t idx : existing) {
       const std::string key = M.getOutputKey(idx);
@@ -305,14 +306,15 @@ namespace Mist {
     ready = 0;
     std::map<std::string, const JSON::Value *> outputs;
     jsonForEachConst (expected, it) { outputs[(*it)["key"].asString()] = &*it; }
-    DTSC::Meta C;
-    C.reInit("", true);
     std::map<size_t, bool> expectedCandidates; // candidate -> carries data in M
     const uint8_t mask = DTSC::trackValidMask;
     DTSC::trackValidMask = TRACK_VALID_ALL;
     const std::set<size_t> withData = M.getValidTracks(true);
     const std::set<size_t> existing = M.getValidTracks();
     DTSC::trackValidMask = mask;
+    // Room for every candidate up front: a recording runs this on every track check.
+    DTSC::Meta C;
+    C.reInitMemory(existing.size() + outputs.size());
     std::set<std::string> existingKeys;
     for (const size_t idx : existing) {
       const std::string key = M.getOutputKey(idx);

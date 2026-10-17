@@ -150,7 +150,11 @@ namespace HTTP{
       }else{
         handle = ::open(myURI.getFilePath().c_str(), O_RDONLY);
         if (handle == -1){
-          FAIL_MSG("Opening file '%s' failed: %s", myURI.getFilePath().c_str(), strerror(errno));
+          if (downer.optionalResource && errno == ENOENT) {
+            MEDIUM_MSG("Optional file '%s' does not exist", myURI.getFilePath().c_str());
+          } else {
+            FAIL_MSG("Opening file '%s' failed: %s", myURI.getFilePath().c_str(), strerror(errno));
+          }
           stateType = HTTP::Closed;
           return false;
         }
@@ -215,8 +219,20 @@ namespace HTTP{
       // Send HEAD request to determine range request is supported, and get total length
       if (userAgentOverride.size()){downer.setHeader("User-Agent", userAgentOverride);}
       if (!downer.head(myURI) || !downer.isOk()){
-        FAIL_MSG("Error getting URI info for '%s': %" PRIu32 " %s", myURI.getUrl().c_str(),
-                 downer.getStatusCode(), downer.getStatusText().c_str());
+        if (downer.optionalResource) {
+          // An optional resource the server does not answer for is treated as absent, instead of
+          // reading whatever a GET returns (an error page) as its content.
+          MEDIUM_MSG("Optional resource '%s' is not available: %" PRIu32 " %s", myURI.getUrl().c_str(),
+                     downer.getStatusCode(), downer.getStatusText().c_str());
+          downer.getSocket().close();
+          downer.getSocket().Received().clear();
+          allData.truncate(0);
+          stateType = HTTP::Closed;
+          return false;
+        } else {
+          FAIL_MSG("Error getting URI info for '%s': %" PRIu32 " %s", myURI.getUrl().c_str(), downer.getStatusCode(),
+                   downer.getStatusText().c_str());
+        }
         // Close the socket, and clean up the buffer
         downer.getSocket().close();
         downer.getSocket().Received().clear();
@@ -292,6 +308,9 @@ namespace HTTP{
     if (stateType == HTTP::HTTP && supportRangeRequest){
       downer.clean();
       curPos = pos;
+      // At or past the known end there is nothing to request (a server answers 416); the reader
+      // is at EOF.
+      if (totalSize != std::string::npos && pos >= totalSize) { return true; }
       injectHeaders(originalUrl, "GET", downer);
       if (!downer.getRangeNonBlocking(myURI, pos, 0)){
         FAIL_MSG("Error making range request");
@@ -450,6 +469,10 @@ namespace HTTP{
   void URIReader::setBounds(size_t newMinLen, size_t newMaxLen){
     minLen = newMinLen;
     maxLen = newMaxLen;
+  }
+
+  void URIReader::setOptional(bool isOptional) {
+    downer.optionalResource = isOptional;
   }
 
   bool URIReader::isSeekable() const{

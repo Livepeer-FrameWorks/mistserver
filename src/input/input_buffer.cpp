@@ -485,8 +485,15 @@ namespace Mist{
         uint64_t nextStart = 0;
         if (producer != configuredProcessIdentities.end()) {
           const JSON::Value config = JSON::fromString(producer->second);
-          restarts = !processingProcessRetired(config) && config["restart_type"].asString() != "disabled" &&
-            !(everHadPush && !hasPush);
+          // A process already started again comes back for its outputs even when the source has
+          // ended since: it claims the track with its first result, which can take a segment.
+          JSON::Value keyed = config;
+          keyed["source"] = streamName;
+          std::map<std::string, pid_t>::const_iterator running = runningProcs.find(keyed.toString());
+          const bool restartedRunning =
+            running != runningProcs.end() && running->second && Util::Procs::isActive(running->second);
+          restarts = !processingProcessRetired(config) &&
+            (restartedRunning || (config["restart_type"].asString() != "disabled" && !(everHadPush && !hasPush)));
           std::map<std::string, uint64_t>::const_iterator nextBoot = procNextBoot.find(producer->second);
           if (nextBoot != procNextBoot.end()) { nextStart = nextBoot->second; }
         }

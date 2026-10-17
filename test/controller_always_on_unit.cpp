@@ -37,6 +37,16 @@ int main() {
         "a non-terminal stream state means the stream is served");
   check(alwaysOnAction(false, STRMSTAT_READY, false, false, 4242) == ALWAYS_ON_ADOPT,
         "an online stream with a readable input PID must be adopted");
+  // Locks a dead input left taken (a killed SRT listener's pull lock) must not keep the stream
+  // unserved for good: once no running input showed up for the grace period, they are reclaimed.
+  check(alwaysOnAction(false, STRMSTAT_OFF, false, true, 0, ALWAYS_ON_ABANDONED_LOCK_MS - 1) == ALWAYS_ON_SKIP,
+        "a pull lock without a running input is waited on within the grace period");
+  check(alwaysOnAction(false, STRMSTAT_OFF, false, true, 0, ALWAYS_ON_ABANDONED_LOCK_MS) == ALWAYS_ON_RECLAIM,
+        "a pull lock without a running input past the grace period is reclaimed");
+  check(alwaysOnAction(false, STRMSTAT_OFF, true, false, 0, ALWAYS_ON_ABANDONED_LOCK_MS * 2) == ALWAYS_ON_RECLAIM,
+        "an input lock without a running input past the grace period is reclaimed");
+  check(alwaysOnAction(false, STRMSTAT_OFF, false, true, 4242, ALWAYS_ON_ABANDONED_LOCK_MS * 2) == ALWAYS_ON_ADOPT,
+        "a lock whose input runs is adopted however long it took to see it");
 
   // Real lock and PID-page probes, as used by checkStream.
   const std::string stream = "alwaysOnUnit" + std::to_string(getpid());

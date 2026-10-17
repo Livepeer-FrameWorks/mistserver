@@ -635,6 +635,13 @@ namespace SDP{
         size_t space6 = line.find(' ', space5 + 1);
         std::string h = line.substr(space4 + 1, space5 - space4 - 1);
         std::string i = line.substr(space5 + 1, space6 - space5 - 1);
+        if (SDP::isMdnsCandidateHost(h)) {
+          // A browser hides its host address behind a random <uuid>.local name that only
+          // multicast DNS on its own link resolves; unicast DNS cannot, so the candidate is
+          // skipped and the peer's address comes from its connectivity checks instead.
+          MEDIUM_MSG("Skipping mDNS ICE candidate %s", h.c_str());
+          continue;
+        }
         auto newAddr = Socket::getAddrs(h, std::atoi(i.c_str()));
         candidates.insert(newAddr.begin(), newAddr.end());
         continue;

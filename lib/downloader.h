@@ -65,6 +65,9 @@ namespace HTTP{
     /// same endpoint so an idempotent server can join the in-flight work.
     bool requestWasSent() const { return reqSent; }
     uint32_t retryCount, dataTimeout;
+    /// True while the requested resource may legitimately not exist (an optional sidecar such as a
+    /// .dtsh header): failing to retrieve it is then logged as a detail, not as a failure.
+    bool optionalResource;
     bool isProxied() const;
     const HTTP::URL &lastURL();
 

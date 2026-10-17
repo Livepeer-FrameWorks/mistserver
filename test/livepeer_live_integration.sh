@@ -52,6 +52,11 @@
 #                 session and carries the session setup allowance (segment duration plus three
 #                 seconds), so it is transcoded instead of skipped; the next segments carry
 #                 the steady budget (segment duration plus one second) and flow.
+#   srt-first-segment
+#                 the publisher pushes MPEG-TS over SRT, whose timestamps start near 1.4 s
+#                 instead of 0; the process still numbers the first segment it sends 0 (the
+#                 gateway's per-stream setup allowance and seq-0 handling key off it).
+#                 MIST_LIVEPEER_TSSRT names the MistOutTSSRT connector.
 #   stop-sessions the sessions of a resumable stream are stopped through the API
 #                 while the publisher is live (as at a platform stream stop);
 #                 the process exits by itself within seconds, and the buffer
@@ -93,6 +98,16 @@ mode=${MIST_LIVEPEER_LIVE_MODE:-backpressure}
 case "$mode" in
   backpressure | stop-stall | restart | kill-resume | stall-kill | resolution | live-end | live-end-resume | republish | \
     late-segment | gateway-down | session-setup | session-setup-no-warmup) ;;
+  srt-first-segment)
+    if [ ! -x "${MIST_LIVEPEER_TSSRT:-}" ]; then
+      echo "MIST_LIVEPEER_TSSRT does not name the MistOutTSSRT connector" >&2
+      exit 77
+    fi
+    if ! "$ffmpeg" -hide_banner -protocols 2>/dev/null | grep -qx ' *srt'; then
+      echo "ffmpeg lacks the SRT protocol required for the SRT publisher" >&2
+      exit 77
+    fi
+    ;;
   stop-sessions)
     if ! command -v curl >/dev/null 2>&1; then
       echo "curl is required to stop the stream's sessions through the API" >&2
@@ -177,6 +192,7 @@ alt_segment="$work/alternate.ts"
 api_port=$((24000 + ($$ % 9000)))
 rtmp_port=$((api_port + 1))
 broadcaster_port=$((api_port + 2))
+srt_port=$((api_port + 3))
 session_setup_ms=
 refuse_warmup=
 case "$mode" in
@@ -222,8 +238,12 @@ EOF
   chmod +x "$process_handler"
   triggers="{\"LIVE_TRACK_LIST\":[{\"handler\":\"$handler\",\"sync\":false,\"streams\":[\"$stream\"]}],\"STREAM_PROCESS\":[{\"handler\":\"$process_handler\",\"sync\":true,\"streams\":[\"$stream\"]}]}"
 fi
+protocols="{\"connector\":\"RTMP\",\"interface\":\"127.0.0.1\",\"port\":$rtmp_port}"
+if [ "$mode" = srt-first-segment ]; then
+  protocols="$protocols,{\"connector\":\"TSSRT\",\"port\":$srt_port,\"acceptable\":2}"
+fi
 printf '%s\n' \
-  "{\"account\":{\"test\":{\"password\":\"098f6bcd4621d373cade4e832627b4f6\"}},\"auto_push\":null,\"bandwidth\":{\"exceptions\":[\"::1\",\"127.0.0.0/8\"]},\"config\":{\"accesslog\":\"LOG\",\"controller\":{\"interface\":\"127.0.0.1\",\"port\":$api_port,\"username\":null},\"debug\":4,\"defaultStream\":null,\"prometheus\":\"\",\"protocols\":[{\"connector\":\"RTMP\",\"interface\":\"127.0.0.1\",\"port\":$rtmp_port}],\"serverid\":null,\"sessionInputMode\":15,\"sessionOutputMode\":15,\"sessionStreamInfoMode\":1,\"sessionUnspecifiedMode\":0,\"sessionViewerMode\":14,\"tknMode\":15,\"triggers\":$triggers,\"trustedproxy\":[]},\"extwriters\":null,\"jwks\":null,\"push_settings\":{\"maxspeed\":0,\"wait\":3},\"streamkeys\":null,\"streams\":{\"$stream\":{\"name\":\"$stream\",\"source\":\"push://\"$resume_setting,\"processes\":[{\"process\":\"Livepeer\",\"hardcoded_broadcasters\":\"http://127.0.0.1:$broadcaster_port\",\"target_profiles\":[{\"name\":\"audit\",\"bitrate\":400000,\"width\":320,\"height\":180,\"fps\":25,\"gop\":\"2.0\"}]$deadline_setting,\"target_mask\":3,\"restart_type\":\"fixed\"}]}},\"variables\":null}" \
+  "{\"account\":{\"test\":{\"password\":\"098f6bcd4621d373cade4e832627b4f6\"}},\"auto_push\":null,\"bandwidth\":{\"exceptions\":[\"::1\",\"127.0.0.0/8\"]},\"config\":{\"accesslog\":\"LOG\",\"controller\":{\"interface\":\"127.0.0.1\",\"port\":$api_port,\"username\":null},\"debug\":4,\"defaultStream\":null,\"prometheus\":\"\",\"protocols\":[$protocols],\"serverid\":null,\"sessionInputMode\":15,\"sessionOutputMode\":15,\"sessionStreamInfoMode\":1,\"sessionUnspecifiedMode\":0,\"sessionViewerMode\":14,\"tknMode\":15,\"triggers\":$triggers,\"trustedproxy\":[]},\"extwriters\":null,\"jwks\":null,\"push_settings\":{\"maxspeed\":0,\"wait\":3},\"streamkeys\":null,\"streams\":{\"$stream\":{\"name\":\"$stream\",\"source\":\"push://\"$resume_setting,\"processes\":[{\"process\":\"Livepeer\",\"hardcoded_broadcasters\":\"http://127.0.0.1:$broadcaster_port\",\"target_profiles\":[{\"name\":\"audit\",\"bitrate\":400000,\"width\":320,\"height\":180,\"fps\":25,\"gop\":\"2.0\"}]$deadline_setting,\"target_mask\":3,\"restart_type\":\"fixed\"}]}},\"variables\":null}" \
   >"$config"
 
 TMP="$ipc_root" MIST_CONTROL=1 "$controller" -c "$config" -C r -L "$work/controller.log" &
@@ -231,6 +251,16 @@ controller_pid=$!
 wait_for 30 "the test controller and its RTMP connector" logged "$work/controller.log" 'Started connector'
 
 start_publisher() {
+  if [ "$mode" = srt-first-segment ]; then
+    "$ffmpeg" -hide_banner -loglevel error -re \
+      -f lavfi -i "testsrc2=size=320x180:rate=25:duration=400" \
+      -f lavfi -i "sine=frequency=997:sample_rate=48000:duration=400" \
+      -c:v libx264 -pix_fmt yuv420p -preset ultrafast -g 50 -keyint_min 50 -bf 0 \
+      -c:a aac -b:a 96k -f mpegts "srt://127.0.0.1:$srt_port?streamid=$stream" \
+      >>"$work/publisher.log" 2>&1 &
+    publisher_pid=$!
+    return
+  fi
   "$ffmpeg" -hide_banner -loglevel error -re \
     -f lavfi -i "testsrc2=size=320x180:rate=25:duration=400" \
     -f lavfi -i "sine=frequency=997:sample_rate=48000:duration=400" \
@@ -585,6 +615,20 @@ case "$mode" in
     fi
     echo "session-setup-no-warmup: segment $first carried the session setup allowance and was transcoded after the 3.5 s setup"
     ;;
+  srt-first-segment)
+    first=$(grep -m 1 -E '^deadline ' "$work/broadcaster.log" | cut -d' ' -f2)
+    if [ "$first" != 0 ]; then
+      echo "the first segment sent for the SRT stream is segment ${first:-none}; expected segment 0" >&2
+      exit 1
+    fi
+    for seg in 0 1 2; do
+      if ! grep -qE "^responded $seg\$" "$work/broadcaster.log"; then
+        echo "segment $seg of the SRT stream was not transcoded" >&2
+        exit 1
+      fi
+    done
+    echo "srt-first-segment: the SRT stream's segments were sent and transcoded from segment 0"
+    ;;
   stop-sessions)
     pid=$(livepeer_pid)
     curl -s --max-time 5 "http://127.0.0.1:$api_port/api2" --data-urlencode "command={\"stop_sessions\":\"$stream\"}" \
@@ -607,3 +651,12 @@ case "$mode" in
     echo "stop-sessions: the Livepeer process exited ${took}s after its sessions were stopped, without SIGKILL"
     ;;
 esac
+
+# The publisher's tags arrive a few ms early all the time; shifting the boot offset for that is no
+# warning (only a tag a second or more ahead of now is).
+small_shifts=$(grep -E 'WARN: Shifting bootmsoffset by [0-9]+ms' "$work/controller.log" |
+  sed -E 's/.*Shifting bootmsoffset by ([0-9]+)ms.*/\1/' | awk '$1 < 1000' | wc -l | tr -d ' ')
+if [ "$small_shifts" -ne 0 ]; then
+  echo "the RTMP input warned about $small_shifts boot offset shifts of less than a second" >&2
+  exit 1
+fi

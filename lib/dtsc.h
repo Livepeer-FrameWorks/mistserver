@@ -391,6 +391,7 @@ namespace DTSC{
 
     ~Meta();
     void reInit(const std::string &_streamName, bool master = true, bool autoBackOff = true);
+    void reInitMemory(size_t trackCount);
     void reInit(const std::string &_streamName, const std::string &fileName);
     void reInit(const std::string &_streamName, const DTSC::Scan &src);
     void addTrackFrom(const DTSC::Scan & src);

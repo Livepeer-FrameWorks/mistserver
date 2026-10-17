@@ -1120,6 +1120,18 @@ namespace DTSC{
     }
   }
 
+  /// Calls clear(), then initializes freshly with non-shared memory backing and room for
+  /// trackCount tracks, so a caller that knows how many tracks it adds never grows the track list.
+  void Meta::reInitMemory(size_t trackCount) {
+    clear();
+    if (trackCount < DEFAULT_TRACK_COUNT) { trackCount = DEFAULT_TRACK_COUNT; }
+    isMaster = true;
+    sBufMem(trackCount);
+    streamInit(trackCount);
+    stream.setReady();
+    trackList.setReady();
+  }
+
   /// Calls clear(), then initializes from given DTSH file in master mode.
   /// Internally calls reInit(const std::string&, const DTSC::Scan&).
   /// If stream name is set, uses shared memory backing.

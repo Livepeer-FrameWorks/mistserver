@@ -10,6 +10,16 @@
 
 static const std::string emptyString;
 
+// A retrieval that failed: a failure, unless the resource may legitimately not exist.
+#define RETRIEVE_FAIL_MSG(...) \
+  do {                         \
+    if (optionalResource) {    \
+      MEDIUM_MSG(__VA_ARGS__); \
+    } else {                   \
+      FAIL_MSG(__VA_ARGS__);   \
+    }                          \
+  } while (0)
+
 namespace HTTP{
 
   Downloader::Downloader(){
@@ -19,6 +29,7 @@ namespace HTTP{
     connectedPort = 0;
     dataTimeout = 5;
     retryCount = 5;
+    optionalResource = false;
     reqSent = false;
     ssl = false;
     proxied = false;
@@ -198,7 +209,7 @@ namespace HTTP{
       H.sendRequest(getSocket());
       H.Clean();
       if (!getSocket()){
-        FAIL_MSG("Could not retrieve %s: %s", link.getUrl().c_str(), getSocket().getError().c_str());
+        RETRIEVE_FAIL_MSG("Could not retrieve %s: %s", link.getUrl().c_str(), getSocket().getError().c_str());
         return false;
       }
       H.headerOnly = true;
@@ -261,7 +272,7 @@ namespace HTTP{
       }
 
       if (getSocket()){
-        FAIL_MSG("Timeout while retrieving %s (%zu/%" PRIu32 ")", link.getUrl().c_str(), loop, retryCount);
+        RETRIEVE_FAIL_MSG("Timeout while retrieving %s (%zu/%" PRIu32 ")", link.getUrl().c_str(), loop, retryCount);
       }else{
         if (loop > 1){
           INFO_MSG("Lost connection while retrieving %s (%zu/%" PRIu32 ")", link.getUrl().c_str(), loop, retryCount);
@@ -272,7 +283,7 @@ namespace HTTP{
       clean();
       Util::sleep(100); // wait a bit before retrying
     }
-    FAIL_MSG("Could not retrieve %s", link.getUrl().c_str());
+    RETRIEVE_FAIL_MSG("Could not retrieve %s", link.getUrl().c_str());
     return false;
   }
 
@@ -332,7 +343,7 @@ namespace HTTP{
 
     if (isComplete) { return true; }
 
-    FAIL_MSG("Could not retrieve %s", link.getUrl().c_str());
+    RETRIEVE_FAIL_MSG("Could not retrieve %s", link.getUrl().c_str());
     return false;
   }
 
@@ -424,8 +435,8 @@ namespace HTTP{
     while (true){
       if (!getSocket() && !isComplete){
         if (nbLoop < 2){
-          FAIL_MSG("Exceeded retry limit while retrieving %s (%zu/%" PRIu32 ")", nbLink.getUrl().c_str(),
-                   retryCount - nbLoop + 1, retryCount);
+          RETRIEVE_FAIL_MSG("Exceeded retry limit while retrieving %s (%zu/%" PRIu32 ")", nbLink.getUrl().c_str(),
+                            retryCount - nbLoop + 1, retryCount);
           return true;
         }
         nbLoop--;
@@ -462,8 +473,8 @@ namespace HTTP{
           return true;
         }
         if (Util::bootSecs() >= nbReqTime + dataTimeout){
-          FAIL_MSG("Timeout while retrieving %s (%zu/%" PRIu32 ")", nbLink.getUrl().c_str(),
-                   retryCount - nbLoop + 1, retryCount);
+          RETRIEVE_FAIL_MSG("Timeout while retrieving %s (%zu/%" PRIu32 ")", nbLink.getUrl().c_str(),
+                            retryCount - nbLoop + 1, retryCount);
           getSocket().close();
           return false; // Retry on next attempt
         }

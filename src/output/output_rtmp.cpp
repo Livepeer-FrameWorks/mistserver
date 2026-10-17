@@ -2480,7 +2480,13 @@ namespace Mist {
             // Check if the current time with offsets would somehow end up in the future. If so, adjust it to be "now" instead.
             if (tagTime + rtmpOffset + trackOffset[reTrack] + M.getBootMsOffset() > thisBootMs) {
               size_t diff = (tagTime + rtmpOffset + trackOffset[reTrack] + M.getBootMsOffset()) - thisBootMs;
-              WARN_MSG("Shifting bootmsoffset by %zums", diff);
+              // A publisher's tags arrive a few ms early all the time (send jitter, a clock running
+              // marginally fast); only a tag a second or more ahead of now is worth a warning.
+              if (diff >= 1000) {
+                WARN_MSG("Shifting bootmsoffset by %zums", diff);
+              } else {
+                MEDIUM_MSG("Shifting bootmsoffset by %zums", diff);
+              }
               meta.setBootMsOffset(M.getBootMsOffset() - diff);
             }
           }

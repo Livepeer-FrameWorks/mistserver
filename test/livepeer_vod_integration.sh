@@ -217,6 +217,10 @@ if [ "${LIVEPEER_TEST_VOD_GATEWAY_DOWN:-}" = "1" ]; then
   LIVEPEER_STUB_NO_RESULT_FILE="$work/no-result"
   export LIVEPEER_STUB_NO_RESULT_FILE
 fi
+if [ "${LIVEPEER_STUB_REJECT_FIRST:-}" = "1" ]; then
+  # A VOD job, declared the way the platform declares one: a live job skips a rejected segment.
+  livepeer_options=",\"workload\":\"vod\""
+fi
 "$broadcaster_stub" "$broadcaster_port" >"$work/broadcaster.log" 2>&1 &
 stub_pid=$!
 for log in $stub_logs; do
@@ -287,12 +291,46 @@ while [ "$attempt" -lt 150 ]; do
   attempt=$((attempt + 1))
   sleep 0.1
 done
-# Without a single transcoded segment (header-buffer-killed, slow-replace, vod-gateway-down) the
-# snapshot is not required.
+# Without a single transcoded segment (header-buffer-killed, slow-replace, vod-gateway-down,
+# rejected-first) the snapshot is not required.
 if [ "$proc_state_read" -ne 1 ] && [ "${LIVEPEER_TEST_HEADER_BUFFER_KILLED:-}" != "1" ] &&
-   [ "${LIVEPEER_TEST_SLOW_REPLACE:-}" != "1" ] && [ "${LIVEPEER_TEST_VOD_GATEWAY_DOWN:-}" != "1" ]; then
+   [ "${LIVEPEER_TEST_SLOW_REPLACE:-}" != "1" ] && [ "${LIVEPEER_TEST_VOD_GATEWAY_DOWN:-}" != "1" ] &&
+   [ "${LIVEPEER_STUB_REJECT_FIRST:-}" != "1" ]; then
   echo "Livepeer did not publish a readable ProcState snapshot while running" >&2
   exit 1
+fi
+if [ "${LIVEPEER_STUB_REJECT_FIRST:-}" = "1" ]; then
+  # The only broadcaster rejects segment 0 as faulty (422). The segment is never sent to that
+  # broadcaster again (it would only find the segment already inserted); with no other broadcaster
+  # to try, the VOD job gives the segment up by stopping, so the local fallback transcodes it.
+  attempt=0
+  while [ "$attempt" -lt 600 ] && { [ -z "$livepeer_pid" ] || kill -0 "$livepeer_pid" 2>/dev/null; }; do
+    if [ -z "$livepeer_pid" ]; then
+      livepeer_pid=$(sed -n 's/.*Started process \([0-9][0-9]*\): .*MistProcLivepeer.*/\1/p' "$work/input.log" | tail -1)
+    fi
+    attempt=$((attempt + 1))
+    sleep 0.1
+  done
+  if [ -z "$livepeer_pid" ] || kill -0 "$livepeer_pid" 2>/dev/null; then
+    echo "the Livepeer process (PID ${livepeer_pid:-none}) did not stop after its segment was rejected" >&2
+    exit 1
+  fi
+  if ! grep -q '^rejected 0$' "$work/broadcaster.log"; then
+    echo "the broadcaster never rejected segment 0; the 422 path was not exercised" >&2
+    exit 1
+  fi
+  sends=$(grep -c '^deadline 0 ' "$work/broadcaster.log" || true)
+  if [ "$sends" -ne 1 ]; then
+    echo "segment 0 was sent to the broadcaster that rejected it $sends times; expected once" >&2
+    exit 1
+  fi
+  if ! grep -q 'Livepeer rejected segment 0 (422); stopping so the local fallback transcodes the whole source' \
+    "$work/input.log"; then
+    echo "the VOD job did not stop for its rejected segment" >&2
+    exit 1
+  fi
+  echo "a rejected VOD segment was sent to its broadcaster once, then the job fell back"
+  exit 0
 fi
 if [ "${LIVEPEER_TEST_VOD_GATEWAY_DOWN:-}" = "1" ]; then
   # Every send of a segment misses its budget; the job re-sends until as many consecutive budgets
@@ -507,23 +545,6 @@ for log in $stub_logs; do
     exit 1
   fi
 done
-if [ "${LIVEPEER_STUB_REJECT_FIRST:-}" = "1" ]; then
-  # Every segment was rejected once; each must be re-sent to the same
-  # broadcaster and transcoded rather than skipped.
-  rejected=$(grep -c '^rejected ' "$work/broadcaster.log" || true)
-  if [ "$rejected" -lt 10 ]; then
-    echo "broadcaster rejected only $rejected segments; the 422 path was not exercised" >&2
-    exit 1
-  fi
-  if ! grep -q 'Re-sending rejected seg' "$work/input.log"; then
-    echo "Livepeer did not re-send a rejected segment to the same broadcaster" >&2
-    exit 1
-  fi
-  if grep -q 'Segment could not be transcoded\|consecutive segment rejections\|Livepeer rejected segment' "$work/input.log"; then
-    echo "Livepeer gave up a segment the broadcaster accepts on re-send" >&2
-    exit 1
-  fi
-fi
 if [ "${LIVEPEER_STUB_NO_RESULT_FIRST:-}" = "1" ]; then
   # Every segment first got a 503 (no result yet); each must be re-posted to
   # the same gateway within its budget instead of stopping Livepeer.
@@ -565,8 +586,13 @@ if [ "${LIVEPEER_TEST_FAILING_GATEWAY:-}" = "1" ]; then
   # Both upload threads fail on the first gateway; one switch moves the stream
   # to the other and the second thread follows it instead of switching back.
   rejected=$(cat $stub_logs | grep -c '^rejected ' || true)
-  if [ "$rejected" -lt 6 ]; then
+  if [ "$rejected" -lt 2 ]; then
     echo "the failing gateway rejected only $rejected uploads; both upload threads did not fail on it" >&2
+    exit 1
+  fi
+  again=$(cat $stub_logs | grep '^rejected ' | sort | uniq -d | tr '\n' ' ')
+  if [ -n "$again" ]; then
+    echo "a rejected segment was sent to the gateway that rejected it again: $again" >&2
     exit 1
   fi
   switches=$(grep -c 'Switched to new broadcaster' "$work/input.log" || true)
@@ -605,6 +631,13 @@ if [ "${LIVEPEER_TEST_KILL_MIDWAY:-}" = "1" ]; then
 fi
 if grep -q 'which this process did not declare' "$work/input.log"; then
   echo "a process registered an output it did not declare with --describe-outputs" >&2
+  exit 1
+fi
+# The source is read for the first time, so it has no .dtsh header yet; the input generates one.
+# That absence is expected and is no failure.
+if grep -E '^(FAIL|ERROR)\|' "$work/input.log" | grep -q '\.dtsh'; then
+  echo "the input logged its expectedly absent .dtsh header as a failure:" >&2
+  grep -E '^(FAIL|ERROR)\|' "$work/input.log" | grep '\.dtsh' | head -n 3 >&2
   exit 1
 fi
 echo "Livepeer loopback recording retained the processed video tail through $video_tail seconds"

@@ -300,6 +300,9 @@ namespace Controller{
 #ifndef __APPLE__
       pressureSample.timeMs = nowMs;
 #endif
+      // A rolling restart keeps the previous controller generation's page; its readers keep their
+      // mapping, so a valid one is published into instead of replaced.
+      if (!nodePage) { nodePage.init(SHM_NODE_PRESSURE, sizeof(NodePressureState), false, false); }
       if (!nodePage || !NodePressureState::isValid(nodePage)) {
         nodePage.init(SHM_NODE_PRESSURE, sizeof(NodePressureState), true, false);
         NodePressureState::initPage(nodePage);

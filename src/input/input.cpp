@@ -761,9 +761,16 @@ namespace Mist{
         return exitAndLogReason();
       }
       timer = Util::getMicros(timer);
-      INFO_MSG("Created header in %.3f ms (%zu tracks)", (double)timer/1000.0, M?M.trackCount():(size_t)0);
-      //Write header to file for caching purposes
-      M.toFile(config->getString("input") + ".dtsh");
+      // The header file holds the valid tracks, whether the metadata is shared or in memory (a
+      // realtime input's).
+      const size_t headerTracks = M.getValidTracks().size();
+      INFO_MSG("Created header in %.3f ms (%zu tracks)", (double)timer / 1000.0, headerTracks);
+      if (headerTracks) {
+        M.toFile(config->getString("input") + ".dtsh");
+      } else {
+        // A cached header without tracks would be read back by the next input instead of the source.
+        WARN_MSG("Not caching a header without tracks for %s", config->getString("input").c_str());
+      }
     }
     postHeader();
     if (config->getBool("headeronly")){return 0;}
@@ -1979,8 +1986,10 @@ namespace Mist{
     HIGH_MSG("Loading metadata for stream '%s' from file '%s'", streamName.c_str(), fileName.c_str());
     char *scanBuf;
     size_t fileSize;
-    HTTP::URIReader inFile(fileName);
-    if (!inFile){return false;}
+    // No header yet is the normal case for a source read for the first time: the input generates it.
+    HTTP::URIReader inFile;
+    inFile.setOptional(true);
+    if (!inFile.open(fileName) || !inFile) { return false; }
     inFile.readAll(scanBuf, fileSize);
     inFile.close();
     if (!fileSize){return false;}
