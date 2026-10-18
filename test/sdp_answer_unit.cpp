@@ -187,9 +187,18 @@ namespace {
         ok = false;
       }
     }
-    if (session.candidates.size() != 1) {
-      std::cerr << "Expected the reflexive candidate only, got " << session.candidates.size() << " candidates" << std::endl;
+    // The reflexive address resolves once, or also as its IPv4-mapped IPv6 form on a host with
+    // IPv6 (AI_V4MAPPED | AI_ALL); every candidate must be it.
+    if (session.candidates.empty()) {
+      std::cerr << "The reflexive candidate was dropped" << std::endl;
       ok = false;
+    }
+    for (const Socket::Address & candidate : session.candidates) {
+      const std::string host = candidate.host();
+      if (candidate.port() != 54322 || (host != "192.0.2.10" && host != "::ffff:192.0.2.10")) {
+        std::cerr << "Expected the reflexive candidate only, got " << candidate.toString() << std::endl;
+        ok = false;
+      }
     }
     if (took > 1000) {
       std::cerr << "Parsing the offer took " << took << " ms" << std::endl;
