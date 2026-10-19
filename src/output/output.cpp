@@ -38,6 +38,7 @@
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <unistd.h>
+#include <utility>
 
 namespace Mist{
   std::string sourceOverride;
@@ -3835,11 +3836,13 @@ namespace Mist{
     }
 
     meta.reloadReplacedPagesIfNeeded();
-    const std::set<size_t> validTracksWithData = processingRecordingSnapshotThenSelect(
-      [this]() { return M.getValidTracks(true); }, [this]() { selectDefaultTracks(); });
+    const std::pair<std::set<size_t>, std::set<size_t>> withData = processingRecordingSnapshotThenSelect([this]() {
+      return std::make_pair(M.getValidTracks(true), tracksWithDataAnyMask(M));
+    }, [this]() { selectDefaultTracks(); });
+    const std::set<size_t> & validTracksWithData = withData.first;
     size_t expectedOutputTracks = 0;
     size_t readyOutputTracks = 0;
-    recordingExpectedOutputs(M, graph["outputs"], targetParams, capa, UA, expectedOutputTracks, readyOutputTracks);
+    recordingExpectedOutputs(M, withData.second, graph["outputs"], targetParams, capa, UA, expectedOutputTracks, readyOutputTracks);
 
     // Every original video and audio track must have data, selected or not: a
     // processing stream's media originals all come from its one input, and a

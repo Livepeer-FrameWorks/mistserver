@@ -295,21 +295,32 @@ namespace Mist {
     return false;
   }
 
+  /// The tracks of M that carry data, whatever validity mask hides them from this process.
+  inline std::set<size_t> tracksWithDataAnyMask(const DTSC::Meta & M) {
+    const uint8_t mask = DTSC::trackValidMask;
+    DTSC::trackValidMask = TRACK_VALID_ALL;
+    const std::set<size_t> withData = M.getValidTracks(true);
+    DTSC::trackValidMask = mask;
+    return withData;
+  }
+
   /// Of the outputs a processing graph expects (ProcessGraph::outputs), those a recording selects
   /// from the stream as it will be once they all exist: the selection runs over the tracks of M
   /// plus every expected output, with the recording's own target parameters, capabilities and
-  /// validity mask. Counts how many of them it selects, and how many of those carry data already.
-  inline void recordingExpectedOutputs(const DTSC::Meta & M, const JSON::Value & expected,
+  /// validity mask. Counts how many of them it selects, and how many of those carry data in
+  /// `withData` (tracksWithDataAnyMask). A recording passes the set it took before its last track
+  /// selection: an output whose first packet landed after that is not selected yet, so it must
+  /// not count as ready either, or the header would be written without it.
+  inline void recordingExpectedOutputs(const DTSC::Meta & M, const std::set<size_t> & withData, const JSON::Value & expected,
                                        const std::map<std::string, std::string> & targetParams, const JSON::Value & capa,
                                        const std::string & UA, size_t & selected, size_t & ready) {
     selected = 0;
     ready = 0;
     std::map<std::string, const JSON::Value *> outputs;
     jsonForEachConst (expected, it) { outputs[(*it)["key"].asString()] = &*it; }
-    std::map<size_t, bool> expectedCandidates; // candidate -> carries data in M
+    std::map<size_t, bool> expectedCandidates; // candidate -> carries data in withData
     const uint8_t mask = DTSC::trackValidMask;
     DTSC::trackValidMask = TRACK_VALID_ALL;
-    const std::set<size_t> withData = M.getValidTracks(true);
     const std::set<size_t> existing = M.getValidTracks();
     DTSC::trackValidMask = mask;
     // Room for every candidate up front: a recording runs this on every track check.

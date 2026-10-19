@@ -112,8 +112,10 @@ namespace {
       void addSourceData() { meta.update(0, 0, 0, 1, 0, true, 1); }
 
       /// Publishes the graph of these processes, then reports how many expected outputs a recording
-      /// that takes every track selects from the published page, and how many of them carry data.
-      bool recorderExpects(const JSON::Value & processes, size_t & selected, size_t & ready) {
+      /// that takes every track selects from the published page, and how many of them carry data
+      /// (in withDataBeforeSelection when given, the data the recording saw before it selected).
+      bool recorderExpects(const JSON::Value & processes, size_t & selected, size_t & ready,
+                           const std::set<size_t> *withDataBeforeSelection = 0) {
         publishProcessGraph(resolveProcessGraph(processes));
         JSON::Value graph;
         if (!Mist::readProcessGraphPage(processGraphPage, graph) || !graph["resolved"].asBool()) { return false; }
@@ -125,7 +127,8 @@ namespace {
         capa["codecs"][0u][0u].append("*");
         const uint8_t oldMask = DTSC::trackValidMask;
         DTSC::trackValidMask = TRACK_VALID_EXT_PUSH;
-        Mist::recordingExpectedOutputs(meta, graph["outputs"], everything, capa, "", selected, ready);
+        const std::set<size_t> withData = withDataBeforeSelection ? *withDataBeforeSelection : Mist::tracksWithDataAnyMask(meta);
+        Mist::recordingExpectedOutputs(meta, withData, graph["outputs"], everything, capa, "", selected, ready);
         DTSC::trackValidMask = oldMask;
         return true;
       }
@@ -415,7 +418,14 @@ int main() {
     if (!completed.recorderExpects(pending, selected, ready) || selected != 1 || ready != 0) {
       return fail("completed thumbnail tracks must not satisfy a pending video output");
     }
+    // The recording took its data snapshot and selected its tracks just before the output's first
+    // packet landed: the output is not selected yet, so it cannot count as ready on that check.
+    const std::set<size_t> beforeSelection = Mist::tracksWithDataAnyMask(completed.meta);
     completed.addOutput(pushOnlyAv, "video", "video", "H264", TRACK_VALID_EXT_PUSH, true);
+    if (!completed.recorderExpects(pending, selected, ready, &beforeSelection) || selected != 1 || ready != 0) {
+      return fail("an expected output whose first packet landed after the recording's track selection must not "
+                  "count as ready, or the header is written without it");
+    }
     if (!completed.recorderExpects(pending, selected, ready) || selected != 1 || ready != 1) {
       return fail("an expected output must count as ready once its track carries data");
     }

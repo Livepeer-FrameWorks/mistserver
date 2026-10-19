@@ -85,8 +85,9 @@ int main() {
 
   size_t selected = 0;
   size_t ready = 0;
-  const std::string recordingLog =
-    captureLog([&]() { Mist::recordingExpectedOutputs(M, expected, targetParams, capa, "", selected, ready); });
+  const std::string recordingLog = captureLog([&]() {
+    Mist::recordingExpectedOutputs(M, Mist::tracksWithDataAnyMask(M), expected, targetParams, capa, "", selected, ready);
+  });
   check(recordingLog.find("Resizing metadata track list") == std::string::npos,
         "a recording's expected-output check does not grow its candidate track list");
   check(selected == 2, "the recording selects both expected outputs");
