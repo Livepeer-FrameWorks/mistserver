@@ -77,15 +77,30 @@ trap 'exit 130' INT
 trap 'exit 143' TERM
 
 source_codec=${MIST_THUMBNAIL_SOURCE_CODEC:-H264}
+# With MIST_THUMBNAIL_SOURCE_DURATION set, the H.264 source runs that many seconds with a keyframe
+# every 2 s and plays at the speed the processing buffer sets, like a processed VoD asset or DVR
+# chapter. Longer than the buffer window, its final sprite still has to start at the source start.
+long_duration=${MIST_THUMBNAIL_SOURCE_DURATION:-}
+if [ -n "$long_duration" ] && [ "$source_codec" != "H264" ]; then
+  echo "MIST_THUMBNAIL_SOURCE_DURATION needs the H264 fixture" >&2
+  exit 2
+fi
 case "$source_codec" in
   H264)
     source_media="$work/source.mp4"
     source_input=$input_mp4
     expected_codec=h264
-    "$ffmpeg" -hide_banner -loglevel error -y \
-      -f lavfi -i testsrc2=size=320x180:rate=25:duration=8 \
-      -c:v libx264 -pix_fmt yuv420p -preset veryfast -g 250 -keyint_min 250 -sc_threshold 0 \
-      -force_key_frames 0,1,2,3,4,5 -an -movflags +faststart "$source_media"
+    if [ -n "$long_duration" ]; then
+      "$ffmpeg" -hide_banner -loglevel error -y \
+        -f lavfi -i testsrc2=size=320x180:rate=25:duration="$long_duration" \
+        -c:v libx264 -pix_fmt yuv420p -preset veryfast -g 50 -keyint_min 50 -sc_threshold 0 \
+        -an -movflags +faststart "$source_media"
+    else
+      "$ffmpeg" -hide_banner -loglevel error -y \
+        -f lavfi -i testsrc2=size=320x180:rate=25:duration=8 \
+        -c:v libx264 -pix_fmt yuv420p -preset veryfast -g 250 -keyint_min 250 -sc_threshold 0 \
+        -force_key_frames 0,1,2,3,4,5 -an -movflags +faststart "$source_media"
+    fi
     ;;
   AV1)
     source_media="$work/source.mp4"
@@ -132,10 +147,13 @@ if [ "$fixture_codec" != "$expected_codec" ] || [ "$fixture_keyframes" -lt 6 ] |
   exit 1
 fi
 
+realtime_speed=',"realtime_speed":1'
+if [ -n "$long_duration" ]; then realtime_speed=; fi
+
 port=$((26000 + ($$ % 10000)))
 config="$work/config.json"
 printf '%s\n' \
-  "{\"account\":{\"test\":{\"password\":\"098f6bcd4621d373cade4e832627b4f6\"}},\"auto_push\":null,\"bandwidth\":{\"exceptions\":[\"::1\",\"127.0.0.0/8\"]},\"config\":{\"accesslog\":\"LOG\",\"controller\":{\"interface\":\"127.0.0.1\",\"port\":$port,\"username\":null},\"debug\":4,\"defaultStream\":null,\"prometheus\":\"\",\"protocols\":[],\"serverid\":null,\"sessionInputMode\":15,\"sessionOutputMode\":15,\"sessionStreamInfoMode\":1,\"sessionUnspecifiedMode\":0,\"sessionViewerMode\":14,\"tknMode\":15,\"triggers\":{\"THUMBNAIL_UPDATED\":[{\"handler\":\"$trigger_handler\",\"sync\":false,\"streams\":[\"$stream\"]}]},\"trustedproxy\":[]},\"extwriters\":null,\"jwks\":null,\"push_settings\":{\"maxspeed\":0,\"wait\":3},\"streamkeys\":null,\"streams\":{\"$stream\":{\"name\":\"$stream\",\"source\":\"$source_media\",\"process_controlled_realtime\":true,\"realtime_speed\":1,\"processes\":[{\"process\":\"Thumbs\",\"track_select\":\"video=$source_codec\",\"thumb_width\":80,\"thumb_height\":80,\"grid_cols\":3,\"grid_rows\":2,\"jpeg_quality\":80,\"interval\":2000,\"source_mask\":4,\"target_mask\":3,\"restart_type\":\"fixed\"}]}},\"variables\":null}" \
+  "{\"account\":{\"test\":{\"password\":\"098f6bcd4621d373cade4e832627b4f6\"}},\"auto_push\":null,\"bandwidth\":{\"exceptions\":[\"::1\",\"127.0.0.0/8\"]},\"config\":{\"accesslog\":\"LOG\",\"controller\":{\"interface\":\"127.0.0.1\",\"port\":$port,\"username\":null},\"debug\":4,\"defaultStream\":null,\"prometheus\":\"\",\"protocols\":[],\"serverid\":null,\"sessionInputMode\":15,\"sessionOutputMode\":15,\"sessionStreamInfoMode\":1,\"sessionUnspecifiedMode\":0,\"sessionViewerMode\":14,\"tknMode\":15,\"triggers\":{\"THUMBNAIL_UPDATED\":[{\"handler\":\"$trigger_handler\",\"sync\":false,\"streams\":[\"$stream\"]}]},\"trustedproxy\":[]},\"extwriters\":null,\"jwks\":null,\"push_settings\":{\"maxspeed\":0,\"wait\":3},\"streamkeys\":null,\"streams\":{\"$stream\":{\"name\":\"$stream\",\"source\":\"$source_media\",\"process_controlled_realtime\":true$realtime_speed,\"processes\":[{\"process\":\"Thumbs\",\"track_select\":\"video=$source_codec\",\"thumb_width\":80,\"thumb_height\":80,\"grid_cols\":3,\"grid_rows\":2,\"jpeg_quality\":80,\"interval\":2000,\"source_mask\":4,\"target_mask\":3,\"restart_type\":\"fixed\"}]}},\"variables\":null}" \
   >"$config"
 
 TMP="$ipc_root" MIST_CONTROL=1 "$controller" -c "$config" -C r -L "$work/controller.log" &
@@ -179,7 +197,8 @@ if [ ! -s "$trigger_file" ]; then
   exit 1
 fi
 
-if [ "$source_codec" != "JPEG" ]; then
+# A long source may already have ended; its HTTP contract is the short H.264 case's.
+if [ "$source_codec" != "JPEG" ] && [ -z "$long_duration" ]; then
   request="GET /$stream.thumbvtt HTTP/1.0\r\nHost: localhost\r\n\r\n"
   printf '%b' "$request" | "$timeout_program" 10 env TMP="$ipc_root" MIST_CONTROL=1 \
     "$output_thumbvtt" --connection_handler 127.0.0.1 -s "$stream" >"$work/thumbvtt.http" 2>"$work/thumbvtt.log"
@@ -217,6 +236,19 @@ if [ "$source_codec" != "JPEG" ]; then
   fi
 fi
 
+if [ -n "$long_duration" ]; then
+  attempt=0
+  while [ "$attempt" -lt $((long_duration * 10)) ]; do
+    if grep -q 'VOD sprite sheet complete' "$work/input.log" 2>/dev/null; then break; fi
+    attempt=$((attempt + 1))
+    sleep 0.1
+  done
+  if ! grep -q 'VOD sprite sheet complete' "$work/input.log"; then
+    echo "thumbnail processor did not publish the final sprite of the ${long_duration} s source" >&2
+    exit 1
+  fi
+fi
+
 attempt=0
 while [ "$attempt" -lt 150 ]; do
   if [ "$(grep -c -- '-->' "$artifact_dir/sprite.vtt" 2>/dev/null || true)" -eq 6 ]; then break; fi
@@ -246,6 +278,33 @@ if ! grep -q "/$stream.jpg?track=.*#xywh=160,44,80,44" "$artifact_dir/sprite.vtt
   exit 1
 fi
 
+if [ -n "$long_duration" ]; then
+  cue_span=$(awk -F' --> ' '/-->/ {
+      split($1, a, ":"); split($2, b, ":")
+      start = a[1] * 3600 + a[2] * 60 + a[3]; end = b[1] * 3600 + b[2] * 60 + b[3]
+      if (n == 0) { first = start }
+      if (n > 0 && start - prev > gap) { gap = start - prev }
+      prev = start; last = end; n++
+    } END { printf "%.3f %.3f %.3f", first, last, gap }' "$artifact_dir/sprite.vtt")
+  set -- $cue_span
+  if awk -v f="$1" 'BEGIN { exit !(f > 2) }'; then
+    echo "the final sprite of a ${long_duration} s source starts at $1 s; it must start at the source start" >&2
+    cat "$artifact_dir/sprite.vtt" >&2
+    exit 1
+  fi
+  if awk -v l="$2" -v d="$long_duration" 'BEGIN { exit !(l < d - 4) }'; then
+    echo "the final sprite of a ${long_duration} s source ends at $2 s" >&2
+    cat "$artifact_dir/sprite.vtt" >&2
+    exit 1
+  fi
+  # Six cells over the whole source average a fifth of it apart.
+  if awk -v g="$3" -v d="$long_duration" 'BEGIN { exit !(g > d * 2 / 5) }'; then
+    echo "the final sprite of a ${long_duration} s source leaves a $3 s hole between cells" >&2
+    cat "$artifact_dir/sprite.vtt" >&2
+    exit 1
+  fi
+fi
+
 if [ "$(sed -n '1p' "$trigger_file")" != "THUMBNAIL_UPDATED" ] || \
    [ "$(sed -n '2p' "$trigger_file")" != "$stream" ] || \
    [ "$(sed -n '3p' "$trigger_file")" != "$artifact_dir/poster.jpg" ] || \
@@ -263,7 +322,7 @@ fi
 # real time) plays, plus the final generation at its end: 2 to 5 generations, however many
 # keyframes it holds.
 compose_count=$(grep -c 'Buffered sprite sheet:' "$work/input.log")
-if [ "$compose_count" -lt 2 ] || [ "$compose_count" -gt 5 ]; then
+if [ -z "$long_duration" ] && { [ "$compose_count" -lt 2 ] || [ "$compose_count" -gt 5 ]; }; then
   echo "thumbnail interval produced $compose_count sprite encodes; expected 2-5 coalesced generations" >&2
   exit 1
 fi

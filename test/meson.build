@@ -547,6 +547,13 @@ if get_option('b_sanitize') == 'none' and ffmpeg_program.found() and ffprobe_pro
                 timeout_program, files('capture_trigger.sh')],
          env: {'MIST_THUMBNAIL_SOURCE_CODEC': 'JPEG'},
          suite: 'Processing', timeout: 45, is_parallel: false)
+    test('A processed VOD longer than its buffer window gets a sprite from its start to its end', thumbnailvodtest,
+         args: [ffmpeg_program, ffprobe_program, exec_tgts.get('MistController'),
+                exec_tgts.get('MistInMP4'), exec_tgts.get('MistInEBML'), exec_tgts.get('MistInBuffer'), exec_tgts.get('MistProcThumbs'),
+                exec_tgts.get('MistOutThumbVTT'), exec_tgts.get('MistUtilNuke'),
+                timeout_program, files('capture_trigger.sh')],
+         env: {'MIST_THUMBNAIL_SOURCE_DURATION': '120'},
+         suite: 'Processing', timeout: 240, is_parallel: false)
     jpegreceivertest = find_program('jpeg_receiver_integration.sh')
     test('JPEGReceiver transcodes complete real-time frame sequences', jpegreceivertest,
          args: [ffmpeg_program, ffprobe_program, exec_tgts.get('MistController'),
@@ -666,6 +673,10 @@ test('Process-controlled producer EOF and output drain policy', processinglifecy
 
 processavbitratetest = executable('processavbitratetest', 'process_av_bitrate_unit.cpp')
 test('ProcAV audio bitrate defaults and Opus limits', processavbitratetest, suite: 'Processing')
+
+thumbscachetest = executable('thumbscachetest', 'thumbs_cache_unit.cpp')
+test('Thumbnail cache keeps a finite source whole and evenly thinned, a live one to its window', thumbscachetest,
+     suite: 'Processing')
 
 processsupervisortest = executable('processsupervisortest', 'process_supervisor_unit.cpp', header_tgts,
                                    dependencies: libmist_dep)

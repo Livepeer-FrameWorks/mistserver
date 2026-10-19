@@ -5,6 +5,7 @@
 #include "process.hpp"
 #include "process_outputs.h"
 #include "thumbnail_artifacts.h"
+#include "thumbs_cache.h"
 
 #include <mist/proc_stats.h>
 #include <mist/procs.h>
@@ -71,7 +72,7 @@ uint32_t gridCols = 10;
 uint32_t gridRows = 10;
 uint32_t jpegQuality = 75;
 uint32_t regenInterval = 5000; // ms between regenerations for live
-size_t maxCacheSize = 300; // cap for smart thinning (set from gridCols * gridRows * 3)
+size_t maxCacheSize = 300; // cache cap for thinThumbCache (set from gridCols * gridRows * 3)
 
 static const uint32_t MAX_THUMB_DIMENSION = 4096;
 static const uint32_t MAX_GRID_AXIS = 64;
@@ -150,27 +151,6 @@ bool updateThumbGeometry(uint32_t sourceWidth, uint32_t sourceHeight, uint32_t &
   outWidth = thumbWidth;
   outHeight = thumbHeight;
   return true;
-}
-
-/// Thin the cache to stay under maxCacheSize while preserving even temporal coverage.
-/// Keeps recent entries dense (near live edge), thins older entries evenly.
-/// Must be called under thumbMutex.
-void smartThin() {
-  size_t totalCells = gridCols * gridRows;
-  size_t recentKeep = totalCells / 2;
-  if (thumbCache.size() <= recentKeep) { return; }
-
-  size_t histSize = thumbCache.size() - recentKeep;
-  size_t targetHist = maxCacheSize - recentKeep;
-  if (histSize <= targetHist) { return; }
-
-  std::deque<ThumbFrame> thinned;
-  for (size_t i = 0; i < targetHist; ++i) {
-    size_t idx = i * (histSize - 1) / (targetHist - 1);
-    thinned.push_back(std::move(thumbCache[idx]));
-  }
-  for (size_t i = histSize; i < thumbCache.size(); ++i) { thinned.push_back(std::move(thumbCache[i])); }
-  thumbCache.swap(thinned);
 }
 
 // Stats
@@ -806,6 +786,8 @@ namespace Mist {
         thumbLastWorkEnd.store(Util::getMicros(), std::memory_order_relaxed);
         thumbFrameCount.store(thumbFrameCount.load(std::memory_order_relaxed) + 1, std::memory_order_relaxed);
 
+        // Read outside thumbMutex: it may map the stream's configuration page.
+        bool processControlled = processingControlledRealtime();
         {
           std::lock_guard<std::mutex> lk(thumbMutex);
           bufferFirstMs = M.getFirstms(thisIdx);
@@ -816,11 +798,16 @@ namespace Mist {
           thumbCache.push_back({(uint64_t)presentationTime, std::move(rgbData)});
           newData = true;
 
-          // Hard prune: entries outside DVR window
-          while (!thumbCache.empty() && thumbCache.front().timeMs < bufferFirstMs) { thumbCache.pop_front(); }
+          if (thumbCacheFollowsBufferWindow(isVod, processControlled)) {
+            while (!thumbCache.empty() && thumbCache.front().timeMs < bufferFirstMs) { thumbCache.pop_front(); }
+          }
 
-          // Smart thin: cap memory usage
-          if (thumbCache.size() > maxCacheSize) { smartThin(); }
+          // The cap bounds memory however long the source runs. A live sprite keeps its newest half
+          // dense near the live edge; a finite source's final sprite spreads evenly over all of it.
+          if (thumbCache.size() > maxCacheSize) {
+            bool finite = !thumbCacheFollowsBufferWindow(isVod, processControlled);
+            thinThumbCache(thumbCache, maxCacheSize, finite ? 0 : (size_t)gridCols * gridRows / 2);
+          }
         }
         thumbCV.notify_all();
       }
