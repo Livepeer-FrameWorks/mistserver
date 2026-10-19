@@ -3,6 +3,7 @@
 
 #include <mist/defines.h>
 #include <mist/shared_memory.h>
+#include <mist/stream.h>
 
 #include <algorithm>
 #include <cerrno>
