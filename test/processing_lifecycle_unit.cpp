@@ -129,9 +129,15 @@ int main() {
     return fail("lookahead must be bypassed only while draining a process-controlled live stream");
   }
 
-  if (!processingTrackDrained(true, true, true, 1000, 1000) || processingTrackDrained(true, false, true, 1000, 1000) ||
-      processingTrackDrained(true, true, false, 1000, 1000) || processingTrackDrained(true, true, true, 1001, 1000)) {
+  if (!processingTrackDrained(true, true, true, 1000, 1000, false) || processingTrackDrained(true, false, true, 1000, 1000, false) ||
+      processingTrackDrained(true, true, false, 1000, 1000, false) || processingTrackDrained(true, true, true, 1001, 1000, false)) {
     return fail("tracks must drop only after the process-controlled live tail is exhausted");
+  }
+  // A Thumbs process that wrote nothing after 60000 ms and then its final sprite at 118000 ms on a
+  // new page before exiting: at the end of its page the recorder's next packet is that sprite, at
+  // 118000 ms, which is still unread on the later page.
+  if (processingTrackDrained(true, true, true, 118000, 118000, true)) {
+    return fail("a track with a later page is not drained: its final key there is still unread");
   }
 
   if (simulatedLiveReadaheadMs(false, 7000) != 7000 || simulatedLiveReadaheadMs(true, 7000) != 0) {

@@ -2888,8 +2888,9 @@ namespace Mist{
       uint64_t nowMs = M.getNowms(nxt.tid);
       uint64_t lastMs = M.getLastms(nxt.tid);
       if (pageNotOpen || atPageEnd) {
+        const bool laterPage = !pageNotOpen && currentPage[nxt.tid] < pageNumMax(nxt.tid);
         if (processingTrackDrained(M.getLive(), processingControlledRealtime(), processControlledTrackEnded,
-                                   M.getLastms(nxt.tid), nxt.time)) {
+                                   M.getLastms(nxt.tid), nxt.time, laterPage)) {
           processingDrainedTracks.insert(nxt.tid);
           dropTrack(nxt.tid, "process-controlled realtime track drained", false);
           return 1;

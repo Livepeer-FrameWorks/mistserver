@@ -121,9 +121,13 @@ namespace Mist {
     return live && !processingEnded && needsLookAhead && trackNow < packetTime + needsLookAhead;
   }
 
+  /// Whether a reader at the end of its page has read all of a process-controlled live track whose
+  /// producer ended. packetTime is the time of the reader's next packet, so it equals trackLast
+  /// while the final key is still unread; a final key on a later page (a producer that wrote
+  /// nothing for a while starts a new page) is read before the track counts as drained.
   inline bool processingTrackDrained(bool live, bool processControlledRealtime, bool processingEnded,
-                                     uint64_t trackLast, uint64_t packetTime) {
-    return live && processControlledRealtime && processingEnded && trackLast <= packetTime;
+                                     uint64_t trackLast, uint64_t packetTime, bool laterPage) {
+    return live && processControlledRealtime && processingEnded && !laterPage && trackLast <= packetTime;
   }
 
   inline uint64_t simulatedLiveReadaheadMs(bool processControlledRealtime, uint64_t ordinaryReadaheadMs) {
