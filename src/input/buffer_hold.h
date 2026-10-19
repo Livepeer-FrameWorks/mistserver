@@ -1,5 +1,7 @@
 #pragma once
 
+#include <mist/dtsc.h>
+
 #include <cstddef>
 #include <cstdint>
 #include <map>
@@ -105,6 +107,44 @@ namespace Mist {
     for (std::map<size_t, uint64_t>::const_iterator it = trackLeads.begin(); it != trackLeads.end(); ++it) {
       if (first || it->second < lead) { lead = it->second; }
       first = false;
+    }
+    return lead;
+  }
+
+  /// How far the source leads the slowest holding recorder (see recorderLeadMs
+  /// for how one recorder's tracks combine). targetDurationMs receives the
+  /// largest target duration among the held tracks (the biggest fragment,
+  /// rounded up to whole seconds). Tracks this process has not loaded are skipped.
+  inline uint64_t holdingReadersLeadMs(const DTSC::Meta & M, const std::vector<BufferHoldTracker::Position> & positions,
+                                       uint64_t & targetDurationMs) {
+    targetDurationMs = 0;
+    std::map<uint64_t, std::map<size_t, uint64_t>> recorders;
+    for (const BufferHoldTracker::Position & p : positions) {
+      // A recorder can select a track that is valid in the shared track list before this process
+      // loaded it (a producer's new output, or a page its writer is replacing); its bounds are
+      // read once it is loaded, on a later scan.
+      if (!M.trackLoaded(p.track)) { continue; }
+      uint64_t lastMs = M.getLastms(p.track);
+      uint64_t readerMs = lastMs;
+      if (!BufferHoldTracker::atLivePoint(p.keyNum)) {
+        DTSC::Keys keys(M.keys(p.track));
+        if (!keys.getValidCount()) { continue; }
+        if (p.keyNum <= keys.getFirstValid()) {
+          readerMs = keys.getTime(keys.getFirstValid());
+        } else if (p.keyNum < keys.getEndValid()) {
+          readerMs = keys.getTime(p.keyNum);
+        }
+        uint64_t target = (M.biggestFragment(p.track) / 1000 + 1) * 1000;
+        if (target > targetDurationMs) { targetDurationMs = target; }
+      }
+      uint64_t trackLead = lastMs > readerMs ? lastMs - readerMs : 0;
+      std::map<size_t, uint64_t> & leads = recorders[p.reader];
+      if (!leads.count(p.track) || trackLead < leads[p.track]) { leads[p.track] = trackLead; }
+    }
+    uint64_t lead = 0;
+    for (std::map<uint64_t, std::map<size_t, uint64_t>>::const_iterator it = recorders.begin(); it != recorders.end(); ++it) {
+      uint64_t recorderLead = recorderLeadMs(it->second);
+      if (recorderLead > lead) { lead = recorderLead; }
     }
     return lead;
   }

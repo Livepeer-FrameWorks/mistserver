@@ -1,9 +1,17 @@
 #include "../src/input/buffer_hold.h"
 #include "../src/input/processing_rate.h"
 
+#include <mist/defines.h>
+#include <mist/shared_memory.h>
+
 #include <algorithm>
+#include <cerrno>
 #include <cstdio>
+#include <cstring>
+#include <exception>
 #include <string>
+#include <sys/mman.h>
+#include <unistd.h>
 
 namespace {
   int fail(const char *message) {
@@ -15,6 +23,38 @@ namespace {
     t.beginScan();
     t.observe(user, 100 + user, track, keyNum, now);
     t.endScan(now);
+  }
+
+  // Leaves the reader with a track that is valid in the shared track list but not loaded in its
+  // own metadata: a full reload that finds the track's page missing (its writer is replacing it)
+  // skips it. A producer's freshly added track looks the same to the buffer until its next reload.
+  bool validTrackNotLoaded(const std::string & stream, DTSC::Meta & writer, DTSC::Meta & reader, size_t & track) {
+    writer.reInit(stream, true);
+    track = writer.addTrack();
+    writer.setType(track, "audio");
+    writer.setCodec(track, "AAC");
+    writer.setID(track, 1);
+    writer.update(1000, 0, track, 10, 0, true, 10);
+    writer.update(2000, 0, track, 10, 0, true, 10);
+    reader.reInit(stream, false, false);
+    reader.reloadReplacedPagesIfNeeded();
+    if (!reader.trackLoaded(track)) { return false; }
+
+    char name[NAME_BUFFER_SIZE];
+    snprintf(name, NAME_BUFFER_SIZE, SHM_STREAM_TM, stream.c_str(), (uint32_t)getpid(), track);
+#ifdef SHM_ENABLED
+    if (shm_unlink(name)) { return false; }
+#else
+    if (unlink((Util::getTmpFolder() + name).c_str())) { return false; }
+#endif
+    snprintf(name, NAME_BUFFER_SIZE, SHM_STREAM_META, stream.c_str());
+    {
+      IPC::sharedPage page(name, 0, false, false);
+      if (!page.mapped) { return false; }
+      Util::RelAccX(page.mapped, false).setReload();
+    }
+    reader.reloadReplacedPagesIfNeeded();
+    return reader.trackValid(track) && !reader.trackLoaded(track);
   }
 } // namespace
 
@@ -142,6 +182,31 @@ int main() {
     if (maxLead >= 50000) { return fail("the feed must never lead its recorder by the whole buffer window"); }
     if (maxSpeed > PROCESSING_UNCONSTRAINED_SPEED) {
       return fail("the ramp must stay under the unconstrained ceiling");
+    }
+  }
+
+  // A recorder can select a track the buffer has not loaded yet; the hold lead skips it until
+  // the buffer loads it instead of reading its bounds.
+  {
+    const std::string stream = "bh" + std::to_string(getpid());
+    DTSC::Meta writer;
+    DTSC::Meta reader;
+    size_t track = INVALID_TRACK_ID;
+    if (!validTrackNotLoaded(stream, writer, reader, track)) {
+      return fail("could not set up a valid track that is not loaded");
+    }
+    std::vector<BufferHoldTracker::Position> positions;
+    positions.push_back({7, track, 0});
+    positions.push_back({8, track, (uint64_t)std::string::npos});
+    uint64_t targetDurationMs = 99;
+    try {
+      uint64_t lead = holdingReadersLeadMs(reader, positions, targetDurationMs);
+      if (lead != 0 || targetDurationMs != 0) {
+        return fail("a track the buffer has not loaded must not count towards the hold lead");
+      }
+    } catch (const std::exception & e) {
+      fprintf(stderr, "holdingReadersLeadMs threw %s\n", e.what());
+      return fail("the hold lead must not read a track the buffer has not loaded");
     }
   }
 

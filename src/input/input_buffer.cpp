@@ -1197,39 +1197,9 @@ namespace Mist{
     streamStatus.mapped[STRMSTATE_PROCESS_FEED_PAUSED_OFFSET] = processControlledRealtime && consumerLag.held();
   }
 
-  /// How far the source leads the slowest HOLDBUFFER recorder (see
-  /// recorderLeadMs for how one recorder's tracks combine). targetDurationMs
-  /// receives the largest target duration among the held tracks (the biggest
-  /// fragment, rounded up to whole seconds).
+  /// How far the source leads the slowest HOLDBUFFER recorder (see holdingReadersLeadMs).
   uint64_t InputBuffer::holdingReaderLeadMs(uint64_t & targetDurationMs) const {
-    targetDurationMs = 0;
-    std::map<uint64_t, std::map<size_t, uint64_t>> recorders;
-    const std::vector<BufferHoldTracker::Position> & positions = bufferHolds.positions();
-    for (const BufferHoldTracker::Position & p : positions) {
-      if (!M.trackValid(p.track)) { continue; }
-      uint64_t lastMs = M.getLastms(p.track);
-      uint64_t readerMs = lastMs;
-      if (!BufferHoldTracker::atLivePoint(p.keyNum)) {
-        DTSC::Keys keys(M.keys(p.track));
-        if (!keys.getValidCount()) { continue; }
-        if (p.keyNum <= keys.getFirstValid()) {
-          readerMs = keys.getTime(keys.getFirstValid());
-        } else if (p.keyNum < keys.getEndValid()) {
-          readerMs = keys.getTime(p.keyNum);
-        }
-        uint64_t target = (M.biggestFragment(p.track) / 1000 + 1) * 1000;
-        if (target > targetDurationMs) { targetDurationMs = target; }
-      }
-      uint64_t trackLead = lastMs > readerMs ? lastMs - readerMs : 0;
-      std::map<size_t, uint64_t> & leads = recorders[p.reader];
-      if (!leads.count(p.track) || trackLead < leads[p.track]) { leads[p.track] = trackLead; }
-    }
-    uint64_t lead = 0;
-    for (std::map<uint64_t, std::map<size_t, uint64_t>>::const_iterator it = recorders.begin(); it != recorders.end(); ++it) {
-      uint64_t recorderLead = recorderLeadMs(it->second);
-      if (recorderLead > lead) { lead = recorderLead; }
-    }
-    return lead;
+    return holdingReadersLeadMs(M, bufferHolds.positions(), targetDurationMs);
   }
 
   void InputBuffer::userLeadOut() {
