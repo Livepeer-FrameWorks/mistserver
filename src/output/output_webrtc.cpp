@@ -1,6 +1,7 @@
 #include "output_webrtc.h"
 
 #include "webrtc_output_policy.h"
+#include "webrtc_session_relay.h"
 
 #include <mist/downloader.h>
 #include <mist/procs.h>
@@ -224,15 +225,10 @@ namespace Mist{
                            std::function<void(Socket::Connection &, Socket::Server &)> callback) {
     Util::ResizeablePointer sndBuf;
 
-    Socket::UDPConnection * sndr = 0;
-    {
-      std::deque<Socket::Address> mcAddrs = Socket::getAddrs("224.0.0.224", conf.getInteger("port"), AF_INET);
-      if (!mcAddrs.size()) {
-        FAIL_MSG("Could not resolve 224.0.0.224 multicast address!");
-        return;
-      }
-      Socket::Address & mcAddr = *mcAddrs.begin();
-      sndr = new Socket::UDPConnection(mcAddr, mcAddr.size(), 0, 0);
+    Socket::UDPConnection *sndr = openWebRTCSessionRelay(conf.getInteger("port"));
+    if (!sndr) {
+      FAIL_MSG("Could not open the relay to 224.0.0.224 for WebRTC session processes!");
+      return;
     }
 
     Socket::UDPConnection lstn;
@@ -928,17 +924,17 @@ namespace Mist{
         H.Chunkify(0, 0, myConn);
       }else{
         {
-          std::deque<Socket::Address> mcAddrs = Socket::getAddrs("224.0.0.224", config->getInteger("port"), AF_INET);
-          if (!mcAddrs.size()){
+          Socket::UDPConnection *sndr = openWebRTCSessionRelay(config->getInteger("port"));
+          if (!sndr) {
             H.setCORSHeaders();
             H.StartResponse("500", "Internal communication error", req, myConn, true);
             H.Chunkify("Could not relay command due to internal communication error", myConn);
             H.Chunkify(0, 0, myConn);
             return;
           }
-          Socket::Address mcAddr = *mcAddrs.begin();
-          Socket::UDPConnection sndr(mcAddr, mcAddr.size(), 0, 0);
-          sndr.SendNow(path);
+          sndr->SendNow(path);
+          sndr->close();
+          delete sndr;
         }
         H.setCORSHeaders();
         H.StartResponse("200", "Deleted", req, myConn, true);

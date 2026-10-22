@@ -140,6 +140,11 @@ webrtcoutputpolicytest = executable('webrtcoutputpolicytest', 'webrtc_output_pol
                                     dependencies: libmist_dep)
 test('WebRTC output track and playhead policy', webrtcoutputpolicytest, suite: 'WebRTC')
 
+webrtcsessionrelaytest = executable('webrtcsessionrelaytest', 'webrtc_session_relay_unit.cpp', header_tgts,
+                                    dependencies: libmist_dep)
+test('WebRTC session relay is connected to its group instead of sitting on the wildcard address',
+     webrtcsessionrelaytest, suite: 'WebRTC')
+
 trackselectiontest = executable('trackselectiontest', 'track_selection_unit.cpp', header_tgts,
                                 dependencies: libmist_dep)
 test('Track comparators keep image tracks separate from video renditions', trackselectiontest, suite: 'Streams')
