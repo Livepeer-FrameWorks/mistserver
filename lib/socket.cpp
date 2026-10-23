@@ -2642,7 +2642,7 @@ void Socket::UDPConnection::deinitDTLS(){
     mbedtls_ssl_free(&ssl_ctx);
     mbedtls_ssl_config_free(&ssl_conf);
     mbedtls_ssl_cookie_free(&cookie_ctx);
-    hasDTLS = true;
+    hasDTLS = false;
   }
 }
 
@@ -2735,6 +2735,17 @@ Socket::UDPConnection::UDPConnection(const UDPConnection &o){
     pretendReceive = true;
   }
   hasReceiveData = o.hasReceiveData;
+}
+
+/// Makes the next Receive() return buf as if it had just arrived on this socket, including dTLS processing.
+/// buf may point into this socket's own data buffer.
+void Socket::UDPConnection::injectReceived(const char *buf, size_t len) {
+  if (buf != (const char *)data) {
+    data.assign(buf, len);
+  } else {
+    data.truncate(len);
+  }
+  pretendReceive = true;
 }
 
 /// Close the UDP socket

@@ -841,6 +841,11 @@ if usessl
                                 dependencies: libmist_dep)
   test('WebRTC DTLS-SRTP loopback handshake', dtlsloopbacktest, suite: ['Sockets', 'WebRTC'],
        timeout: 15)
+
+  webrtcdtlspathtest = executable('webrtcdtlspathtest', 'webrtc_dtls_path_unit.cpp', header_tgts,
+                                  dependencies: libmist_dep)
+  test('WebRTC DTLS association follows the peer across candidate pairs, also mid-handshake', webrtcdtlspathtest,
+       suite: 'WebRTC', timeout: 60)
 endif
 
 proctest = executable('proctest', 'procs.cpp', header_tgts, dependencies: libmist_dep)

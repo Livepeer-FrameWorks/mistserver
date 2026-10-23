@@ -351,7 +351,9 @@ namespace Socket{
     int dTLSWrite(const unsigned char *buf, size_t len);
     void dTLSReset();
     void handshake();
+    bool dtlsEnabled() const { return hasDTLS; }
 #endif
+    void injectReceived(const char *buf, size_t len);
     uint64_t intTimer;
     uint64_t finTimer;
     bool wasEncrypted;

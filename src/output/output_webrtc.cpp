@@ -1,5 +1,6 @@
 #include "output_webrtc.h"
 
+#include "webrtc_dtls_path.h"
 #include "webrtc_output_policy.h"
 #include "webrtc_session_relay.h"
 
@@ -1752,8 +1753,8 @@ namespace Mist{
           continue;
         }
 
-        // As DTLS client the handshake starts once ICE answered on this pair.
-        if (!dtlsClient) { s->initDTLS(&(cert.cert), &(cert.key)); }
+        // No DTLS context here: the session's single association goes to the first pair that carries a ClientHello,
+        // and follows the peer to any other pair (see handleUDPPacket).
         int sockNo = s->getSock();
         WebRTCSocket & wSock = sockets[sockNo];
         wSock.udpSock = s;
@@ -1955,6 +1956,13 @@ namespace Mist{
     }, 0);
   }
 
+  int OutWebRTC::dtlsSocket() {
+    for (auto & it : sockets) {
+      if (it.second.udpSock && *(it.second.udpSock) && it.second.udpSock->dtlsEnabled()) { return it.first; }
+    }
+    return -1;
+  }
+
   void OutWebRTC::handleUDPPacket(WebRTCSocket & wSock, int sockNo) {
     bool wasInited = wSock.udpSock->cipher.size();
 
@@ -2042,21 +2050,19 @@ namespace Mist{
           packetLog << "[" << Util::bootMS() << "]" << "DTLS (" << wSock.udpSock->getRemoteAddr()
                     << ") - Non-decoded data" << std::endl;
         }
-        // Not handshaken? Maybe we need to work around the Chrome bug where it swaps IPs sometimes.
-        if (!wSock.udpSock->handshakeComplete() && sctpSockets.size()) {
-          uint64_t timeout = Util::bootMS() - 2500;
-          bool swapped = false;
-          for (int s : sctpSockets) {
-            WebRTCSocket & tSock = sockets[s];
-            if (tSock.udpSock->handshakeComplete() && tSock.lastRecv < timeout) {
-              INFO_MSG("Found a swap candidate - swapping socket %d with %d", wSock.udpSock->getSock(), tSock.udpSock->getSock());
-              wSock.udpSock->swapSocket(*(tSock.udpSock));
-              swapped = true;
-              break;
-            }
-          }
-          if (swapped) { continue; }
+        if (wSock.udpSock->dtlsEnabled()) { continue; }
+        int ownerNo = dtlsSocket();
+        WebRTCSocket *owner = ownerNo == -1 ? 0 : &sockets[ownerNo];
+        Socket::UDPConnection *dst =
+          routeDTLSRecord(owner ? owner->udpSock : 0, *wSock.udpSock, !dtlsClient, &(cert.cert), &(cert.key));
+        if (!dst) { continue; }
+        if (dst == wSock.udpSock) {
+          MEDIUM_MSG("DTLS association starts on %s", wSock.udpSock->getRemoteAddr().toString().c_str());
+          continue;
         }
+        // The peer moved the association to this pair; the owner now uses it and processes the record.
+        INFO_MSG("Peer sends DTLS over %s now; moving the association there", owner->udpSock->getRemoteAddr().toString().c_str());
+        handleUDPPacket(*owner, ownerNo);
       } else if (fb < 2) {
         // STUN
         handleReceivedSTUNPacket(wSock);
@@ -2187,7 +2193,7 @@ namespace Mist{
     // An offerer that declared a=setup:passive waits for our ClientHello. It
     // follows the binding response, so the peer already considers this pair
     // connected when the ClientHello arrives.
-    if (dtlsClient && !controlling && !wSock.dtlsStarted) {
+    if (dtlsClient && !controlling && !wSock.dtlsStarted && dtlsSocket() == -1) {
       wSock.dtlsStarted = true;
       INFO_MSG("Starting DTLS as client towards %s (the offer's a=setup is passive)", remoteAddr.toString().c_str());
       wSock.udpSock->initDTLS(&(cert.cert), &(cert.key), true);

@@ -51,6 +51,7 @@
           connectionState: peer.connectionState,
           iceConnectionState: peer.iceConnectionState,
           dtlsState: transport?.dtlsState,
+          pairSwitches: transport?.selectedCandidatePairChanges ?? 0,
           channelState: channel.readyState,
           framesDecoded,
           framesAfterChannelOpen: framesDecoded - framesWhenChannelOpened,
@@ -75,7 +76,7 @@
           state.result = "FAIL";
         }
         result.textContent = JSON.stringify(state);
-        document.title = `${state.result} frames=${state.framesDecoded} sustained=${state.framesAfterChannelOpen} packets=${state.packetsReceived}`;
+        document.title = `${state.result} frames=${state.framesDecoded} sustained=${state.framesAfterChannelOpen} packets=${state.packetsReceived} pairs=${state.pairSwitches}`;
         if (state.result === "RUNNING") setTimeout(finish, 250);
       };
       setTimeout(finish, 250);

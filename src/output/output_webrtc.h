@@ -144,6 +144,7 @@ namespace Mist{
     bool handleSignalingCommandRemoteOfferForOutput(SDP::Session &sdpSession);
     void sendSignalingError(const std::string &commandType, const std::string &errorMessage);
     void handleUDPPacket(WebRTCSocket & wSock, int sockNo);
+    int dtlsSocket(); ///< Socket number holding the session's DTLS association, or -1 when none has one yet.
 
     void sendRTCPFeedbackREMB(const WebRTCTrack &rtcTrack);
     void sendRTCPFeedbackPLI(const WebRTCTrack &rtcTrack); ///< Picture Los Indication: request keyframe.
