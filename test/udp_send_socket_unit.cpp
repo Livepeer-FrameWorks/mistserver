@@ -28,10 +28,62 @@ static bool readableWithin(int fd, uint32_t timeoutMs) {
   return select(fd + 1, &readSet, 0, 0, &timeout) > 0;
 }
 
-static std::string addrString(const sockaddr_in & addr) {
-  char str[INET_ADDRSTRLEN] = {0};
-  inet_ntop(AF_INET, &addr.sin_addr, str, sizeof(str));
-  return std::string(str) + ":" + std::to_string(ntohs(addr.sin_port));
+static std::string addrString(const sockaddr_storage & addr) {
+  char str[INET6_ADDRSTRLEN] = {0};
+  if (addr.ss_family == AF_INET) {
+    const sockaddr_in & a = (const sockaddr_in &)addr;
+    inet_ntop(AF_INET, &a.sin_addr, str, sizeof(str));
+    return std::string(str) + ":" + std::to_string(ntohs(a.sin_port));
+  }
+  if (addr.ss_family == AF_INET6) {
+    const sockaddr_in6 & a = (const sockaddr_in6 &)addr;
+    inet_ntop(AF_INET6, &a.sin6_addr, str, sizeof(str));
+    return "[" + std::string(str) + "]:" + std::to_string(ntohs(a.sin6_port));
+  }
+  return "address of family " + std::to_string(addr.ss_family);
+}
+
+static uint16_t portOf(const sockaddr_storage & addr) {
+  if (addr.ss_family == AF_INET) { return ntohs(((const sockaddr_in &)addr).sin_port); }
+  if (addr.ss_family == AF_INET6) { return ntohs(((const sockaddr_in6 &)addr).sin6_port); }
+  return 0;
+}
+
+/// The IPv4 address an AF_INET address or an IPv4-mapped AF_INET6 address carries, in host order.
+/// Returns false for any other address.
+static bool ipv4Of(const sockaddr_storage & addr, uint32_t & ip) {
+  if (addr.ss_family == AF_INET) {
+    ip = ntohl(((const sockaddr_in &)addr).sin_addr.s_addr);
+    return true;
+  }
+  if (addr.ss_family == AF_INET6) {
+    const in6_addr & a = ((const sockaddr_in6 &)addr).sin6_addr;
+    if (!IN6_IS_ADDR_V4MAPPED(&a)) { return false; }
+    uint32_t mapped;
+    memcpy(&mapped, a.s6_addr + 12, sizeof(mapped));
+    ip = ntohl(mapped);
+    return true;
+  }
+  return false;
+}
+
+/// True for 0.0.0.0, :: and ::ffff:0.0.0.0.
+static bool isWildcard(const sockaddr_storage & addr) {
+  uint32_t ip;
+  if (ipv4Of(addr, ip)) { return ip == INADDR_ANY; }
+  return addr.ss_family == AF_INET6 && IN6_IS_ADDR_UNSPECIFIED(&((const sockaddr_in6 &)addr).sin6_addr);
+}
+
+/// True for 127.0.0.1, ::ffff:127.0.0.1 and ::1. A dual-stack host gives a default (AF_INET6) socket that sends to
+/// 127.0.0.1 the IPv4-mapped form.
+static bool isLoopback(const sockaddr_storage & addr) {
+  uint32_t ip;
+  if (ipv4Of(addr, ip)) { return ip == INADDR_LOOPBACK; }
+  return addr.ss_family == AF_INET6 && IN6_IS_ADDR_LOOPBACK(&((const sockaddr_in6 &)addr).sin6_addr);
+}
+
+static socklen_t addrLen(const sockaddr_storage & addr) {
+  return addr.ss_family == AF_INET6 ? sizeof(sockaddr_in6) : sizeof(sockaddr_in);
 }
 
 /// Checks that a send-only socket that just sent a datagram to the receiver on 127.0.0.1:port is bound to the loopback
@@ -39,23 +91,23 @@ static std::string addrString(const sockaddr_in & addr) {
 /// socket other than the receiver.
 static int checkSendSocket(const std::string & name, int fd, Socket::UDPConnection & receiver, uint16_t port,
                            const std::string & payload) {
-  sockaddr_in local = {};
+  sockaddr_storage local = {};
   socklen_t localLen = sizeof(local);
   if (getsockname(fd, (sockaddr *)&local, &localLen)) {
     return fail(name + ": getsockname failed: " + strerror(errno));
   }
-  if (local.sin_family != AF_INET || local.sin_addr.s_addr == htonl(INADDR_ANY)) {
+  if (isWildcard(local)) {
     return fail(name + " sits bound to the wildcard address " + addrString(local) + ", where it accepts datagrams from any interface");
   }
-  if (local.sin_addr.s_addr != htonl(INADDR_LOOPBACK)) {
+  if (!isLoopback(local)) {
     return fail(name + " is bound to " + addrString(local) + " instead of the loopback route's source address");
   }
-  sockaddr_in peer = {};
+  sockaddr_storage peer = {};
   socklen_t peerLen = sizeof(peer);
   if (getpeername(fd, (sockaddr *)&peer, &peerLen)) {
     return fail(name + " is not connected to its destination: " + strerror(errno));
   }
-  if (peer.sin_addr.s_addr != htonl(INADDR_LOOPBACK) || ntohs(peer.sin_port) != port) {
+  if (!isLoopback(peer) || portOf(peer) != port) {
     return fail(name + " is connected to " + addrString(peer) + " instead of 127.0.0.1:" + std::to_string(port));
   }
 
@@ -66,12 +118,15 @@ static int checkSendSocket(const std::string & name, int fd, Socket::UDPConnecti
     return fail(name + ": the receiver got a different datagram than was sent");
   }
 
-  // A datagram from any socket other than the destination must not reach the send socket.
-  int stranger = socket(AF_INET, SOCK_DGRAM, 0);
+  // A datagram from any socket other than the destination must not reach the send socket. The stranger uses the send
+  // socket's own family and sends to the exact address it is bound to.
+  int stranger = socket(local.ss_family, SOCK_DGRAM, 0);
   if (stranger < 0) { return fail(std::string("could not open a stranger socket: ") + strerror(errno)); }
-  sockaddr_in target = local;
-  target.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
-  sendto(stranger, "stranger", 8, 0, (sockaddr *)&target, sizeof(target));
+  if (sendto(stranger, "stranger", 8, 0, (sockaddr *)&local, addrLen(local)) != 8) {
+    int err = errno;
+    close(stranger);
+    return fail("the stranger could not send to " + addrString(local) + ": " + strerror(err));
+  }
   close(stranger);
   if (readableWithin(fd, 300)) {
     return fail(name + " on " + addrString(local) + " accepted a datagram from a socket other than its destination");
