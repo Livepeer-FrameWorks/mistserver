@@ -8,9 +8,17 @@
 #include "util.h"
 
 #include <list>
+#include <memory>
 #include <string>
 
 const JSON::Value empty;
+
+namespace HTTP {
+  class URL;
+}
+namespace Socket {
+  class UDPConnection;
+}
 
 namespace Util{
   size_t streamCustomVariables(std::string &str);
@@ -31,6 +39,7 @@ namespace Util{
   JSON::Value getInputBySource(const std::string &filename, bool isProvider = false);
   void optionsToArguments(const JSON::Value conf, const JSON::Value & capa, std::deque<std::string> & args,
                           const std::map<std::string, std::string> & overrides = {});
+  std::unique_ptr<Socket::UDPConnection> openUDPApiSocket(const HTTP::URL & udpApi);
   void sendUDPApi(JSON::Value & cmd);
   const IPC::sharedPage & streamStatePage(const std::string & streamname);
   uint8_t getStreamStatus(const std::string &streamname);

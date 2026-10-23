@@ -21,6 +21,7 @@
 #include "url.h"
 
 #include <algorithm>
+#include <fcntl.h>
 #include <semaphore.h>
 #include <stdlib.h>
 #include <sys/stat.h>
@@ -968,6 +969,22 @@ void Util::optionsToArguments(const JSON::Value conf, const JSON::Value & capa, 
   }
 }
 
+/// Opens a socket for sending commands to the local UDP API at udpApi.
+/// The socket is connected to that address, so its source is the route's address (loopback for a local API) and it
+/// drops every datagram that does not come from the API; an unconnected socket would bind to 0.0.0.0:<ephemeral> on
+/// its first send and accept datagrams from any interface for as long as it lives.
+/// It is close-on-exec because the processes that send stats also spawn children from other threads.
+/// Returns null when the address does not resolve or cannot be connected to.
+std::unique_ptr<Socket::UDPConnection> Util::openUDPApiSocket(const HTTP::URL & udpApi) {
+  Socket::Address dest(udpApi);
+  if (dest.family() == AF_UNSPEC) { return nullptr; }
+  std::unique_ptr<Socket::UDPConnection> uSock(new Socket::UDPConnection(dest));
+  if (!*uSock) { return nullptr; }
+  fcntl(uSock->getSock(), F_SETFD, FD_CLOEXEC);
+  if (!uSock->connectDestination()) { return nullptr; }
+  return uSock;
+}
+
 /// Sends a message to the local UDP API port
 void Util::sendUDPApi(JSON::Value & cmd){
   HTTP::URL UDPAddr(getGlobalConfig("udpApi", false).asStringRef());
@@ -975,8 +992,12 @@ void Util::sendUDPApi(JSON::Value & cmd){
     FAIL_MSG("Local UDP API address not defined; can't send command to MistController!");
     return;
   }
-  Socket::UDPConnection uSock(UDPAddr);
-  uSock.SendNow(cmd.toString());
+  std::unique_ptr<Socket::UDPConnection> uSock = openUDPApiSocket(UDPAddr);
+  if (!uSock) {
+    FAIL_MSG("Could not open a socket to the local UDP API at %s", UDPAddr.getUrl().c_str());
+    return;
+  }
+  uSock->SendNow(cmd.toString());
 }
 
 /// Attempt to start a push for streamname to target.

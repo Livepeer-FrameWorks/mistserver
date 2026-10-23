@@ -37,6 +37,11 @@ socketblockedsendtest = executable('socketblockedsendtest', 'socket_blocked_send
 test('A blocking send keeps calling back while its destination reads nothing', socketblockedsendtest,
      suite: 'Sockets')
 
+udpsendsockettest = executable('udpsendsockettest', 'udp_send_socket_unit.cpp', header_tgts,
+                               dependencies: libmist_dep)
+test('UDP API and push send sockets are connected to their destination instead of sitting on the wildcard address',
+     udpsendsockettest, suite: 'Sockets')
+
 urireaderregressiontest = executable('urireaderregressiontest', 'urireader_regression.cpp', header_tgts,
                                      dependencies: libmist_dep)
 test('terminal ranged response can be reopened', urireaderregressiontest, suite: 'URIReader')

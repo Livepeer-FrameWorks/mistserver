@@ -47,7 +47,8 @@ namespace Mist{
             fecColumnSock.SetDestination(target.host, target.getPort() + 2);
             // Send Pro-MPEG FEC rows over port number + 4
             fecRowSock.SetDestination(target.host, target.getPort() + 4);
-            sendFEC = true;
+            sendFEC = fecColumnSock.connectDestination() && fecRowSock.connectDestination();
+            if (!sendFEC) { WARN_MSG("Failed to connect the FEC sockets. Running without forward error correction"); }
           } else {
             WARN_MSG("Failed to configure FEC. Running without forward error correction");
           }
@@ -84,6 +85,10 @@ namespace Mist{
         }
       }
       pushSock.SetDestination(target.host, target.getPort());
+      if (pushOut && !pushSock.connectDestination()) {
+        onFail("Could not connect UDP socket to TS target", true);
+        return;
+      }
       myConn.setHost(target.host);
       pushing = false;
     }else{

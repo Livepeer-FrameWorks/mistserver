@@ -3392,6 +3392,23 @@ bool Socket::UDPConnection::connect(){
   return true;
 }
 
+/// Connects the socket to the destination set through the constructor or SetDestination.
+/// The kernel then takes the source address from the route (unless the socket is already bound to a specific address)
+/// and drops every datagram that does not come from the destination. A send-only socket left unconnected is bound to
+/// 0.0.0.0:<ephemeral> by its first send, where it accepts datagrams from any interface that nothing reads.
+/// Returns false when no destination is set or connecting fails.
+bool Socket::UDPConnection::connectDestination() {
+  if (sock == -1 || !destAddr.size() || destAddr.family() == AF_UNSPEC) { return false; }
+  if (::connect(sock, destAddr, destAddr.size())) {
+    FAIL_MSG("Failed to connect UDP socket %d to %s: %s", sock, destAddr.toString().c_str(), strerror(errno));
+    return false;
+  }
+  recvAddr.reserve();
+  socklen_t alen = recvAddr.size();
+  if (getsockname(sock, recvAddr, &alen)) { recvAddr.clear(); }
+  isConnected = true;
+  return true;
+}
 
 /// Attempt to receive a UDP packet.
 /// This will automatically allocate or resize the internal data buffer if needed.

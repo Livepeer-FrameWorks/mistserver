@@ -363,6 +363,7 @@ namespace Socket{
     uint16_t bind(const Socket::Address *addr, const std::string & multicastAddress = "");
     void setMulticastTTL(size_t ttl);
     bool connect();
+    bool connectDestination();
     void setBlocking(bool blocking);
     void setIgnoreSendErrors(bool ign);
     void allocateDestination(bool setPktInfo = true);
