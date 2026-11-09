@@ -81,10 +81,12 @@ namespace Comms{
     void setPid(uint32_t _pid, size_t idx);
     void finishAll();
     void setMaster(bool _master);
+    bool registrationClosed() const { return closedRegistration; }
     const std::string &pageName() const{return dataPage.name;}
 
   protected:
     bool master;
+    bool closedRegistration;
     uint64_t index;
     size_t currentSize;
     IPC::semaphore sem;
@@ -201,6 +203,7 @@ namespace Comms{
     void reload(const std::string &_streamName = "", bool _master = false, bool reIssue = false);
     void reloadReadonly(const std::string &_streamName);
     void reload(const std::string &_streamName, size_t track, uint8_t initialState = COMM_STATUS_ACTIVE);
+    bool beginIdleShutdown(char *streamState);
     virtual void addFields();
     virtual void nullFields();
     virtual void fieldAccess();
@@ -219,6 +222,7 @@ namespace Comms{
 
   private:
     std::string streamName;
+    size_t requestedTrack = 0;
 
     Util::FieldAccX track;
     Util::FieldAccX keyNum;

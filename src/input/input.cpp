@@ -65,6 +65,9 @@ namespace Mist{
   void Input::userOnActive(size_t id){
     ++connectedUsers;
     size_t track = users.getTrack(id);
+    // A connection-lifetime reader prevents idle shutdown without requesting
+    // any media page. Its sentinel is published before the slot becomes active.
+    if (track == INVALID_TRACK_ID) { return; }
     if (!M.trackValid(track)){
       WARN_MSG("Player is inside invalid track: %zu", track);
       return;
@@ -1036,6 +1039,13 @@ namespace Mist{
       }
     }
     /*LTS-END*/
+    if (!ret && config->is_active && updateActCtr && needsLock() && !M.getLive() && users && streamStatus &&
+        streamStatus.len && !users.beginIdleShutdown(streamStatus.mapped)) {
+      // The previous scan can predate a new reader, particularly after this
+      // input was descheduled. Registration and idle shutdown are one decision.
+      activityCounter = Util::bootSecs();
+      ret = true;
+    }
     if (!ret && ((Util::bootSecs() - activityCounter) >= inputTimeout)){
       Util::logExitReason(ER_CLEAN_INACTIVE, "no activity for %us (> %" PRIu64 "s)", Util::bootSecs() - activityCounter, inputTimeout);
     }

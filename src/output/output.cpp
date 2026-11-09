@@ -432,6 +432,7 @@ namespace Mist{
     userSelect.clear();
     trackSelectionChanged();
     isInitialized = false;
+    vodInputLease.reset();
     meta.clear();
   }
 
@@ -527,6 +528,7 @@ namespace Mist{
 
     //Wipe currently selected tracks; metadata unload coming up
     userSelect.clear();
+    vodInputLease.reset();
     trackSelectionChanged();
 
     //Connect to stream metadata
@@ -541,6 +543,30 @@ namespace Mist{
     }
     //Abort if this step failed
     if (!meta){return;}
+
+    if (!isPushing() && !M.getLive() && !processingControlledRealtime()) {
+      const std::set<size_t> tracks = M.getValidTracks(true);
+      if (!tracks.empty()) {
+        // Protocols replace their selected tracks while handling a request.
+        // Keep one registration for the whole connection so that gap cannot
+        // let the input commit an idle shutdown underneath a media reader.
+        vodInputLease.reset(new Comms::Users());
+        vodInputLease->reload(streamName, (size_t)INVALID_TRACK_ID);
+        if (!*vodInputLease) {
+          const bool closed = vodInputLease->registrationClosed();
+          vodInputLease.reset();
+          meta.clear();
+          if (closed && !retryingIdleInput) {
+            retryingIdleInput = true;
+            reconnect();
+            retryingIdleInput = false;
+            return;
+          }
+          onFail("Could not register reader with input", true);
+          return;
+        }
+      }
+    }
 
     isInitialized = true;
 

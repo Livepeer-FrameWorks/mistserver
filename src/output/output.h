@@ -19,6 +19,7 @@
 
 #include <cstdlib>
 #include <map>
+#include <memory>
 #include <set>
 
 namespace Mist{
@@ -106,6 +107,8 @@ namespace Mist{
     bool getSyncMode() { return buffer.getSyncMode(); }
 
   private: // these *should* not be messed with in child classes.
+    std::unique_ptr<Comms::Users> vodInputLease;
+    bool retryingIdleInput = false;
     std::map<size_t, uint32_t> currentPage;
     void loadPageForKey(size_t trackId, size_t keyNum);
     bool waitForTrackLoaded(size_t trackId);

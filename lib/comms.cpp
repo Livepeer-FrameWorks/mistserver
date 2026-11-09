@@ -47,6 +47,7 @@ namespace Comms{
     index = INVALID_RECORD_INDEX;
     currentSize = 0;
     master = false;
+    closedRegistration = false;
   }
 
   Comms::~Comms(){
@@ -134,6 +135,7 @@ namespace Comms{
   }
 
   void Comms::reload(const std::string & prefix, size_t baseSize, bool _master, bool reIssue){
+    closedRegistration = false;
     master = _master;
     if (!currentSize){currentSize = baseSize;}
 
@@ -164,6 +166,8 @@ namespace Comms{
     }
     dataAccX = Util::RelAccX(dataPage.mapped);
     if (dataAccX.isExit()){
+      closedRegistration = true;
+      index = INVALID_RECORD_INDEX;
       dataPage.close();
       return;
     }
@@ -173,6 +177,14 @@ namespace Comms{
       for (index = 0; index < reqCount; ++index){
         if (getStatus() == COMM_STATUS_INVALID){
           IPC::semGuard G(&sem);
+          // The input can close registration after the page was mapped.
+          // Its idle decision and this claim share this semaphore.
+          if (dataAccX.isExit()) {
+            closedRegistration = true;
+            index = INVALID_RECORD_INDEX;
+            dataPage.close();
+            return;
+          }
           if (getStatus() != COMM_STATUS_INVALID){continue;}
           nullFields();
           setStatus(COMM_STATUS_ACTIVE | defaultCommFlags);
@@ -248,6 +260,22 @@ namespace Comms{
     if (noMaster){master = false;}
   }
 
+  bool Users::beginIdleShutdown(char *streamState) {
+    if (!master || !dataPage || !streamState) { return false; }
+    IPC::semGuard guard(&sem);
+    for (size_t i = 0; i < recordCount(); ++i) {
+      const uint8_t state = getStatus(i);
+      if (state == COMM_STATUS_INVALID || (state & COMM_STATUS_DISCONNECT)) { continue; }
+      const uint32_t reader = getPid(i);
+      if (reader > 1 && Util::Procs::isRunning(reader)) { return false; }
+    }
+    // Readers already registered keep this generation alive. Later claims
+    // see the exit flag and wait for the next input instead of attaching here.
+    dataAccX.setExit();
+    streamState[0] = STRMSTAT_SHUTDOWN;
+    return true;
+  }
+
   Users::Users(const Users &rhs) : Comms(){
     if (rhs){
       reload(rhs.streamName, (size_t)rhs.getTrack());
@@ -279,7 +307,7 @@ namespace Comms{
 
   void Users::nullFields(){
     Comms::nullFields();
-    setTrack(0);
+    setTrack(requestedTrack);
     setKeyNum(0);
   }
 
@@ -290,6 +318,7 @@ namespace Comms{
   }
 
   void Users::reload(const std::string &_streamName, size_t idx, uint8_t initialState){
+    requestedTrack = idx;
     reload(_streamName);
     if (dataPage){
       setTrack(idx);
