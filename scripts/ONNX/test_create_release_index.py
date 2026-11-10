@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import json
+import re
 import tempfile
 import unittest
 from pathlib import Path
@@ -117,6 +118,31 @@ class ReleaseIndexTest(unittest.TestCase):
 
     with self.assertRaisesRegex(ValueError, "release input is ambiguous"):
       build_index(self.dist, self.matrix, self.tag, "deadbeef", "ghcr.io/example")
+
+
+class NativeBuildContractTest(unittest.TestCase):
+  def test_native_runners_match_declared_host_contract(self):
+    root = Path(__file__).resolve().parents[2]
+    matrix = json.loads((root / "scripts/ONNX/accelerator-images.json").read_text())
+    workflow = (root / ".github/workflows/build.yml").read_text()
+    for arch, suffix in (("amd64", ""), ("arm64", "-arm")):
+      with self.subTest(architecture=arch):
+        host = matrix["native_deployment"]["platforms"][f"linux/{arch}"]
+        job = re.search(
+            rf"^  build-binaries-{arch}:\n(.*?)(?=^  [a-zA-Z0-9_-]+:|\Z)",
+            workflow,
+            re.MULTILINE | re.DOTALL,
+        )
+        self.assertIsNotNone(job, f"Missing native build job for {arch}")
+        runner = re.search(r"^    runs-on: ([a-zA-Z0-9_.-]+)$", job[1], re.MULTILINE)
+        self.assertIsNotNone(
+            runner, f"Native {arch} runner must be pinned explicitly"
+        )
+        expected = f"{host['distribution']}-{host['release']}{suffix}"
+        self.assertEqual(
+            runner[1], expected,
+            f"Native {arch} build must use its declared host baseline",
+        )
 
 
 if __name__ == "__main__":
