@@ -1174,3 +1174,6 @@ endif
 
 #abst_test = executable('abst_test', 'abst_test.cpp', dependencies: libmist_dep)
 #test('MP4::ABST Test', abst_test)
+
+http_large_file_test = executable('http_large_file_test', 'http_large_file.cpp', header_tgts, dependencies: libmist_dep)
+test('Large HTTP lengths preserve metadata and ranged reads', http_large_file_test, suite: 'HTTP parser', timeout: 30)

@@ -1,17 +1,34 @@
 /// \file http_parser.cpp
 /// Holds all code for the HTTP namespace.
 
+#include "http_parser.h"
+
 #include "auth.h"
 #include "defines.h"
 #include "encode.h"
-#include "http_parser.h"
+#include "json.h"
 #include "timing.h"
 #include "url.h"
 #include "util.h"
-#include "json.h"
+
 #include <iomanip>
-#include <strings.h>
+#include <limits>
 #include <sstream>
+#include <strings.h>
+
+// Content-Length describes file metadata too; parsing it must neither narrow to int nor allocate its body.
+bool HTTP::parseContentLength(const std::string & value, size_t & result) {
+  if (value.empty()) { return false; }
+  size_t parsed = 0;
+  for (char c : value) {
+    if (c < '0' || c > '9') { return false; }
+    const size_t digit = static_cast<size_t>(c - '0');
+    if (parsed > (std::numeric_limits<size_t>::max() - digit) / 10) { return false; }
+    parsed = parsed * 10 + digit;
+  }
+  result = parsed;
+  return true;
+}
 
 /// This constructor creates an empty HTTP::Parser, ready for use for either reading or writing.
 /// All this constructor does is call HTTP::Parser::Clean().
@@ -34,6 +51,7 @@ void HTTP::Parser::Clean(){
 /// Completely re-initializes the HTTP::Parser, leaving it ready for either reading or writing
 /// usage.
 void HTTP::Parser::CleanPreserveHeaders(){
+  parseFailed = false;
   seenHeaders = false;
   seenReq = false;
   possiblyComplete = false;
@@ -338,8 +356,8 @@ void HTTP::Parser::StartResponse(std::string code, std::string message, const HT
     SetHeader("Transfer-Encoding", "chunked");
     //Chunked encoding does not allow a Content-Length, so convert to Content-Range instead
     if (headers.count("Content-Length")){
-      uint32_t len = atoi(headers["Content-Length"].c_str());
-      if (len && !headers.count("Content-Range")){
+      size_t len = 0;
+      if (parseContentLength(headers["Content-Length"], len) && len && !headers.count("Content-Range")) {
         std::stringstream rangeReply;
         rangeReply << "bytes 0-" << (len-1) << "/" << len;
         SetHeader("Content-Range", rangeReply.str());
@@ -567,9 +585,18 @@ void HTTP::Parser::SetVar(std::string i, std::string v){
 /// returned. If not, as much as can be interpreted is removed and false returned. \param conn The
 /// socket to read from. \return True if a whole request or response was read, false otherwise.
 bool HTTP::Parser::Read(Socket::Connection & conn, std::function<void(const char *, size_t)> onData) {
+  if (parseFailed) {
+    conn.close();
+    return false;
+  }
   // In this case, we might have a broken connection and need to check if we're done
   if (!conn.Received().size()){
-    return parse(conn.Received().get(), onData) && (!possiblyComplete || !conn || !JSON::Value(url).asInt());
+    const bool complete = parse(conn.Received().get(), onData);
+    if (parseFailed) {
+      conn.close();
+      return false;
+    }
+    return complete && (!possiblyComplete || !conn || !JSON::Value(url).asInt());
   }
   while (conn.Received().size()){
     // Make sure the received data ends in a newline (\n).
@@ -589,9 +616,12 @@ bool HTTP::Parser::Read(Socket::Connection & conn, std::function<void(const char
     }
 
     // return true if a parse succeeds, and is not a request
-    if (parse(conn.Received().get(), onData) && (!possiblyComplete || !conn || !JSON::Value(url).asInt())) {
-      return true;
+    const bool complete = parse(conn.Received().get(), onData);
+    if (parseFailed) {
+      conn.close();
+      return false;
     }
+    if (complete && (!possiblyComplete || !conn || !JSON::Value(url).asInt())) { return true; }
   }
   return false;
 } // HTTPReader::Read
@@ -617,6 +647,7 @@ uint8_t HTTP::Parser::getPercentage() const{
 /// \param HTTPbuffer The data buffer to read from.
 /// \return True on success, false otherwise.
 bool HTTP::Parser::parse(std::string & HTTPbuffer, std::function<void(const char *, size_t)> onData) {
+  if (parseFailed) { return false; }
   size_t f;
   std::string tmpA, tmpB, tmpC;
   /// \todo Make this not resize HTTPbuffer in parts, but read all at once and then remove the
@@ -679,9 +710,12 @@ bool HTTP::Parser::parse(std::string & HTTPbuffer, std::function<void(const char
           body.clear();
           knownLength = false;
           length = 0;
-          if (GetHeader("Content-Length") != ""){
-            length = atoi(GetHeader("Content-Length").c_str());
-            if (!bodyCallback && !onData && body.capacity() < length) { body.reserve(length); }
+          if (hasHeader("Content-Length")) {
+            if (!parseContentLength(GetHeader("Content-Length"), length)) {
+              parseFailed = true;
+              HTTPbuffer.clear();
+              return false;
+            }
             knownLength = true;
           }
           if (GetHeader("Transfer-Encoding") == "chunked"){
@@ -708,7 +742,7 @@ bool HTTP::Parser::parse(std::string & HTTPbuffer, std::function<void(const char
         if ((code >= 100 && code < 200) || code == 204 || code == 304){return true;}
       }
       if (knownLength && !getChunks){
-        unsigned int toappend = length - currentLength;
+        size_t toappend = length - currentLength;
 
         // limit the amount of bytes that will be appended to the amount there
         // is available

@@ -12,6 +12,8 @@
 /// Holds all HTTP processing related code.
 namespace HTTP{
 
+  bool parseContentLength(const std::string & value, size_t & result);
+
   /// HTTP variable parser to std::map<std::string, std::string> structure.
   /// Reads variables from data, decodes and stores them to storage.
   void parseVars(const std::string &data, std::map<std::string, std::string> &storage, const std::string & separator = "&", bool queryStr = true);
@@ -75,6 +77,7 @@ namespace HTTP{
 
   private:
     std::string cnonce;
+    bool parseFailed;
     bool seenHeaders;
     bool seenReq;
     bool getChunks;

@@ -242,7 +242,13 @@ namespace HTTP{
       }else{
         supportRangeRequest = (downer.getHeader("Accept-Ranges").size() > 0);
         std::string header1 = downer.getHeader("Content-Length");
-        if (header1.size()){totalSize = atoi(header1.c_str());}
+        if (header1.size() && (!parseContentLength(header1, totalSize) || totalSize == std::string::npos)) {
+          FAIL_MSG("Invalid or unrepresentable Content-Length for HTTP resource");
+          downer.getSocket().close();
+          downer.getSocket().Received().clear();
+          stateType = HTTP::Closed;
+          return false;
+        }
         if (!totalSize) {
           // If the content length was set to zero in the head response, don't trust it.
           // We reset the connection to break any potential error state, and consider the content length unknown.
