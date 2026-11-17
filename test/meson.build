@@ -684,6 +684,9 @@ test('Process-controlled producer EOF and output drain policy', processinglifecy
 processavbitratetest = executable('processavbitratetest', 'process_av_bitrate_unit.cpp')
 test('ProcAV audio bitrate defaults and Opus limits', processavbitratetest, suite: 'Processing')
 
+processavprogresstest = executable('processavprogresstest', 'process_av_progress_unit.cpp')
+test('ProcAV bills media advancement independently of its timeline origin', processavprogresstest, suite: 'Processing')
+
 thumbscachetest = executable('thumbscachetest', 'thumbs_cache_unit.cpp')
 test('Thumbnail cache keeps a finite source whole and evenly thinned, a live one to its window', thumbscachetest,
      suite: 'Processing')

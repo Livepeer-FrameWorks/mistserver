@@ -4,6 +4,7 @@
 #include "../output/output.h"
 #include "process.hpp"
 #include "process_av_bitrate.h"
+#include "process_av_progress.h"
 #include "process_outputs.h"
 #include "reader_keepalive.h"
 
@@ -79,6 +80,8 @@ std::mutex statsMutex;
 
 uint64_t statSinkMs = 0;
 uint64_t statSourceMs = 0;
+Mist::AVMediaProgress sourceProgress;
+Mist::AVMediaProgress sinkProgress;
 int64_t bootMsOffset = 0;
 uint64_t inFpks = 0;                              ///< Framerate to set to the output video track
 uint64_t outAudioRate = 0;                        ///< Audio sampling rate to set to the output
@@ -110,8 +113,8 @@ uint64_t prevInputFrameCount = 0;
 uint64_t prevOutputFrameCount = 0;
 uint64_t prevInputBytes = 0;
 uint64_t prevOutputBytes = 0;
-uint64_t prevSourceMs = 0;
-uint64_t prevSinkMs = 0;
+uint64_t prevSourceProgress = 0;
+uint64_t prevSinkProgress = 0;
 
 char *inputFrameCount = 0;                        ///< Stats: frames/samples ingested
 char *outputFrameCount = 0;                       ///< Stats: frames/samples outputted
@@ -336,6 +339,7 @@ namespace Mist{
           }
           thisTime = frameTimes.front();
           frameTimes.pop_front();
+          sinkProgress.observe(thisTime);
           if (thisTime >= statSinkMs){statSinkMs = thisTime;}
           if (meta && meta.getBootMsOffset() != bootMsOffset){meta.setBootMsOffset(bootMsOffset);}
 
@@ -2129,6 +2133,7 @@ namespace Mist{
         sourceTrackIdx = thisIdx;
       }
 
+      sourceProgress.observe(thisTime);
       if (thisTime > statSourceMs){statSourceMs = thisTime;}
 
       // Keyframe only mode for MJPEG output
@@ -2265,7 +2270,7 @@ namespace Mist{
     uint64_t encPrevCount = 0;
     // Previous-window snapshots for pressure derivation
     uint64_t prevWork = 0, prevSrcWait = 0;
-    uint64_t prevSourceMsForRate = 0, prevSinkMsForRate = 0;
+    uint64_t prevSourceProgressForRate = 0, prevSinkProgressForRate = 0;
     uint64_t prevUpdateBootMs = Util::bootMS();
     uint32_t capacitySamples = 0;
     while (conf.is_active && co.is_active){
@@ -2341,15 +2346,17 @@ namespace Mist{
           // active processor work only and deliberately excludes both source
           // starvation and the sink thread's idle wait.
           uint32_t inputSpeedQ = 0, outputSpeedQ = 0, capacitySpeedQ = 0;
+          uint64_t sourceTotal = sourceProgress.total();
+          uint64_t sinkTotal = sinkProgress.total();
           uint64_t wallDeltaMs = (nowBootMs > prevUpdateBootMs) ? (nowBootMs - prevUpdateBootMs) : 0;
-          if (wallDeltaMs > 0 && statSourceMs > prevSourceMsForRate) {
-            inputSpeedQ = ProcState::speedToQ16((double)(statSourceMs - prevSourceMsForRate) / (double)wallDeltaMs);
+          if (wallDeltaMs > 0 && sourceTotal > prevSourceProgressForRate) {
+            inputSpeedQ = ProcState::speedToQ16((double)(sourceTotal - prevSourceProgressForRate) / (double)wallDeltaMs);
           }
-          if (wallDeltaMs > 0 && statSinkMs > prevSinkMsForRate) {
-            outputSpeedQ = ProcState::speedToQ16((double)(statSinkMs - prevSinkMsForRate) / (double)wallDeltaMs);
+          if (wallDeltaMs > 0 && sinkTotal > prevSinkProgressForRate) {
+            outputSpeedQ = ProcState::speedToQ16((double)(sinkTotal - prevSinkProgressForRate) / (double)wallDeltaMs);
             uint64_t activeUs = dWork;
             if (activeUs) {
-              double capacity = (double)(statSinkMs - prevSinkMsForRate) * 1000.0 / (double)activeUs;
+              double capacity = (double)(sinkTotal - prevSinkProgressForRate) * 1000.0 / (double)activeUs;
               capacitySpeedQ = ProcState::speedToQ16(capacity);
             }
           }
@@ -2389,8 +2396,8 @@ namespace Mist{
 
           prevWork = curWork;
           prevSrcWait = curSrcWait;
-          prevSourceMsForRate = statSourceMs;
-          prevSinkMsForRate = statSinkMs;
+          prevSourceProgressForRate = sourceTotal;
+          prevSinkProgressForRate = sinkTotal;
           prevUpdateBootMs = nowBootMs;
         }
         lastProcUpdate = Util::bootSecs();
@@ -2415,8 +2422,10 @@ void fireVirtualSegmentTrigger(bool isFinal) {
   uint64_t outFramesDelta = (uint64_t)outputFrameCount - prevOutputFrameCount;
   uint64_t inBytesDelta = totalInputBytes - prevInputBytes;
   uint64_t outBytesDelta = totalOutputBytes - prevOutputBytes;
-  uint64_t sourceAdvancedMs = statSourceMs - prevSourceMs;
-  uint64_t sinkAdvancedMs = statSinkMs - prevSinkMs;
+  uint64_t sourceTotal = sourceProgress.total();
+  uint64_t sinkTotal = sinkProgress.total();
+  uint64_t sourceAdvancedMs = sourceTotal - prevSourceProgress;
+  uint64_t sinkAdvancedMs = sinkTotal - prevSinkProgress;
 
   // Real-time factors (1.0 = real-time, 2.0 = 2x faster than real-time)
   double rtfIn = deltaSecs > 0 ? (double)sourceAdvancedMs / (deltaSecs * 1000.0) : 0;
@@ -2489,8 +2498,8 @@ void fireVirtualSegmentTrigger(bool isFinal) {
   prevOutputFrameCount = (uint64_t)outputFrameCount;
   prevInputBytes = totalInputBytes;
   prevOutputBytes = totalOutputBytes;
-  prevSourceMs = statSourceMs;
-  prevSinkMs = statSinkMs;
+  prevSourceProgress = sourceTotal;
+  prevSinkProgress = sinkTotal;
   lastTriggerTime = Util::bootSecs();
 }
 

@@ -45,6 +45,10 @@ exit_log="$work/process_exit.txt"
 handler="$work/process_exit.sh"
 printf '%s\n' '#!/bin/sh' "{ sed ''; printf '\\n---\\n'; } >>'$exit_log'" >"$handler"
 chmod +x "$handler"
+billing_log="$work/process_billing.txt"
+billing_handler="$work/process_billing.sh"
+printf '%s\n' '#!/bin/sh' "{ sed ''; printf '\\n---\\n'; } >>'$billing_log'" >"$billing_handler"
+chmod +x "$billing_handler"
 controller_pid=
 publisher_pids=
 
@@ -86,7 +90,7 @@ rtmp_port=$((api_port + 1))
 config="$work/config.json"
 # No bitrate on the process: the tier configs leave it unset for audio.
 printf '%s\n' \
-  "{\"account\":{\"test\":{\"password\":\"098f6bcd4621d373cade4e832627b4f6\"}},\"auto_push\":null,\"bandwidth\":{\"exceptions\":[\"::1\",\"127.0.0.0/8\"]},\"config\":{\"accesslog\":\"LOG\",\"controller\":{\"interface\":\"127.0.0.1\",\"port\":$api_port,\"username\":null},\"debug\":4,\"defaultStream\":null,\"prometheus\":\"\",\"protocols\":[{\"connector\":\"RTMP\",\"interface\":\"127.0.0.1\",\"port\":$rtmp_port}],\"serverid\":null,\"sessionInputMode\":15,\"sessionOutputMode\":15,\"sessionStreamInfoMode\":1,\"sessionUnspecifiedMode\":0,\"sessionViewerMode\":14,\"tknMode\":15,\"triggers\":{\"PROCESS_EXIT\":[{\"handler\":\"$handler\",\"sync\":false,\"streams\":[\"$stream\"]}]},\"trustedproxy\":[]},\"extwriters\":null,\"jwks\":null,\"push_settings\":{\"maxspeed\":0,\"wait\":3},\"streamkeys\":null,\"streams\":{\"$stream\":{\"name\":\"$stream\",\"source\":\"push://\",\"processes\":[{\"process\":\"AV\",\"codec\":\"opus\",\"track_inhibit\":\"audio=opus\",\"track_select\":\"audio=all&video=none&subtitle=none&meta=none\"}]}},\"variables\":null}" \
+  "{\"account\":{\"test\":{\"password\":\"098f6bcd4621d373cade4e832627b4f6\"}},\"auto_push\":null,\"bandwidth\":{\"exceptions\":[\"::1\",\"127.0.0.0/8\"]},\"config\":{\"accesslog\":\"LOG\",\"controller\":{\"interface\":\"127.0.0.1\",\"port\":$api_port,\"username\":null},\"debug\":4,\"defaultStream\":null,\"prometheus\":\"\",\"protocols\":[{\"connector\":\"RTMP\",\"interface\":\"127.0.0.1\",\"port\":$rtmp_port}],\"serverid\":null,\"sessionInputMode\":15,\"sessionOutputMode\":15,\"sessionStreamInfoMode\":1,\"sessionUnspecifiedMode\":0,\"sessionViewerMode\":14,\"tknMode\":15,\"triggers\":{\"PROCESS_EXIT\":[{\"handler\":\"$handler\",\"sync\":false,\"streams\":[\"$stream\"]}],\"PROCESS_AV_VIRTUAL_SEGMENT_COMPLETE\":[{\"handler\":\"$billing_handler\",\"sync\":false,\"streams\":[\"$stream\"]}]},\"trustedproxy\":[]},\"extwriters\":null,\"jwks\":null,\"push_settings\":{\"maxspeed\":0,\"wait\":3},\"streamkeys\":null,\"streams\":{\"$stream\":{\"name\":\"$stream\",\"source\":\"push://\",\"processes\":[{\"process\":\"AV\",\"codec\":\"opus\",\"track_inhibit\":\"audio=opus\",\"track_select\":\"audio=all&video=none&subtitle=none&meta=none\"}]}},\"variables\":null}" \
   >"$config"
 
 TMP="$ipc_root" MIST_CONTROL=1 "$controller" -c "$config" -C r -L "$work/controller.log" &
@@ -181,6 +185,30 @@ if [ "$av_starts" -gt 2 ]; then
 fi
 if grep -q 'Opus does not support a bitrate' "$work/controller.log"; then
   echo "the audio processor was configured with a bitrate Opus cannot use" >&2
+  exit 1
+fi
+
+# A restarted process joins the existing live timeline. Its first reporting
+# window must count media it read, rather than the stream's absolute position.
+if [ ! -s "$billing_log" ]; then
+  echo "the audio processor produced no billing windows" >&2
+  exit 1
+fi
+if ! awk 'BEGIN { RS = "\n---\n" }
+  {
+    split($0, l, "\n")
+    if (l[13] != "none" && l[23] > l[3] * 1000 + 5000) {
+      offset_windows++
+      if (l[25] >= l[23]) {
+        print "billing window counted its absolute source timestamp: " l[25] " ms" > "/dev/stderr"
+        bad = 1
+      }
+    }
+  }
+  END {
+    if (!offset_windows) print "no billing window exercised a nonzero live timeline origin" > "/dev/stderr"
+    exit (bad || !offset_windows) ? 1 : 0
+  }' "$billing_log"; then
   exit 1
 fi
 
