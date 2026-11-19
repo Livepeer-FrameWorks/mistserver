@@ -100,6 +100,9 @@ embeddedframetest = executable('embeddedframetest', 'dtsc_embedded_frames_unit.c
                                dependencies: libmist_dep)
 test('Embedded frame storage fills and wraps safely', embeddedframetest, suite: 'DTSC')
 
+dtscunixzerotest = executable('dtscunixzerotest', 'dtsc_unixzero_unit.cpp', header_tgts, dependencies: libmist_dep)
+test('DTSC preserves the authoritative Unix clock for live DVR', dtscunixzerotest, suite: 'DTSC')
+
 dtscresumetest = executable('dtscresumetest', 'dtsc_resume_unit.cpp', header_tgts, dependencies: libmist_dep)
 dtscoutputkeytest = executable('dtscoutputkeytest', 'dtsc_output_key_unit.cpp', header_tgts, dependencies: libmist_dep)
 test('Process outputs resume by output key only', dtscoutputkeytest, suite: 'DTSC')

@@ -4409,10 +4409,12 @@ namespace DTSC{
     conn.SendNow(c64(DTSH_VERSION), 8);
     if (getLive() || getUTCOffset()){
       conn.SendNow("\000\010unixzero\001", 11);
-      if (getLive()){
-        conn.SendNow(c64(Util::unixMS() - Util::bootMS() + getBootMsOffset()), 8);
-      }else{
+      // A rolling HLS source can have an authoritative UTC clock before its
+      // boot-time mapping is set. Replicas must use the same clock as local playback.
+      if (getUTCOffset()) {
         conn.SendNow(c64(getUTCOffset()), 8);
+      } else {
+        conn.SendNow(c64(Util::unixMS() - Util::bootMS() + getBootMsOffset()), 8);
       }
     }
     if (lVarSize){
