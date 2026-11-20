@@ -283,7 +283,7 @@ int main() {
     return fail("a publisher that ended before the buffer first saw it must count as a source that ended");
   }
 
-  input.initMetadata("pgexpect");
+  input.initMetadata("pgexpect" + std::to_string(getpid()));
   input.addSourceData();
   input.reset(true, false, true, true, 0);
   JSON::Value av;
@@ -417,7 +417,7 @@ int main() {
   {
     // A producer that finished after the source ended leaves its tracks; they need no waiting.
     InputBufferProbe completed(&config);
-    completed.initMetadata("pgdone");
+    completed.initMetadata("pgdone" + std::to_string(getpid()));
     completed.addSourceData();
     completed.processControlledRealtime = true;
     completed.everHadPush = true;
@@ -458,7 +458,7 @@ int main() {
   {
     // Replacements a hard failure scheduled are expected on the tick that retires the original.
     InputBufferProbe replacing(&config);
-    replacing.initMetadata("pgreplace");
+    replacing.initMetadata("pgreplace" + std::to_string(getpid()));
     replacing.addSourceData();
     replacing.processControlledRealtime = true;
     replacing.everHadPush = true;
@@ -488,6 +488,40 @@ int main() {
     }
     if (!replacing.recorderExpects(replacing.applyProcessReplacements(original), selected, ready) || selected != 0) {
       return fail("replacement producers that finished after source EOF must release missing-output requirements");
+    }
+  }
+
+  {
+    Util::Config endedConfig("input-buffer-draining-process");
+    InputBufferProbe ended(&endedConfig);
+    ended.initMetadata("drainedgraph" + std::to_string(getpid()));
+    ended.meta.setType(0, "audio");
+    ended.meta.setCodec(0, "AAC");
+    ended.addSourceData();
+    ended.everHadPush = true;
+    ended.hasPush = false;
+    ended.processControlledRealtime = false;
+    ended.declare(thumbs, declaration("video=H264", R"(["H264"])", thumbOutputs));
+    std::deque<std::string> waitCommand;
+    waitCommand.push_back("/bin/sleep");
+    waitCommand.push_back("30");
+    const pid_t draining = Util::Procs::StartPiped(waitCommand, 0, 0, 0);
+    if (!draining) { return fail("could not start draining processor fixture"); }
+    ended.bindRunning(thumbs, draining);
+    const size_t retained = ended.reconcileProcesses(one(thumbs));
+    const bool active = Util::Procs::isActive(draining);
+    ended.meta.validateTrack(0, 0);
+    JSON::Value removed;
+    removed.append(JSON::Value());
+    removed.shrink(0);
+    const size_t afterRemoval = ended.reconcileProcesses(removed);
+    ended.clearRunningFixtures();
+    if (Util::Procs::isActive(draining)) { Util::Procs::Stop(draining); }
+    if (retained != 1 || !active) {
+      return fail("source-track removal must let configured processors finish draining after publisher EOF");
+    }
+    if (afterRemoval) {
+      return fail("removing a processor configuration must stop it even after every source track disappeared");
     }
   }
 

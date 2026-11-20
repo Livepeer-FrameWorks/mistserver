@@ -1420,7 +1420,10 @@ namespace Mist{
   /// Checks if all processes are running, starts them if needed, stops them if needed
   void InputBuffer::checkProcesses(const JSON::Value &procs){
     allProcsRunning = true;
-    if (!M.getValidTracks().size()){return;}
+    const bool sourceEofFlag = streamStatus && streamStatus.len > STRMSTATE_PROCESS_SOURCE_EOF_OFFSET &&
+      streamStatus.mapped[STRMSTATE_PROCESS_SOURCE_EOF_OFFSET];
+    const bool sourceEof = processSourceEnded(processControlledRealtime, sourceEofFlag, everHadPush, hasPush);
+    if (!M.getValidTracks().size() && !sourceEof){return;}
     std::set<std::string> newProcs;
     uint64_t now = Util::bootMS(); //< Used for delayed starts
 
@@ -1433,6 +1436,16 @@ namespace Mist{
     const ProcessGraph & graph = resolveProcessGraph(procs);
     newProcs = graph.runs;
     std::map<std::string, std::string> skipReasons = graph.skipReasons;
+    if (sourceEof) {
+      // Source tracks can retire before their readers finish draining. Keep
+      // configured, uninhibited readers until their natural exit is collected.
+      for (const auto & process : runningProcs) {
+        const auto node = processGraphNodes.find(process.first);
+        if (node != processGraphNodes.end() && node->second.inhibited.empty()) {
+          newProcs.insert(process.first);
+        }
+      }
+    }
 
     configuredProcessIdentities.clear();
     for (const std::string & config : newProcs) { configuredProcessIdentities[DTSC::processIdentity(config)] = config; }
@@ -1602,9 +1615,6 @@ namespace Mist{
       // Do not restart processors into a stream that is already draining, or whose publisher left:
       // hasPush still holds the previous tick's state here.
       const uint8_t procStreamState = Util::getStreamStatus(streamName);
-      const bool sourceEofFlag = streamStatus && streamStatus.len > STRMSTATE_PROCESS_SOURCE_EOF_OFFSET &&
-        streamStatus.mapped[STRMSTATE_PROCESS_SOURCE_EOF_OFFSET];
-      const bool sourceEof = processSourceEnded(processControlledRealtime, sourceEofFlag, everHadPush, hasPush);
       if (!processSupervisorMayStart(Util::Config::is_active, procStreamState, sourceEof)) {
         VERYHIGH_MSG("Not starting process `%s`: stream is shutting down", args["process"].asString().c_str());
         continue;
