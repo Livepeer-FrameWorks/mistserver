@@ -253,6 +253,7 @@ namespace Mist{
       std::string boxType = std::string(readBuffer+4, 4);
       uint64_t boxSize = MP4::calcBoxSize(readBuffer);
       if (boxType == "moof"){
+        sawMoof = true;
         while (readBuffer.size() < boxSize && inFile && keepRunning()){inFile.readSome(boxSize-readBuffer.size(), *this);}
         if (readBuffer.size() < boxSize){
           WARN_MSG("Could not read entire MOOF box into memory at %" PRIu64 " bytes, aborting further parsing!", readPos);
@@ -312,6 +313,7 @@ namespace Mist{
             sawParts = true;
           }
         }
+        parsedInitial = true;
       }
       activityCounter = Util::bootSecs();
       //Skip to next box

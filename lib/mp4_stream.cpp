@@ -503,10 +503,7 @@ namespace MP4{
           TFHD tfhd = ((TRAF)(*t)).getChild<TFHD>();
           trunSampleInformation si = r->getSampleInformation(index - skipped, &tfhd, trexPtr);
           if (byteOffset){
-            size_t offset = 0;
-            if (tfhd.getDefaultBaseIsMoof()){
-              offset += moofPos;
-            }
+            uint64_t offset = (tfhd.getFlags() & tfhdBaseOffset) ? tfhd.getBaseDataOffset() : moofPos;
             if (r->getFlags() & MP4::trundataOffset){
               offset += r->getDataOffset();
               size_t target = index - skipped;

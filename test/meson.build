@@ -1190,4 +1190,14 @@ test('Numeric bandwidth exceptions work without configured address families', bi
 dtscheadersizetest = executable('dtscheadersizetest', 'dtsc_header_size_unit.cpp', header_tgts, dependencies: libmist_dep)
 test('DTSC header length matches valid and partless track selection', dtscheadersizetest, suite: 'Regression')
 
+mp4fragmentoffsettest = executable('mp4fragmentoffsettest', 'mp4_fragment_offsets_unit.cpp', header_tgts, dependencies: libmist_dep)
+test('Fragmented MP4 honors absolute TFHD and moof-relative offsets', mp4fragmentoffsettest, suite: 'Regression')
+if host_machine.system() != 'windows'
+  foreach contract : ['fragmented-mp4', 'fragmented-mp4-moof']
+    test('Controller capacity lifecycle ' + contract, find_program('python3'),
+         args: [files('controller_capacity_lifecycle_integration.py'), contract,
+                exec_tgts.get('MistController'), ffmpeg_program],
+         depends: exec_tgts.values(), suite: 'Controller', timeout: 120, is_parallel: false)
+  endforeach
+endif
 test('Fixture IPC owners preserve unrelated pages and child exit status', find_program('python3'), args: files('fixture_ipc_unit.py'), suite: 'Processing')
