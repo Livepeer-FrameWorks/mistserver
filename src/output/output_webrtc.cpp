@@ -14,6 +14,7 @@
 
 #include <ifaddrs.h> // ifaddr, listing ip addresses.
 #include <netdb.h> // ifaddr, listing ip addresses.
+#include <poll.h>
 #include <stdarg.h>
 /*
 This file handles both input and output, and can operate in WHIP/WHEP as well as WebSocket signaling mode.
@@ -244,8 +245,6 @@ namespace Mist{
     }
     lstn.allocateDestination();
     Util::Config::setServerFD(lstn.getSock());
-    Event::Loop ev;
-    ev.setup();
     conf.activate();
     if (lstn.getSock()){
       int oldSock = lstn.getSock();
@@ -254,10 +253,11 @@ namespace Mist{
         close(oldSock);
       }
     }
+    Util::Config::setServerFD(0);
     lstn.setMulticastTTL(1);
     // Listen for STUN connections here
     Util::Procs::socketList.insert(0);
-    ev.addSocket(0, [&lstn, &sndr, &sndBuf](void *){
+    auto receiveStun = [&lstn, &sndr, &sndBuf]() {
       while (lstn.Receive()){
         // Ignore non-STUN messages
         uint8_t fb = (uint8_t)lstn.data[0];
@@ -284,14 +284,26 @@ namespace Mist{
           sndr->SendNow(sndBuf, sndBuf.size());
         }
       }
-    }, 0);
-    // Loop while we should be looping
-    while (conf.is_active && lstn){ev.await(10000);}
+    };
+    struct pollfd descriptor = {0, POLLIN, 0};
+    while (conf.is_active && lstn) {
+      int ready = poll(&descriptor, 1, 1000);
+      if (ready < 0) {
+        if (errno == EINTR) { continue; }
+        break;
+      }
+      if (descriptor.revents & POLLIN) { receiveStun(); }
+      if (descriptor.revents & (POLLERR | POLLHUP | POLLNVAL)) { break; }
+    }
     sndr->close();
     delete sndr;
     Util::Procs::socketList.erase(0);
     // Close the socket if not restarting
-    if (!conf.is_restarting){lstn.close();}
+    if (conf.is_restarting) {
+      lstn.releaseSocket();
+    } else {
+      lstn.close();
+    }
   }
 
   OutWebRTC::OutWebRTC(Socket::Connection & myConn, Util::Config & _cfg, JSON::Value & _capa)
@@ -995,6 +1007,8 @@ namespace Mist{
                       << std::endl;
           }
           noSignalling = true;
+          idleInterval = 1000;
+          lastRecv = Util::bootMS();
           H.SetHeader("Content-Type", "application/sdp");
           std::string ctrlprefix = config->getString("ctrlprefix");
           ctrlKey = Util::getRandomAlphanumeric(10);
@@ -1649,7 +1663,7 @@ namespace Mist{
     // retransmitted when the handshake is driven while no reply arrives; the
     // DTLS timers decide whether this call resends anything.
     evLp.addInterval([this]() {
-      if (!dtlsClient) { return 100; }
+      if (!dtlsClient) { return 0; }
       for (auto & it : sockets) {
         if (!it.second.dtlsStarted || !it.second.udpSock || !*(it.second.udpSock)) { continue; }
         if (!it.second.udpSock->handshakeComplete()) { it.second.udpSock->handshake(); }

@@ -307,7 +307,7 @@ namespace Mist{
       idleLast = Util::bootMS();
     }
     // Disconnect connections that have been idle for over 60s
-    if (!parseData && !isPushing() && !webSock && lastHTTPRequest + 60 < Util::bootSecs()) {
+    if (myConn && !parseData && !isPushing() && !webSock && lastHTTPRequest + 60 < Util::bootSecs()) {
       Util::logExitReason(ER_CLEAN_INACTIVE, "inactive HTTP connection closed");
       myConn.close();
       return;

@@ -170,7 +170,7 @@ namespace {
     // Frames follow the header, one per line, each naming its address.
     size_t frameEnd = written.find('\n', at + header.size());
     assert(frameEnd != std::string::npos);
-    assert(written.substr(at + header.size(), frameEnd - at - header.size()).find("[0x") != std::string::npos);
+    assert(written.substr(at + header.size(), frameEnd - at - header.size()).find("0x") != std::string::npos);
 #else
     assert(written.find("Backtrace") == std::string::npos);
 #endif

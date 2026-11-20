@@ -2,6 +2,7 @@
 
 #include <arpa/inet.h>
 #include <cerrno>
+#include <csignal>
 #include <cstring>
 #include <iostream>
 #include <netinet/in.h>
@@ -34,6 +35,12 @@ int main() {
   inet_pton(AF_INET, "224.0.0.224", &group.sin_addr);
   if (probe < 0 || connect(probe, (sockaddr *)&group, sizeof(group))) {
     std::cerr << "SKIP: no route to 224.0.0.224: " << strerror(errno) << std::endl;
+    return 77;
+  }
+  signal(SIGPIPE, SIG_IGN);
+  if (send(probe, "probe", 5, 0) < 0) {
+    std::cerr << "SKIP: multicast route cannot send: " << strerror(errno) << std::endl;
+    close(probe);
     return 77;
   }
   close(probe);

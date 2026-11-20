@@ -1201,3 +1201,31 @@ if host_machine.system() != 'windows'
   endforeach
 endif
 test('Fixture IPC owners preserve unrelated pages and child exit status', find_program('python3'), args: files('fixture_ipc_unit.py'), suite: 'Processing')
+
+httpclosedsetuptest = executable('httpclosedsetuptest', ['http_closed_setup_unit.cpp', '../src/output/output.cpp', '../src/output/output_http.cpp', '../src/io.cpp'], header_tgts, dependencies: libmist_dep)
+test('Closed WHEP HTTP setup preserves the media inactivity reason', httpclosedsetuptest, suite: 'Regression')
+if exec_tgts.has_key('MistOutWebRTC')
+if host_machine.system() != 'windows'
+  foreach contract : ['webrtc-idle', 'webrtc-reload', 'whep-idle-timer']
+    test('Controller capacity lifecycle ' + contract, find_program('python3'),
+         args: [files('controller_capacity_lifecycle_integration.py'), contract,
+                exec_tgts.get('MistController'), ffmpeg_program],
+         depends: exec_tgts.values(), suite: 'Controller', timeout: 120, is_parallel: false)
+  endforeach
+endif
+  if host_machine.system() == 'linux'
+if host_machine.system() != 'windows'
+  foreach contract : ['whep']
+    test('Controller capacity lifecycle ' + contract, find_program('python3'),
+         args: [files('controller_capacity_lifecycle_integration.py'), contract,
+                exec_tgts.get('MistController'), ffmpeg_program],
+         depends: exec_tgts.values(), suite: 'Controller', timeout: 120, is_parallel: false)
+  endforeach
+endif
+  endif
+endif
+if host_machine.system() == 'linux' and exec_tgts.has_key('MistOutWebRTC')
+  webrtcshutdownaudit = shared_module('webrtcshutdownaudit', 'webrtc_shutdown_audit.cpp', dependencies: ccpp.find_library('dl', required: false))
+  test('WebRTC signal handler owns the post-dup2 listener descriptor', find_program('python3'),
+       args: [files('webrtc_shutdown_fd_integration.py'), exec_tgts.get('MistOutWebRTC'), webrtcshutdownaudit], suite: 'WebRTC', timeout: 30, is_parallel: false)
+endif
