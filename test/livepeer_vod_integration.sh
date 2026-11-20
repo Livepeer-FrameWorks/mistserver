@@ -78,6 +78,7 @@ cleanup() {
     kill -TERM "$pid" >/dev/null 2>&1 || true
     wait "$pid" >/dev/null 2>&1 || true
   done
+  TMP="$ipc_root" python3 "$(dirname "$0")/fixture_ipc.py" --logs "$work" --stream "$stream"
   if [ "${MIST_KEEP_TEST_ARTIFACTS:-}" = "1" ]; then
     echo "preserved test artifacts in $work" >&2
   else
@@ -200,6 +201,15 @@ while True:
   # Uploads to a gateway that is not there: the process exits unrecoverably on its first segment.
   extra_processes=",{\"process\":\"Livepeer\",\"hardcoded_broadcasters\":\"http://127.0.0.1:$dead_port\",\"target_profiles\":[{\"name\":\"spare\",\"bitrate\":200000,\"width\":160,\"height\":90,\"fps\":10,\"gop\":\"2.0\"}],\"target_mask\":2,\"source_mask\":4,\"restart_type\":\"disabled\"}"
   output_timeout=90
+fi
+if [ "${LIVEPEER_TEST_VOD_MULTI_BUDGET:-}" = "1" ]; then
+  # The last segment needs three complete resend budgets after source EOF.
+  livepeer_options=",\"workload\":\"vod\",\"deadline_ms\":20000"
+  configured_deadline=20000
+  LIVEPEER_STUB_NO_RESULT_SEGMENT=14
+  LIVEPEER_STUB_NO_RESULT_MS=65000
+  export LIVEPEER_STUB_NO_RESULT_SEGMENT LIVEPEER_STUB_NO_RESULT_MS
+  output_timeout=150
 fi
 if [ "${LIVEPEER_TEST_VOD_LATE_SEGMENT:-}" = "1" ]; then
   # A VOD job with a 3 s segment budget whose gateway has no result for segment 3 during the first
@@ -559,6 +569,15 @@ if [ "${LIVEPEER_STUB_NO_RESULT_FIRST:-}" = "1" ]; then
   fi
   if grep -q 'fatal HTTP status\|had no result for segment\|Switched to new broadcaster' "$work/input.log"; then
     echo "Livepeer stopped or switched on a 503 within the segment's budget" >&2
+    exit 1
+  fi
+fi
+if [ "${LIVEPEER_TEST_VOD_MULTI_BUDGET:-}" = "1" ]; then
+  resends=$(grep -c 'Re-sending seg 14 with a new 20000 ms budget' "$work/input.log" || true)
+  [ "$resends" -ge 3 ] || { echo "last segment did not exercise three resends" >&2; exit 1; }
+  grep -q '^responded 14$' "$work/broadcaster.log" || { echo "last segment never completed" >&2; exit 1; }
+  if grep -q 'Timed out waiting for Livepeer segment drain' "$work/input.log"; then
+    echo 'source EOF cut off the remaining segment retry budget' >&2
     exit 1
   fi
 fi

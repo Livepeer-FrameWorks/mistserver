@@ -2012,6 +2012,17 @@ namespace Mist{
     if (!fileSize){return false;}
     DTSC::Packet pkt(scanBuf, fileSize, true);
     HIGH_MSG("Retrieved header of %zu bytes", fileSize);
+    if (config->getBool("realtime")) {
+      const std::string name = streamName.substr(0, streamName.find_first_of("+ "));
+      char confPage[NAME_BUFFER_SIZE];
+      snprintf(confPage, NAME_BUFFER_SIZE, SHM_STREAM_CONF, name.c_str());
+      Util::DTSCShmReader configuration(confPage);
+      if (configuration.getScan().getMember("process_controlled_realtime").asBool() &&
+          !DTSC::headerHasVideoRotation(pkt.getScan())) {
+        INFO_MSG("Rebuilding a processing input header without explicit video rotation");
+        return false;
+      }
+    }
     meta.reInit(config->getBool("realtime") ? "" : streamName, pkt.getScan());
 
     if (meta.version != DTSH_VERSION){

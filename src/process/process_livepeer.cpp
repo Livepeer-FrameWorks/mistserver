@@ -561,9 +561,19 @@ namespace Mist {
   bool waitForLivepeerDrain() {
     uint64_t start = Util::bootMS();
     uint64_t lastLog = start;
+    size_t pendingSegments = 0;
+    uint64_t longestSegmentMs = 0;
+    // The source owns these buffers and has finished writing before entering drain.
+    for (size_t i = 0; i < PRESEG_COUNT; ++i) {
+      if (presegs[i].fullyWritten.load(std::memory_order_acquire) && !presegs[i].fullyRead.load(std::memory_order_acquire)) {
+        ++pendingSegments;
+        if (presegs[i].segDuration > longestSegmentMs) { longestSegmentMs = presegs[i].segDuration; }
+      }
+    }
+    const uint64_t drainBudgetMs = livepeerDrainBudgetMs(opt, longestSegmentMs, pendingSegments);
     while (!livepeerStopRequested.load(std::memory_order_acquire) && !livepeerQueuesDrained()) {
       uint64_t now = Util::bootMS();
-      if (now > start + 60000) {
+      if (now > start + drainBudgetMs) {
         procExit.log(ER_FORMAT_SPECIFIC, 2, "Timed out waiting for Livepeer segment drain; queueDepth=%u activeUploads=%u",
                      statQueueDepth.load(std::memory_order_relaxed), statActiveUploads.load(std::memory_order_relaxed));
         livepeerStopRequested.store(true, std::memory_order_release);

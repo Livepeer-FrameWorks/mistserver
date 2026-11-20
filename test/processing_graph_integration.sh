@@ -141,7 +141,7 @@ if [ "$mode" = av-latency ]; then
   # Logs the readiness wait, so a start on its timeout shows.
   av='{"process":"AV","x-LSP-kind":"video","codec":"NV12","track_select":"video=H264&audio=none","target_mask":4,"debug":6}'
 fi
-onnx="{\"process\":\"ONNX\",\"model\":\"custom\",\"model_path\":\"$MIST_ONNX_TEST_MODEL\",\"model_type\":\"yolo-nms\",\"input_size\":640,\"process_every_nth\":2,\"track_select\":\"video=NV12&audio=none\",\"target_mask\":2}"
+onnx="{\"process\":\"ONNX\",\"model\":\"custom\",\"model_path\":\"${MIST_ONNX_TEST_MODEL:-}\",\"model_type\":\"yolo-nms\",\"input_size\":640,\"process_every_nth\":2,\"track_select\":\"video=NV12&audio=none\",\"target_mask\":2}"
 if [ "$mode" = av-latency ]; then
   processes="[$av]"
 else

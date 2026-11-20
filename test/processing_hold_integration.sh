@@ -60,7 +60,7 @@ thumbs_restart=fixed
 recording_target=-
 if [ "$record_thumbs" = "1" ]; then
   thumbs_restart=disabled
-  recording_target='/dev/stdout?audio=all&video=H264,JPEG&meta=all'
+  recording_target='-?audio=all&video=H264,JPEG&meta=all'
 fi
 
 work=$(mktemp -d "${TMPDIR:-/tmp}/mist-processing-hold.XXXXXX")
@@ -186,7 +186,7 @@ EOF
 # source plays (or the sink takes to drain it, if slower), plus the sink's stall.
 recording_timeout=$(awk -v d="$source_duration" -v s="$sink_speed" -v t="$sink_stall" \
   'BEGIN { printf "%d", (s < 1 ? d / s : d) + t + 120 }')
-"$timeout_program" "$recording_timeout" env TMP="$ipc_root" MIST_CONTROL=1 "$output_ebml" -s "$stream" "$recording_target" 2>"$work/output.log" | \
+"$timeout_program" "$recording_timeout" env TMP="$ipc_root" MIST_CONTROL=1 "$output_ebml" -s "$stream" -- "$recording_target" 2>"$work/output.log" | \
   "$python" "$throttle" "$recording" "$sink_rate" "$work/input.log" "$sink_stall" "$sink_wait" || true
 
 if [ ! -s "$recording" ]; then

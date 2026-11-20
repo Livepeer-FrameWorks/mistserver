@@ -156,6 +156,7 @@ cleanup() {
     kill -TERM "$stub_pid" >/dev/null 2>&1 || true
     wait "$stub_pid" >/dev/null 2>&1 || true
   fi
+  TMP="$ipc_root" python3 "$(dirname "$0")/fixture_ipc.py" --logs "$work" --stream "$stream"
   if [ "${MIST_KEEP_TEST_ARTIFACTS:-}" = "1" ]; then
     echo "preserved test artifacts in $work" >&2
   else

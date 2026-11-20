@@ -42,6 +42,7 @@ cleanup() {
       fi
     done
   fi
+  TMP="$ipc_root" python3 "$(dirname "$0")/fixture_ipc.py" --logs "$work" --session "O$(printf '%016x' "$$")"
   rm -rf "$work"
   exit "$status"
 }

@@ -95,6 +95,14 @@ namespace Mist {
     return deadlineMs < LIVEPEER_MAX_DEADLINE_MS ? deadlineMs : LIVEPEER_MAX_DEADLINE_MS;
   }
 
+  // A source at EOF can still have every resend left for each queued segment.
+  // Serial accounting also covers a slow uploader while another is idle.
+  inline uint64_t livepeerDrainBudgetMs(const JSON::Value & options, uint64_t segmentDurationMs, size_t pendingSegments) {
+    const uint64_t oneAttempt = livepeerSegmentDeadlineMs(options, segmentDurationMs, true) + 1000;
+    const uint64_t remaining = oneAttempt * LIVEPEER_MAX_CONSECUTIVE_REJECTIONS * pendingSegments + 10000;
+    return remaining > 60000 ? remaining : 60000;
+  }
+
   /// Whether segment keyNo, sent to the broadcaster at addr, starts this process's session
   /// there: it is the first segment this process sends that broadcaster. `sessionStarts` holds,
   /// per broadcaster, the segment that started the session; the first call for a broadcaster

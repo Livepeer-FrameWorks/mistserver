@@ -191,7 +191,7 @@ endif
 ffmpeg_program = find_program('ffmpeg', required: false)
 ffprobe_program = find_program('ffprobe', required: false)
 startup_timeout_program = find_program('timeout', 'gtimeout', required: false)
-if get_option('b_sanitize') == 'none' and startup_timeout_program.found()
+if startup_timeout_program.found()
   inputstartfailuretest = find_program('input_start_failure_integration.sh')
   test('Input startup failures publish specific exit reasons', inputstartfailuretest,
        args: [exec_tgts.get('MistController'), exec_tgts.get('MistInBuffer'),
@@ -212,7 +212,7 @@ if get_option('b_sanitize') == 'none' and startup_timeout_program.found()
               exec_tgts.get('MistUtilNuke'), startup_timeout_program],
        suite: 'Inputs', timeout: 30, is_parallel: false)
 endif
-if get_option('b_sanitize') == 'none' and ffmpeg_program.found() and ffprobe_program.found()
+if ffmpeg_program.found() and ffprobe_program.found()
   bframecliptest = find_program('bframe_clip_integration.sh')
   test('B-frame MP4 clips preserve their presentation interval', bframecliptest,
        args: [ffmpeg_program, ffprobe_program, exec_tgts.get('MistController'),
@@ -319,6 +319,15 @@ if get_option('b_sanitize') == 'none' and ffmpeg_program.found() and ffprobe_pro
                 livepeerprocstateprobe],
          env: ['LIVEPEER_TEST_VOD_LATE_SEGMENT=1'],
          suite: 'Processing', timeout: 150, is_parallel: false)
+    test('Livepeer VOD drain covers three resend budgets after source EOF', livepeervodtest,
+         args: [ffmpeg_program, ffprobe_program, exec_tgts.get('MistController'),
+                exec_tgts.get('MistInEBML'), exec_tgts.get('MistInBuffer'),
+                exec_tgts.get('MistProcLivepeer'), exec_tgts.get('MistOutEBML'),
+                exec_tgts.get('MistSession'), exec_tgts.get('MistUtilLog'),
+                exec_tgts.get('MistUtilNuke'), livepeerstub, timeout_program,
+                livepeerprocstateprobe],
+         env: ['LIVEPEER_TEST_VOD_MULTI_BUDGET=1'],
+         suite: 'Processing', timeout: 240, is_parallel: false)
     test('A VOD Livepeer job falls back after consecutive budgets are missed', livepeervodtest,
          args: [ffmpeg_program, ffprobe_program, exec_tgts.get('MistController'),
                 exec_tgts.get('MistInEBML'), exec_tgts.get('MistInBuffer'),
@@ -733,7 +742,6 @@ connectorhandovertest = executable('connectorhandovertest', 'connector_handover_
 test('Replaced connectors wait for the previous listener to release its port', connectorhandovertest,
      suite: 'Controller')
 
-if get_option('b_sanitize') == 'none'
   connectorhandoverintegration = find_program('connector_handover_integration.sh')
   test('An idle HTTP listener releases its port when its settings change', connectorhandoverintegration,
        args: [exec_tgts.get('MistController'), exec_tgts.get('MistOutHTTP'), exec_tgts.get('MistUtilNuke')],
@@ -750,7 +758,6 @@ if get_option('b_sanitize') == 'none'
   test('The controller angel runs one controller under any name', controllerangeltest,
        args: [exec_tgts.get('MistController')],
        suite: 'Controller', timeout: 60, is_parallel: false)
-endif
 
 bufferholdtest = executable('bufferholdtest', 'buffer_hold_unit.cpp', header_tgts, dependencies: libmist_dep)
 test('Processing recorders pin the buffer and pace the feed', bufferholdtest, suite: 'Processing')
@@ -805,6 +812,11 @@ test('An always-on input whose dead predecessor left its pull lock taken is star
 if get_option('WITH_AV')
   avcodecregistrytest = executable('avcodecregistrytest', 'av_codec_registry.cpp', header_tgts, dependencies: av_libs)
   test('Pinned FFmpeg codec registry contract', avcodecregistrytest, suite: 'AV')
+  avcodecmaptest = executable('avcodecmaptest', 'av_codec_map_unit.cpp', header_tgts, dependencies: av_codec_map_dep)
+  test('AV codec mapping and surround channel layouts', avcodecmaptest, suite: 'AV')
+  test('AV processors retain their supported codec contracts', find_program('python3'),
+       args: [files('av_codec_capabilities.py'), exec_tgts.get('MistProcAV'), exec_tgts.get('MistProcThumbs')], suite: 'AV')
+
 endif
 
 
@@ -1090,6 +1102,7 @@ test('Chunked uploads keep going past empty writes', chunked_empty_write_test, s
 iolivepageflip_test = executable('iolivepageflip_test', ['io_live_page_flip_unit.cpp', io_cpp], header_tgts,
   dependencies: libmist_dep)
 test('Live page flips read the meta being buffered into', iolivepageflip_test, suite: 'DTSC')
+test('Live subtitles start without producer key flags', iolivepageflip_test, args: ['subtitle'], suite: 'DTSC')
 
 dtsc_reload_window_test = executable('dtsc_reload_window_test', 'dtsc_reload_window_unit.cpp', header_tgts,
   dependencies: libmist_dep)
@@ -1184,129 +1197,245 @@ endif
 http_large_file_test = executable('http_large_file_test', 'http_large_file.cpp', header_tgts, dependencies: libmist_dep)
 test('Large HTTP lengths preserve metadata and ranged reads', http_large_file_test, suite: 'HTTP parser', timeout: 30)
 
-binformstest = executable('binformstest', 'socket_binforms_unit.cpp', header_tgts, dependencies: libmist_dep)
-test('Numeric bandwidth exceptions work without configured address families', binformstest, suite: 'Regression')
+tsassemblerstridetest = executable('tsassemblerstridetest', 'ts_assembler_stride_unit.cpp', header_tgts, dependencies: libmist_dep)
+test('Transport streams retain packet boundaries across 188 and 192 byte chunks', tsassemblerstridetest, suite: 'MPEG-TS')
 
-dtscheadersizetest = executable('dtscheadersizetest', 'dtsc_header_size_unit.cpp', header_tgts, dependencies: libmist_dep)
-test('DTSC header length matches valid and partless track selection', dtscheadersizetest, suite: 'Regression')
-
-mp4fragmentoffsettest = executable('mp4fragmentoffsettest', 'mp4_fragment_offsets_unit.cpp', header_tgts, dependencies: libmist_dep)
-test('Fragmented MP4 honors absolute TFHD and moof-relative offsets', mp4fragmentoffsettest, suite: 'Regression')
-if host_machine.system() != 'windows'
-  foreach contract : ['fragmented-mp4', 'fragmented-mp4-moof']
-    test('Controller capacity lifecycle ' + contract, find_program('python3'),
-         args: [files('controller_capacity_lifecycle_integration.py'), contract,
-                exec_tgts.get('MistController'), ffmpeg_program],
-         depends: exec_tgts.values(), suite: 'Controller', timeout: 120, is_parallel: false)
-  endforeach
-endif
-test('Fixture IPC owners preserve unrelated pages and child exit status', find_program('python3'), args: files('fixture_ipc_unit.py'), suite: 'Processing')
-
-httpclosedsetuptest = executable('httpclosedsetuptest', ['http_closed_setup_unit.cpp', '../src/output/output.cpp', '../src/output/output_http.cpp', '../src/io.cpp'], header_tgts, dependencies: libmist_dep)
-test('Closed WHEP HTTP setup preserves the media inactivity reason', httpclosedsetuptest, suite: 'Regression')
-if exec_tgts.has_key('MistOutWebRTC')
-if host_machine.system() != 'windows'
-  foreach contract : ['webrtc-idle', 'webrtc-reload', 'whep-idle-timer']
-    test('Controller capacity lifecycle ' + contract, find_program('python3'),
-         args: [files('controller_capacity_lifecycle_integration.py'), contract,
-                exec_tgts.get('MistController'), ffmpeg_program],
-         depends: exec_tgts.values(), suite: 'Controller', timeout: 120, is_parallel: false)
-  endforeach
-endif
-  if host_machine.system() == 'linux'
-if host_machine.system() != 'windows'
-  foreach contract : ['whep']
-    test('Controller capacity lifecycle ' + contract, find_program('python3'),
-         args: [files('controller_capacity_lifecycle_integration.py'), contract,
-                exec_tgts.get('MistController'), ffmpeg_program],
-         depends: exec_tgts.values(), suite: 'Controller', timeout: 120, is_parallel: false)
-  endforeach
-endif
-  endif
-endif
-if host_machine.system() == 'linux' and exec_tgts.has_key('MistOutWebRTC')
-  webrtcshutdownaudit = shared_module('webrtcshutdownaudit', 'webrtc_shutdown_audit.cpp', dependencies: ccpp.find_library('dl', required: false))
-  test('WebRTC signal handler owns the post-dup2 listener descriptor', find_program('python3'),
-       args: [files('webrtc_shutdown_fd_integration.py'), exec_tgts.get('MistOutWebRTC'), webrtcshutdownaudit], suite: 'WebRTC', timeout: 30, is_parallel: false)
-endif
-
-if host_machine.system() != 'windows'
-  foreach contract : ['bandwidth']
-    test('Controller capacity lifecycle ' + contract, find_program('python3'),
-         args: [files('controller_capacity_lifecycle_integration.py'), contract,
-                exec_tgts.get('MistController'), ffmpeg_program],
-         depends: exec_tgts.values(), suite: 'Controller', timeout: 120, is_parallel: false)
-  endforeach
-endif
-
-if exec_tgts.has_key('MistProcFFMPEG')
-  test('Processor output declarations leave no runtime heartbeat pages', find_program('python3'),
-       args: [files('process_declaration_ipc.py'), exec_tgts.get('MistProcFFMPEG')], suite: 'Processing', timeout: 30, is_parallel: false)
-endif
+mp4uploadcodectest = executable('mp4uploadcodectest', 'mp4_upload_codec_unit.cpp', header_tgts, dependencies: libmist_dep)
+test('MP4 upload codec object types are not mislabeled as H264', mp4uploadcodectest, suite: 'MP4')
 
 ac3test = executable('ac3test', 'ac3_unit.cpp', header_tgts, dependencies: libmist_dep)
 test('AC3 and EAC-3 headers preserve surround metadata and DEC3', ac3test, suite: 'audio')
 test('EAC-3 dependent substreams retain 7.1 channel metadata', ac3test, args: ['dependent'], suite: 'audio')
-test('EAC-3 access units aggregate dependent substream channels', ac3test, args: ['aggregate'], suite: 'audio')
-test('Blu-ray extended PES preserves private audio', ac3test, args: ['pes-extension'], suite: 'MPEG-TS')
-mp4uploadcodectest = executable('mp4uploadcodectest', 'mp4_upload_codec_unit.cpp', header_tgts, dependencies: libmist_dep)
-test('MP4 upload codec object types are not mislabeled as H264', mp4uploadcodectest, suite: 'MP4')
 
-tsassemblerstridetest = executable('tsassemblerstridetest', 'ts_assembler_stride_unit.cpp', header_tgts, dependencies: libmist_dep)
-test('Transport streams retain packet boundaries across 188 and 192 byte chunks', tsassemblerstridetest, suite: 'MPEG-TS')
+
 
 dtscrotationtest = executable('dtscrotationtest', 'dtsc_rotation_unit.cpp', header_tgts, dependencies: libmist_dep)
 test('DTSC rotation survives metadata transport and copying', dtscrotationtest, suite: 'DTSC')
-dtscorientationtransporttest = executable('dtscorientationtransporttest', 'dtsc_orientation_transport_unit.cpp', header_tgts, dependencies: libmist_dep)
-test('DTSC transport retains source orientation without rewriting pixels', dtscorientationtransporttest, suite: 'DTSC')
-ebmlrotationtest = executable('ebmlrotationtest', 'ebml_rotation_unit.cpp', header_tgts, dependencies: libmist_dep)
-test('Matroska projection rotation preserves exact element lengths', ebmlrotationtest, suite: 'EBML')
-segmentedorientationtest = executable('segmentedorientationtest', ['segmented_orientation_unit.cpp', '../src/input/input.cpp', '../src/input/input_ismv.cpp', io_cpp], header_tgts, dependencies: libmist_dep)
-foreach kind : ['segment', 'ismv', 'init']
-  test('Segmented orientation ' + kind, segmentedorientationtest, args: [kind], suite: 'MP4')
-endforeach
+
+if get_option('WITH_AV')
+  avorientationhwtest = executable('avorientationhwtest', 'process_av_orientation_hw.cpp', header_tgts, dependencies: [libmist_dep, av_libs])
+  test('AV orientation filter registry', avorientationhwtest, args: ['registry'], suite: 'AV')
+  if host_machine.system() == 'darwin'
+    test('AV hardware orientation vt keeps all eight transforms on device', avorientationhwtest,
+         args: ['vt'], suite: 'AV', timeout: 60)
+  endif
+  avrotationtest = executable('avrotationtest', 'process_av_rotation_unit.cpp', header_tgts, dependencies: [libmist_dep, av_libs])
+  test('AV rotation scales display geometry and rotates planar and packed formats', avrotationtest, suite: 'AV')
+endif
 
 upload_metadata_probes = []
 foreach upload_input : ['mp4', 'ebml', 'ts']
   upload_metadata_probes += executable('uploadmetaprobe_' + upload_input,
-    ['upload_metadata_probe.cpp', '../src/input/input.cpp', '../src/input/input_' + upload_input + '.cpp', io_cpp],
-    header_tgts, dependencies: libmist_dep, cpp_args: ['-DINPUTTYPE="../src/input/input_' + upload_input + '.h"'])
+             ['upload_metadata_probe.cpp', '../src/input/input.cpp', '../src/input/input_' + upload_input + '.cpp', io_cpp],
+             header_tgts, dependencies: libmist_dep,
+             cpp_args: ['-DINPUTTYPE="../src/input/input_' + upload_input + '.h"'])
 endforeach
 if get_option('WITH_AV')
   upload_metadata_probes += executable('uploadmetaprobe_av',
-    ['upload_metadata_probe.cpp', '../src/input/input.cpp', '../src/input/input_av.cpp', io_cpp],
-    header_tgts, dependencies: [libmist_dep, av_codec_map_dep], cpp_args: ['-DINPUTTYPE="../src/input/input_av.h"'])
+             ['upload_metadata_probe.cpp', '../src/input/input.cpp', '../src/input/input_av.cpp', io_cpp],
+             header_tgts, dependencies: [libmist_dep, av_codec_map_dep], cpp_args: ['-DINPUTTYPE="../src/input/input_av.h"'])
 endif
+
+ebmlrotationtest = executable('ebmlrotationtest', 'ebml_rotation_unit.cpp', header_tgts, dependencies: libmist_dep)
+test('Matroska projection rotation preserves exact element lengths', ebmlrotationtest, suite: 'EBML')
+if get_option('WITH_AV') and ffmpeg_program.found() and ffprobe_program.found()
+  media_test_deps = upload_metadata_probes + [exec_tgts['MistProcAV'], exec_tgts['MistProcThumbs'], exec_tgts['MistProcLivepeer'], exec_tgts['MistOutEBML'], exec_tgts['MistOutJPG'], exec_tgts['MistOutCMAF'], exec_tgts['MistOutMP4'], exec_tgts['MistOutHTTP'], exec_tgts['MistInMP4'], exec_tgts['MistInEBML'], exec_tgts['MistInAV'], exec_tgts['MistInBuffer'], exec_tgts['MistInTS'], exec_tgts['MistController'], exec_tgts['MistSession'], exec_tgts['MistUtilNuke']]
+  test('Upload containers preserve video codecs, surround audio and subtitle durations', find_program('python3'),
+       args: [files('upload_formats_integration.py'), meson.project_build_root(), ffmpeg_program],
+       depends: media_test_deps, suite: 'Processing', timeout: 180, is_parallel: false)
+  test('H264 display orientation rotates processing and thumbnails', find_program('python3'),
+       args: [files('process_av_rotation_integration.py'), meson.project_build_root(), ffmpeg_program, ffprobe_program],
+       depends: media_test_deps, suite: 'Processing', timeout: 240, is_parallel: false)
+  test('All eight orientations produce upright ladder and thumbnail pixels', find_program('python3'),
+       args: [files('process_av_rotation_integration.py'), meson.project_build_root(), ffmpeg_program, ffprobe_program],
+       env: ['MIST_ORIENTATION_ALL=1'], depends: media_test_deps, suite: 'Processing', timeout: 240, is_parallel: false)
+  if host_machine.system() == 'darwin'
+    test('Automatic macOS processing retains the software H264 encoder', find_program('python3'),
+         args: [files('process_av_rotation_integration.py'), meson.project_build_root(), ffmpeg_program, ffprobe_program],
+         env: {'MIST_ROTATION_ACCEL': 'auto', 'MIST_ROTATION_CASE': 'H264:90'},
+         depends: media_test_deps, suite: 'Processing', timeout: 60, is_parallel: false)
+    test('Actual VideoToolbox transcoder preserves all eight orientations on hardware', find_program('python3'),
+         args: [files('process_av_rotation_integration.py'), meson.project_build_root(), ffmpeg_program, ffprobe_program],
+         env: {'MIST_ROTATION_ACCEL': 'hw', 'MIST_ORIENTATION_ALL': '1'},
+         depends: media_test_deps, suite: 'Processing', timeout: 300, is_parallel: false)
+  endif
+  foreach orientation_case : ['H264:0:1', 'H264:180:1']
+    test('AV demuxed mirror ' + orientation_case + ' produces upright pixels', find_program('python3'),
+         args: [files('process_av_rotation_integration.py'), meson.project_build_root(), ffmpeg_program, ffprobe_program],
+         env: ['MIST_ROTATION_CASE=' + orientation_case, 'MIST_ROTATION_CONTAINER=av'], depends: media_test_deps, suite: 'Processing', timeout: 60, is_parallel: false)
+  endforeach
+  foreach orientation_case : ['H264:90:1', 'H264:270:1']
+    test('Matroska mirrored quarter turn ' + orientation_case + ' produces upright pixels', find_program('python3'),
+         args: [files('process_av_rotation_integration.py'), meson.project_build_root(), ffmpeg_program, ffprobe_program],
+         env: ['MIST_ROTATION_CASE=' + orientation_case, 'MIST_ROTATION_CONTAINER=mkv'], depends: media_test_deps, suite: 'Processing', timeout: 60, is_parallel: false)
+  endforeach
+  test('MP4 Matroska and CMAF passthrough outputs preserve rotation', find_program('python3'),
+       args: [files('rotation_passthrough_integration.py'), meson.project_build_root(), ffmpeg_program, ffprobe_program],
+       depends: media_test_deps, suite: 'Processing', timeout: 120, is_parallel: false)
+  foreach passthrough_angle : ['0', '90', '180', '270']
+    test('Mirrored passthrough ' + passthrough_angle + ' retains D4 in files and rotation only in CMAF', find_program('python3'),
+         args: [files('rotation_passthrough_integration.py'), meson.project_build_root(), ffmpeg_program, ffprobe_program],
+         env: ['MIST_PASSTHROUGH_MIRROR=1', 'MIST_PASSTHROUGH_ANGLE=' + passthrough_angle], depends: media_test_deps, suite: 'Processing', timeout: 90, is_parallel: false)
+  endforeach
+  foreach raw_format : ['NV12', 'YUYV', 'UYVY']
+    test('Rotated H264 keeps delayed frames in raw ' + raw_format + ' output', find_program('python3'),
+         args: [files('process_av_rotation_integration.py'), meson.project_build_root(), ffmpeg_program, ffprobe_program],
+         env: {'MIST_ROTATION_CASE': 'H264:90', 'MIST_ROTATION_OUTPUT': raw_format},
+         depends: media_test_deps, suite: 'Processing', timeout: 120, is_parallel: false)
+  endforeach
+
+
+
+
+
+
+
+
+
+  test('AAC channel layouts survive Opus processing at full duration', find_program('python3'),
+       args: [files('process_av_surround_integration.py'), meson.project_build_root(), ffmpeg_program, ffprobe_program],
+       depends: media_test_deps, suite: 'Processing', timeout: 100, is_parallel: false)
+endif
+
+python_program = find_program('python3', required: false)
+if host_machine.system() != 'windows' and python_program.found()
+  ffmpeg_argument = ffmpeg_program.found() ? ffmpeg_program.full_path() : ''
+  capacity_contracts = ['bandwidth', 'progressive-mp4', 'fragmented-mp4', 'fragmented-mp4-moof', 'record-mp4-no-b', 'record-mp4-av', 'record-mkv']
+  if exec_tgts.has_key('MistOutWebRTC')
+    capacity_contracts += ['webrtc-idle', 'webrtc-reload', 'stun-replies', 'whep-idle-timer']
+    if host_machine.system() == 'linux'
+      capacity_contracts += ['whep']
+    endif
+  endif
+  foreach contract : capacity_contracts
+    test('Controller capacity lifecycle ' + contract, python_program,
+         args: [files('controller_capacity_lifecycle_integration.py'), contract,
+                exec_tgts.get('MistController'), ffmpeg_argument],
+         depends: exec_tgts.values(), suite: 'Controller', timeout: 120, is_parallel: false)
+  endforeach
+endif
+
+segmentedorientationtest = executable('segmentedorientationtest', ['segmented_orientation_unit.cpp', '../src/input/input.cpp', '../src/input/input_ismv.cpp', io_cpp], header_tgts, dependencies: libmist_dep)
+test('Segmented MP4 ingestion composes all track and movie orientations', segmentedorientationtest, args: ['segment'], suite: 'MP4')
+test('ISMV ingestion composes all track and movie orientations', segmentedorientationtest, args: ['ismv'], suite: 'MP4')
+
+test('HLS MP4 initialization maps compose all track and movie orientations', segmentedorientationtest, args: ['init'], suite: 'MP4')
+
+
+mp4unreadyaudiotest = executable('mp4unreadyaudiotest', ['mp4_unready_audio_unit.cpp', '../src/output/output.cpp', '../src/output/output_http.cpp', '../src/output/output_mp4.cpp', io_cpp], header_tgts, dependencies: libmist_dep)
+test('MP4 keeps ready video while EAC-3 setup is unavailable', mp4unreadyaudiotest, suite: 'MP4')
+
+
+
+binformstest = executable('binformstest', 'socket_binforms_unit.cpp', header_tgts, dependencies: libmist_dep)
+test('Numeric bandwidth exceptions work without configured address families', binformstest, suite: 'Sockets')
+
+if get_option('WITH_AV') and python_program.found()
+  test('FFmpeg codec mapping stays private and compiles once', python_program,
+       args: [files('av_codec_build_contract.py'), meson.project_build_root()], suite: 'AV')
+endif
+
+
+test('EAC-3 access units aggregate dependent substream channels', ac3test, args: ['aggregate'], suite: 'audio')
+
+test('Blu-ray extended PES preserves private audio', ac3test, args: ['pes-extension'], suite: 'MPEG-TS')
+
+httpclosedsetuptest = executable('httpclosedsetuptest',
+  ['http_closed_setup_unit.cpp', '../src/output/output.cpp', '../src/output/output_http.cpp', io_cpp],
+  header_tgts, dependencies: libmist_dep)
+test('Closed WHEP HTTP setup preserves the media inactivity reason', httpclosedsetuptest, suite: 'HTTP')
+
+mp4fragmentoffsettest = executable('mp4fragmentoffsettest', 'mp4_fragment_offsets_unit.cpp', header_tgts,
+                                 dependencies: libmist_dep)
+test('Fragmented MP4 honors absolute TFHD and moof-relative offsets', mp4fragmentoffsettest, suite: 'MP4')
+
 if get_option('WITH_AV')
-  avcodecmaptest = executable('avcodecmaptest', 'av_codec_map_unit.cpp', header_tgts, dependencies: av_codec_map_dep)
-  test('AV codec mapping and surround channel layouts', avcodecmaptest, suite: 'AV')
-  test('AV processor and thumbnail capability codecs match compiled decoders', find_program('python3'), args: [files('av_codec_capabilities.py'), exec_tgts.get('MistProcAV'), exec_tgts.get('MistProcThumbs')], suite: 'AV')
-  avorientationhwtest = executable('avorientationhwtest', 'process_av_orientation_hw.cpp', header_tgts, dependencies: [libmist_dep, av_libs])
-  test('AV orientation filter registry', avorientationhwtest, args: ['registry'], suite: 'AV')
-  avrotationtest = executable('avrotationtest', 'process_av_rotation_unit.cpp', header_tgts, dependencies: [libmist_dep, av_libs])
-  test('AV rotation scales display geometry and rotates planar and packed formats', avrotationtest, suite: 'AV')
   avhardwarepooltest = executable('avhardwarepooltest', 'process_av_hardware_unit.cpp', dependencies: av_libs)
   test('Hardware upload rejects a missing encoder frame pool', avhardwarepooltest, suite: 'AV')
+  if host_machine.system() == 'darwin'
+    test('Hardware upload preserves pixel buffers retained by an encoder', avhardwarepooltest,
+         args: ['vt'], suite: 'AV')
+  endif
+endif
+
+if get_option('WITH_AV')
   avcudadownloadtest = executable('avcudadownloadtest', 'process_av_cuda_unit.cpp', dependencies: av_libs)
   test('CUDA downloads preserve the actual software pixel format', avcudadownloadtest, suite: 'AV')
   avvtformattest = executable('avvtformattest', 'process_av_videotoolbox_unit.cpp', dependencies: av_libs)
   test('VideoToolbox format negotiation honors hardware-only decode', avvtformattest, suite: 'AV')
 endif
-avdecoderpolicytest = executable('avdecoderpolicytest', 'process_av_decoder_policy_unit.cpp')
-test('Hardware decoder device and session failures remain retryable', avdecoderpolicytest, suite: 'AV')
-if get_option('WITH_AV') and ffmpeg_program.found() and ffprobe_program.found()
-  test('H264 display orientation rotates processing and thumbnails', find_program('python3'),
-       args: [files('process_av_rotation_integration.py'), meson.project_build_root(), ffmpeg_program, ffprobe_program],
-       env: {'MIST_RUN_MEDIA_TESTS': '1', 'MIST_ROTATION_CASE': 'H264:90'},
-       depends: exec_tgts.values(), suite: 'Processing', timeout: 120, is_parallel: false)
-  test('AAC channel layouts survive Opus processing at full duration', find_program('python3'),
-       args: [files('process_av_surround_integration.py'), meson.project_build_root(), ffmpeg_program, ffprobe_program],
-       env: {'MIST_RUN_MEDIA_TESTS': '1'}, depends: exec_tgts.values(), suite: 'Processing', timeout: 100, is_parallel: false)
+
+dtscorientationtransporttest = executable('dtscorientationtransporttest', 'dtsc_orientation_transport_unit.cpp',
+                                       header_tgts, dependencies: libmist_dep)
+test('DTSC transport retains source orientation without rewriting pixels', dtscorientationtransporttest, suite: 'DTSC')
+
+
+test('Live EBML packet oracle rejects missing or changed packets', find_program('python3'),
+      args: files('live_ebml_packets_unit.py'), suite: 'EBML')
+
+
+test('Fixture IPC owners preserve unrelated pages and child exit status', find_program('python3'),
+     args: files('fixture_ipc_unit.py'), suite: 'Processing')
+
+if get_option('WITH_AV') and ffmpeg_program.found()
+  test('CPU 4K downscale retains fine detail above 40 dB', find_program('python3'),
+       args: [files('process_av_scale_quality.py'), ffmpeg_program, avrotationtest], suite: 'AV', timeout: 30)
 endif
 
-mp4unreadyaudiotest = executable('mp4unreadyaudiotest', ['mp4_unready_audio_unit.cpp', '../src/output/output.cpp', '../src/output/output_http.cpp', '../src/output/output_mp4.cpp', io_cpp], header_tgts, dependencies: libmist_dep)
-test('MP4 keeps ready video while EAC-3 setup is unavailable', mp4unreadyaudiotest, suite: 'MP4')
-test('Premature MP4 sample order exhaustion fails loudly', mp4unreadyaudiotest, args: ['missing-order'], suite: 'MP4')
-test('Live EBML packet oracle rejects missing or changed packets', find_program('python3'), args: files('live_ebml_packets_unit.py'), suite: 'EBML')
+if get_option('WITH_AV') and ffmpeg_program.found() and ffprobe_program.found()
+  test('Admitted 4K software encode retains threads lookahead and mbtree', find_program('python3'),
+       args: [files('process_av_budget_quality.py'), meson.project_build_root(), ffmpeg_program, ffprobe_program],
+       depends: media_test_deps, suite: 'Processing', timeout: 150, is_parallel: false)
+endif
 
-test('Live subtitles start without producer key flags', iolivepageflip_test, args: ['subtitle'], suite: 'DTSC')
+if exec_tgts.has_key('MistProcFFMPEG')
+  test('Processor output declarations leave no runtime heartbeat pages', find_program('python3'),
+       args: [files('process_declaration_ipc.py'), exec_tgts.get('MistProcFFMPEG')],
+       suite: 'Processing', timeout: 30, is_parallel: false)
+endif
+
+if ffmpeg_program.found() and ffprobe_program.found()
+  foreach kind : ['mp4', 'hls']
+    test('Canonical EAC-3 survives actual ' + kind + ' passthrough', find_program('python3'),
+         args: [files('eac3_passthrough_integration.py'), meson.project_build_root(), ffmpeg_program, ffprobe_program, kind],
+         depends: media_test_deps + upload_metadata_probes, suite: 'Processing', timeout: 100, is_parallel: false)
+  endforeach
+endif
+
+avdecoderpolicytest = executable('avdecoderpolicytest', 'process_av_decoder_policy_unit.cpp')
+test('Hardware decoder device and session failures remain retryable', avdecoderpolicytest, suite: 'AV')
+
+if get_option('WITH_AV') and ffmpeg_program.found() and ffprobe_program.found()
+  test('Live zerolatency ignores admitted VOD lookahead', find_program('python3'),
+       args: [files('process_av_budget_quality.py'), meson.project_build_root(), ffmpeg_program, ffprobe_program],
+       env: {'MIST_ENCODER_ZERO_LATENCY': '1'},
+       depends: media_test_deps, suite: 'Processing', timeout: 150, is_parallel: false)
+endif
+
+test('Premature MP4 sample order exhaustion fails loudly', mp4unreadyaudiotest, args: ['missing-order'], suite: 'MP4')
+
+if get_option('WITH_AV') and ffmpeg_program.found() and ffprobe_program.found()
+  test('AAC mono stays mono through Opus processing', find_program('python3'),
+       args: [files('process_av_surround_integration.py'), meson.project_build_root(), ffmpeg_program, ffprobe_program],
+       env: {'MIST_AUDIO_MONO': '1'}, depends: media_test_deps, suite: 'Processing', timeout: 100, is_parallel: false)
+endif
+
+dtscheadersizetest = executable('dtscheadersizetest', 'dtsc_header_size_unit.cpp', header_tgts, dependencies: libmist_dep)
+test('DTSC header length matches valid and partless track selection', dtscheadersizetest, suite: 'DTSC')
+
+if host_machine.system() == 'linux' and exec_tgts.has_key('MistOutWebRTC')
+  webrtcshutdownaudit = shared_module('webrtcshutdownaudit', 'webrtc_shutdown_audit.cpp',
+                                    dependencies: ccpp.find_library('dl', required: false))
+  test('WebRTC signal handler owns the post-dup2 listener descriptor', find_program('python3'),
+       args: [files('webrtc_shutdown_fd_integration.py'), exec_tgts.get('MistOutWebRTC'), webrtcshutdownaudit],
+       suite: 'WebRTC', timeout: 30, is_parallel: false)
+endif
+
+if ffmpeg_program.found() and ffprobe_program.found()
+  foreach playback : ['progressive-ac3', 'progressive-eac3', 'mkv-aac', 'mkv-ac3', 'mkv-eac3']
+    test('TS container playback ' + playback, find_program('python3'),
+         args: [files('eac3_passthrough_integration.py'), meson.project_build_root(), ffmpeg_program, ffprobe_program, playback],
+         depends: media_test_deps + upload_metadata_probes, suite: 'Processing', timeout: 100, is_parallel: false)
+  endforeach
+endif
+

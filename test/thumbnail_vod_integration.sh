@@ -328,8 +328,8 @@ if [ -z "$long_duration" ] && { [ "$compose_count" -lt 2 ] || [ "$compose_count"
 fi
 
 set +e
-printf '%s\n' '{}' | "$timeout_program" 5 env TMP="$ipc_root" MIST_CONTROL=1 \
-  "$process_thumbs" - >"$work/invalid.log" 2>&1
+printf '%s\n' '{}' | env TMP="$ipc_root" MIST_CONTROL=1 \
+  python3 "$(dirname "$0")/fixture_ipc.py" --timeout 5 -- "$process_thumbs" - >"$work/invalid.log" 2>&1
 invalid_status=$?
 set -e
 if [ "$invalid_status" -ne 2 ]; then
@@ -343,7 +343,7 @@ fi
 
 set +e
 printf '%s\n' '{"source":"oversized","thumb_width":4096,"grid_cols":64}' | \
-  "$timeout_program" 5 env TMP="$ipc_root" MIST_CONTROL=1 "$process_thumbs" - \
+  env TMP="$ipc_root" MIST_CONTROL=1 python3 "$(dirname "$0")/fixture_ipc.py" --timeout 5 -- "$process_thumbs" - \
   >"$work/oversized.log" 2>&1
 oversized_status=$?
 set -e

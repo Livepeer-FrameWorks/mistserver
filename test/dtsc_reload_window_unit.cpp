@@ -169,6 +169,13 @@ namespace {
     size_t video, audio;
     addTracks(writer, video, audio);
 
+    // This test unlinks the stream page to emulate a dead writer. Keep explicit
+    // owners for its track pages so that deliberate crash does not leak them.
+    IPC::sharedPage videoOwner(trackPageName(stream, video), 0, false, false);
+    IPC::sharedPage audioOwner(trackPageName(stream, audio), 0, false, false);
+    videoOwner.master = true;
+    audioOwner.master = true;
+
     DTSC::Meta reader;
     reader.reInit(stream, false, false);
     reader.reloadReplacedPagesIfNeeded();
@@ -229,6 +236,11 @@ int main() {
   resizeWindow();
   fullReloadWindow();
   streamGone();
+  for (size_t idx = 0; idx < 2; ++idx) {
+    IPC::sharedPage leftover(trackPageName("sg" + std::to_string(getpid()), idx), 0, false, false);
+    check(!leftover, "stream disappearance fixture left a track metadata page behind");
+    if (leftover) { leftover.master = true; }
+  }
   pageSwap();
   if (failures) {
     fprintf(stderr, "%d check(s) failed\n", failures);

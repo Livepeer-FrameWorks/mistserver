@@ -98,6 +98,15 @@ int main() {
   assert(Mist::livepeerBudgetMissStep(vod, "vod+abc", 1) == Mist::LivepeerBudgetMissStep::ResendSegment);
   assert(Mist::livepeerBudgetMissStep(vod, "vod+abc", 5) == Mist::LivepeerBudgetMissStep::Fallback);
 
+  {
+    JSON::Value drainOptions;
+    drainOptions["deadline_ms"] = 30000;
+    const uint64_t remaining = Mist::livepeerDrainBudgetMs(drainOptions, 2000, 2);
+    assert(remaining > 3 * 32000 + 10000);
+    assert(remaining >= 2 * 5 * 33000);
+    assert(Mist::livepeerDrainBudgetMs(drainOptions, 2000, 0) == 60000);
+  }
+
   assert(!Mist::livepeerShouldFallback(4));
   assert(Mist::livepeerShouldFallback(5));
   assert(Mist::livepeerShouldFallback(6));

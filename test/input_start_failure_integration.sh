@@ -27,6 +27,7 @@ cleanup() {
     kill -INT "$controller_pid" 2>/dev/null || true
     wait "$controller_pid" 2>/dev/null || true
   fi
+  TMP="$ipc_root" python3 "$(dirname "$0")/fixture_ipc.py" --logs "$fixture_dir" --stream "fa${fixture_id}online" --stream "fa${fixture_id}singular" --stream "fa${fixture_id}push"
   rm -rf "$fixture_dir"
 }
 trap cleanup EXIT INT TERM
