@@ -29,7 +29,7 @@ namespace MP4{
     TrackHeader();
 
     /// Reads (new) track header information for processing
-    void read(TRAK &trakBox);
+    void read(TRAK & trakBox, Mist::Orientation movieOrientation = Mist::Orientation());
     /// Reads (new) track header information for processing
     void read(TREX &trexBox);
     /// Reads (new) track header information for processing
@@ -75,6 +75,8 @@ namespace MP4{
     std::string initData; ///< Initialization data for the track, in Mist-compatible format
     std::string lang; ///< Language of the track
     uint32_t vidWidth, vidHeight;
+    uint16_t rotation{0};
+    bool mirror{false};
     uint32_t audChannels, audRate, audSize;
 
   private:

@@ -55,7 +55,7 @@ namespace CMAF{
 
     MP4::TRAK trakBox;
 
-    MP4::TKHD tkhdBox(M, track);
+    MP4::TKHD tkhdBox(M, track, false);
     tkhdBox.setDuration(0);
     trakBox.setContent(tkhdBox, 0);
 
@@ -217,7 +217,7 @@ namespace CMAF{
       // Keep track of the current index within the moovBox
       size_t trakOffset = 0;
 
-      MP4::TKHD tkhdBox(M, it->first);
+      MP4::TKHD tkhdBox(M, it->first, false);
       tkhdBox.setDuration(0);
       trakBox.setContent(tkhdBox, trakOffset++);
 

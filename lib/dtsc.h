@@ -124,6 +124,8 @@ namespace DTSC{
   };
 
   /// DTSC::Packets can currently be three types:
+  bool headerHasVideoRotation(const Scan & header);
+
   /// DTSC_HEAD packets are the "DTSC" header string, followed by 4 bytes len and packed content.
   /// DTSC_V1 packets are "DTPD", followed by 4 bytes len and packed content.
   /// DTSC_V2 packets are "DTP2", followed by 4 bytes len, 4 bytes trackID, 8 bytes time, and packed
@@ -251,6 +253,8 @@ namespace DTSC{
       // Video specific; 0 when the input does not say
       size_t width{0}; ///< Video width
       size_t height{0}; ///< Video height
+      uint16_t rotation{0}; ///< Clockwise display rotation in degrees, a multiple of 90
+      bool mirror{false}; ///< Left-right reflection applied after rotation
       size_t fpks{0}; ///< Frames per 1000 seconds (fps * 1000)
 
       /// The producer's name for this output (a rendition name, "video", "sprite", ...), stable
@@ -288,6 +292,8 @@ namespace DTSC{
     Util::RelAccXFieldData trackFpksField;
     Util::RelAccXFieldData trackEfpksField;
     Util::RelAccXFieldData trackMissedFragsField;
+    Util::RelAccXFieldData trackRotationField;
+    Util::RelAccXFieldData trackMirrorField;
 
     Util::RelAccXFieldData partSizeField;
     Util::RelAccXFieldData partDurationField;
@@ -478,6 +484,10 @@ namespace DTSC{
 
     void setWidth(size_t trackIdx, uint32_t width);
     uint32_t getWidth(size_t trackIdx) const;
+    void setRotation(size_t trackIdx, uint16_t rotation);
+    uint16_t getRotation(size_t trackIdx) const;
+    void setMirror(size_t trackIdx, bool mirror);
+    bool getMirror(size_t trackIdx) const;
 
     void setHeight(size_t trackIdx, uint32_t height);
     uint32_t getHeight(size_t trackIdx) const;

@@ -1,4 +1,5 @@
 #pragma once
+#include "orientation.h"
 #include "mp4.h"
 
 namespace h265{
@@ -500,6 +501,7 @@ namespace MP4{
     void setMatrix(double newMatrix, size_t index);
     double getMatrix(size_t index);
     uint16_t getRotation();
+    Mist::Orientation getOrientation();
     void setTrackID(uint32_t newTrackID);
     uint32_t getTrackID();
     std::string toPrettyString(uint32_t indent = 0);
@@ -536,7 +538,7 @@ namespace MP4{
   public:
     TKHD(const Box &rs) : fullBox(rs){}
     TKHD(uint32_t trackId = 0, uint64_t duration = 0, uint32_t width = 0, uint32_t height = 0);
-    TKHD(const DTSC::Meta &M, size_t idx);
+    TKHD(const DTSC::Meta & M, size_t idx, bool includeMirror = true);
 
     void setCreationTime(uint64_t newCreationTime);
     uint64_t getCreationTime();
@@ -558,6 +560,8 @@ namespace MP4{
     void setMatrix(int32_t newMatrix, size_t index);
     int32_t getMatrix(size_t index);
     uint16_t getRotation();
+    Mist::Orientation getOrientation();
+    void setOrientation(Mist::Orientation orientation);
 
     void setWidth(double newWidth);
     double getWidth();

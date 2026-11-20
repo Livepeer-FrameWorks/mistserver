@@ -1930,15 +1930,16 @@ namespace MP4{
     }
   }
 
-  uint16_t MVHD::getRotation(){
-    //These are oversimplifications that ignore scaling and translation
-    //We also only handle the 90-degree-increment rotations, nothing else
-    //That should cover practically all videos we'll encounter though...
-    if (getMatrix(1) > 0.0 && getMatrix(3) < 0.0){return 90;}
-    if (getMatrix(1) < 0.0 && getMatrix(3) > 0.0){return 270;}
-    if (getMatrix(0) > 0.0 && getMatrix(4) > 0.0){return 0;}
-    if (getMatrix(0) < 0.0 && getMatrix(4) < 0.0){return 180;}
-    return 0; //Unknown rotation, assume none
+  Mist::Orientation MVHD::getOrientation() {
+    Mist::Orientation orientation;
+    if (!Mist::Orientation::fromMatrix(getMatrix(0), getMatrix(1), getMatrix(3), getMatrix(4), orientation)) {
+      WARN_MSG("Ignoring non-D4 MVHD matrix");
+    }
+    return orientation;
+  }
+
+  uint16_t MVHD::getRotation() {
+    return getOrientation().rotation;
   }
 
   // 24 bytes of pre-defined in between
@@ -2131,7 +2132,7 @@ namespace MP4{
     setHeight(height);
   }
 
-  TKHD::TKHD(const DTSC::Meta &M, size_t idx){
+  TKHD::TKHD(const DTSC::Meta & M, size_t idx, bool includeMirror) {
     initialize();
     setTrackID(idx + 1);
     setDuration(0);
@@ -2139,6 +2140,10 @@ namespace MP4{
     if (M.getType(idx) == "video"){
       setWidth(M.getWidth(idx));
       setHeight(M.getHeight(idx));
+      setOrientation(Mist::Orientation(M.getRotation(idx), includeMirror && M.getMirror(idx)));
+      if (!includeMirror && M.getMirror(idx)) {
+        WARN_MSG("Fragmented MP4 signals rotation only; reflected sources require an upright transcode");
+      }
     }
   }
 
@@ -2302,15 +2307,33 @@ namespace MP4{
     }
   }
 
-  uint16_t TKHD::getRotation(){
-    //These are oversimplifications that ignore scaling and translation
-    //We also only handle the 90-degree-increment rotations, nothing else
-    //That should cover practically all videos we'll encounter though...
-    if (getMatrix(1) > 0.0 && getMatrix(3) < 0.0){return 90;}
-    if (getMatrix(1) < 0.0 && getMatrix(3) > 0.0){return 270;}
-    if (getMatrix(0) > 0.0 && getMatrix(4) > 0.0){return 0;}
-    if (getMatrix(0) < 0.0 && getMatrix(4) < 0.0){return 180;}
-    return 0; //Unknown rotation, assume none
+  void TKHD::setOrientation(Mist::Orientation orientation) {
+    double a, b, c, d;
+    orientation.matrix(a, b, c, d);
+    setMatrix(a, 0);
+    setMatrix(b, 1);
+    setMatrix(0, 2);
+    setMatrix(c, 3);
+    setMatrix(d, 4);
+    setMatrix(0, 5);
+    // Keep the transformed coded rectangle in the positive display quadrant.
+    setMatrix((a < 0 ? getWidth() : 0) + (c < 0 ? getHeight() : 0), 6);
+    setMatrix((b < 0 ? getWidth() : 0) + (d < 0 ? getHeight() : 0), 7);
+    setMatrix(1, 8);
+  }
+
+  Mist::Orientation TKHD::getOrientation() {
+    const size_t offset = getVersion() == 0 ? 40 : 52;
+    Mist::Orientation orientation;
+    if (!Mist::Orientation::fromMatrix(int32_t(getInt32(offset)), int32_t(getInt32(offset + 4)),
+                                       int32_t(getInt32(offset + 12)), int32_t(getInt32(offset + 16)), orientation)) {
+      WARN_MSG("Ignoring non-D4 TKHD matrix");
+    }
+    return orientation;
+  }
+
+  uint16_t TKHD::getRotation() {
+    return getOrientation().rotation;
   }
 
   void TKHD::setWidth(double newWidth){

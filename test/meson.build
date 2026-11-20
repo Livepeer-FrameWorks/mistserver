@@ -1254,3 +1254,14 @@ test('MP4 upload codec object types are not mislabeled as H264', mp4uploadcodect
 
 tsassemblerstridetest = executable('tsassemblerstridetest', 'ts_assembler_stride_unit.cpp', header_tgts, dependencies: libmist_dep)
 test('Transport streams retain packet boundaries across 188 and 192 byte chunks', tsassemblerstridetest, suite: 'MPEG-TS')
+
+dtscrotationtest = executable('dtscrotationtest', 'dtsc_rotation_unit.cpp', header_tgts, dependencies: libmist_dep)
+test('DTSC rotation survives metadata transport and copying', dtscrotationtest, suite: 'DTSC')
+dtscorientationtransporttest = executable('dtscorientationtransporttest', 'dtsc_orientation_transport_unit.cpp', header_tgts, dependencies: libmist_dep)
+test('DTSC transport retains source orientation without rewriting pixels', dtscorientationtransporttest, suite: 'DTSC')
+ebmlrotationtest = executable('ebmlrotationtest', 'ebml_rotation_unit.cpp', header_tgts, dependencies: libmist_dep)
+test('Matroska projection rotation preserves exact element lengths', ebmlrotationtest, suite: 'EBML')
+segmentedorientationtest = executable('segmentedorientationtest', ['segmented_orientation_unit.cpp', '../src/input/input.cpp', '../src/input/input_ismv.cpp', io_cpp], header_tgts, dependencies: libmist_dep)
+foreach kind : ['segment', 'ismv', 'init']
+  test('Segmented orientation ' + kind, segmentedorientationtest, args: [kind], suite: 'MP4')
+endforeach

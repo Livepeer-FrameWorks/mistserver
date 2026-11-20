@@ -234,7 +234,7 @@ namespace Mist{
 
   bool InputEBML::readExistingHeader(){
     if (!Input::readExistingHeader()) { return false; }
-    if (!M.inputLocalVars.isMember("version") || M.inputLocalVars["version"].asInt() < 2){
+    if (!M.inputLocalVars.isMember("version") || M.inputLocalVars["version"].asInt() < 3) {
       INFO_MSG("Header needs update, regenerating");
       return false;
     }
@@ -293,7 +293,7 @@ namespace Mist{
     parser.flush();
     parser.enableData(true);
 
-    meta.inputLocalVars["version"] = 2;
+    meta.inputLocalVars["version"] = 3;
     if (wholeFile) { meta.inputLocalVars["complete"] = 1; }
     return true;
   }

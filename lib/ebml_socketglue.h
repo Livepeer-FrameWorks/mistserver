@@ -1,4 +1,5 @@
 #pragma once
+#include "orientation.h"
 #include "bitfields.h"
 #include "dtsc.h"
 #include "ebml.h"
@@ -13,7 +14,7 @@ namespace EBML{
   void sendElemID(Socket::Connection &C, uint32_t ID, const uint64_t val);
   void sendElemDbl(Socket::Connection &C, uint32_t ID, const double val);
   void sendElemStr(Socket::Connection &C, uint32_t ID, const std::string &val);
-  void sendElemEBML(Socket::Connection &C, const std::string &doctype);
+  void sendElemEBML(Socket::Connection & C, const std::string & doctype, bool orientation = false);
   void sendElemInfo(Socket::Connection &C, const std::string &appName, double duration, int64_t date = 0);
   uint32_t sizeElemEBML(const std::string &doctype);
   uint32_t sizeElemInfo(const std::string &appName, double duration, int64_t date = 0);
@@ -38,6 +39,9 @@ namespace EBML{
                          uint64_t time, bool keyFrame, uint64_t clusterTime);
   uint32_t sizeSimpleBlock(uint64_t trackId, uint32_t dataSize);
 
+  uint32_t sizeVideoProjection(uint16_t rotation, bool mirror = false);
+  void sendVideoProjection(Socket::Connection & connection, uint16_t rotation, bool mirror = false);
+  Mist::Orientation videoOrientation(const Element & entry);
   bool parseTrackEntry(const Element & E, DTSC::Meta & meta);
 
   class packetData {

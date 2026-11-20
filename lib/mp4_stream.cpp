@@ -135,7 +135,7 @@ namespace MP4{
     if (trexBox.isType("trex")){trexPtr = &trexBox;}
   }
 
-  void TrackHeader::read(TRAK &trakBox){
+  void TrackHeader::read(TRAK & trakBox, Mist::Orientation movieOrientation) {
     vidWidth = vidHeight = audChannels = audRate = audSize = 0;
     codec.clear();
     // Default to incompatible — codec-detection blocks below promote to true.
@@ -148,6 +148,9 @@ namespace MP4{
 
     TKHD tkhd = trakBox.getChild<TKHD>();
     trackId = tkhd.getTrackID();
+    const Mist::Orientation orientation = tkhd.getOrientation().then(movieOrientation);
+    rotation = orientation.rotation;
+    mirror = orientation.mirror;
     if (tkhd.getWidth()){
       vidWidth = tkhd.getWidth();
       vidHeight = tkhd.getHeight();
@@ -593,7 +596,6 @@ namespace MP4{
         }
       }
     }
-
   }
 
 } // namespace MP4

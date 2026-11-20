@@ -262,6 +262,7 @@ namespace EBML{
     case EID_CUES:
     case EID_SEEK:
     case EID_TRACKENTRY:
+    case EID_PROJECTION:
     case EID_VIDEO:
     case EID_AUDIO:
     case 0x20:
@@ -287,6 +288,7 @@ namespace EBML{
     case EID_DOCTYPEREADVERSION:
     case EID_SEEKPOSITION:
     case EID_TIMECODESCALE:
+    case EID_PROJECTIONTYPE:
     case EID_TIMECODE:
     case EID_TRACKNUMBER:
     case EID_TRACKUID:
@@ -325,6 +327,9 @@ namespace EBML{
     case 0x598:
     case 0x23C5: return ELEM_UINT;
     case 0x35A2: return ELEM_INT;
+    case EID_PROJECTIONYAW:
+    case EID_PROJECTIONPITCH:
+    case EID_PROJECTIONROLL:
     case EID_SAMPLINGFREQUENCY:
     case EID_DURATION: return ELEM_FLOAT;
     case EID_DOCTYPE:

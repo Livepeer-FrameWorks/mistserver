@@ -109,6 +109,8 @@ namespace Mist{
           meta.setType(tNumber, "video");
           meta.setWidth(tNumber, it->vidWidth);
           meta.setHeight(tNumber, it->vidHeight);
+          meta.setRotation(tNumber, it->rotation);
+          meta.setMirror(tNumber, it->mirror);
         }
         if (it->trackType == "audio"){
           meta.setType(tNumber, "audio");
@@ -200,7 +202,9 @@ namespace Mist{
             for (std::deque<MP4::TRAK>::iterator trakIt = trak.begin(); trakIt != trak.end(); trakIt++){
               mp4Headers.push_back(MP4::TrackHeader());
               mp4PackNo.push_back(0);
-              mp4Headers.rbegin()->read(*trakIt);
+              MP4::Box movieBox = ((MP4::MOOV *)&moovBox)->getChild("mvhd");
+              MP4::MVHD & movie = (MP4::MVHD &)movieBox;
+              mp4Headers.rbegin()->read(*trakIt, movie.isType("mvhd") ? movie.getOrientation() : Mist::Orientation());
               mp4PacksLeft += mp4Headers.rbegin()->size();
             }
             std::deque<MP4::TREX> trex = ((MP4::MOOV*)&moovBox)->getChild<MP4::MVEX>().getChildren<MP4::TREX>();
@@ -268,7 +272,9 @@ namespace Mist{
         for (std::deque<MP4::TRAK>::iterator trakIt = trak.begin(); trakIt != trak.end(); trakIt++){
           mp4Headers.push_back(MP4::TrackHeader());
           mp4PackNo.push_back(0);
-          mp4Headers.rbegin()->read(*trakIt);
+          MP4::Box movieBox = ((MP4::MOOV *)&moovBox)->getChild("mvhd");
+          MP4::MVHD & movie = (MP4::MVHD &)movieBox;
+          mp4Headers.rbegin()->read(*trakIt, movie.isType("mvhd") ? movie.getOrientation() : Mist::Orientation());
           mp4PacksLeft += mp4Headers.rbegin()->size();
         }
         std::deque<MP4::TREX> trex = ((MP4::MOOV*)&moovBox)->getChild<MP4::MVEX>().getChildren<MP4::TREX>();

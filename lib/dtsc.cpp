@@ -1252,6 +1252,8 @@ namespace DTSC{
     }
     if (trak.getMember("type").asString() == "video"){
       setWidth(tIdx, trak.getMember("width").asInt());
+      setRotation(tIdx, trak.getMember("rotation").asInt());
+      setMirror(tIdx, trak.getMember("mirror").asInt());
       setHeight(tIdx, trak.getMember("height").asInt());
       setFpks(tIdx, trak.getMember("fpks").asInt());
       setEfpks(tIdx, trak.getMember("efpks").asInt());
@@ -1571,6 +1573,8 @@ namespace DTSC{
       t.trackFpksField = t.track.getFieldData("fpks");
       t.trackEfpksField = t.track.getFieldData("efpks");
       t.trackMissedFragsField = t.track.getFieldData("missedFrags");
+      t.trackRotationField = t.track.getFieldData("rotation");
+      t.trackMirrorField = t.track.getFieldData("mirror");
 
       if (t.track.hasField("frames")){
         t.parts = Util::RelAccX();
@@ -1709,6 +1713,8 @@ namespace DTSC{
         t.trackFpksField = t.track.getFieldData("fpks");
         t.trackEfpksField = t.track.getFieldData("efpks");
         t.trackMissedFragsField = t.track.getFieldData("missedFrags");
+        t.trackRotationField = t.track.getFieldData("rotation");
+        t.trackMirrorField = t.track.getFieldData("mirror");
 
         if (t.track.hasField("frames")){
           t.parts = Util::RelAccX();
@@ -1873,6 +1879,8 @@ namespace DTSC{
       setChannels(newIdx, M.getChannels(*it));
       setRate(newIdx, M.getRate(*it));
       setWidth(newIdx, M.getWidth(*it));
+      setRotation(newIdx, M.getRotation(*it));
+      setMirror(newIdx, M.getMirror(*it));
       setHeight(newIdx, M.getHeight(*it));
       setSize(newIdx, M.getSize(*it));
       setType(newIdx, M.getType(*it));
@@ -2031,6 +2039,8 @@ namespace DTSC{
     t.track.setInt(t.trackFpksField, origAccess.getInt("fpks"));
     t.track.setInt(t.trackEfpksField, origAccess.getInt("efpks"));
     t.track.setInt(t.trackMissedFragsField, origAccess.getInt("missedFrags"));
+    if (origAccess.hasField("rotation")) { t.track.setInt(t.trackRotationField, origAccess.getInt("rotation")); }
+    if (origAccess.hasField("mirror")) { t.track.setInt(t.trackMirrorField, origAccess.getInt("mirror")); }
 
     if (frameSize){
       Util::RelAccX origFrames(origAccess.getPointer("frames"));
@@ -2259,6 +2269,8 @@ namespace DTSC{
     }
     // Frame rate may vary between sessions of one stream; the init and size decide.
     if (trkDta.type == "video") {
+      if (getRotation(T) != trkDta.rotation) { return "rotation"; }
+      if (getMirror(T) != trkDta.mirror) { return "mirror"; }
       if (getWidth(T) != trkDta.width) {
         return "width " + std::to_string(getWidth(T)) + " != " + std::to_string(trkDta.width);
       }
@@ -2537,6 +2549,8 @@ namespace DTSC{
       }
       if (trkDta.type == "video") {
         setWidth(T, trkDta.width);
+        setRotation(T, trkDta.rotation);
+        setMirror(T, trkDta.mirror);
         setHeight(T, trkDta.height);
         setFpks(T, trkDta.fpks);
       }
@@ -2637,6 +2651,8 @@ namespace DTSC{
       }
       if (trkDta.type == "video") {
         setWidth(T, trkDta.width);
+        setRotation(T, trkDta.rotation);
+        setMirror(T, trkDta.mirror);
         setHeight(T, trkDta.height);
         setFpks(T, trkDta.fpks);
       }
@@ -2890,6 +2906,8 @@ namespace DTSC{
     t.track.addField("fpks", RAX_16UINT);
     t.track.addField("efpks", RAX_16UINT);
     t.track.addField("missedFrags", RAX_32UINT);
+    t.track.addField("rotation", RAX_16UINT);
+    t.track.addField("mirror", RAX_UINT);
     if (!frameSize){
       t.track.addField("parts", RAX_NESTED, TRACK_PART_OFFSET + (TRACK_PART_RECORDSIZE * partCount));
       t.track.addField("keys", RAX_NESTED, TRACK_KEY_OFFSET + (TRACK_KEY_RECORDSIZE * keyCount));
@@ -2923,7 +2941,8 @@ namespace DTSC{
     t.trackFpksField = t.track.getFieldData("fpks");
     t.trackEfpksField = t.track.getFieldData("efpks");
     t.trackMissedFragsField = t.track.getFieldData("missedFrags");
-
+    t.trackRotationField = t.track.getFieldData("rotation");
+    t.trackMirrorField = t.track.getFieldData("mirror");
 
     if (frameSize){
       t.frames = Util::RelAccX(t.track.getPointer("frames"), false);
@@ -3110,6 +3129,38 @@ namespace DTSC{
   uint16_t Meta::getChannels(size_t trackIdx) const{
     const DTSC::Track &t = tracks.at(trackIdx);
     return t.track.getInt(t.trackChannelsField);
+  }
+
+  void Meta::setRotation(size_t trackIdx, uint16_t rotation) {
+    Track & track = tracks.at(trackIdx);
+    if (track.trackRotationField) {
+      track.track.setInt(track.trackRotationField, rotation < 360 && rotation % 90 == 0 ? rotation : 0);
+    }
+  }
+
+  uint16_t Meta::getRotation(size_t trackIdx) const {
+    const Track & track = tracks.at(trackIdx);
+    return track.trackRotationField ? track.track.getInt(track.trackRotationField) : 0;
+  }
+
+  void Meta::setMirror(size_t trackIdx, bool mirror) {
+    Track & track = tracks.at(trackIdx);
+    if (track.trackMirrorField) { track.track.setInt(track.trackMirrorField, mirror ? 1 : 0); }
+  }
+
+  bool Meta::getMirror(size_t trackIdx) const {
+    const Track & track = tracks.at(trackIdx);
+    return track.trackMirrorField && track.track.getInt(track.trackMirrorField);
+  }
+
+  bool headerHasVideoRotation(const Scan & header) {
+    bool complete = true;
+    header.getMember("tracks").forEachMember([&complete](const Scan & track) {
+      if (track.getMember("type").asString() == "video" && (!track.hasMember("rotation") || !track.hasMember("mirror"))) {
+        complete = false;
+      }
+    });
+    return complete;
   }
 
   void Meta::setWidth(size_t trackIdx, uint32_t width){
@@ -4141,7 +4192,7 @@ namespace DTSC{
         if (getType(it.first) == "audio") {
           dataLen += 49;
         } else if (getType(it.first) == "video") {
-          dataLen += 64;
+          dataLen += 100;
         }
       }
     }
@@ -4235,6 +4286,8 @@ namespace DTSC{
       }else if (type == "video"){
         trackJSON["width"] = getWidth(*it);
         trackJSON["height"] = getHeight(*it);
+        if (getRotation(*it)) { trackJSON["rotation"] = getRotation(*it); }
+        if (getMirror(*it)) { trackJSON["mirror"] = true; }
         trackJSON["fpks"] = getFpks(*it);
         trackJSON["efpks"] = getEfpks(*it);
         trackJSON["fps"] = getFpks(*it) / 1000.0;
@@ -4534,6 +4587,10 @@ namespace DTSC{
         conn.SendNow("\000\010channels\001", 11);
         conn.SendNow(c64(track.getInt("channels")), 8);
       }else if (tmp == "video"){
+        conn.SendNow("\000\010rotation\001", 11);
+        conn.SendNow(c64(getRotation(*it)), 8);
+        conn.SendNow("\000\006mirror\001", 9);
+        conn.SendNow(c64(getMirror(*it)), 8);
         conn.SendNow("\000\005width\001", 8);
         conn.SendNow(c64(track.getInt("width")), 8);
         conn.SendNow("\000\006height\001", 9);
@@ -4932,6 +4989,8 @@ namespace DTSC{
       if (type == "video"){
         track["width"] = getWidth(i);
         track["height"] = getHeight(i);
+        if (getRotation(i)) { track["rotation"] = getRotation(i); }
+        if (getMirror(i)) { track["mirror"] = true; }
         track["fpks"] = getFpks(i);
         track["efpks"] = getEfpks(i);
         track["fps"] = getFpks(i) / 1000.0;

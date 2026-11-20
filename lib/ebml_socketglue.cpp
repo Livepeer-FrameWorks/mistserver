@@ -3,6 +3,8 @@
 #include "ac3.h"
 #include "bitfields.h"
 
+#include <cmath>
+
 namespace EBML{
 
   void sendUniInt(Socket::Connection &C, const uint64_t val){
@@ -177,17 +179,17 @@ namespace EBML{
     C.SendNow(val);
   }
 
-  void sendElemEBML(Socket::Connection &C, const std::string &doctype){
+  void sendElemEBML(Socket::Connection & C, const std::string & doctype, bool orientation) {
     sendElemHead(C, EID_EBML, 27 + doctype.size());
     sendElemUInt(C, EID_EBMLVERSION, 1);
     sendElemUInt(C, EID_EBMLREADVERSION, 1);
     sendElemUInt(C, EID_EBMLMAXIDLENGTH, 4);
     sendElemUInt(C, EID_EBMLMAXSIZELENGTH, 8);
     sendElemStr(C, EID_DOCTYPE, doctype);
-    if (doctype == "matroska"){
+    if (doctype == "matroska" || orientation) {
       sendElemUInt(C, EID_DOCTYPEVERSION, 4);
       sendElemUInt(C, EID_DOCTYPEREADVERSION, 1);
-    }else{
+    } else {
       sendElemUInt(C, EID_DOCTYPEVERSION, 1);
       sendElemUInt(C, EID_DOCTYPEREADVERSION, 1);
     }
@@ -257,6 +259,10 @@ namespace EBML{
     return ret + sizeElemHead(EID_SIMPLEBLOCK, ret);
   }
 
+
+
+
+
   void sendElemSeek(Socket::Connection &C, uint32_t ID, uint64_t bytePos){
     uint32_t elems = sizeElemUInt(EID_SEEKID, ID) + sizeElemUInt(EID_SEEKPOSITION, bytePos);
     sendElemHead(C, EID_SEEK, elems);
@@ -293,6 +299,40 @@ namespace EBML{
     return sizeElemHead(EID_CUEPOINT, elems) + elems;
   }
 
+  uint32_t sizeVideoProjection(uint16_t rotation, bool mirror) {
+    if (!rotation && !mirror) { return 0; }
+    const size_t contents = sizeElemUInt(EID_PROJECTIONTYPE, 0) +
+      sizeElemDbl(EID_PROJECTIONROLL, Mist::Orientation(rotation, mirror).projectionRoll()) +
+      (mirror ? sizeElemDbl(EID_PROJECTIONYAW, 180) : 0);
+    return sizeElemHead(EID_PROJECTION, contents) + contents;
+  }
+
+  void sendVideoProjection(Socket::Connection & connection, uint16_t rotation, bool mirror) {
+    if (!rotation && !mirror) { return; }
+    const double roll = Mist::Orientation(rotation, mirror).projectionRoll();
+    const size_t contents = sizeElemUInt(EID_PROJECTIONTYPE, 0) + sizeElemDbl(EID_PROJECTIONROLL, roll) +
+      (mirror ? sizeElemDbl(EID_PROJECTIONYAW, 180) : 0);
+    sendElemHead(connection, EID_PROJECTION, contents);
+    sendElemUInt(connection, EID_PROJECTIONTYPE, 0);
+    if (mirror) { sendElemDbl(connection, EID_PROJECTIONYAW, 180); }
+    sendElemDbl(connection, EID_PROJECTIONROLL, roll);
+  }
+
+  Mist::Orientation videoOrientation(const Element & entry) {
+    const Element projection = entry.findChild(EID_PROJECTION);
+    if (!projection) { return Mist::Orientation(); }
+    const Element type = projection.findChild(EID_PROJECTIONTYPE);
+    if (type && type.getValUInt() != 0) { return Mist::Orientation(); }
+    const Element yaw = projection.findChild(EID_PROJECTIONYAW), pitch = projection.findChild(EID_PROJECTIONPITCH),
+                  roll = projection.findChild(EID_PROJECTIONROLL);
+    Mist::Orientation result;
+    if (!Mist::Orientation::fromProjection(yaw ? yaw.getValFloat() : 0, pitch ? pitch.getValFloat() : 0,
+                                           roll ? roll.getValFloat() : 0, result)) {
+      WARN_MSG("Ignoring non-D4 Matroska projection");
+    }
+    return result;
+  }
+
   bool parseTrackEntry(const Element & E, DTSC::Meta & meta) {
     EBML::Element tmpElem = E.findChild(EBML::EID_TRACKNUMBER);
     if (!tmpElem) {
@@ -312,6 +352,8 @@ namespace EBML{
       tmpElem = E.findChild(EBML::EID_CODECPRIVATE);
       if (tmpElem) { init = tmpElem.getValStringUntrimmed(); }
     }
+
+
     if (codec == "V_MPEGH/ISO/HEVC") {
       trueCodec = "HEVC";
       trueType = "video";
@@ -483,6 +525,8 @@ namespace EBML{
       if (trueType == "video") {
         tmpElem = E.findChild(EBML::EID_PIXELWIDTH);
         trkDta.width = tmpElem ? tmpElem.getValUInt() : 0;
+        trkDta.rotation = videoOrientation(E).rotation;
+        trkDta.mirror = videoOrientation(E).mirror;
         tmpElem = E.findChild(EBML::EID_PIXELHEIGHT);
         trkDta.height = tmpElem ? tmpElem.getValUInt() : 0;
       }
@@ -510,6 +554,8 @@ namespace EBML{
     if (trueType == "video") {
       tmpElem = E.findChild(EBML::EID_PIXELWIDTH);
       meta.setWidth(idx, tmpElem ? tmpElem.getValUInt() : 0);
+      meta.setRotation(idx, videoOrientation(E).rotation);
+      meta.setMirror(idx, videoOrientation(E).mirror);
       tmpElem = E.findChild(EBML::EID_PIXELHEIGHT);
       meta.setHeight(idx, tmpElem ? tmpElem.getValUInt() : 0);
       meta.setFpks(idx, 0);

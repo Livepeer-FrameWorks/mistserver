@@ -107,6 +107,10 @@ namespace Mist{
   bool InputMP4::needHeader(){
     //Attempt to read cache, but force calling of the readHeader function anyway
     bool r = Input::needHeader();
+    if (!r && M.inputLocalVars["mp4_input_version"].asInt() != 2) {
+      meta.clear();
+      return true;
+    }
     if (!r){r = !readHeader();}
     return r;
   }
@@ -148,7 +152,9 @@ namespace Mist{
         std::deque<MP4::TRAK> trak = ((MP4::MOOV*)&moovBox)->getChildren<MP4::TRAK>();
         for (std::deque<MP4::TRAK>::iterator trakIt = trak.begin(); trakIt != trak.end(); trakIt++){
           trackHeaders.push_back(MP4::TrackHeader());
-          trackHeaders.rbegin()->read(*trakIt);
+          MP4::Box movieBox = ((MP4::MOOV *)&moovBox)->getChild("mvhd");
+          MP4::MVHD & movie = (MP4::MVHD &)movieBox;
+          trackHeaders.rbegin()->read(*trakIt, movie.isType("mvhd") ? movie.getOrientation() : Mist::Orientation());
         }
         std::deque<MP4::TREX> trex = ((MP4::MOOV*)&moovBox)->getChild<MP4::MVEX>().getChildren<MP4::TREX>();
         for (std::deque<MP4::TREX>::iterator trexIt = trex.begin(); trexIt != trex.end(); trexIt++){
@@ -225,12 +231,15 @@ namespace Mist{
       tNumber = meta.addTrack();
       HIGH_MSG("Found track %zu of type %s -> %s", tNumber, it->sType.c_str(), it->codec.c_str());
       meta.setID(tNumber, it->trackId);
+      meta.setType(tNumber, it->trackType);
       meta.setCodec(tNumber, it->codec);
       meta.setInit(tNumber, it->initData);
       meta.setLang(tNumber, it->lang);
       if (it->trackType == "video"){
         meta.setType(tNumber, "video");
         meta.setWidth(tNumber, it->vidWidth);
+        meta.setRotation(tNumber, it->rotation);
+        meta.setMirror(tNumber, it->mirror);
         meta.setHeight(tNumber, it->vidHeight);
       }
       if (it->trackType == "audio"){
@@ -353,6 +362,7 @@ namespace Mist{
       }
     }
 
+    meta.inputLocalVars["mp4_input_version"] = 2;
     return true;
   }
 

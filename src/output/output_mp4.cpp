@@ -502,7 +502,7 @@ namespace Mist{
       // Keep track of the current index within the moovBox
       size_t trakOffset = 0;
 
-      MP4::TKHD tkhdBox(M, it->first);
+      MP4::TKHD tkhdBox(M, it->first, !fragmented);
       if (!fragmented) { tkhdBox.setDuration(tDuration); }
       trakBox.setContent(tkhdBox, trakOffset++);
 

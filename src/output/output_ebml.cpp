@@ -240,6 +240,8 @@ namespace Mist{
     }
   }
 
+
+
   void OutEBML::initialSeek(bool dryRun) {
     // A bounded playback limiter makes live metadata appear to be VOD, but
     // it does not make predicted file/cluster byte counts exact.
@@ -469,7 +471,7 @@ namespace Mist{
     if (codec == "ALAW" || codec == "ULAW"){
       sendLen += EBML::sizeElemStr(EBML::EID_CODECPRIVATE, std::string((size_t)18, '\000'));
     }else{
-      if (M.getInit(idx).size()){
+      if (M.getInit(idx).size()) {
         sendLen += EBML::sizeElemStr(EBML::EID_CODECPRIVATE, M.getInit(idx));
       }
     }
@@ -480,6 +482,7 @@ namespace Mist{
     std::string type = M.getType(idx);
     if (type == "video"){
       sendLen += EBML::sizeElemUInt(EBML::EID_TRACKTYPE, 1);
+      subLen += EBML::sizeVideoProjection(M.getRotation(idx), M.getMirror(idx));
       subLen += EBML::sizeElemUInt(EBML::EID_PIXELWIDTH, M.getWidth(idx));
       subLen += EBML::sizeElemUInt(EBML::EID_PIXELHEIGHT, M.getHeight(idx));
       subLen += EBML::sizeElemUInt(EBML::EID_DISPLAYWIDTH, M.getWidth(idx));
@@ -512,7 +515,7 @@ namespace Mist{
                               M.getBps(idx), M.getChannels(idx) * (M.getSize(idx) << 3), M.getSize(idx));
       EBML::sendElemStr(myConn, EBML::EID_CODECPRIVATE, init.substr(8));
     }else{
-      if (M.getInit(idx).size()){
+      if (M.getInit(idx).size()) {
         EBML::sendElemStr(myConn, EBML::EID_CODECPRIVATE, M.getInit(idx));
       }
     }
@@ -523,6 +526,7 @@ namespace Mist{
     if (type == "video"){
       EBML::sendElemUInt(myConn, EBML::EID_TRACKTYPE, 1);
       EBML::sendElemHead(myConn, EBML::EID_VIDEO, subLen);
+      EBML::sendVideoProjection(myConn, M.getRotation(idx), M.getMirror(idx));
       EBML::sendElemUInt(myConn, EBML::EID_PIXELWIDTH, M.getWidth(idx));
       EBML::sendElemUInt(myConn, EBML::EID_PIXELHEIGHT, M.getHeight(idx));
       EBML::sendElemUInt(myConn, EBML::EID_DISPLAYWIDTH, M.getWidth(idx));
@@ -554,7 +558,7 @@ namespace Mist{
     if (codec == "ALAW" || codec == "ULAW"){
       sendLen += EBML::sizeElemStr(EBML::EID_CODECPRIVATE, std::string((size_t)18, '\000'));
     }else{
-      if (M.getInit(idx).size()){
+      if (M.getInit(idx).size()) {
         sendLen += EBML::sizeElemStr(EBML::EID_CODECPRIVATE, M.getInit(idx));
       }
     }
@@ -565,6 +569,7 @@ namespace Mist{
     }
     if (type == "video"){
       sendLen += EBML::sizeElemUInt(EBML::EID_TRACKTYPE, 1);
+      subLen += EBML::sizeVideoProjection(M.getRotation(idx), M.getMirror(idx));
       subLen += EBML::sizeElemUInt(EBML::EID_PIXELWIDTH, M.getWidth(idx));
       subLen += EBML::sizeElemUInt(EBML::EID_PIXELHEIGHT, M.getHeight(idx));
       subLen += EBML::sizeElemUInt(EBML::EID_DISPLAYWIDTH, M.getWidth(idx));
@@ -609,7 +614,13 @@ namespace Mist{
       needsLookAhead = 250;
     }
     // EBML header and Segment
-    EBML::sendElemEBML(myConn, doctype);
+    bool orientation = false;
+    for (const auto & track : userSelect) {
+      if (M.getType(track.first) == "video" && (M.getRotation(track.first) || M.getMirror(track.first))) {
+        orientation = true;
+      }
+    }
+    EBML::sendElemEBML(myConn, doctype, orientation);
     EBML::sendElemHead(myConn, EBML::EID_SEGMENT, liveMode ? 0xFFFFFFFFFFFFFFFFull : segmentSize);
     if (!liveMode) {
       // SeekHead

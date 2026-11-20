@@ -39,6 +39,7 @@ headers = [
   'nal.h',
   'ogg.h',
   'pixels.h',
+  'orientation.h',
   'process_stream_state.h',
   'proc_stats.h',
   'procs.h',

@@ -4,9 +4,11 @@
 #include <iostream>
 
 namespace {
-  void readTrack(MP4::TrackHeader & result, uint32_t trackId, uint32_t timeScale, int32_t firstOffset, int32_t secondOffset) {
+  void readTrack(MP4::TrackHeader & result, uint32_t trackId, uint32_t timeScale, int32_t firstOffset,
+                 int32_t secondOffset, unsigned int rotation = 0, unsigned int movieRotation = 0) {
     MP4::TRAK trak;
     MP4::TKHD tkhd(trackId, 80, 16, 16);
+    tkhd.setOrientation(Mist::Orientation(rotation));
     trak.setContent(tkhd, 0);
 
     MP4::MDIA mdia;
@@ -56,7 +58,7 @@ namespace {
     mdia.setContent(minf, 2);
     trak.setContent(mdia, 1);
 
-    result.read(trak);
+    result.read(trak, movieRotation);
   }
 
   bool zeroTimescaleIsRejected() {

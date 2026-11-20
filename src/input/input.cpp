@@ -827,6 +827,8 @@ namespace Mist{
       if (type == "video"){
         outMeta.setHeight(idx, M.getHeight(*it));
         outMeta.setWidth(idx, M.getWidth(*it));
+        outMeta.setRotation(idx, M.getRotation(*it));
+        outMeta.setMirror(idx, M.getMirror(*it));
         outMeta.setFpks(idx, M.getFpks(*it));
       }
       if (type == "audio"){
@@ -1328,6 +1330,8 @@ namespace Mist{
         liveMeta.setRate(newIdx, M.getRate(*it));
         liveMeta.setSize(newIdx, M.getSize(*it));
         liveMeta.setWidth(newIdx, M.getWidth(*it));
+        liveMeta.setRotation(newIdx, M.getRotation(*it));
+        liveMeta.setMirror(newIdx, M.getMirror(*it));
         liveMeta.setHeight(newIdx, M.getHeight(*it));
       }
     }else{
@@ -1378,6 +1382,8 @@ namespace Mist{
         liveMeta.setRate(newIdx, M.getRate(thisIdx));
         liveMeta.setSize(newIdx, M.getSize(thisIdx));
         liveMeta.setWidth(newIdx, M.getWidth(thisIdx));
+        liveMeta.setRotation(newIdx, M.getRotation(thisIdx));
+        liveMeta.setMirror(newIdx, M.getMirror(thisIdx));
         liveMeta.setHeight(newIdx, M.getHeight(thisIdx));
         INFO_MSG("Mapped late realtime track %zu to live track %zu", thisIdx, newIdx);
         idx = newIdx;

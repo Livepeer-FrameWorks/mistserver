@@ -62,6 +62,13 @@ int main() {
   addTrack(M, "video", "H264", "proc:a/720p");
   addTrack(M, "video", "H264", "proc:a/480p");
   check(M.getValidTracks().size() == 6, "the stream has six tracks");
+  M.setRotation(0, 90);
+  M.setMirror(0, true);
+  DTSC::Meta rotatedCandidates;
+  rotatedCandidates.reInit("", true);
+  const size_t rotated = Mist::addCandidateTrack(rotatedCandidates, Mist::describeExistingTrack(M, 0, true));
+  check(rotatedCandidates.getMirror(rotated), "process graph candidates preserve source mirror");
+  check(rotatedCandidates.getRotation(rotated) == 90, "process graph candidates preserve source rotation");
 
   // Shaped like the graph's outputs: a process's declared output (type, codec, validity mask)
   // with the key, original and data fields declaredNodeOutputs adds.

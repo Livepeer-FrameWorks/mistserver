@@ -170,7 +170,15 @@ namespace Mist{
 
       MP4::HDLR hdlr = mdia.getChild<MP4::HDLR>();
       if (hdlr.getHandlerType() == "soun"){meta.setType(tNumber, "audio");}
-      if (hdlr.getHandlerType() == "vide"){meta.setType(tNumber, "video");}
+      if (hdlr.getHandlerType() == "vide") {
+        meta.setType(tNumber, "video");
+        MP4::Box movieBox = moovBox.getChild("mvhd");
+        MP4::MVHD & movie = (MP4::MVHD &)movieBox;
+        const Mist::Orientation orientation =
+          it->getChild<MP4::TKHD>().getOrientation().then(movie.isType("mvhd") ? movie.getOrientation() : Mist::Orientation());
+        meta.setRotation(tNumber, orientation.rotation);
+        meta.setMirror(tNumber, orientation.mirror);
+      }
 
       MP4::STSD stsd = mdia.getChild<MP4::MINF>().getChild<MP4::STBL>().getChild<MP4::STSD>();
       for (size_t i = 0; i < stsd.getEntryCount(); ++i){

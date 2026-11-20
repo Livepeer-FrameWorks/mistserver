@@ -54,6 +54,8 @@ namespace Mist {
     desc["lang"] = M.getLang(idx);
     desc["width"] = M.getWidth(idx);
     desc["height"] = M.getHeight(idx);
+    desc["rotation"] = M.getRotation(idx);
+    desc["mirror"] = M.getMirror(idx);
     desc["rate"] = M.getRate(idx);
     desc["channels"] = M.getChannels(idx);
     desc["size"] = M.getSize(idx);
@@ -77,6 +79,8 @@ namespace Mist {
     C.setLang(idx, desc["lang"].asString());
     C.setWidth(idx, desc["width"].asInt());
     C.setHeight(idx, desc["height"].asInt());
+    C.setRotation(idx, desc["rotation"].asInt());
+    C.setMirror(idx, desc["mirror"].asBool());
     C.setRate(idx, desc["rate"].asInt());
     C.setChannels(idx, desc["channels"].asInt());
     C.setSize(idx, desc["size"].asInt());
