@@ -1238,3 +1238,8 @@ if host_machine.system() != 'windows'
          depends: exec_tgts.values(), suite: 'Controller', timeout: 120, is_parallel: false)
   endforeach
 endif
+
+if exec_tgts.has_key('MistProcFFMPEG')
+  test('Processor output declarations leave no runtime heartbeat pages', find_program('python3'),
+       args: [files('process_declaration_ipc.py'), exec_tgts.get('MistProcFFMPEG')], suite: 'Processing', timeout: 30, is_parallel: false)
+endif

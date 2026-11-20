@@ -677,7 +677,6 @@ int main(int argc, char *argv[]){
   }
 
   Util::redirectLogsIfNeeded();
-  ProcStateHeartbeat procState;
 
   // read configuration
   if (config.getString("configuration") != "-"){
@@ -689,7 +688,6 @@ int main(int argc, char *argv[]){
     while (std::getline(std::cin, line)) { json.append(line); }
     opt = JSON::fromString(json.c_str());
   }
-  procState.publishStartup(1.0, PRC_RESOURCE_CPU);
 
   Enc.SetConfig(opt);
   if (!Enc.CheckConfig()){
@@ -697,6 +695,10 @@ int main(int argc, char *argv[]){
     return 1;
   }
   if (Mist::describeOrDeclare(config, processDeclaration())) { return 0; }
+
+  // Declaration probes have no supervising buffer to collect runtime state.
+  ProcStateHeartbeat procState;
+  procState.publishStartup(1.0, PRC_RESOURCE_CPU);
 
   const std::string & srcStrm = opt["source"].asStringRef();
   //connect to source metadata
