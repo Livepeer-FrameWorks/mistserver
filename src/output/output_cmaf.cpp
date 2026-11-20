@@ -1,5 +1,6 @@
 #include "output_cmaf.h"
 
+#include <mist/ac3.h>
 #include <mist/bitfields.h>
 #include <mist/checksum.h>
 #include <mist/cmaf.h>
@@ -29,6 +30,10 @@ uint64_t dataUp = 0;
 uint64_t dataDown = 0;
 
 namespace Mist{
+  bool OutCMAF::trackReadyForOutput(size_t track) const {
+    return M.getCodec(track) != "EAC-3" || AC3::validDEC3(M.getInit(track));
+  }
+
   void CMAFPushTrack::connect(std::string debugParam){
     D.setHeader("Transfer-Encoding", "chunked");
     D.prepareRequest(url, "POST", D.getSocket());
@@ -150,6 +155,7 @@ namespace Mist{
     capa["codecs"][0u][1u].append("+HEVC");
     capa["codecs"][0u][2u].append("+AAC");
     capa["codecs"][0u][3u].append("+AC3");
+    capa["codecs"][0u][3u].append("+EAC-3");
     capa["codecs"][0u][4u].append("+MP3");
     capa["codecs"][0u][5u].append("+subtitle");
     capa["codecs"][0u][6u].append("+opus");
@@ -411,6 +417,7 @@ namespace Mist{
     size_t audioCount = 0;
     for (std::set<size_t>::const_iterator track = tracks.begin(); track != tracks.end(); ++track) {
       if (!M.getValidTracks().count(*track)) { return false; }
+      if (!trackReadyForOutput(*track)) { continue; }
       const std::string type = M.getType(*track);
       if (type == "video") { ++videoCount; }
       else if (type == "audio") { ++audioCount; }
@@ -421,6 +428,7 @@ namespace Mist{
     if ((!videoCount && !audioCount) || videoCount > 1 || audioCount > 1) { return false; }
     userSelect.clear();
     for (std::set<size_t>::const_iterator track = tracks.begin(); track != tracks.end(); ++track) {
+      if (!trackReadyForOutput(*track)) { continue; }
       userSelect[*track].reload(streamName, *track);
       if (!userSelect[*track]) {
         userSelect.clear();
@@ -703,6 +711,10 @@ namespace Mist{
         headerData.assign((char *)init, init.size());
       } else {
         headerData = CMAF::trackHeader(M, idx);
+      }
+      if (headerData.empty()) {
+        sendCmafError("503", "Track initialization is unavailable");
+        return;
       }
       H.StartResponse("200", "OK", req, myConn, !config->getBool("chunkedsegments"));
       H.Chunkify(headerData.c_str(), headerData.size(), myConn);

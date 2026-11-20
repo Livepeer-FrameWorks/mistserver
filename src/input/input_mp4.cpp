@@ -59,6 +59,7 @@ namespace Mist{
     capa["codecs"]["video"].append("VP9");
     capa["codecs"]["video"].append("AV1");
     capa["codecs"]["audio"].append("AAC");
+    capa["codecs"]["audio"].append("EAC-3");
     capa["codecs"]["audio"].append("AC3");
     capa["codecs"]["audio"].append("MP3");
     capa["codecs"]["audio"].append("opus");

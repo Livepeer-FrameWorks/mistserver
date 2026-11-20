@@ -190,6 +190,7 @@ namespace TS{
     ppsInfo.clear();
     hevcInfo.clear();
     metaInit.clear();
+    ac3Headers.clear();
     descriptors.clear();
     mappingTable.clear();
     lastPMT.clear();
@@ -276,11 +277,20 @@ namespace TS{
       while (entry){
         uint32_t pid = entry.getElementaryPid();
         uint32_t sType = entry.getStreamType();
+        if (sType == SCTE35 &&
+            (m2ts || TS::ProgramDescriptors(entry.getESInfo(), entry.getESInfoLength()).getRegistration() == "HDMV" ||
+             TS::ProgramDescriptors(mappingTable[tid].getProgramInfo(), mappingTable[tid].getProgramInfoLength()).getRegistration() ==
+               "HDMV")) {
+          entry.advance();
+          continue;
+        }
         switch (sType){
         case H264:
         case AAC:
         case H265:
         case AC3:
+        case EAC3:
+        case 0x84:
         case SCTE35:
         case ID3:
         case MP2:
@@ -288,11 +298,21 @@ namespace TS{
         case OPUS:
         case AV1:
         case META:{
+          if (sType == 0x84) {
+            TS::ProgramDescriptors es(entry.getESInfo(), entry.getESInfoLength());
+            TS::ProgramDescriptors program(mappingTable[tid].getProgramInfo(), mappingTable[tid].getProgramInfoLength());
+            if (!m2ts && es.getRegistration() != "HDMV" && program.getRegistration() != "HDMV") { break; }
+            sType = EAC3;
+          }
           pidToCodec[pid] = sType;
           std::string & init = metaInit[pid];
           init.assign(entry.getESInfo(), entry.getESInfoLength());
           if (sType == META){
             TS::ProgramDescriptors desc(init.data(), init.size());
+            if (desc.getTag(0x7A).size() || desc.getRegistration() == "EAC3") {
+              pidToCodec[pid] = EAC3;
+              break;
+            }
             if (desc.getTag(0x6A).size()) {
               pidToCodec[pid] = AC3;
               break;
@@ -309,7 +329,7 @@ namespace TS{
             } else if (rParser != NONE) {
               pidToCodec[pid] = rParser;
             } else {
-              pidToCodec.erase(pid);
+              pidToCodec[pid] = PRIVATE;
             }
           }
         } break;
@@ -513,9 +533,9 @@ namespace TS{
       const char *pesHeader = payload + offset;
 
       // Check for large enough buffer
-      if ((paySize - offset) < 9 || (paySize - offset) < 9 + pesHeader[8]){
+      if ((paySize - offset) < 9 || (paySize - offset) < 9 + (unsigned char)pesHeader[8]){
         INFO_MSG("Not enough data (%d / %d) on track %zu (%" PRIu32 "), discarding remainder of data", paySize - offset,
-                 9 + pesHeader[8], tid, codec);
+                 9 + (unsigned char)pesHeader[8], tid, codec);
         break;
       }
 
@@ -537,7 +557,7 @@ namespace TS{
       }
       // realPayloadSize is now the whole packet
       // We substract PES_header_data_length, plus the 9 bytes of mandatory header bytes
-      realPayloadSize -= (9 + pesHeader[8]);
+      realPayloadSize -= (9 + (unsigned char)pesHeader[8]);
 
       // Read the metadata for this PES Packet
       ///\todo Determine keyframe-ness
@@ -568,22 +588,8 @@ namespace TS{
         timeStamp += TS_PTS_ROLLOVER;
       }
 
-      if (pesHeader[7] & 0x20){// ESCR - ignored
-        pesOffset += 6;
-      }
-      if (pesHeader[7] & 0x10){// ESR - ignored
-        pesOffset += 3;
-      }
-      if (pesHeader[7] & 0x08){// trick mode - ignored
-        pesOffset += 1;
-      }
-      if (pesHeader[7] & 0x04){// additional copy - ignored
-        pesOffset += 1;
-      }
-      if (pesHeader[7] & 0x02){// crc - ignored
-        pesOffset += 2;
-      }
-
+      // PES_header_data_length includes extensions and stuffing, even when their fields are unused.
+      pesOffset = 9 + (unsigned char)pesHeader[8];
       if (paySize - offset - pesOffset != realPayloadSize){
         WARN_MSG("Packet loss detected (%" PRIu64 " != %" PRIu64 "), throwing away data to compensate",
                  paySize - offset - pesOffset, realPayloadSize);
@@ -604,7 +610,7 @@ namespace TS{
 
       // Shift the offset by the payload size, the mandatory headers and the optional
       // headers/padding
-      offset += realPayloadSize + (9 + pesHeader[8]);
+      offset += realPayloadSize + (9 + (unsigned char)pesHeader[8]);
     }
     if (finished && (codec == H264 || codec == H265)) {
       if (buildPacket.count(tid) && buildPacket[tid].getDataStringLen()){
@@ -626,6 +632,11 @@ namespace TS{
     // Create a new (empty) DTSC Packet at the end of the buffer
     unsigned long thisCodec = pidToCodec[tid];
     std::deque<DTSC::Packet> &out = outPackets[tid];
+    if (thisCodec == PRIVATE) {
+      const aac::adts header(pesPayload, realPayloadSize);
+      if (!header || !header.getFrequency() || !header.getChannelCount()) { return; }
+      thisCodec = pidToCodec[tid] = AAC;
+    }
     if (thisCodec == AAC){
       // Parse all the ADTS packets
       uint64_t offsetInPes = 0;
@@ -678,7 +689,16 @@ namespace TS{
         }
       }
     }
-    if (thisCodec == ID3 || thisCodec == AC3 || thisCodec == MP2 || thisCodec == META){
+    if (thisCodec == AC3 || thisCodec == EAC3) {
+      for (size_t offset = 0; offset + 7 <= realPayloadSize; ++offset) {
+        const ::AC3::Header header = ::AC3::parse(pesPayload + offset, realPayloadSize - offset);
+        if (header.valid && header.streamType != 1) {
+          ac3Headers[tid] = header;
+          break;
+        }
+      }
+    }
+    if (thisCodec == ID3 || thisCodec == AC3 || thisCodec == EAC3 || thisCodec == MP2 || thisCodec == META) {
       out.push_back(DTSC::Packet());
       out.back().genericFill(timeStamp, timeOffset, tid, pesPayload, realPayloadSize, bPos, 0);
       if (thisCodec == MP2 && !mp2Hdr.count(tid)){
@@ -854,6 +874,7 @@ namespace TS{
         pesPayload = nextPtr + 3;
       }
     }
+
     if (thisCodec == MPEG2){
       const char *origBegin = pesPayload;
       size_t origSize = realPayloadSize;
@@ -1136,6 +1157,7 @@ namespace TS{
         trkDta.height = info.height;
         trkDta.fpks = info.fps * 1000;
       }break;
+
       case ID3:{
         addNewTrack = true;
         trkDta.type = "meta";
@@ -1148,11 +1170,17 @@ namespace TS{
         trkDta.codec = "RAW";
         trkDta.init = metaInit[it->first];
       }break;
-      case AC3:{
+      case AC3:
+      case EAC3: {
+        if (!ac3Headers.count(it->first) || !ac3Headers[it->first].valid) { break; }
+        const ::AC3::Header & header = ac3Headers[it->first];
         addNewTrack = true;
         trkDta.type = "audio";
-        trkDta.codec = "AC3";
+        trkDta.codec = header.enhanced ? "EAC-3" : "AC3";
         trkDta.size = 16;
+        trkDta.rate = header.rate;
+        trkDta.channels = header.channels;
+        if (header.enhanced) { trkDta.init = ::AC3::makeDEC3(header); }
       }break;
       case JSON:{
         addNewTrack = true;
@@ -1259,7 +1287,10 @@ namespace TS{
 
       // Add track to meta here, if newTrack is set. Otherwise only re-initialize values
       if (idx == INVALID_TRACK_ID){
-        if (!addNewTrack){return;}
+        if (!addNewTrack) {
+          if (tid != INVALID_TRACK_ID) { return; }
+          continue;
+        }
         trkDta.id = mId;
         if (outputName.size()) { trkDta.output = trkDta.type == "video" ? outputName : outputName + "." + trkDta.type; }
         idx = meta.addOrResumeDelayedTrack(trkDta);
@@ -1296,11 +1327,17 @@ namespace TS{
           ProgramMappingEntry entry = mappingTable[pid].getEntry(0);
           // Add all tracks in PMT
           while (entry){
+            if (!pidToCodec.count(entry.getElementaryPid())) {
+              entry.advance();
+              continue;
+            }
             switch (entry.getStreamType()){
             case H264:
             case AAC:
             case H265:
             case AC3:
+            case EAC3:
+            case 0x84:
             case SCTE35:
             case ID3:
             case MP2:

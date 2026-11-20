@@ -207,6 +207,7 @@ namespace Mist{
     virtual void connStats(uint64_t now, Comms::Connections &statComm);
 
     std::set<size_t> getSupportedTracks(const std::string &type = "") const;
+    virtual bool trackReadyForOutput(size_t track) const { return true; }
 
     inline virtual bool keepGoing() { return Util::Config::is_active && myConn; }
 

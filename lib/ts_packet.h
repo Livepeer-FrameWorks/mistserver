@@ -171,12 +171,16 @@ namespace TS{
     short getPCRPID() const;
     void setPCRPID(short newVal);
     short getProgramInfoLength() const;
+    const char *getProgramInfo() const;
     void setProgramInfo(const std::string & newVal);
     void parseStreams();
     ProgramMappingEntry getEntry(int index) const;
     int getCRC() const;
     void calcCRC();
     std::string toPrettyString(size_t indent) const;
+
+  private:
+    bool descriptorBounds(size_t & offset, size_t & end) const;
   };
 
   class ServiceDescriptionEntry{

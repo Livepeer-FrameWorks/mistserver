@@ -116,6 +116,7 @@ std::string Util::codecString(const std::string & codec, const std::string & ini
   if (codec == "AAC"){return "mp4a.40.2";}
   if (codec == "MP3") { return webCodec ? "mp3" : "mp4a.40.34"; }
   if (codec == "AC3"){return "mp4a.a5";}
+  if (codec == "EAC-3") { return "ec-3"; }
   if (codec == "AV1"){
     if (initData.size() < 4){return "av01";}// Can't determine properties. :-(
     std::stringstream r;

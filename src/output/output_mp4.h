@@ -105,6 +105,9 @@ namespace Mist{
     void onWebsocketFrame();
     virtual void dropTrack(size_t trackId, const std::string &reason, bool probablyBad = true);
   protected:
+    bool trackReadyForOutput(size_t track) const override;
+    std::set<size_t> fileHeaderTracks;
+    bool waitForRecordingAudioSetup();
     bool isFileTarget(){return isRecording();}
     void initializePartOrder();
     void sendWebsocketCodecData(const std::string& type);

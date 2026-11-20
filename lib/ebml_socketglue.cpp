@@ -1,5 +1,6 @@
 #include "ebml_socketglue.h"
 
+#include "ac3.h"
 #include "bitfields.h"
 
 namespace EBML{
@@ -367,6 +368,10 @@ namespace EBML{
       trueCodec = "PCMLE";
       trueType = "audio";
     }
+    if (codec == "A_EAC3") {
+      trueCodec = "EAC-3";
+      trueType = "audio";
+    }
     if (codec == "A_AC3") {
       trueCodec = "AC3";
       trueType = "audio";
@@ -607,6 +612,20 @@ namespace EBML{
     withData = enable;
   }
 
+  static void learnEAC3(const Block & block, DTSC::Meta & meta) {
+    const size_t idx = meta.trackIDToIndex(block.getTrackNum(), getpid());
+    if (idx == INVALID_TRACK_ID || meta.getCodec(idx) != "EAC-3" || AC3::validDEC3(meta.getInit(idx))) { return; }
+    for (size_t frame = 0; frame < block.getFrameCount(); ++frame) {
+      const AC3::Header header = AC3::parse(block.getFrameData(frame), block.getFrameSize(frame));
+      if (header.valid && header.enhanced && header.streamType != 1) {
+        meta.setInit(idx, AC3::makeDEC3(header));
+        meta.setRate(idx, header.rate);
+        meta.setChannels(idx, header.channels);
+        return;
+      }
+    }
+  }
+
   void toDTSC::parseElement(const Element & E, const uint64_t bpos, DTSC::Meta & meta) {
     lastClusterBPos = bpos;
     if (E.getID() == EBML::EID_TIMECODE) {
@@ -640,6 +659,7 @@ namespace EBML{
       }
 
       EBML::Block B(E);
+      learnEAC3(B, meta);
       parseBlock(B, meta);
     }
   }

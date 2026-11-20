@@ -51,6 +51,51 @@ namespace {
 } // namespace
 
 int main() {
+  {
+    DTSC::Meta meta;
+    meta.reInit("", true);
+    const size_t track = addTrack(meta, 102, "audio", "AAC");
+    meta.setRate(track, 44100);
+    meta.setChannels(track, 2);
+    std::set<size_t> selected{track};
+    TS::Packet packet;
+    packet.FromPointer(TS::createPMT(selected, meta));
+    TS::ProgramMappingTable pmt;
+    pmt = packet;
+    auto entry = pmt.getEntry(0);
+    const size_t oldLength = entry.getESInfoLength();
+    entry.setStreamType(0x06);
+    entry.setESInfo("");
+    pmt.setSectionLength(pmt.getSectionLength() - oldLength);
+    pmt.calcCRC();
+    TS::Stream stream;
+    TS::Packet pat;
+    pat.FromPointer(TS::PAT);
+    stream.parse(pat, 0);
+    stream.parse(pmt, 188);
+    const std::string adts("\xff\xf1\x50\x80\x01\x7f\xfc\x01\x02\x03\x04", 11);
+    assert(aac::adts(adts.data(), adts.size()));
+    std::string pes;
+    TS::Packet::getPESAudioLeadIn(pes, adts.size(), 90000, 128000);
+    pes += adts;
+    packet.clear();
+    packet.setPID(TS::getUniqTrackID(meta, track));
+    packet.setUnitStart(true);
+    packet.fillFree(pes.data(), pes.size());
+    packet.addStuffing();
+    stream.parse(packet, 376);
+    stream.finish();
+    if (!stream.hasPacket()) {
+      fprintf(stderr, "AAC carried as private PES stream_type 0x06 was dropped\n");
+      return 1;
+    }
+    DTSC::Meta parsed;
+    parsed.reInit("", true);
+    stream.initializeMetadata(parsed);
+    const auto tracks = parsed.getValidTracks();
+    assert(!tracks.empty() && parsed.getCodec(*tracks.begin()) == "AAC");
+  }
+
   std::string reorderedPes;
   TS::Packet::getPESVideoLeadIn(reorderedPes, 10, 90000, -3600, true);
   assert((reorderedPes[7] & 0xC0) == 0xC0);

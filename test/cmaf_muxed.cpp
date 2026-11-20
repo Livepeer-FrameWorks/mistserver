@@ -54,6 +54,22 @@ int main() {
     return 1;
   }
 
+  // A newly announced EAC-3 track cannot suppress ready video before its first audio PES.
+  meta.setCodec(audio, "EAC-3");
+  meta.setInit(audio, "");
+  Util::ResizeablePointer videoOnlyInit;
+  if (!CMAF::header(videoOnlyInit, meta, selected)) {
+    std::cerr << "missing EAC-3 setup suppressed the video initialization" << std::endl;
+    return 1;
+  }
+  MP4::Box videoFtyp((char *)videoOnlyInit, false);
+  MP4::Box videoMoov((char *)videoOnlyInit + videoFtyp.boxedSize(), false);
+  if (((MP4::MOOV &)videoMoov).getChildren("trak").size() != 1) {
+    std::cerr << "missing EAC-3 setup emitted an unusable audio track" << std::endl;
+    return 1;
+  }
+  meta.setCodec(audio, "AAC");
+
   CMAF::MuxedFragment fragment;
   if (!CMAF::muxedFragment(fragment, meta, selected, 1000, 1120, 7)) {
     std::cerr << "muxed fragment builder rejected aligned two-track range; video parts "

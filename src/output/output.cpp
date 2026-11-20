@@ -612,7 +612,15 @@ namespace Mist{
   }
 
   std::set<size_t> Output::getSupportedTracks(const std::string &type) const{
-    return Util::getSupportedTracks(M, capa, type);
+    std::set<size_t> supported = Util::getSupportedTracks(M, capa, type);
+    for (auto track = supported.begin(); track != supported.end();) {
+      if (!trackReadyForOutput(*track)) {
+        supported.erase(track++);
+      } else {
+        ++track;
+      }
+    }
+    return supported;
   }
 
   /// Automatically selects the tracks that are possible and/or wanted.
@@ -645,6 +653,13 @@ namespace Mist{
       }
     }
     std::set<size_t> newSelects = Util::wouldSelect(M, selectionParams, capa, UA, autoSeek ? seekTarget : 0);
+    for (auto track = newSelects.begin(); track != newSelects.end();) {
+      if (!trackReadyForOutput(*track)) {
+        newSelects.erase(track++);
+      } else {
+        ++track;
+      }
+    }
     const bool processControlledRecording = isRecordingToFile && processingControlledRealtime();
     if (processControlledRecording) {
       refreshProcessStreamState();

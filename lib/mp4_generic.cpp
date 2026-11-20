@@ -1,7 +1,9 @@
+#include "mp4_generic.h"
+
+#include "ac3.h"
 #include "defines.h"
 #include "h264.h"
 #include "h265.h"
-#include "mp4_generic.h"
 
 namespace MP4{
   MFHD::MFHD(uint32_t sequenceNumber){
@@ -1092,11 +1094,19 @@ namespace MP4{
   bool DCDescriptor::isAAC(){return (getData()[0] == 0x40);}
 
   std::string DCDescriptor::getCodec(){
-    switch (getData()[0]){
-    case 0x40: return "AAC"; break;
-    case 0x69:
-    case 0x6B: return "MP3"; break;
-    default: return "UNKNOWN";
+    if (!getDataSize()) { return "UNKNOWN"; }
+    switch ((unsigned char)getData()[0]) {
+      case 0x60:
+      case 0x61:
+      case 0x62:
+      case 0x63:
+      case 0x64:
+      case 0x65:
+      case 0x6A: return "MPEG2";
+      case 0x40: return "AAC"; break;
+      case 0x69:
+      case 0x6B: return "MP3"; break;
+      default: return "UNKNOWN";
     }
   }
 
@@ -1225,6 +1235,18 @@ namespace MP4{
     r << std::string(indent, ' ') << "[esds] ES Descriptor Box (" << boxedSize() << ")" << std::endl;
     r << getESDescriptor().toPrettyString(indent + 1);
     return r.str();
+  }
+
+  DEC3::DEC3(const std::string & init) {
+    memcpy(data + 4, "dec3", 4);
+    if (reserve(payloadOffset, payloadSize(), init.size()) && init.size()) {
+      memcpy(payload(), init.data(), init.size());
+    }
+  }
+
+  std::string DEC3::toPrettyString(uint32_t indent) {
+    const AC3::Header h = AC3::parseDEC3(payload(), payloadSize());
+    return std::string(indent, ' ') + "[dec3] Enhanced AC-3, channels=" + std::to_string(h.channels) + "\n";
   }
 
   DAC3::DAC3(unsigned int rate, unsigned int channels){
@@ -3053,6 +3075,10 @@ namespace MP4{
       setCodec("ac-3");
       MP4::DAC3 dac3Box(M.getRate(idx), M.getChannels(idx));
       setCodecBox(dac3Box);
+    } else if (tCodec == "EAC-3") {
+      setCodec("ec-3");
+      MP4::DEC3 dec3Box(M.getInit(idx));
+      setCodecBox(dec3Box);
     } else if (tCodec == "opus") {
       setCodec("Opus");
       setSampleSize(16);

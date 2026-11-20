@@ -913,7 +913,9 @@ namespace TS{
     boundary = end;
   }
 
-  ProgramMappingEntry::operator bool() const{return data && (data < boundary);}
+  ProgramMappingEntry::operator bool() const {
+    return data && boundary && boundary >= data && boundary - data >= 5 && getESInfoLength() <= boundary - data - 5;
+  }
 
   int ProgramMappingEntry::getStreamType() const{return data[0];}
 
@@ -946,6 +948,7 @@ namespace TS{
     case 0x1B: return "H264";
     case 0x24: return "HEVC";
     case 0x81: return "AC3";
+    case 0x87: return "EAC-3";
     case 0x86: return "SCTE35";
     default: return "unknown";
     }
@@ -1111,9 +1114,29 @@ namespace TS{
     strBuf[loc + 1] = (char)newVal;
   }
 
+  bool ProgramMappingTable::descriptorBounds(size_t & offset, size_t & end) const {
+    if (getAdaptationField() != 1 && getAdaptationField() != 3) { return false; }
+    const size_t payload = 4 + (getAdaptationField() == 3 ? (unsigned char)strBuf[4] + 1 : 0);
+    if (payload >= 188) { return false; }
+    offset = payload + (unsigned char)strBuf[payload];
+    if (offset > 188 - 13) { return false; }
+    const size_t sectionLength = (((unsigned char)strBuf[offset + 2] & 0x0f) << 8) | (unsigned char)strBuf[offset + 3];
+    if (sectionLength < 13 || sectionLength > 188 - offset - 4) { return false; }
+    end = offset + sectionLength;
+    return true;
+  }
+
   short ProgramMappingTable::getProgramInfoLength() const{
-    unsigned int loc = 4 + (getAdaptationField() > 1 ? getAdaptationFieldLen() + 1 : 0) + getOffset() + 11;
-    return (((short)strBuf[loc] & 0x0F) << 8) | strBuf[loc + 1];
+    size_t offset, end;
+    if (!descriptorBounds(offset, end)) { return 0; }
+    const size_t length = (((unsigned char)strBuf[offset + 11] & 0x0f) << 8) | (unsigned char)strBuf[offset + 12];
+    return length <= end - offset - 13 ? length : 0;
+  }
+
+  const char *ProgramMappingTable::getProgramInfo() const {
+    size_t offset, end;
+    if (!descriptorBounds(offset, end)) { return strBuf + 188; }
+    return strBuf + offset + 13;
   }
 
   void ProgramMappingTable::setProgramInfo(const std::string & newVal) {
@@ -1125,11 +1148,13 @@ namespace TS{
   }
 
   ProgramMappingEntry ProgramMappingTable::getEntry(int index) const{
-    int dataOffset = 4 + (getAdaptationField() > 1 ? getAdaptationFieldLen() + 1 : 0) + getOffset();
-    ProgramMappingEntry res((char *)(strBuf + dataOffset + 13 + getProgramInfoLength()),
-                            (char *)(strBuf + dataOffset + getSectionLength()));
-    for (int i = 0; i < index; i++){res.advance();}
-    return res;
+    size_t offset, end;
+    if (index < 0 || !descriptorBounds(offset, end)) { return ProgramMappingEntry(0, 0); }
+    const size_t length = (((unsigned char)strBuf[offset + 11] & 0x0f) << 8) | (unsigned char)strBuf[offset + 12];
+    if (length > end - offset - 13) { return ProgramMappingEntry(0, 0); }
+    ProgramMappingEntry result((char *)strBuf + offset + 13 + length, (char *)strBuf + end);
+    for (int i = 0; i < index && result; ++i) { result.advance(); }
+    return result;
   }
 
   int ProgramMappingTable::getCRC() const{
@@ -1202,7 +1227,9 @@ namespace TS{
 
   std::string ProgramDescriptors::getTag(uint8_t tag) const {
     for (uint32_t p = 0; p + 1 < p_len; p += p_data[p + 1] + 2){
-      if (p_data[p] == tag) { return std::string(p_data + p + 2, p_data[p + 1]); }
+      const uint32_t length = (unsigned char)p_data[p + 1];
+      if (length > p_len - p - 2) { return ""; }
+      if ((unsigned char)p_data[p] == tag) { return std::string(p_data + p + 2, length); }
     }
     // No tag found! Empty string by default.
     return "";
@@ -1502,6 +1529,7 @@ namespace TS{
       if (codec == "ID3" || codec == "RAW"){sectionLen += M.getInit(*it).size();}
       if (codec == "AAC"){sectionLen += 4;} // length of AAC descriptor
       if (codec == "opus"){sectionLen += 10;} // 6 bytes registration desc, 4 bytes opus desc
+      if (codec == "EAC-3") { sectionLen += 6; }
       if (codec == "JSON") { sectionLen += 6; } // 6 bytes registration desc
       if (codec == "AV1") { sectionLen += 12; } // 6 bytes registration desc, 6 bytes AV1 desc
       if (codec == "SCTE35") {
@@ -1581,6 +1609,9 @@ namespace TS{
         char freq[4];
         Bit::htob24(freq, M.getRate(*it));
         es_info.append(freq, 3);
+      } else if (codec == "EAC-3") {
+        entry.setStreamType(0x87);
+        es_info.append("\005\004EAC3", 6);
       } else if (codec == "AC3") {
         entry.setStreamType(0x81);
       } else if (codec == "ID3") {

@@ -1,5 +1,6 @@
 #include "cmaf.h"
 
+#include "ac3.h"
 #include "bitfields.h"
 #include "mp4_dash.h"
 #include "mp4_generic.h"
@@ -33,6 +34,7 @@ namespace CMAF{
   }
 
   std::string trackHeader(const DTSC::Meta &M, size_t track, bool simplifyTrackIds){
+    if (M.getCodec(track) == "EAC-3" && !AC3::validDEC3(M.getInit(track))) { return ""; }
     std::string tType = M.getType(track);
 
     std::stringstream header;
@@ -179,6 +181,11 @@ namespace CMAF{
   }
 
   bool header(Util::ResizeablePointer & headOut, const DTSC::Meta & M, const std::map<size_t, Comms::Users> & userSelect) {
+    std::set<size_t> unready;
+    for (const auto & track : userSelect) {
+      if (M.getCodec(track.first) == "EAC-3" && !AC3::validDEC3(M.getInit(track.first))) { unready.insert(track.first); }
+    }
+    if (unready.size() == userSelect.size()) { return false; }
     // MP4 Files always start with an FTYP box. Constructor sets default values
     MP4::FTYP ftypBox;
     ftypBox.setMajorBrand("isom");
@@ -197,10 +204,11 @@ namespace CMAF{
     // Construct with duration of -1, as this is the default for fragmented
     MP4::MVHD mvhdBox(0);
     // Set the trackid for the first "empty" track within the file.
-    mvhdBox.setTrackID(userSelect.size() + 1);
+    mvhdBox.setTrackID(userSelect.size() - unready.size() + 1);
     moovBox.setContent(mvhdBox, moovOffset++);
 
     for (std::map<size_t, Comms::Users>::const_iterator it = userSelect.begin(); it != userSelect.end(); it++) {
+      if (unready.count(it->first)) { continue; }
       DTSC::Parts parts(M.parts(it->first));
       DTSC::Keys keys = M.getKeys(it->first);
       std::string tType = M.getType(it->first);
@@ -302,6 +310,7 @@ namespace CMAF{
 
     mvexBox.setContent(mehdBox, curBox++);
     for (std::map<size_t, Comms::Users>::const_iterator it = userSelect.begin(); it != userSelect.end(); it++) {
+      if (unready.count(it->first)) { continue; }
       MP4::TREX trexBox(it->first + 1);
       trexBox.setDefaultSampleDuration(1000);
       mvexBox.setContent(trexBox, curBox++);

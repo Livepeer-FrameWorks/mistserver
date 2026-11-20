@@ -1,7 +1,8 @@
 #include "mp4_stream.h"
+
+#include "ac3.h"
 #include "h264.h"
 #include "mp4_dash.h"
-
 
 namespace MP4{
 
@@ -194,7 +195,7 @@ namespace MP4{
       INFO_MSG("Unsupported handler: %s", handler.c_str());
     }
 
-    if (sType == "avc1" || sType == "h264" || sType == "mp4v"){
+    if (sType == "avc1" || sType == "h264") {
       codec = "H264";
       isCompatible = true;
       VisualSampleEntry &vEntryBox = (VisualSampleEntry &)sEntryBox;
@@ -213,6 +214,25 @@ namespace MP4{
           vidWidth = iData.width;
           vidHeight = iData.height;
         }
+      }
+    }
+    if (sType == "mp4v") {
+      VisualSampleEntry & entry = (VisualSampleEntry &)sEntryBox;
+      if (!vidWidth) {
+        vidWidth = entry.getWidth();
+        vidHeight = entry.getHeight();
+      }
+      for (size_t offset = 78; offset + 8 <= entry.payloadSize();) {
+        const uint32_t size = Bit::btohl(entry.payload() + offset);
+        if (size < 8 || size > entry.payloadSize() - offset) { break; }
+        MP4::Box child(entry.payload() + offset, false);
+        if (child.isType("esds")) {
+          MP4::ESDS & esds = (MP4::ESDS &)child;
+          codec = esds.getCodec();
+          isCompatible = codec == "MPEG2";
+          initData = esds.getInitData();
+        }
+        offset += size;
       }
     }
     if (sType == "hev1" || sType == "hvc1"){
@@ -259,13 +279,25 @@ namespace MP4{
         vidHeight = vEntryBox.getHeight();
       }
     }
-    if (sType == "mp4a" || sType == "aac " || sType == "ac-3" || sType == "Opus") {
+    if (sType == "mp4a" || sType == "aac " || sType == "ac-3" || sType == "ec-3" || sType == "Opus") {
       MP4::AudioSampleEntry &aEntryBox = (MP4::AudioSampleEntry &)sEntryBox;
       audRate = aEntryBox.getSampleRate();
       audChannels = aEntryBox.getChannelCount();
       audSize = 16; /// \TODO Actually get this from somewhere, probably..?
 
-      if (sType == "ac-3"){
+      if (sType == "ec-3") {
+        MP4::Box coding = aEntryBox.getCodecBox();
+        if (coding.isType("dec3")) {
+          initData.assign(coding.payload(), coding.payloadSize());
+          const AC3::Header header = AC3::parseDEC3(initData.data(), initData.size());
+          codec = "EAC-3";
+          isCompatible = header.valid;
+          if (header.valid) {
+            audChannels = header.channels;
+            if (header.rate) { audRate = header.rate; }
+          }
+        }
+      } else if (sType == "ac-3") {
         codec = "AC3";
         isCompatible = true;
       }else{
@@ -273,7 +305,7 @@ namespace MP4{
         if (codingBox.getType() == "esds"){
           MP4::ESDS & esdsBox = (MP4::ESDS &)codingBox;
           codec = esdsBox.getCodec();
-          isCompatible = true;
+          isCompatible = codec != "UNKNOWN";
           initData = esdsBox.getInitData();
         }
         if (codingBox.getType() == "wave"){
@@ -283,7 +315,7 @@ namespace MP4{
             if (content.getType() == "esds"){
               MP4::ESDS & esdsBox = (MP4::ESDS &)content;
               codec = esdsBox.getCodec();
-              isCompatible = true;
+              isCompatible = codec != "UNKNOWN";
               initData = esdsBox.getInitData();
             }
           }

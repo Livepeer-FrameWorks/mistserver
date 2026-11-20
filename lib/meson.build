@@ -1,5 +1,6 @@
 
 headers = [
+  'ac3.h',
   'adts.h',
   'amf.h',
   'auth.h',
@@ -99,6 +100,7 @@ endif
 install_headers(headers, subdir: 'mist')
 
 libmist = library('mist',
+  'ac3.cpp',
   'adts.cpp',
   'amf.cpp',
   'auth.cpp',

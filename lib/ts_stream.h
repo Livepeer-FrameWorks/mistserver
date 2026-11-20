@@ -1,6 +1,8 @@
+#include "ac3.h"
 #include "adts.h"
 #include "h265.h"
 #include "ts_packet.h"
+
 #include <deque>
 #include <map>
 #include <set>
@@ -12,6 +14,7 @@ namespace TS{
     H264 = 0x1B,
     AAC = 0x0F,
     AC3 = 0x81,
+    EAC3 = 0x87,
     SCTE35 = 0x86,
     MP3 = 0x03,
     H265 = 0x24,
@@ -21,7 +24,7 @@ namespace TS{
     META = 0x06,
   };
 
-  enum rawDataType { NONE = 0x060000, OPUS, JSON, AV1, PCM };
+  enum rawDataType { NONE = 0x060000, OPUS, JSON, AV1, PCM, PRIVATE };
 
   class ADTSRemainder{
   private:
@@ -73,6 +76,7 @@ namespace TS{
     void delay(bool doDelay) { delayTracks = doDelay; }
     void eraseTrack(size_t tid);
     bool isDataTrack(size_t tid) const;
+    void setM2TS(bool value) { m2ts = value; }
     void parseBitstream(size_t tid, const char *pesPayload, uint64_t realPayloadSize,
                         uint64_t timeStamp, int64_t timeOffset, uint64_t bPos, bool alignment);
     std::set<size_t> getActiveTracks(bool mediaOnly = false);
@@ -120,6 +124,8 @@ namespace TS{
     std::map<size_t, size_t> rolloverCount;
     std::map<size_t, uint64_t> lastms;
 
+    bool m2ts = false;
+    std::map<size_t, ::AC3::Header> ac3Headers;
     void parsePES(size_t tid, uint32_t codec, bool finished = false);
   };
 

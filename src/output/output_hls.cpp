@@ -255,6 +255,7 @@ namespace Mist{
     capa["codecs"][0u][3u].append("+AAC");
     capa["codecs"][0u][4u].append("+MP3");
     capa["codecs"][0u][5u].append("+AC3");
+    capa["codecs"][0u][5u].append("+EAC-3");
     capa["codecs"][0u][6u].append("+MP2");
     capa["codecs"][0u][7u].append("+subtitle");
     { // playback method

@@ -41,6 +41,7 @@ namespace Mist{
     bool isReadyForPlay();
 
   protected:
+    bool trackReadyForOutput(size_t track) const override;
     virtual void connStats(uint64_t now, Comms::Connections &statComm);
     void onTrackEnd(size_t idx);
     bool hasSessionIDs(){return !config->getBool("mergesessions");}

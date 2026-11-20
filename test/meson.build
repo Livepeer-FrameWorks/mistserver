@@ -1243,3 +1243,11 @@ if exec_tgts.has_key('MistProcFFMPEG')
   test('Processor output declarations leave no runtime heartbeat pages', find_program('python3'),
        args: [files('process_declaration_ipc.py'), exec_tgts.get('MistProcFFMPEG')], suite: 'Processing', timeout: 30, is_parallel: false)
 endif
+
+ac3test = executable('ac3test', 'ac3_unit.cpp', header_tgts, dependencies: libmist_dep)
+test('AC3 and EAC-3 headers preserve surround metadata and DEC3', ac3test, suite: 'audio')
+test('EAC-3 dependent substreams retain 7.1 channel metadata', ac3test, args: ['dependent'], suite: 'audio')
+test('EAC-3 access units aggregate dependent substream channels', ac3test, args: ['aggregate'], suite: 'audio')
+test('Blu-ray extended PES preserves private audio', ac3test, args: ['pes-extension'], suite: 'MPEG-TS')
+mp4uploadcodectest = executable('mp4uploadcodectest', 'mp4_upload_codec_unit.cpp', header_tgts, dependencies: libmist_dep)
+test('MP4 upload codec object types are not mislabeled as H264', mp4uploadcodectest, suite: 'MP4')

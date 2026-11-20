@@ -1,5 +1,6 @@
 #include "output_mp4.h"
 
+#include <mist/ac3.h>
 #include <mist/bitfields.h>
 #include <mist/checksum.h>
 #include <mist/defines.h>
@@ -17,6 +18,11 @@ std::set<std::string> supportedAudio;
 std::set<std::string> supportedVideo;
 
 namespace Mist{
+  bool OutMP4::trackReadyForOutput(size_t track) const {
+    if (sentHeader && !fileHeaderTracks.empty() && !fileHeaderTracks.count(track)) { return false; }
+    return M.getCodec(track) != "EAC-3" || AC3::validDEC3(M.getInit(track));
+  }
+
   std::string toUTF16(const std::string &original){
     std::stringstream result;
     result << (char)0xFF << (char)0xFE;
@@ -133,6 +139,7 @@ namespace Mist{
     capa["codecs"][0u][1u].append("AAC");
     capa["codecs"][0u][1u].append("MP3");
     capa["codecs"][0u][1u].append("AC3");
+    capa["codecs"][0u][1u].append("EAC-3");
     capa["codecs"][0u][1u].append("opus");
     jsonForEach(capa["codecs"][0u][0u], i){supportedVideo.insert(i->asStringRef());}
     jsonForEach(capa["codecs"][0u][1u], i){supportedAudio.insert(i->asStringRef());}
@@ -324,6 +331,9 @@ namespace Mist{
           if (M.getInit(it->first).size()) {
             tmpRes += 2 + M.getInit(it->first).size(); // ESDS - Content expansion
           }
+        } else if (codec == "AC3" || codec == "EAC-3") {
+          MP4::AudioSampleEntry entry(M, it->first);
+          tmpRes += entry.getCodecBox().boxedSize();
         } else if (codec == "opus") {
           // Normally the dOps box is the same size as the init data, but it may need normalisation.
           // Rather than duplicating the code, we just make a temp box and measure its size.
@@ -410,6 +420,12 @@ namespace Mist{
 
 
   bool OutMP4::mp4Header(Util::ResizeablePointer & headOut, uint64_t &size, int fragmented){
+    std::set<size_t> unready;
+    for (const auto & track : userSelect) {
+      if (!trackReadyForOutput(track.first)) { unready.insert(track.first); }
+    }
+    for (const size_t track : unready) { dropTrack(track, "codec setup is not available yet", false); }
+    if (userSelect.empty()) { return false; }
     uint32_t mainTrack = M.mainTrack();
     if (mainTrack == INVALID_TRACK_ID){return false;}
     // Clear size if it was set before the function was called, just in case
@@ -1447,6 +1463,47 @@ namespace Mist{
     }
   }
 
+  bool OutMP4::waitForRecordingAudioSetup() {
+    // A file cannot add a track after its moov is written. Serving requests remain nonblocking.
+    const auto audioMode = targetParams.find("audio");
+    if (audioMode != targetParams.end() && (audioMode->second == "none" || audioMode->second == "-1")) { return true; }
+    const std::set<size_t> current = Util::wouldSelect(M, targetParams, capa, UA, 0);
+    if (audioMode == targetParams.end()) {
+      for (size_t track : current) {
+        if (M.getType(track) == "audio") { return true; }
+      }
+    }
+    // Include empty tracks: wouldSelect deliberately hides tracks before their first packet.
+    const std::set<size_t> desired =
+      Util::pickTracks(M, M.getValidTracks(), "audio", audioMode == targetParams.end() ? "all" : audioMode->second);
+    std::set<size_t> pending;
+    for (size_t track : desired) {
+      if (M.getCodec(track) == "EAC-3" && (!AC3::validDEC3(M.getInit(track)) || !M.parts(track).getPresent())) {
+        pending.insert(track);
+      }
+    }
+    if (pending.empty()) { return true; }
+    const uint64_t deadline = Util::bootMS() + 1500;
+    while (config->is_active && Util::bootMS() < deadline) {
+      meta.reloadReplacedPagesIfNeeded();
+      for (auto track = pending.begin(); track != pending.end();) {
+        if (M.trackLoaded(*track) && AC3::validDEC3(M.getInit(*track)) && M.parts(*track).getPresent()) {
+          pending.erase(track++);
+        } else {
+          ++track;
+        }
+      }
+      if (pending.empty()) { break; }
+      Util::sleep(10);
+    }
+    if (!config->is_active) { return false; }
+    for (size_t track : pending) {
+      WARN_MSG("Recording omitted EAC-3 track %zu after 1500 ms waiting for codec setup and its first packet", track);
+    }
+    selectDefaultTracks();
+    return true;
+  }
+
   void OutMP4::sendHeader(){
 
     if (webSock) {
@@ -1476,11 +1533,15 @@ namespace Mist{
 
     // If we're doing piped output or output to file, we still need to write the actual header here...
     if (!streamName.size() || isFileTarget()){
+      if (!waitForRecordingAudioSetup()) { return; }
       Util::ResizeablePointer headerData;
       if (!mp4Header(headerData, fileSize, M.getLive())){
-        FAIL_MSG("Could not generate MP4 header!");
+        onFail("Could not generate MP4 header", true);
+        return;
       }else{
         myConn.SendNow(headerData, headerData.size());
+        fileHeaderTracks.clear();
+        for (const auto & track : userSelect) { fileHeaderTracks.insert(track.first); }
       }
       seekPoint = Output::startTime();
       if (!M.getLive()) { initializePartOrder(); }

@@ -287,6 +287,12 @@ namespace MP4{
     std::string toPrettyString(uint32_t indent = 0);
   };
 
+  class DEC3 : public Box {
+    public:
+      explicit DEC3(const std::string & init);
+      std::string toPrettyString(uint32_t indent = 0);
+  };
+
   class DAC3 : public Box{
   public:
     DAC3(unsigned int rate, unsigned int channels);
