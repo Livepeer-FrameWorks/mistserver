@@ -13,6 +13,7 @@
 #include <mist/util.h>
 #include <sys/stat.h>
 
+#ifdef SSL
 class crtAndKey {
   public:
     crtAndKey() {
@@ -61,6 +62,8 @@ static int cert_callback(void *p_info, mbedtls_ssl_context *ssl, const unsigned 
   if (r) { WARN_MSG("Could not set certificate!"); }
   return r;
 }
+
+#endif
 
 const char * trackType(char ID){
   if (ID == 8){return "audio";}
