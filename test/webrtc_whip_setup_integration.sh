@@ -19,7 +19,7 @@ if [ "${MIST_RUN_MEDIA_TESTS:-}" != "1" ]; then
   exit 77
 fi
 
-ffmpeg=$1
+ffmpeg=${MIST_WHIP_FFMPEG:-$1}
 curl=$2
 controller=$3
 output_http=$4

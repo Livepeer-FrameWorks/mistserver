@@ -64,6 +64,9 @@ jobs:
             libswscale-dev \
             libswresample-dev \
             ffmpeg \
+            nasm \
+            libx264-dev \
+            libopus-dev \
             libsrtp2-dev \
             libusrsctp-dev \
             libssl-dev \
@@ -72,6 +75,11 @@ jobs:
             libpng-dev \
             zlib1g-dev
           python3 -m pip install --break-system-packages 'meson>=1.6.0'
+
+      - name: Build pinned WHIP publisher
+        run: |
+          scripts/ci/setup-whip-ffmpeg.sh --prefix "$RUNNER_TEMP/whip-ffmpeg"
+          echo "MIST_WHIP_FFMPEG=$RUNNER_TEMP/whip-ffmpeg/bin/ffmpeg" >> "$GITHUB_ENV"
 
       - name: Restore and verify locked ONNX dependencies
         uses: ./.github/actions/setup-onnx-dependencies
@@ -147,6 +155,9 @@ jobs:
             ca-certificates \
             curl \
             ffmpeg \
+            nasm \
+            libx264-dev \
+            libopus-dev \
             python3-pip \
             ninja-build \
             pkg-config \
@@ -168,6 +179,11 @@ jobs:
             libpng-dev \
             zlib1g-dev
           python3 -m pip install --break-system-packages 'meson>=1.6.0'
+
+      - name: Build pinned WHIP publisher
+        run: |
+          scripts/ci/setup-whip-ffmpeg.sh --prefix "$RUNNER_TEMP/whip-ffmpeg"
+          echo "MIST_WHIP_FFMPEG=$RUNNER_TEMP/whip-ffmpeg/bin/ffmpeg" >> "$GITHUB_ENV"
 
       - name: Restore and verify locked ONNX dependencies
         uses: ./.github/actions/setup-onnx-dependencies

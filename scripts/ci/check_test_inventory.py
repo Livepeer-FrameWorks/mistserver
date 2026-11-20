@@ -41,6 +41,7 @@ required.update({
 })
 if sys.platform.startswith('linux'):
     required.add('WebRTC signal handler owns the post-dup2 listener descriptor')
+    required.add('WHIP offers get an answer or a logged refusal, and a passive offerer can publish')
 missing = sorted(required - names)
 assert not missing, 'required regression tests are absent: ' + ', '.join(missing)
 output = build / 'meson-logs' / 'ingest-capacity-test-inventory.json'
