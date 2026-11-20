@@ -47,11 +47,13 @@ namespace EBML{
   class packetData {
     public:
       uint64_t time, offset, track, dsize, bpos;
+      uint64_t duration{0};
       bool key;
       Util::ResizeablePointer ptr;
       packetData() : time(0), offset(0), track(0), dsize(0), bpos(0), key(false) {}
       void set(uint64_t packTime, uint64_t packOffset, uint64_t packTrack, uint64_t packDataSize, uint64_t packBytePos,
                bool isKeyframe, void *dataPtr = 0) {
+        duration = 0;
         time = packTime;
         offset = packOffset;
         track = packTrack;
@@ -90,7 +92,7 @@ namespace EBML{
     public:
       void enableData(bool enable);
       void parseElement(const Element & E, const uint64_t bpos, DTSC::Meta & meta);
-      void parseBlock(const Block & B, const DTSC::Meta & M);
+      void parseBlock(const Block & B, const DTSC::Meta & M, uint64_t duration = 0, int groupKeyframe = -1);
       void finish();
       void flush();
       void postHeader(DTSC::Meta & meta);

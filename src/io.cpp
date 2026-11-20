@@ -252,17 +252,17 @@ namespace Mist{
 
   /// Buffers the next packet on the currently opened page
   ///\param pack The packet to buffer
-  void InOutBase::bufferNext(uint64_t packTime, int64_t packOffset, uint32_t packTrack, const char *packData,
-                             size_t packDataSize, uint64_t packBytePos, bool isKeyframe, IPC::sharedPage & page){
-    bufferNext(packTime, packOffset, packTrack, packData, packDataSize, packBytePos, isKeyframe, page, meta);
+  void InOutBase::bufferNext(uint64_t packTime, int64_t packOffset, uint32_t packTrack, const char *packData, size_t packDataSize,
+                             uint64_t packBytePos, bool isKeyframe, IPC::sharedPage & page, uint64_t duration) {
+    bufferNext(packTime, packOffset, packTrack, packData, packDataSize, packBytePos, isKeyframe, page, meta, duration);
   }
 
   /// Buffers the next packet on the currently opened page
   ///\param pack The packet to buffer
   void InOutBase::bufferNext(uint64_t packTime, int64_t packOffset, uint32_t packTrack, const char *packData,
-                             size_t packDataSize, uint64_t packBytePos, bool isKeyframe, IPC::sharedPage & page, DTSC::Meta & aMeta){
-    size_t packDataLen =
-        24 + (packOffset ? 17 : 0) + (packBytePos ? 15 : 0) + (isKeyframe ? 19 : 0) + packDataSize + 11;
+                             size_t packDataSize, uint64_t packBytePos, bool isKeyframe, IPC::sharedPage & page,
+                             DTSC::Meta & aMeta, uint64_t duration) {
+    size_t packDataLen = DTSC::Packet::genericSize(packOffset, packBytePos, isKeyframe, packDataSize, duration);
 
     static bool multiWrong = false;
     // Save the trackid of the track for easier access
@@ -328,6 +328,11 @@ namespace Mist{
       memcpy(data + offset, "\000\010keyframe\001\000\000\000\000\000\000\000\001", 19);
       offset += 19;
     }
+    if (duration) {
+      memcpy(data + offset, "\000\010duration\001", 11);
+      Bit::htobll(data + offset + 11, duration);
+      offset += 19;
+    }
     memcpy(data + offset, "\000\004data\002", 7);
     Bit::htobl(data + offset + 7, packDataSize);
     memcpy(data + offset + 11, packData ? packData : 0, packDataSize);
@@ -366,22 +371,22 @@ namespace Mist{
     char *data;
     size_t dataLen;
     packet.getString("data", data, dataLen);
-    bufferLivePacket(packet.getTime(), packet.getInt("offset"), idx, data, dataLen,
-                     packet.getInt("bpos"), packet.getFlag("keyframe"));
+    bufferLivePacket(packet.getTime(), packet.getInt("offset"), idx, data, dataLen, packet.getInt("bpos"),
+                     packet.getFlag("keyframe"), packet.getInt("duration"));
     /// \TODO META Build something that should actually be able to deal with "extra" values
   }
 
   /// Calls bufferLivePacket with additional argument for internal metadata reference internally.
   void InOutBase::bufferLivePacket(uint64_t packTime, int64_t packOffset, uint32_t packTrack, const char *packData,
-                                   size_t packDataSize, uint64_t packBytePos, bool isKeyframe){
-    bufferLivePacket(packTime, packOffset, packTrack, packData, packDataSize, packBytePos, isKeyframe, meta);
+                                   size_t packDataSize, uint64_t packBytePos, bool isKeyframe, uint64_t duration) {
+    bufferLivePacket(packTime, packOffset, packTrack, packData, packDataSize, packBytePos, isKeyframe, meta, duration);
   }
-  
+
   ///Buffers the given packet data into the given metadata structure.
   ///Uses class member variables livePage and curPageNum internally for bookkeeping.
   ///These member variables are not (and should not, in the future) be accessed anywhere else.
-  void InOutBase::bufferLivePacket(uint64_t packTime, int64_t packOffset, uint32_t packTrack, const char *packData,
-                                   size_t packDataSize, uint64_t packBytePos, bool isKeyframe, DTSC::Meta &aMeta){
+  void InOutBase::bufferLivePacket(uint64_t packTime, int64_t packOffset, uint32_t packTrack, const char *packData, size_t packDataSize,
+                                   uint64_t packBytePos, bool isKeyframe, DTSC::Meta & aMeta, uint64_t duration) {
     aMeta.reloadReplacedPagesIfNeeded();
     if (!aMeta) {
       if (shouldLogPacketDrop(packTrack)) {
@@ -403,7 +408,7 @@ namespace Mist{
     // Store the trackid for easier access
     Util::RelAccX &tPages = aMeta.pages(packTrack);
 
-    if (aMeta.getType(packTrack) != "video"){
+    if (aMeta.getType(packTrack) != "video") {
       isKeyframe = false;
       if (!tPages.getEndPos() || !livePage[packTrack]){
         // Assume this is the first packet on the track
@@ -536,8 +541,9 @@ namespace Mist{
 
     // Buffer the packet
     DONTEVEN_MSG("Buffering live packet (%zuB) @%" PRIu64 " ms on track %" PRIu32 " with offset %" PRIu64, packDataSize, packTime, packTrack, packOffset);
-    bufferNext(packTime, packOffset, packTrack, packData, packDataSize, packBytePos, isKeyframe, livePage[packTrack], aMeta);
-    aMeta.update(packTime, packOffset, packTrack, packDataSize, packBytePos, isKeyframe);
+    bufferNext(packTime, packOffset, packTrack, packData, packDataSize, packBytePos, isKeyframe, livePage[packTrack], aMeta, duration);
+    aMeta.update(packTime, packOffset, packTrack, packDataSize, packBytePos, isKeyframe,
+                 DTSC::Packet::genericSize(packOffset, packBytePos, isKeyframe, packDataSize, duration));
   }
 
   ///Handles updating track metadata from a new keyframe, if applicable

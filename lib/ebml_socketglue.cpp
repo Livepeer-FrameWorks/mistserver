@@ -469,10 +469,7 @@ namespace EBML{
       trueCodec = "JSON";
       trueType = "meta";
     }
-    if (codec == "S_TEXT/UTF8") {
-      trueCodec = "subtitle";
-      trueType = "meta";
-    }
+
     if (codec == "S_TEXT/ASS" || codec == "S_TEXT/SSA") {
       trueCodec = "subtitle";
       trueType = "meta";
@@ -611,9 +608,10 @@ namespace EBML{
 
     uint64_t origTime = p.time;
     // Set new timestamp to first time in sorted array
-    p.time = times[0];
-    // Subtract timeOffset if possible
-    if (p.time >= timeOffset) { p.time -= timeOffset; }
+    // Reordered frames near time zero have no room for a negative DTS. Saturate
+    // every affected timestamp consistently; leaving some unshifted moves DTS
+    // backwards when the next frame finally has enough room for the subtraction.
+    p.time = times[0] >= timeOffset ? times[0] - timeOffset : 0;
     // If possible, calculate offset based on original timestamp difference with new timestamp
     if (origTime > p.time) { p.offset = origTime - p.time; }
     // Less than 3 milliseconds off? Assume we needed 0 and it's a rounding error in timestamps.
@@ -694,6 +692,21 @@ namespace EBML{
       dateVal = E.getValDate();
       return;
     }
+    if (E.getID() == EID_BLOCKGROUP) {
+      const Element block = E.findChild(EID_BLOCK);
+      const Element duration = E.findChild(EID_BLOCKDURATION);
+      if (block) {
+        if (!timeScale && meta.inputLocalVars.isMember("timescale")) {
+          timeScale = (double)meta.inputLocalVars["timescale"].asInt() / 1000000.0;
+        }
+        if (timeScale) {
+          const Block frames(block);
+          learnEAC3(frames, meta);
+          parseBlock(frames, meta, duration ? duration.getValUInt() * timeScale : 0, !E.findChild(EID_REFERENCEBLOCK));
+        }
+      }
+      return;
+    }
     if (E.getType() == EBML::ELEM_BLOCK) {
       // Set timeScale if unset
       if (!timeScale && meta.inputLocalVars.isMember("timescale")) {
@@ -742,16 +755,19 @@ namespace EBML{
     return tmpStr;
   }
 
-  void toDTSC::parseBlock(const Block & B, const DTSC::Meta & M) {
+  void toDTSC::parseBlock(const Block & B, const DTSC::Meta & M, uint64_t duration, int groupKeyframe) {
+    // BlockGroup has no SimpleBlock key bit: absence of ReferenceBlock declares a keyframe.
+    const bool keyframe = groupKeyframe < 0 ? B.isKeyframe() : groupKeyframe != 0;
     uint64_t tNum = B.getTrackNum();
     uint64_t newTime = lastClusterTime + B.getTimecode();
     EBML::trackPredictor & TP = packBuf[tNum];
     size_t idx = M.trackIDToIndex(tNum, getpid());
     bool isVideo = (M.getType(idx) == "video");
     bool isAudio = (M.getType(idx) == "audio");
-    bool isASS = (M.getCodec(idx) == "subtitle" && M.getInit(idx).size());
+    const bool isSubtitle = M.getCodec(idx) == "subtitle";
+    bool isASS = (isSubtitle && M.getInit(idx).size());
     // If this is a new video keyframe, finish the corresponding trackPredictor
-    if (isVideo && B.isKeyframe()) { TP.finish(); }
+    if (isVideo && keyframe) { TP.finish(); }
     for (uint64_t frameNo = 0; frameNo < B.getFrameCount(); ++frameNo) {
       if (frameNo) {
         if (M.getCodec(idx) == "AAC") {
@@ -772,6 +788,7 @@ namespace EBML{
       uint32_t frameSize = B.getFrameSize(frameNo);
       if (frameSize) {
         char *ptr = (char *)B.getFrameData(frameNo);
+
         std::string assStr;
         if (isASS) {
           assStr = ASStoSRT(ptr, frameSize);
@@ -779,7 +796,9 @@ namespace EBML{
           ptr = (char *)assStr.data();
         }
         if (frameSize) {
-          TP.add(newTime * timeScale, tNum, frameSize, lastClusterBPos, B.isKeyframe() && !isAudio, isVideo, withData ? ptr : 0);
+          TP.add(newTime * timeScale, tNum, frameSize, lastClusterBPos, isSubtitle || (keyframe && !isAudio), isVideo,
+                 withData ? ptr : 0);
+          TP.pkts[(TP.ctr - 1) % PKT_COUNT].duration = duration;
           ++bufferedPacks;
         }
       }
@@ -856,7 +875,7 @@ namespace EBML{
               } break;
             }
           }
-          thisPacket.genericFill(C.time, C.offset, C.track, C.ptr, C.dsize, C.bpos, C.key);
+          thisPacket.genericFill(C.time, C.offset, C.track, C.ptr, C.dsize, C.bpos, C.key, C.duration);
           thisTime = C.time;
           TP.remove();
           --bufferedPacks;
@@ -874,7 +893,8 @@ namespace EBML{
         size_t thisIdx = meta.trackIDToIndex(it.first, getpid());
         while (TP.hasPackets()) {
           EBML::packetData & C = TP.getPacketData(meta.getType(thisIdx) == "video");
-          meta.update(C.time, C.offset, thisIdx, C.dsize, C.bpos, C.key);
+          meta.update(C.time, C.offset, thisIdx, C.dsize, C.bpos, C.key,
+                      DTSC::Packet::genericSize(C.offset, C.bpos, C.key, C.dsize, C.duration));
           if (C.key && meta.getType(thisIdx) == "video") { meta.noteIndexKeyframe(thisIdx); }
           if (dateVal) {
             meta.setUTCOffset(dateVal - C.time, UTCSRC_PROTOCOL);

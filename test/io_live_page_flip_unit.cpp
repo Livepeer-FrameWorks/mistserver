@@ -30,9 +30,23 @@ class PageFlipHarness : public Mist::InOutBase {
     }
 };
 
-int main() {
+int main(int argc, char **argv) {
   std::string name = "ioflip" + std::to_string(getpid());
   PageFlipHarness h(name);
+  if (argc > 1 && std::string(argv[1]) == "subtitle") {
+    const size_t subtitle = h.liveMeta.addTrack();
+    h.liveMeta.setType(subtitle, "meta");
+    h.liveMeta.setCodec(subtitle, "subtitle");
+    h.liveMeta.setID(subtitle, 4);
+    const char cue[] = "hello";
+    h.bufferLivePacket(2500, 0, subtitle, cue, sizeof(cue) - 1, 0, false, h.liveMeta, 1000);
+    DTSC::Keys keys(h.liveMeta.keys(subtitle));
+    if (keys.getEndValid() == keys.getFirstValid() || !h.liveMeta.pages(subtitle).getEndPos()) {
+      fprintf(stderr, "first live subtitle packet was dropped without a producer key flag\n");
+      return 1;
+    }
+    return 0;
+  }
   const char payload[16] = {0};
   const uint32_t track = 2; // exists only in the live meta
   try {

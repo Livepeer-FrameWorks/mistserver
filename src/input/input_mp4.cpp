@@ -63,6 +63,7 @@ namespace Mist{
     capa["codecs"]["audio"].append("AC3");
     capa["codecs"]["audio"].append("MP3");
     capa["codecs"]["audio"].append("opus");
+    capa["codecs"]["subtitle"].append("subtitle");
     readPos = 0;
     nextBox = 0;
   }
@@ -274,12 +275,14 @@ namespace Mist{
             tNumber = M.trackIDToIndex(it->trackId);
             if (tNumber == INVALID_TRACK_ID) { continue; }
             for (uint64_t partNo = 0; partNo < it->size(); ++partNo){
-              uint64_t prtBpos = 0, prtTime = 0;
+              uint64_t prtBpos = 0, prtTime = 0, prtDuration = 0;
               uint32_t prtBlen = 0;
               int32_t prtTimeOff = 0;
               bool prtKey = false;
-              it->getPart(partNo, &prtBpos, &prtBlen, &prtTime, &prtTimeOff, &prtKey);
-              meta.update(prtTime, prtTimeOff, tNumber, prtBlen, moovPos, prtKey && it->trackType != "audio");
+              it->getPart(partNo, &prtBpos, &prtBlen, &prtTime, &prtTimeOff, &prtKey, 0, &prtDuration);
+              const bool key = it->codec == "subtitle" || (prtKey && it->trackType != "audio");
+              meta.update(prtTime, prtTimeOff, tNumber, prtBlen, moovPos, key,
+                          DTSC::Packet::genericSize(prtTimeOff, moovPos, key, prtBlen, it->codec == "subtitle" ? prtDuration : 0));
               if (prtKey && it->trackType == "video") { meta.noteIndexKeyframe(tNumber); }
               sawParts = true;
             }
@@ -310,15 +313,17 @@ namespace Mist{
           tNumber = M.trackIDToIndex(it->trackId);
           if (tNumber == INVALID_TRACK_ID) { continue; }
           for (uint64_t partNo = 0; partNo < it->size(); ++partNo){
-            uint64_t prtBpos = 0, prtTime = 0;
+            uint64_t prtBpos = 0, prtTime = 0, prtDuration = 0;
             uint32_t prtBlen = 0;
             int32_t prtTimeOff = 0;
             bool prtKey = false;
-            it->getPart(partNo, &prtBpos, &prtBlen, &prtTime, &prtTimeOff, &prtKey, moofPos);
+            it->getPart(partNo, &prtBpos, &prtBlen, &prtTime, &prtTimeOff, &prtKey, moofPos, &prtDuration);
             // Skip any parts that are outside the file limits
             if (inFile.getSize() != std::string::npos && prtBpos + prtBlen > inFile.getSize()){continue;}
             // Note: we set the byte position to the position of the moof, so we can re-read it later with ease
-            meta.update(prtTime, prtTimeOff, tNumber, prtBlen, moofPos, prtKey && it->trackType != "audio");
+            const bool key = it->codec == "subtitle" || (prtKey && it->trackType != "audio");
+            meta.update(prtTime, prtTimeOff, tNumber, prtBlen, moofPos, key,
+                        DTSC::Packet::genericSize(prtTimeOff, moofPos, key, prtBlen, it->codec == "subtitle" ? prtDuration : 0));
             if (prtKey && it->trackType == "video") { meta.noteIndexKeyframe(tNumber); }
             sawParts = true;
           }
@@ -349,12 +354,14 @@ namespace Mist{
         tNumber = M.trackIDToIndex(it->trackId);
         if (tNumber == INVALID_TRACK_ID) { continue; }
         for (uint64_t partNo = 0; partNo < it->size(); ++partNo){
-          uint64_t prtBpos = 0, prtTime = 0;
+          uint64_t prtBpos = 0, prtTime = 0, prtDuration = 0;
           uint32_t prtBlen = 0;
           int32_t prtTimeOff = 0;
           bool prtKey = false;
-          it->getPart(partNo, &prtBpos, &prtBlen, &prtTime, &prtTimeOff, &prtKey);
-          meta.update(prtTime, prtTimeOff, tNumber, prtBlen, prtBpos, prtKey && it->trackType != "audio");
+          it->getPart(partNo, &prtBpos, &prtBlen, &prtTime, &prtTimeOff, &prtKey, 0, &prtDuration);
+          const bool key = it->codec == "subtitle" || (prtKey && it->trackType != "audio");
+          meta.update(prtTime, prtTimeOff, tNumber, prtBlen, prtBpos, key,
+                      DTSC::Packet::genericSize(prtTimeOff, prtBpos, key, prtBlen, it->codec == "subtitle" ? prtDuration : 0));
           if (prtKey && it->trackType == "video") { meta.noteIndexKeyframe(tNumber); }
           sawParts = true;
         }
@@ -409,7 +416,8 @@ namespace Mist{
           MP4::PartTime addPart;
           addPart.trackID = idx;
           for (size_t i = 0; i < headerDataSize; i++) {
-            thisHeader.getPart(i, &addPart.bpos, &addPart.size, &addPart.time, &addPart.offset, &addPart.keyframe, moofPos);
+            thisHeader.getPart(i, &addPart.bpos, &addPart.size, &addPart.time, &addPart.offset, &addPart.keyframe,
+                               moofPos, &addPart.duration);
             addPart.index = i;
             curPositions.insert(addPart);
           }
@@ -425,15 +433,8 @@ namespace Mist{
       if (!shiftTo(curPart.bpos, curPart.size)) { return; }
 
       if (M.getCodec(curPart.trackID) == "subtitle") {
-        static JSON::Value thisPack;
-        thisPack["trackid"] = (uint64_t)curPart.trackID;
-        thisPack["bpos"] = curPart.bpos; //(long long)fileSource.tellg();
-        thisPack["data"] = std::string(readBuffer + (curPart.bpos - readPos), curPart.size);
-        thisPack["time"] = curPart.time;
-        if (curPart.duration) { thisPack["duration"] = curPart.duration; }
-        thisPack["keyframe"] = true;
-        std::string tmpStr = thisPack.toNetPacked();
-        thisPacket.reInit(tmpStr.data(), tmpStr.size());
+        thisPacket.genericFill(curPart.time, 0, curPart.trackID, curPart.size ? readBuffer + (curPart.bpos - readPos) : 0,
+                               curPart.size, curPart.bpos, true, curPart.duration);
       } else {
         bool isKeyframe = (curPart.keyframe && meta.getType(curPart.trackID) == "video");
         thisPacket.genericFill(curPart.time, curPart.offset, curPart.trackID, readBuffer + (curPart.bpos - readPos),
@@ -447,7 +448,8 @@ namespace Mist{
         curPart.index++;
         if (curPart.index < headerData(M.getID(curPart.trackID)).size()) {
           headerData(M.getID(curPart.trackID))
-            .getPart(curPart.index, &curPart.bpos, &curPart.size, &curPart.time, &curPart.offset, &curPart.keyframe);
+            .getPart(curPart.index, &curPart.bpos, &curPart.size, &curPart.time, &curPart.offset, &curPart.keyframe, 0,
+                     &curPart.duration);
           curPositions.insert(curPart);
         }
       }
@@ -513,7 +515,8 @@ namespace Mist{
       MP4::TrackHeader & thisHeader = headerData(M.getID(currIdx));
       size_t headerDataSize = thisHeader.size();
       for (size_t i = 0; i < headerDataSize; i++) {
-        thisHeader.getPart(i, &addPart.bpos, &addPart.size, &addPart.time, &addPart.offset, &addPart.keyframe, moofPos);
+        thisHeader.getPart(i, &addPart.bpos, &addPart.size, &addPart.time, &addPart.offset, &addPart.keyframe, moofPos,
+                           &addPart.duration);
 
         // Skip any parts that are outside the file limits
         if (inFile.getSize() != std::string::npos && addPart.bpos + addPart.size > inFile.getSize()) { continue; }

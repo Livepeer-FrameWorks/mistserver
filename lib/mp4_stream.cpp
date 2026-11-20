@@ -385,13 +385,14 @@ namespace MP4{
 
   /// Retrieves the information associated with a specific part (=frame).
   /// The index is the zero-based part number, all other arguments are optional and if non-zero will be filled.
-  void TrackHeader::getPart(uint64_t index, uint64_t * byteOffset, uint32_t * byteLen, uint64_t * time, int32_t * timeOffset, bool * keyFrame, uint64_t moofPos){
+  void TrackHeader::getPart(uint64_t index, uint64_t *byteOffset, uint32_t *byteLen, uint64_t *time,
+                            int32_t *timeOffset, bool *keyFrame, uint64_t moofPos, uint64_t *duration) {
     // Switch between reading TRAF boxes or global headers
     if (!trafMode){
       // Reading global headers
 
       // Calculate time, if requested
-      if (time){
+      if (time || duration) {
         // If we went backwards, reset our current position
         if (index < timeSample){
           timeIndex = timeFirstSample = timeSample = timeExtra = timeTotal = 0;
@@ -413,7 +414,10 @@ namespace MP4{
 
         // Inside the samples with the same delta, we may still need to increase the timestamp.
         while (timeSample < index){increaseTime(entry.sampleDelta);}
-        *time = (timeTotal * 1000) / timeScale + timeShift;
+        if (time) { *time = (timeTotal * 1000) / timeScale + timeShift; }
+        if (duration) {
+          *duration = ((timeTotal + entry.sampleDelta) * 1000) / timeScale - (timeTotal * 1000) / timeScale;
+        }
       }
 
       // Look up time offset, if requested and available
@@ -537,6 +541,7 @@ namespace MP4{
           // Let's pull the TFHD box into this as well...
           TFHD tfhd = ((TRAF)(*t)).getChild<TFHD>();
           trunSampleInformation si = r->getSampleInformation(index - skipped, &tfhd, trexPtr);
+          if (duration) { *duration = timeScale ? uint64_t(si.sampleDuration) * 1000 / timeScale : 0; }
           if (byteOffset){
             uint64_t offset = (tfhd.getFlags() & tfhdBaseOffset) ? tfhd.getBaseDataOffset() : moofPos;
             if (r->getFlags() & MP4::trundataOffset){
@@ -591,6 +596,10 @@ namespace MP4{
           if (timeOffset) { *timeOffset = (si.sampleOffset * 1000) / (int64_t)timeScale + offsetShift; }
           if (keyFrame){
             *keyFrame = !(si.sampleFlags & MP4::noKeySample);
+          }
+          if (byteOffset && byteLen && *byteLen >= 2 && sType == "tx3g") {
+            *byteOffset += 2;
+            *byteLen -= 2;
           }
           return;
         }

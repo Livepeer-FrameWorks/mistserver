@@ -143,6 +143,50 @@ namespace {
 } // namespace
 
 int main() {
+  for (unsigned int rotation : {0u, 90u, 180u, 270u}) {
+    MP4::TrackHeader track;
+    readTrack(track, 1, 1000, 0, 0, rotation, 90);
+    if (track.rotation != (rotation + 90) % 360) {
+      std::cerr << "Track and movie rotation were not composed\n";
+      return 1;
+    }
+    DTSC::Meta meta;
+    meta.reInit("", true);
+    const size_t index = meta.addTrack();
+    meta.setType(index, "video");
+    meta.setWidth(index, 320);
+    meta.setHeight(index, 180);
+    meta.setRotation(index, rotation);
+    MP4::TKHD header(meta, index);
+    if (header.getRotation() != rotation || header.getWidth() != 320 || header.getHeight() != 180) { return 1; }
+  }
+  {
+    MP4::TrackHeader track;
+    readTrack(track, 1, 1000, 0, 0);
+    MP4::TREX defaults(1);
+    defaults.setDefaultSampleDuration(500);
+    defaults.setDefaultSampleSize(4);
+    track.read(defaults);
+    track.nextMoof();
+    MP4::TFHD header;
+    header.setTrackID(1);
+    header.setFlags(MP4::tfhdBaseIsMoof);
+    MP4::TRUN run;
+    run.setFlags(MP4::trunsampleSize);
+    MP4::trunSampleInformation sample = {};
+    sample.sampleSize = 4;
+    run.setSampleInformation(sample, 0);
+    MP4::TRAF fragment;
+    fragment.setContent(header, 0);
+    fragment.setContent(run, 1);
+    track.read(fragment);
+    uint64_t duration = 0;
+    track.getPart(0, 0, 0, 0, 0, 0, 0, &duration);
+    if (duration != 500) {
+      std::cerr << "fragmented sample duration ignores TREX: " << duration << " ms, want 500" << std::endl;
+      return 1;
+    }
+  }
   if (!zeroTimescaleIsRejected()) { return 1; }
   if (!negativeOffsetsAreRebasedUniformly()) { return 1; }
   if (!fragmentedOffsetsRespectTrunVersion()) { return 1; }

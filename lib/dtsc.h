@@ -142,8 +142,11 @@ namespace DTSC{
     packType getVersion() const;
     void reInit(Socket::Connection &src);
     void reInit(const char *data_, unsigned int len, bool noCopy = false);
+    static uint64_t genericSize(int64_t offset, uint64_t bpos, bool keyframe, uint64_t bytes, uint64_t duration = 0) {
+      return 35 + (offset ? 17 : 0) + (bpos ? 15 : 0) + (keyframe ? 19 : 0) + (duration ? 19 : 0) + bytes;
+    }
     void genericFill(uint64_t packTime, int64_t packOffset, uint32_t packTrack, const char *packData,
-                     size_t packDataSize, uint64_t packBytePos, bool isKeyframe);
+                     size_t packDataSize, uint64_t packBytePos, bool isKeyframe, uint64_t duration = 0);
     void appendData(const char *appendData, uint32_t appendLen);
     void getString(const char *identifier, char *&result, size_t &len) const;
     void getString(const char *identifier, std::string &result) const;

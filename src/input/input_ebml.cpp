@@ -169,7 +169,9 @@ namespace Mist{
       readingMinimal = true;
       if (readBuffer.size() >= needed + readBufferOffset){
         // Make sure TrackEntry types are read whole
-        if (readingMinimal && EBML::Element(readBuffer + readBufferOffset).getID() == EBML::EID_TRACKENTRY){
+        if (readingMinimal &&
+            (EBML::Element(readBuffer + readBufferOffset).getID() == EBML::EID_TRACKENTRY ||
+             EBML::Element(readBuffer + readBufferOffset).getID() == EBML::EID_BLOCKGROUP)) {
           readingMinimal = false;
           needed = EBML::Element::needBytes(readBuffer + readBufferOffset, readBuffer.size() - readBufferOffset, readingMinimal);
         }
@@ -208,7 +210,9 @@ namespace Mist{
       needed = EBML::Element::needBytes(readBuffer + readBufferOffset, readBuffer.size() - readBufferOffset, readingMinimal);
       if (readBuffer.size() >= needed + readBufferOffset){
         // Make sure TrackEntry types are read whole
-        if (readingMinimal && EBML::Element(readBuffer + readBufferOffset).getID() == EBML::EID_TRACKENTRY){
+        if (readingMinimal &&
+            (EBML::Element(readBuffer + readBufferOffset).getID() == EBML::EID_TRACKENTRY ||
+             EBML::Element(readBuffer + readBufferOffset).getID() == EBML::EID_BLOCKGROUP)) {
           readingMinimal = false;
           needed = EBML::Element::needBytes(readBuffer + readBufferOffset, readBuffer.size() - readBufferOffset, readingMinimal);
         }

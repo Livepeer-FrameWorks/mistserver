@@ -276,7 +276,7 @@ namespace DTSC{
   /// When given a NULL pointer, the data is reserved and memset to 0
   /// If given a NULL pointer and a zero size, an empty packet is created.
   void Packet::genericFill(uint64_t packTime, int64_t packOffset, uint32_t packTrack, const char *packData,
-                           size_t packDataSize, uint64_t packBytePos, bool isKeyframe){
+                           size_t packDataSize, uint64_t packBytePos, bool isKeyframe, uint64_t duration) {
     null();
     master = true;
     // time and trackID are part of the 20-byte header.
@@ -290,8 +290,7 @@ namespace DTSC{
                packDataSize, packTime, packTrack);
       return;
     }
-    unsigned int sendLen =
-        24 + (packOffset ? 17 : 0) + (packBytePos ? 15 : 0) + (isKeyframe ? 19 : 0) + packDataSize + 11;
+    unsigned int sendLen = Packet::genericSize(packOffset, packBytePos, isKeyframe, packDataSize, duration);
     resize(sendLen);
     // set internal variables
     version = DTSC_V2;
@@ -317,9 +316,14 @@ namespace DTSC{
       memcpy(data + offset, "\000\010keyframe\001\000\000\000\000\000\000\000\001", 19);
       offset += 19;
     }
+    if (duration) {
+      memcpy(data + offset, "\000\010duration\001", 11);
+      Bit::htobll(data + offset + 11, duration);
+      offset += 19;
+    }
     memcpy(data + offset, "\000\004data\002", 7);
     Bit::htobl(data + offset + 7, packDataSize);
-    memcpy(data + offset + 11, packData ? packData : 0, packDataSize);
+    if (packDataSize) { memcpy(data + offset + 11, packData, packDataSize); }
     // finish container with 0x0000EE
     memcpy(data + offset + 11 + packDataSize, "\000\000\356", 3);
   }
@@ -391,10 +395,11 @@ namespace DTSC{
   /// Method can only be used when using internal functions to build the data.
   size_t Packet::getDataStringLenOffset(){
     size_t offset = 23;
-    while (data[offset] != 'd'){
+    while (data[offset] != 'd' || Bit::btohs(data + offset - 2) != 4) {
       switch (data[offset]){
       case 'o': offset += 17; break;
       case 'b': offset += 15; break;
+      case 'd': offset += 19; break;
       case 'k': offset += 19; break;
       case 'K': offset += 19; break;
       default: FAIL_MSG("Unknown field: %c", data[offset]); return -1;

@@ -393,7 +393,8 @@ namespace Mist{
     uint64_t needed = EBML::Element::needBytes(readBuffer, readBuffer.size(), readingMinimal);
     while (readBuffer.size() >= needed) {
       // Make sure TrackEntry types are read whole
-      if (readingMinimal && EBML::Element(readBuffer).getID() == EBML::EID_TRACKENTRY) {
+      if (readingMinimal &&
+          (EBML::Element(readBuffer).getID() == EBML::EID_TRACKENTRY || EBML::Element(readBuffer).getID() == EBML::EID_BLOCKGROUP)) {
         readingMinimal = false;
         needed = EBML::Element::needBytes(readBuffer, readBuffer.size(), readingMinimal);
         continue;
@@ -499,7 +500,7 @@ namespace Mist{
       subLen += EBML::sizeElemUInt(EBML::EID_BITDEPTH, M.getSize(idx));
       sendLen += EBML::sizeElemHead(EBML::EID_AUDIO, subLen);
     }
-    if (type == "meta"){sendLen += EBML::sizeElemUInt(EBML::EID_TRACKTYPE, 3);}
+    if (type == "meta") { sendLen += EBML::sizeElemUInt(EBML::EID_TRACKTYPE, 3); }
     sendLen += subLen;
 
     // Now actually send.
@@ -542,7 +543,7 @@ namespace Mist{
       EBML::sendElemDbl(myConn, EBML::EID_SAMPLINGFREQUENCY, M.getRate(idx));
       EBML::sendElemUInt(myConn, EBML::EID_BITDEPTH, M.getSize(idx));
     }
-    if (type == "meta"){EBML::sendElemUInt(myConn, EBML::EID_TRACKTYPE, 3);}
+    if (type == "meta") { EBML::sendElemUInt(myConn, EBML::EID_TRACKTYPE, 3); }
   }
 
   size_t OutEBML::sizeElemTrackEntry(size_t idx){
@@ -586,7 +587,7 @@ namespace Mist{
       subLen += EBML::sizeElemUInt(EBML::EID_BITDEPTH, M.getSize(idx));
       sendLen += EBML::sizeElemHead(EBML::EID_AUDIO, subLen);
     }
-    if (type == "meta"){sendLen += EBML::sizeElemUInt(EBML::EID_TRACKTYPE, 3);}
+    if (type == "meta") { sendLen += EBML::sizeElemUInt(EBML::EID_TRACKTYPE, 3); }
     sendLen += subLen;
     return EBML::sizeElemHead(EBML::EID_TRACKENTRY, sendLen) + sendLen;
   }

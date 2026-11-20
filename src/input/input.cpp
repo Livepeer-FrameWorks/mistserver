@@ -1445,7 +1445,8 @@ namespace Mist{
         char *data;
         size_t dataLen;
         thisPacket.getString("data", data, dataLen);
-        bufferLivePacket(thisTime+timeOffset, thisPacket.getInt("offset"), idx, data, dataLen, 0, thisPacket.getFlag("keyframe"), liveMeta);
+        bufferLivePacket(thisTime + timeOffset, thisPacket.getInt("offset"), idx, data, dataLen, 0,
+                         thisPacket.getFlag("keyframe"), liveMeta, thisPacket.getInt("duration"));
       }
       // Feeding the buffer is this input's activity: its own stream has no
       // viewers, and a paced or paused feed can easily outlast the inactivity
@@ -1827,8 +1828,8 @@ namespace Mist{
           char *data;
           size_t dataLen;
           srtPack.getString("data", data, dataLen);
-          bufferNext(srtPack.getTime(), 0, idx, data, dataLen, srtPack.getInt("bpos"),
-                     srtPack.getFlag("keyframe"), page);
+          bufferNext(srtPack.getTime(), 0, idx, data, dataLen, srtPack.getInt("bpos"), srtPack.getFlag("keyframe"),
+                     page, srtPack.getInt("duration"));
           ++packCounter;
           byteCounter += srtPack.getDataLen();
           lastBuffered = srtPack.getTime();
@@ -1900,8 +1901,8 @@ namespace Mist{
           }
           ++partNo;
           HIGH_MSG("Buffering VoD packet (%zuB) @%" PRIu64 " ms on track %zu with offset %" PRIu64, dataLen, thisTime, idx, thisPacket.getInt("offset"));
-          bufferNext(thisTime, thisPacket.getInt("offset"), idx, data, dataLen,
-                     thisPacket.getInt("bpos"), thisPacket.getFlag("keyframe"), page);
+          bufferNext(thisTime, thisPacket.getInt("offset"), idx, data, dataLen, thisPacket.getInt("bpos"),
+                     thisPacket.getFlag("keyframe"), page, thisPacket.getInt("duration"));
           ++packCounter;
           byteCounter += thisPacket.getDataLen();
           lastBuffered = thisTime;

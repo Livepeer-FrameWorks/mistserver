@@ -46,7 +46,8 @@ namespace MP4{
     bool compatible() const {return isCompatible;}
 
     /// Retrieves the information associated with a specific part (=frame).
-    void getPart(uint64_t index, uint64_t * byteOffset = 0, uint32_t * byteLen = 0, uint64_t * time = 0, int32_t * timeOffset = 0, bool * keyFrame = 0, uint64_t moofPos = 0);
+    void getPart(uint64_t index, uint64_t *byteOffset = 0, uint32_t *byteLen = 0, uint64_t *time = 0,
+                 int32_t *timeOffset = 0, bool *keyFrame = 0, uint64_t moofPos = 0, uint64_t *duration = 0);
 
     /// Returns the number of parts this track header contains
     uint64_t size() const;
