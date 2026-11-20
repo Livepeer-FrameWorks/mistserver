@@ -135,9 +135,19 @@ namespace TS{
     bool assemble(Stream & TSStrm, const char * ptr, size_t len, bool parse = false, uint64_t bytePos = 0);
     void clear();
     void setLive(bool live = true);
+    size_t packetSize() const { return packetStride ? packetStride : 188; }
+    uint64_t packetBoundary(uint64_t position) const {
+      if (!packetStride || position < packetOrigin) { return position; }
+      return packetOrigin + (position - packetOrigin) / packetStride * packetStride;
+    }
+
   private:
     bool isLive;
-    Util::ResizeablePointer leftData;
+    size_t packetStride;
+    size_t prefixBytes;
+    uint64_t bufferPos;
+    uint64_t packetOrigin;
+    std::string leftData;
     TS::Packet tsBuf;
   };
 

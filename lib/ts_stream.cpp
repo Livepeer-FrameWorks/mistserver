@@ -19,9 +19,7 @@ std::recursive_mutex tMutex;
 
 namespace TS{
 
-  Assembler::Assembler(){
-    isLive = false;
-  }
+  Assembler::Assembler() : isLive(false), packetStride(0), prefixBytes(0), bufferPos(0), packetOrigin(0) {}
 
   void Assembler::setLive(bool live){
     isLive = live;
@@ -29,70 +27,100 @@ namespace TS{
 
   bool Assembler::assemble(Stream & TSStrm, const char * ptr, size_t len, bool parse, uint64_t bytePos){
     bool ret = false;
-    size_t offset = 0;
-    size_t amount = 188-leftData.size();
-    if (leftData.size()){
-      if (len >= amount){
-        //Attempt to re-assemble a packet from the leftovers of last time + current head
-        if (len == amount || ptr[amount] == 0x47){
-          VERYHIGH_MSG("Assembled scrap packet");
-          //Success!
-          bytePos -= leftData.size();
-          leftData.append(ptr, amount);
-          tsBuf.FromPointer(leftData);
-          if (!ret && tsBuf.getUnitStart()){ret = true;}
+    const auto deliver = [&](const char *packet, uint64_t position){
+      tsBuf.FromPointer(packet);
+      ret |= tsBuf.getUnitStart();
           if (parse){
-            TSStrm.parse(tsBuf, isLive?0:bytePos);
+        TSStrm.parse(tsBuf, isLive ? 0 : position);
           }else{
             TSStrm.add(tsBuf);
             if (!TSStrm.isDataTrack(tsBuf.getPID())){TSStrm.parse(tsBuf.getPID());}
           }
-          offset = amount;
-          bytePos += 188;
-          leftData.truncate(0);
+    };
+    while (len || !leftData.empty()){
+      if (packetStride && leftData.empty()){
+        // Aligned packets borrow the caller's bytes; only split packets need a copy.
+        while (len >= packetStride){
+          const char *packet = ptr + prefixBytes;
+          if ((unsigned char)packet[0] != 0x47 || !(packet[3] & 0x30)){
+            packetStride = prefixBytes = 0;
+            break;
         }
-      }else{
-        //No way to verify, we'll just append and hope for the best...
-        leftData.append(ptr, len);
+          deliver(packet, bytePos);
+          ptr += packetStride;
+          len -= packetStride;
+          bytePos += packetStride;
+        }
+        if (!len){return ret;}
+        if (packetStride){
+          bufferPos = bytePos;
+          leftData.assign(ptr, len);
         return ret;
       }
-      //On failure, hope we might live to succeed another day
     }
-    // Try to read full TS Packets
-    // Watch out! We push here to a global, in order for threads to be able to access it.
-    size_t junk = 0;
-    while (offset < len){
-      if (ptr[offset] == 0x47 && (offset+188 >= len || ptr[offset+188] == 0x47)){// check for sync byte
-        if (junk){
-          INFO_MSG("%zu bytes of non-sync-byte data received", junk);
-          junk = 0;
+      if (packetStride){
+        if (leftData.size() < packetStride){
+          const size_t take = std::min(len, packetStride - leftData.size());
+          leftData.append(ptr, take);
+          ptr += take;
+          len -= take;
+          bytePos += take;
+          if (leftData.size() < packetStride){return ret;}
         }
-        if (offset + 188 <= len){
-          tsBuf.FromPointer(ptr + offset);
-          if (!ret && tsBuf.getUnitStart()){ret = true;}
-          if (parse){
-            TSStrm.parse(tsBuf, isLive?0:bytePos);
-          }else{
-            TSStrm.add(tsBuf);
-            if (!TSStrm.isDataTrack(tsBuf.getPID())){TSStrm.parse(tsBuf.getPID());}
+        const char *packet = leftData.data() + prefixBytes;
+        if ((unsigned char)packet[0] == 0x47 && (packet[3] & 0x30)){
+          deliver(packet, bufferPos);
+          leftData.erase(0, packetStride);
+          bufferPos += packetStride;
+          continue;
           }
-        }else{
-          leftData.assign(ptr + offset, len - offset);
+        packetStride = prefixBytes = 0;
         }
-        bytePos += 188;
-        offset += 188;
-      }else{
-        ++junk;
-        ++offset;
-        ++bytePos;
+      if (leftData.empty()){bufferPos = bytePos;}
+      const size_t window = 3 * 192 + 4;
+      const size_t take = std::min(len, window - leftData.size());
+      leftData.append(ptr, take);
+      ptr += take;
+      len -= take;
+      bytePos += take;
+      const auto synchronized = [this](size_t sync, size_t stride){
+        for (size_t packet = 0; packet < 3; ++packet){
+          const size_t offset = sync + packet * stride;
+          if (offset + 4 > leftData.size() || (unsigned char)leftData[offset] != 0x47 || !(leftData[offset + 3] & 0x30)){
+            return false;
       }
+        }
+        return true;
+      };
+      for (size_t sync = 0; sync < leftData.size() && !packetStride; ++sync){
+        for (size_t stride : {size_t(188), size_t(192)}){
+          if (stride == 192 && sync == 0 && leftData.size() < 2 * 192 + 8){continue;}
+          if (!synchronized(sync, stride)){continue;}
+          // Arrival timestamps can resemble TS headers; prefer the real sync bytes.
+          if (stride == 192 && sync == 0 && synchronized(4, stride)){sync = 4;}
+          packetStride = stride;
+          prefixBytes = stride == 192 && sync >= 4 ? 4 : 0;
+          const size_t start = sync - prefixBytes;
+          leftData.erase(0, start);
+          bufferPos += start;
+          packetOrigin = bufferPos;
+          TSStrm.setM2TS(packetStride == 192);
+          break;
+        }
+      }
+      if (packetStride){continue;}
+      const size_t retained = 2 * 192 + 4;
+      if (leftData.size() >= window){
+        const size_t discarded = leftData.size() - retained;
+        leftData.erase(0, discarded);
+        bufferPos += discarded;
+      }
+      if (!len){return ret;}
     }
     return ret;
   }
 
-  void Assembler::clear(){
-    leftData.truncate(0);
-  }
+  void Assembler::clear(){leftData.clear();}
 
   void ADTSRemainder::setRemainder(const aac::adts &p, const void *source, uint32_t avail, uint64_t bPos){
     if (!p.getCompleteSize()){return;}

@@ -180,17 +180,26 @@ namespace Mist{
         "or named pipes (stream://*.ts), streamed over HTTP (http(s)://*.ts, http(s)-ts://*), "
         "standard input (ts-exec:*), or multicast/unicast UDP sockets (tsudp://*).";
     capa["source_match"].append("/*.ts");
+    capa["source_match"].append("/*.mts");
     capa["source_file"] = "$source";
     capa["source_match"].append("/*.m2ts");
     capa["source_match"].append("stream://*.ts");
     capa["source_match"].append("tsudp://*");
     capa["source_match"].append("ts-exec:*");
     capa["source_match"].append("http://*.ts");
+    capa["source_match"].append("http://*.m2ts");
+    capa["source_match"].append("http://*.mts");
     capa["source_match"].append("http-ts://*");
     capa["source_match"].append("https://*.ts");
+    capa["source_match"].append("https://*.m2ts");
+    capa["source_match"].append("https://*.mts");
     capa["source_match"].append("https-ts://*");
     capa["source_match"].append("s3+http://*.ts");
+    capa["source_match"].append("s3+http://*.m2ts");
+    capa["source_match"].append("s3+http://*.mts");
     capa["source_match"].append("s3+https://*.ts");
+    capa["source_match"].append("s3+https://*.m2ts");
+    capa["source_match"].append("s3+https://*.mts");
     // These can/may be set to always-on mode
     capa["source_prefill"].append("/");
     capa["source_prefill"].append("stream://");
@@ -429,7 +438,7 @@ namespace Mist{
 
   bool InputTS::needHeader(){
     if (!standAlone){return false;}
-    return Input::needHeader();
+    return Input::needHeader() || M.inputLocalVars["ts_input_version"].asInt() != 1;
   }
 
   /// Reads headers from a TS stream, and saves them into metadata
@@ -448,7 +457,7 @@ namespace Mist{
 
     while (!reader.isEOF()){
       uint64_t prePos = readPos;
-      reader.readSome(188, *this);
+      reader.readSome(assembler.packetSize(), *this);
       if (readPos == prePos){Util::sleep(50);}
       if (unitStartSeen){
         unitStartSeen = false;
@@ -488,6 +497,7 @@ namespace Mist{
       meta.update(headerPack.getTime(), headerPack.getInt("offset"), idx, dataLen,
                   headerPack.getInt("bpos"), headerPack.getFlag("keyframe"), headerPack.getDataLen());
     }
+    meta.inputLocalVars["ts_input_version"] = 1;
     return true;
   }
 
@@ -503,7 +513,7 @@ namespace Mist{
     while (!hasPacket && !reader.isEOF() &&
            (inputProcess == 0 || Util::Procs::childRunning(inputProcess)) && config->is_active){
       uint64_t prePos = readPos;
-      reader.readSome(188, *this);
+      reader.readSome(assembler.packetSize(), *this);
       if (readPos == prePos){Util::sleep(50);}
       if (unitStartSeen){
         unitStartSeen = false;
@@ -544,7 +554,7 @@ namespace Mist{
 
     while (!tsStream.hasPacketOnEachTrack()){
       uint64_t prePos = readPos;
-      reader.readSome(188, *this);
+      reader.readSome(assembler.packetSize(), *this);
       if (reader.isEOF()) {
         tsStream.finish();
         break;
@@ -572,7 +582,7 @@ namespace Mist{
     isFinished = false;
     tsStream.partialClear();
     assembler.clear();
-    reader.seek(seekPos);
+    reader.seek(assembler.packetBoundary(seekPos));
     readPos = reader.getPos();
   }
 
@@ -599,7 +609,7 @@ namespace Mist{
     while (config->is_active){
       if (!udpMode){
         uint64_t prePos = readPos;
-        reader.readSome(188, *this);
+        reader.readSome(assembler.packetSize(), *this);
         if (readPos == prePos){
           Util::sleep(50);
         }else{
