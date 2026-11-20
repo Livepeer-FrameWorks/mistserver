@@ -2,6 +2,14 @@ diff --git a/meson.build b/meson.build
 index f32b5a4..eb847d7 100644
 --- a/meson.build
 +++ b/meson.build
+@@ -2148,6 +2148,6 @@ foreach check : all_checks
+           found = found and conf.get(precondition, 0) == 1
+         endif
+       else
+-        found = found and conf.get(precondition) == 1
++        found = found and conf.get(precondition, 0) == 1
+       endif
+     endforeach
 @@ -2191,7 +2191,7 @@ foreach check : all_checks
            else
              req = false
