@@ -494,6 +494,13 @@ std::string Socket::getBinForms(std::string addr){
     prefixLen = atoi(addr.c_str() + addr.find('/') + 1);
     addr.erase(addr.find('/'), std::string::npos);
   }
+  // Numeric literals remain valid when AI_ADDRCONFIG rejects an unavailable family.
+  char binary[16] = {0};
+  if (inet_pton(AF_INET6, addr.c_str(), binary) == 1) { return std::string(binary, 16) + (char)prefixLen; }
+  if (inet_pton(AF_INET, addr.c_str(), binary + 12) == 1) {
+    binary[10] = binary[11] = (char)0xff;
+    return std::string(binary, 16) + (char)(prefixLen <= 32 ? prefixLen + 96 : prefixLen);
+  }
   // Loops over all IPs for the given address and converts to IPv6 binary form.
   struct addrinfo *result, *rp, hints;
   memset(&hints, 0, sizeof(struct addrinfo));

@@ -1183,3 +1183,6 @@ endif
 
 http_large_file_test = executable('http_large_file_test', 'http_large_file.cpp', header_tgts, dependencies: libmist_dep)
 test('Large HTTP lengths preserve metadata and ranged reads', http_large_file_test, suite: 'HTTP parser', timeout: 30)
+
+binformstest = executable('binformstest', 'socket_binforms_unit.cpp', header_tgts, dependencies: libmist_dep)
+test('Numeric bandwidth exceptions work without configured address families', binformstest, suite: 'Regression')
