@@ -1,14 +1,23 @@
+#include "input_av.h"
+
+#include "../../lib/av_codec_map.h"
+
+#include <mist/ac3.h>
+#include <mist/defines.h>
+#include <mist/orientation.h>
+#include <mist/stream.h>
+
 #include <cerrno>
+#include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <fstream>
 #include <iostream>
-#include <mist/defines.h>
-#include <mist/stream.h>
 #include <string>
-
-#include "input_av.h"
+extern "C" {
+#include <libavutil/display.h>
+}
 
 namespace Mist{
   InputAV::InputAV(Util::Config *cfg) : Input(cfg){
@@ -105,29 +114,12 @@ namespace Mist{
       AVStream *strm = pFormatCtx->streams[i];
       size_t idx = meta.addTrack();
       meta.setID(idx, i);
-      switch (strm->codecpar->codec_id){
-      case AV_CODEC_ID_HEVC: meta.setCodec(idx, "HEVC"); break;
-      case AV_CODEC_ID_MPEG1VIDEO:
-      case AV_CODEC_ID_MPEG2VIDEO: meta.setCodec(idx, "MPEG2"); break;
-      case AV_CODEC_ID_MP2: meta.setCodec(idx, "MP2"); break;
-      case AV_CODEC_ID_H264: meta.setCodec(idx, "H264"); break;
-      case AV_CODEC_ID_THEORA: meta.setCodec(idx, "theora"); break;
-      case AV_CODEC_ID_VORBIS: meta.setCodec(idx, "vorbis"); break;
-      case AV_CODEC_ID_OPUS: meta.setCodec(idx, "opus"); break;
-      case AV_CODEC_ID_VP8: meta.setCodec(idx, "VP8"); break;
-      case AV_CODEC_ID_VP9: meta.setCodec(idx, "VP9"); break;
-      case AV_CODEC_ID_AAC: meta.setCodec(idx, "AAC"); break;
-      case AV_CODEC_ID_MP3: meta.setCodec(idx, "MP3"); break;
-      case AV_CODEC_ID_AC3:
-      case AV_CODEC_ID_EAC3: meta.setCodec(idx, "AC3"); break;
-      default:
+      const char *mappedCodec = AVCodecMap::mistCodec(strm->codecpar->codec_id);
+      if (*mappedCodec) {
+        meta.setCodec(idx, mappedCodec);
+      } else {
         const AVCodecDescriptor *desc = avcodec_descriptor_get(strm->codecpar->codec_id);
-        if (desc && desc->name){
-          meta.setCodec(idx, desc->name);
-        }else{
-          meta.setCodec(idx, "?");
-        }
-        break;
+        meta.setCodec(idx, desc && desc->name ? desc->name : "?");
       }
       if (strm->codecpar->extradata_size){
         meta.setInit(idx, std::string((char *)strm->codecpar->extradata, strm->codecpar->extradata_size));
@@ -138,6 +130,30 @@ namespace Mist{
           meta.setFpks(idx, (strm->avg_frame_rate.num * 1000) / strm->avg_frame_rate.den);
         }else{
           meta.setFpks(idx, 0);
+        }
+        const uint8_t *matrix = 0;
+#if LIBAVFORMAT_VERSION_MAJOR >= 61
+        const AVPacketSideData *side =
+          av_packet_side_data_get(strm->codecpar->coded_side_data, strm->codecpar->nb_coded_side_data, AV_PKT_DATA_DISPLAYMATRIX);
+        if (side && side->size >= 9 * sizeof(int32_t)) { matrix = side->data; }
+#elif LIBAVFORMAT_VERSION_MAJOR >= 59
+        size_t matrixSize = 0;
+        matrix = av_stream_get_side_data(strm, AV_PKT_DATA_DISPLAYMATRIX, &matrixSize);
+        if (matrixSize < 9 * sizeof(int32_t)) { matrix = 0; }
+#else
+        int matrixSize = 0;
+        matrix = av_stream_get_side_data(strm, AV_PKT_DATA_DISPLAYMATRIX, &matrixSize);
+        if (matrixSize < 9 * sizeof(int32_t)) { matrix = 0; }
+#endif
+        if (matrix) {
+          const int32_t *display = (const int32_t *)matrix;
+          Mist::Orientation orientation;
+          if (Mist::Orientation::fromMatrix(display[0], display[1], display[3], display[4], orientation)) {
+            meta.setRotation(idx, orientation.rotation);
+            meta.setMirror(idx, orientation.mirror);
+          } else {
+            WARN_MSG("Ignoring non-D4 video display matrix");
+          }
         }
         meta.setWidth(idx, strm->codecpar->width);
         meta.setHeight(idx, strm->codecpar->height);
@@ -167,6 +183,14 @@ namespace Mist{
       }
       if (packet.pts != AV_NOPTS_VALUE && packet.pts != packet.dts){
         packOffset = ((packet.pts - packet.dts) * 1000 * strm->time_base.num / strm->time_base.den);
+      }
+      if (M.getCodec(idx) == "EAC-3" && !AC3::validDEC3(M.getInit(idx))) {
+        const AC3::Header header = AC3::parse(packet.data, packet.size);
+        if (header.valid && header.enhanced && header.streamType != 1) {
+          meta.setInit(idx, AC3::makeDEC3(header));
+          meta.setRate(idx, header.rate);
+          meta.setChannels(idx, header.channels);
+        }
       }
       meta.update(packTime, packOffset, idx, packet.size, packet.pos, isKey);
       av_packet_unref(&packet);

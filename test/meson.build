@@ -1265,3 +1265,41 @@ segmentedorientationtest = executable('segmentedorientationtest', ['segmented_or
 foreach kind : ['segment', 'ismv', 'init']
   test('Segmented orientation ' + kind, segmentedorientationtest, args: [kind], suite: 'MP4')
 endforeach
+
+upload_metadata_probes = []
+foreach upload_input : ['mp4', 'ebml', 'ts']
+  upload_metadata_probes += executable('uploadmetaprobe_' + upload_input,
+    ['upload_metadata_probe.cpp', '../src/input/input.cpp', '../src/input/input_' + upload_input + '.cpp', io_cpp],
+    header_tgts, dependencies: libmist_dep, cpp_args: ['-DINPUTTYPE="../src/input/input_' + upload_input + '.h"'])
+endforeach
+if get_option('WITH_AV')
+  upload_metadata_probes += executable('uploadmetaprobe_av',
+    ['upload_metadata_probe.cpp', '../src/input/input.cpp', '../src/input/input_av.cpp', io_cpp],
+    header_tgts, dependencies: [libmist_dep, av_codec_map_dep], cpp_args: ['-DINPUTTYPE="../src/input/input_av.h"'])
+endif
+if get_option('WITH_AV')
+  avcodecmaptest = executable('avcodecmaptest', 'av_codec_map_unit.cpp', header_tgts, dependencies: av_codec_map_dep)
+  test('AV codec mapping and surround channel layouts', avcodecmaptest, suite: 'AV')
+  test('AV processor and thumbnail capability codecs match compiled decoders', find_program('python3'), args: [files('av_codec_capabilities.py'), exec_tgts.get('MistProcAV'), exec_tgts.get('MistProcThumbs')], suite: 'AV')
+  avorientationhwtest = executable('avorientationhwtest', 'process_av_orientation_hw.cpp', header_tgts, dependencies: [libmist_dep, av_libs])
+  test('AV orientation filter registry', avorientationhwtest, args: ['registry'], suite: 'AV')
+  avrotationtest = executable('avrotationtest', 'process_av_rotation_unit.cpp', header_tgts, dependencies: [libmist_dep, av_libs])
+  test('AV rotation scales display geometry and rotates planar and packed formats', avrotationtest, suite: 'AV')
+  avhardwarepooltest = executable('avhardwarepooltest', 'process_av_hardware_unit.cpp', dependencies: av_libs)
+  test('Hardware upload rejects a missing encoder frame pool', avhardwarepooltest, suite: 'AV')
+  avcudadownloadtest = executable('avcudadownloadtest', 'process_av_cuda_unit.cpp', dependencies: av_libs)
+  test('CUDA downloads preserve the actual software pixel format', avcudadownloadtest, suite: 'AV')
+  avvtformattest = executable('avvtformattest', 'process_av_videotoolbox_unit.cpp', dependencies: av_libs)
+  test('VideoToolbox format negotiation honors hardware-only decode', avvtformattest, suite: 'AV')
+endif
+avdecoderpolicytest = executable('avdecoderpolicytest', 'process_av_decoder_policy_unit.cpp')
+test('Hardware decoder device and session failures remain retryable', avdecoderpolicytest, suite: 'AV')
+if get_option('WITH_AV') and ffmpeg_program.found() and ffprobe_program.found()
+  test('H264 display orientation rotates processing and thumbnails', find_program('python3'),
+       args: [files('process_av_rotation_integration.py'), meson.project_build_root(), ffmpeg_program, ffprobe_program],
+       env: {'MIST_RUN_MEDIA_TESTS': '1', 'MIST_ROTATION_CASE': 'H264:90'},
+       depends: exec_tgts.values(), suite: 'Processing', timeout: 120, is_parallel: false)
+  test('AAC channel layouts survive Opus processing at full duration', find_program('python3'),
+       args: [files('process_av_surround_integration.py'), meson.project_build_root(), ffmpeg_program, ffprobe_program],
+       env: {'MIST_RUN_MEDIA_TESTS': '1'}, depends: exec_tgts.values(), suite: 'Processing', timeout: 100, is_parallel: false)
+endif

@@ -48,6 +48,7 @@ endif
 inputs_tgts = []
 
 foreach input : inputs
+  input_sources = []
   deps = [libmist_dep]
 
   if input.has_key('extra')
@@ -67,12 +68,13 @@ foreach input : inputs
     endif
   endif
   if input.get('name').contains('AV')
-    deps += av_libs
+    deps += av_codec_map_dep
   endif
 
   executables += {
     'name' : 'MistIn'+input.get('name'),
     'sources' : [
+      input_sources,
       files(
         'mist_in.cpp',
         'input.cpp',

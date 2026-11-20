@@ -175,6 +175,12 @@ libmist_dep = declare_dependency(
     include_directories: incroot
 )
 
+if get_option('WITH_AV')
+  av_codec_map = static_library('av_codec_map', 'av_codec_map.cpp',
+                              dependencies: [libmist_dep, av_libs], install: false)
+  av_codec_map_dep = declare_dependency(link_with: av_codec_map, dependencies: av_libs)
+endif
+
 if have_srt
   libmist_srt = library('mist_srt', 'socket_srt.cpp', dependencies: [libsrt, libmist_dep], install: true)
   libmist_srt_dep = declare_dependency(link_with: [libmist_srt])

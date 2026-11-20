@@ -69,7 +69,7 @@ if get_option('WITH_AV')
             input_cpp,
             output_cpp,
         ],
-        'deps' :[libmist_dep, av_libs],
+        'deps' :[libmist_dep, av_codec_map_dep],
         'defines': [],
     }
     executables += {
@@ -81,7 +81,7 @@ if get_option('WITH_AV')
             input_cpp,
             output_cpp,
         ],
-        'deps' :[libmist_dep, av_libs],
+        'deps' :[libmist_dep, av_codec_map_dep],
         'defines': [],
     }
 endif

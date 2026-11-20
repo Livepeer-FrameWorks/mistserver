@@ -1,8 +1,10 @@
 #include "process_thumbs.h"
 
+#include "../../lib/av_codec_map.h"
 #include "../input/input.h"
 #include "../output/output.h"
 #include "process.hpp"
+#include "process_av_rotation.h"
 #include "process_outputs.h"
 #include "thumbnail_artifacts.h"
 #include "thumbs_cache.h"
@@ -311,6 +313,9 @@ namespace Mist {
           context->pix_fmt = AV_PIX_FMT_YUVJ420P;
           context->time_base = (AVRational){1, 1};
           context->codec_type = AVMEDIA_TYPE_VIDEO;
+          if (opt["encode_threads"].asInt() > 0) {
+            context->thread_count = std::min<int64_t>(64, opt["encode_threads"].asInt());
+          }
           int quality = 31 - (int)(jpegQuality * 30.0 / 100.0);
           context->qmin = std::max(1, std::min(31, quality));
           context->qmax = context->qmin;
@@ -580,7 +585,7 @@ namespace Mist {
     private:
       AVCodecContext *decCtx;
       const AVCodec *decCodec;
-      SwsContext *scaleCtx;
+      VideoTransform videoTransform;
       AVFrame *rawFrame;
       std::string codecName;
       bool decoderReady;
@@ -595,16 +600,12 @@ namespace Mist {
         if (decoderReady) { return true; }
         codecName = M.getCodec(thisIdx);
 
-        if (codecName == "H264") {
-          decCodec = avcodec_find_decoder(AV_CODEC_ID_H264);
-        } else if (codecName == "AV1") {
-          decCodec = avcodec_find_decoder(AV_CODEC_ID_AV1);
-        } else if (codecName == "JPEG") {
-          decCodec = avcodec_find_decoder(AV_CODEC_ID_MJPEG);
-        } else {
+        if (codecName != "H264" && codecName != "AV1" && codecName != "JPEG") {
           ERROR_MSG("Unsupported input codec for thumbnails: %s", codecName.c_str());
           return false;
         }
+        const AVCodecID id = AVCodecMap::codecID(codecName);
+        decCodec = id == AV_CODEC_ID_NONE ? NULL : avcodec_find_decoder(id);
 
         if (!decCodec) {
           ERROR_MSG("Could not find decoder for %s", codecName.c_str());
@@ -632,6 +633,9 @@ namespace Mist {
         decCtx->width = M.getWidth(thisIdx);
         decCtx->height = M.getHeight(thisIdx);
         decCtx->pkt_timebase = (AVRational){1, 1000};
+        if (opt["decode_threads"].asInt() > 0) {
+          decCtx->thread_count = std::min<int64_t>(64, opt["decode_threads"].asInt());
+        }
 
         int ret = avcodec_open2(decCtx, decCodec, 0);
         if (ret < 0) {
@@ -696,23 +700,23 @@ namespace Mist {
 
         uint32_t targetWidth = 0;
         uint32_t targetHeight = 0;
-        if (!updateThumbGeometry(rawFrame->width, rawFrame->height, targetWidth, targetHeight)) {
+        const uint16_t rotation = M.getRotation(thisIdx);
+        if (!updateThumbGeometry(rotation % 180 ? rawFrame->height : rawFrame->width,
+                                 rotation % 180 ? rawFrame->width : rawFrame->height, targetWidth, targetHeight)) {
           ERROR_MSG("Could not determine thumbnail geometry from source frame");
           return false;
         }
 
-        // Scale to thumbnail size
-        scaleCtx = sws_getCachedContext(scaleCtx, rawFrame->width, rawFrame->height, (AVPixelFormat)rawFrame->format,
-                                        targetWidth, targetHeight, AV_PIX_FMT_RGB24, SWS_BILINEAR, NULL, NULL, NULL);
-        if (!scaleCtx) {
-          ERROR_MSG("Could not create scale context");
+        AVFrame *upright = videoTransform.apply(rawFrame, AV_PIX_FMT_RGB24, targetWidth, targetHeight,
+                                                Orientation(rotation, M.getMirror(thisIdx)));
+        if (!upright) {
+          printError("Could not orient thumbnail frame", videoTransform.error);
           return false;
         }
-
         outRgb.resize(targetWidth * targetHeight * 3);
-        uint8_t *dstSlice[1] = {outRgb.data()};
-        int dstStride[1] = {(int)(targetWidth * 3)};
-        sws_scale(scaleCtx, rawFrame->data, rawFrame->linesize, 0, rawFrame->height, dstSlice, dstStride);
+        for (uint32_t y = 0; y < targetHeight; ++y) {
+          memcpy(outRgb.data() + y * targetWidth * 3, upright->data[0] + y * upright->linesize[0], targetWidth * 3);
+        }
         return true;
       }
 
@@ -726,7 +730,6 @@ namespace Mist {
         realTime = 0;
         decCtx = 0;
         decCodec = 0;
-        scaleCtx = 0;
         rawFrame = 0;
         decoderReady = false;
         initialize();
@@ -735,7 +738,6 @@ namespace Mist {
       }
 
       ~ProcessSource() {
-        if (scaleCtx) { sws_freeContext(scaleCtx); }
         if (rawFrame) { av_frame_free(&rawFrame); }
         if (decCtx) { avcodec_free_context(&decCtx); }
       }
@@ -743,9 +745,7 @@ namespace Mist {
       static void init(Util::Config *cfg, JSON::Value & capa) {
         Output::init(cfg, capa);
         capa["name"] = "Thumbs";
-        capa["codecs"][0u][0u].append("H264");
-        capa["codecs"][0u][0u].append("AV1");
-        capa["codecs"][0u][0u].append("JPEG");
+        for (const char *codec : {"H264", "AV1", "JPEG"}) { capa["codecs"][0u][0u].append(codec); }
         cfg->addOption("streamname",
                        JSON::fromString("{\"arg\":\"string\",\"short\":\"s\",\"long\":"
                                         "\"stream\",\"help\":\"The name of the stream "
@@ -1093,9 +1093,7 @@ int main(int argc, char *argv[]) {
     Mist::addDescribeOutputsOption(config);
   }
 
-  capa["codecs"][0u][0u].append("H264");
-  capa["codecs"][0u][0u].append("AV1");
-  capa["codecs"][0u][0u].append("JPEG");
+  for (const char *codec : {"H264", "AV1", "JPEG"}) { capa["codecs"][0u][0u].append(codec); }
 
   if (!(config.parseArgs(argc, argv))) {
     procExit.log(ER_FORMAT_SPECIFIC, 2, "Failed to parse command-line arguments");
@@ -1143,6 +1141,16 @@ int main(int argc, char *argv[]) {
       genopts["target_mask"]["default"] = "Keep original value";
       genopts["target_mask"]["sort"] = "d";
     }
+
+    for (const char *key : {"decode_threads", "encode_threads"}) {
+      capa["optional"][key]["name"] = key;
+      capa["optional"][key]["help"] = "Codec threads selected by VOD memory admission";
+      capa["optional"][key]["type"] = "uint";
+      capa["optional"][key]["min"] = 1;
+      capa["optional"][key]["max"] = 64;
+      capa["optional"][key]["display"] = "hidden";
+    }
+
 
     capa["optional"]["thumb_width"]["name"] = "Thumbnail width";
     capa["optional"]["thumb_width"]["help"] = "Maximum width of each individual thumbnail in the grid";
