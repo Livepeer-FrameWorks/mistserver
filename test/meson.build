@@ -1189,3 +1189,5 @@ test('Numeric bandwidth exceptions work without configured address families', bi
 
 dtscheadersizetest = executable('dtscheadersizetest', 'dtsc_header_size_unit.cpp', header_tgts, dependencies: libmist_dep)
 test('DTSC header length matches valid and partless track selection', dtscheadersizetest, suite: 'Regression')
+
+test('Fixture IPC owners preserve unrelated pages and child exit status', find_program('python3'), args: files('fixture_ipc_unit.py'), suite: 'Processing')
