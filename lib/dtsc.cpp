@@ -4118,13 +4118,13 @@ namespace DTSC{
 
   ///\brief Determines the "packed" size of a Meta object
   uint64_t Meta::getSendLen(bool skipDynamic, std::set<size_t> selectedTracks, bool reID) const {
+    if (selectedTracks.empty()) { selectedTracks = getValidTracks(); }
     uint64_t dataLen = 34; // + (merged ? 17 : 0) + (bufferWindow ? 24 : 0) + 21;
     if (getVod()){dataLen += 14;}
     if (getLive()){dataLen += 15;}
     if (getLive() || getUTCOffset()){dataLen += 19;} // unixzero field
     for (const auto & it : tracks) {
-      if (!it.second.parts.getPresent()) { continue; }
-      if (!selectedTracks.size() || selectedTracks.count(it.first)) {
+      if (selectedTracks.count(it.first)) {
         dataLen += (124 + getInit(it.first).size() + getCodec(it.first).size() + getType(it.first).size() +
                     getTrackIdentifier(it.first, true).size());
         if (!skipDynamic){
@@ -4392,6 +4392,7 @@ namespace DTSC{
 
   /// Sends the current Meta object through a socket in DTSH format
   void Meta::send(Socket::Connection & sock, bool skipDynamic, std::set<size_t> selectedTracks, bool reID) const {
+    if (selectedTracks.empty()) { selectedTracks = getValidTracks(); }
     DTSHBlockWriter conn(sock);
     std::string lVars;
     size_t lVarSize = 0;

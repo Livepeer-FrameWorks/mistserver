@@ -1186,3 +1186,6 @@ test('Large HTTP lengths preserve metadata and ranged reads', http_large_file_te
 
 binformstest = executable('binformstest', 'socket_binforms_unit.cpp', header_tgts, dependencies: libmist_dep)
 test('Numeric bandwidth exceptions work without configured address families', binformstest, suite: 'Regression')
+
+dtscheadersizetest = executable('dtscheadersizetest', 'dtsc_header_size_unit.cpp', header_tgts, dependencies: libmist_dep)
+test('DTSC header length matches valid and partless track selection', dtscheadersizetest, suite: 'Regression')
