@@ -22,6 +22,8 @@ namespace {
     public:
       explicit InputBufferProbe(Util::Config *config) : Mist::InputBuffer(config) {}
 
+      void ownProcess(pid_t pid) { runningProcs["{}"] = pid; }
+
       bool openStatePage(const char *name) {
         streamStatus.init(name, STRMSTATE_PAGE_LEN, true, false);
         if (!streamStatus) { return false; }
@@ -191,6 +193,23 @@ namespace {
 } // namespace
 
 int main() {
+  {
+    const pid_t pid = 10000000 + getpid();
+    char name[NAME_BUFFER_SIZE];
+    snprintf(name, sizeof(name), SHM_PROC_STATE, pid);
+    IPC::sharedPage writer(name, sizeof(ProcState), true, false);
+    writer.master = false;
+    {
+      Util::Config config("buffer-process-page-cleanup");
+      InputBufferProbe input(&config);
+      input.ownProcess(pid);
+    }
+    IPC::sharedPage leftover(name, 0, false, false);
+    if (leftover) {
+      leftover.master = true;
+      return fail("stopped input buffer left its processor state page behind");
+    }
+  }
   {
     Util::Config pageConfig("input-buffer-page-publication");
     InputBufferProbe pageInput(&pageConfig);

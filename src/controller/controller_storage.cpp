@@ -1061,6 +1061,7 @@ namespace Controller{
       }
 
       keyCfg.init(SHM_JWK, 8 * 1024 * 1024, true);
+      addShmPage(SHM_JWK);
       Util::RelAccX keyAccX(keyCfg.mapped, false);
       keyAccX.addField("kid", RAX_64STRING);
       keyAccX.addField("kty", RAX_32STRING);

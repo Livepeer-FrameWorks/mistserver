@@ -1,6 +1,7 @@
 #include "controller_capabilities.h"
-#include "fork_trigger_capabilities.h"
 
+#include "controller_storage.h"
+#include "fork_trigger_capabilities.h"
 #include "runtime_stats.h"
 
 #include <mist/config.h>
@@ -309,6 +310,7 @@ namespace Controller{
         nodePage.master = false;
       }
       if (nodePage.mapped && NodePressureState::isValid(nodePage)) {
+        addShmPage(SHM_NODE_PRESSURE);
         NodePressureState *state = (NodePressureState *)nodePage.mapped;
         state->beginPublish();
         state->lastUpdateMs = nowMs;

@@ -181,6 +181,14 @@ namespace Mist{
 
   InputBuffer::~InputBuffer(){
     config->is_active = false;
+    // The buffer owns these exit-state pages, including processors that finish
+    // while it is shutting down and will never reach its normal reap loop.
+    for (const auto & process : runningProcs) {
+      char name[NAME_BUFFER_SIZE];
+      snprintf(name, sizeof(name), SHM_PROC_STATE, process.second);
+      IPC::sharedPage page(name, 0, false, false);
+      if (page) { page.master = true; }
+    }
   }
 
   /// Cleans up any left-over data for the current stream

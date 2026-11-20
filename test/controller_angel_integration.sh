@@ -1,8 +1,5 @@
 #!/bin/sh
-# The controller's angel process starts exactly one controller, also when the
-# binary was started under another name (a symlink). A controller that judged
-# its angel by the executable's name took the angel for a missing parent,
-# became an angel itself and started another controller, without end.
+# A symlinked controller has one angel and one main-loop controller.
 set -eu
 
 if [ "$#" -ne 1 ]; then
@@ -79,7 +76,7 @@ while ! grep -q "Controller started" "$work/controller.log" 2>/dev/null && [ "$a
   running=$(count_link)
   if [ "$running" -gt 20 ]; then
     kill_matching "^$link "
-    fail "the symlinked controller started $running processes instead of an angel and one controller"
+    fail "the symlinked controller started $running processes instead of an angel and one controller executable"
   fi
   if ! kill -0 "$angel_pid" 2>/dev/null; then fail "the symlinked controller exited during startup"; fi
   sleep 0.05
@@ -96,7 +93,7 @@ while [ "$attempt" -lt 20 ]; do
 done
 if [ "$peak" -ne 2 ]; then
   kill_matching "^$link "
-  fail "the symlinked controller runs as $peak processes instead of an angel and one controller"
+  fail "the symlinked controller runs as $peak processes instead of an angel and one controller executable"
 fi
 kill -INT "$angel_pid"
 attempt=0
@@ -105,7 +102,7 @@ while kill -0 "$angel_pid" 2>/dev/null && [ "$attempt" -lt 300 ]; do
   attempt=$((attempt + 1))
 done
 if kill -0 "$angel_pid" 2>/dev/null; then fail "the symlinked controller did not stop"; fi
-wait "$angel_pid" 2>/dev/null || true
+wait "$angel_pid" || fail "angel did not exit cleanly"
 angel_pid=
 
 echo "the angel runs one controller when started under another name"

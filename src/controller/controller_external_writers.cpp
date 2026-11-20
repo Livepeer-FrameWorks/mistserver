@@ -29,6 +29,7 @@ namespace Controller{
     // Close & unlink any existing page and create a new one
     writersPage.close();
     writersPage.init(EXTWRITERS, pageSize, true, false);
+    addShmPage(EXTWRITERS);
     Util::RelAccX exwriAccx = Util::RelAccX(writersPage.mapped, false);
     exwriAccx = Util::RelAccX(writersPage.mapped, false);
     exwriAccx.addField("name", RAX_32STRING);

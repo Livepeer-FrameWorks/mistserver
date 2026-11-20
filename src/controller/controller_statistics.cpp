@@ -89,6 +89,7 @@ class tagQueueItem{
 };
 
 std::map<std::string, tagQueueItem> tagQueue;
+static std::map<std::string, tagQueueItem> sessionTagQueue;
 
 const char nullAddress[16] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
 static Controller::statLog emptyLogEntry = {0, 0, 0, 0, 0, 0 ,0 ,0, "", nullAddress, ""};
@@ -354,17 +355,26 @@ void Controller::sessId_tag(const std::string & sessId, const std::string & tag)
     FAIL_MSG("In controller shutdown procedure - cannot tag sessions.");
     return;
   }
+  std::lock_guard<std::recursive_mutex> guard(statsMutex);
   if (sessions.count(sessId)) {
     sessions[sessId].tags.insert(tag);
     return;
   }
-  if (tag.substr(0, 3) != "UA:") { WARN_MSG("Session %s not found - cannot tag with %s", sessId.c_str(), tag.c_str()); }
+  // USER_NEW blocks the session before its first statistics record is visible.
+  // Keep its classification until registration, independent of the caller's lifetime.
+  sessionTagQueue[sessId].add(tag);
 }
 
 /// Untags the given session
 void Controller::sessId_untag(const std::string & sessId, const std::string & tag) {
   if (!statCommActive) {
     FAIL_MSG("In controller shutdown procedure - cannot tag sessions.");
+    return;
+  }
+  std::lock_guard<std::recursive_mutex> guard(statsMutex);
+  if (sessionTagQueue.count(sessId)) {
+    sessionTagQueue[sessId].remove(tag);
+    if (sessionTagQueue[sessId].tags.empty()) { sessionTagQueue.erase(sessId); }
     return;
   }
   if (sessions.count(sessId)) {
@@ -437,6 +447,7 @@ void Controller::deinitStats() {
   if (Util::Config::is_restarting) {
     statComm.setMaster(false);
   } else {
+    sem_unlink(SEM_STATISTICS);
     if (Controller::killOnExit) {
       WARN_MSG("Killing all connected clients to force full shutdown");
       statComm.finishAll();
@@ -617,6 +628,14 @@ size_t Controller::runStats() {
         callStreams(it.first, it.second.status, it.second.currViews, it.second.currIns, it.second.currOuts, tags);
       }
     }
+    // A refused or abandoned USER_NEW never reaches statistics registration.
+    for (auto it = sessionTagQueue.begin(); it != sessionTagQueue.end();) {
+      if (it->second.lastChange + 60 < Util::bootSecs()) {
+        it = sessionTagQueue.erase(it);
+      } else {
+        ++it;
+      }
+    }
     if (tagQueue.size()) {
       bool updatedTagQueue = true;
       while (updatedTagQueue) {
@@ -754,7 +773,7 @@ void Controller::statSession::update(uint64_t index, Comms::Sessions &statComm){
     if (!noBWCount){
       size_t bwMatchOffset = 0;
       noBWCount = 1;
-      while (noBWCountMatches[bwMatchOffset + 16] != 0 && bwMatchOffset < 1700){
+      while (bwMatchOffset < 1700 && noBWCountMatches[bwMatchOffset + 16] != 0) {
         if (Socket::matchIPv6Addr(statComm.getHost(index), std::string(noBWCountMatches + bwMatchOffset, 16),
                                   noBWCountMatches[bwMatchOffset + 16])){
           noBWCount = 2;
@@ -1119,8 +1138,16 @@ void Controller::statLeadIn(){
 
 void Controller::statOnActive(size_t id){
   if (statComm.getNow(id) >= statDropoff){
-    // update the session with the latest data
-    sessions[statComm.getSessId(id)].update(id, statComm);
+    const std::string sessId = statComm.getSessId(id);
+    statSession & session = sessions[sessId];
+    const auto queued = sessionTagQueue.find(sessId);
+    if (queued != sessionTagQueue.end()) {
+      if (queued->second.lastChange + 60 >= Util::bootSecs()) {
+        session.tags.insert(queued->second.tags.begin(), queued->second.tags.end());
+      }
+      sessionTagQueue.erase(queued);
+    }
+    session.update(id, statComm);
   }
 }
 
@@ -1128,6 +1155,7 @@ void Controller::statOnDisconnect(size_t id){
   // Check to see if cleanup is required (when a Session binary fails)
   const std::string thisSessionId = statComm.getSessId(id);
   sessions[thisSessionId].finish();
+  sessionTagQueue.erase(thisSessionId);
   // Try to lock to see if the session crashed during boot
   IPC::semaphore sessionLock;
   char semName[NAME_BUFFER_SIZE];

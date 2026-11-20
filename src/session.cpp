@@ -219,7 +219,7 @@ int main(int argc, char **argv){
   const std::string thisReferer = config.getString("referer");
   const std::string thisSessionId = config.getString("sessionid");
   std::string thisHost = Socket::getBinForms(config.getString("ip"));
-  if (thisHost.size() > 16){thisHost = thisHost.substr(0, 16);}
+  thisHost.resize(16, '\0');
 
   std::string ipHex;
   Socket::hostBytesToStr(thisHost.c_str(), thisHost.size(), ipHex);

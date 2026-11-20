@@ -1229,3 +1229,12 @@ if host_machine.system() == 'linux' and exec_tgts.has_key('MistOutWebRTC')
   test('WebRTC signal handler owns the post-dup2 listener descriptor', find_program('python3'),
        args: [files('webrtc_shutdown_fd_integration.py'), exec_tgts.get('MistOutWebRTC'), webrtcshutdownaudit], suite: 'WebRTC', timeout: 30, is_parallel: false)
 endif
+
+if host_machine.system() != 'windows'
+  foreach contract : ['bandwidth']
+    test('Controller capacity lifecycle ' + contract, find_program('python3'),
+         args: [files('controller_capacity_lifecycle_integration.py'), contract,
+                exec_tgts.get('MistController'), ffmpeg_program],
+         depends: exec_tgts.values(), suite: 'Controller', timeout: 120, is_parallel: false)
+  endforeach
+endif
