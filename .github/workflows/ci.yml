@@ -104,8 +104,20 @@ jobs:
           scripts/ONNX/prepare_models.sh --dir "$RUNNER_TEMP/onnx-models" yolo26n
           echo "MIST_ONNX_TEST_MODEL=$RUNNER_TEMP/onnx-models/yolo26n.onnx" >> "$GITHUB_ENV"
 
+      - name: Verify required test inventory
+        run: python3 scripts/ci/check_test_inventory.py build
+
+      - name: Build without TLS
+        run: |
+          meson setup build-nossl -DNOSSL=true -DWITH_AV=true -DONNX=disabled
+          ninja -C build-nossl MistOutRTMP
+
       - name: Run tests
-        run: MIST_RUN_MEDIA_TESTS=1 meson test -C build --print-errorlogs --verbose
+        run: |
+          test_status=0
+          MIST_RUN_MEDIA_TESTS=1 meson test -C build --print-errorlogs --verbose || test_status=$?
+          python3 scripts/ci/check_test_inventory.py build --results
+          exit "$test_status"
 
       - name: Generate coverage
         run: ninja -C build coverage
@@ -134,6 +146,7 @@ jobs:
             git \
             ca-certificates \
             curl \
+            ffmpeg \
             python3-pip \
             ninja-build \
             pkg-config \
@@ -183,8 +196,12 @@ jobs:
 
       - name: Run tests with ASan
         run: |
+          python3 scripts/ci/check_test_inventory.py build-asan
           export ASAN_OPTIONS=detect_leaks=1:halt_on_error=1:strict_string_checks=1:detect_stack_use_after_return=1:check_initialization_order=1:strict_init_order=1
-          meson test -C build-asan --print-errorlogs --timeout-multiplier 3
+          test_status=0
+          MIST_RUN_MEDIA_TESTS=1 meson test -C build-asan --print-errorlogs --timeout-multiplier 3 || test_status=$?
+          python3 scripts/ci/check_test_inventory.py build-asan --results
+          exit "$test_status"
 
       - name: Upload ASan logs
         if: always()

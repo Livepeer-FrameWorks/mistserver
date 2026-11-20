@@ -1335,6 +1335,10 @@ if get_option('WITH_AV') and python_program.found()
        args: [files('av_codec_build_contract.py'), meson.project_build_root()], suite: 'AV')
 endif
 
+if python_program.found()
+  test('Sanitizer CI retains controller and processing coverage', python_program,
+       args: [files('ci_capacity_contract.py')], suite: 'Build')
+endif
 
 test('EAC-3 access units aggregate dependent substream channels', ac3test, args: ['aggregate'], suite: 'audio')
 
@@ -1439,3 +1443,5 @@ if ffmpeg_program.found() and ffprobe_program.found()
   endforeach
 endif
 
+test('CI rejects registered media regressions that skip', find_program('python3'),
+     args: [files('ci_inventory_results_integration.py'), meson.project_build_root()], suite: 'Build')

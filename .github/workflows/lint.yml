@@ -82,6 +82,7 @@ jobs:
             libusrsctp-dev \
             libssl-dev \
             libsrt-openssl-dev \
+            librist-dev \
             libjpeg-dev \
             libpng-dev \
             zlib1g-dev
@@ -111,7 +112,7 @@ jobs:
             --force-fallback-for=mbedtls,usrsctp \
             -DWITH_AV=true \
             "${ONNX_ARGS[@]}" \
-            -DNORIST=true
+            -DNORIST=false
           if [ "$LINT_ONNX" = "true" ]; then
             grep -qE 'ONNX AI processing:[[:space:]]+YES \(profile=cpu\)' builddir/meson-logs/meson-log.txt || { echo "::error::ONNX CPU support was not built"; exit 1; }
           fi

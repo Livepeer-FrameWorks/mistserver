@@ -37,6 +37,7 @@ ARG ONNX_OPENVINO_DEVICE=AUTO:GPU,CPU
 ARG ONNX_RUN_PROVIDER_TEST=true
 ARG ONNX_INSTALL_TEST_PROBE=false
 ARG MIST_OPTS
+ARG MIST_BUILD_JOBS
 ARG DEBUG=3
 ARG VERSION=Unknown
 ARG TARGETPLATFORM
@@ -90,7 +91,7 @@ RUN export LD_LIBRARY_PATH="/opt/mist-onnx/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PA
     && grep -qE 'NDI:[[:space:]]+COMPILED' /build/meson-logs/meson-log.txt \
     && grep -qE 'ONVIF camera discovery:[[:space:]]+YES' /build/meson-logs/meson-log.txt \
     && grep -qE 'Dependency mbedtls for host machine from subproject .* found: YES' /build/meson-logs/meson-log.txt \
-    && ninja -C /build \
+    && if [ -n "${MIST_BUILD_JOBS}" ]; then ninja -C /build -j "${MIST_BUILD_JOBS}"; else ninja -C /build; fi \
     && if [ "${ONNX_RUN_PROVIDER_TEST}" = true ]; then \
          /src/scripts/ONNX/prepare_models.sh --dir /tmp/onnx-models yolo26n; \
          ffmpeg -hide_banner -loglevel error -y -f lavfi \

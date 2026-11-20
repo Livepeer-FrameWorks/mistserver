@@ -74,3 +74,5 @@ subprojects/
 !subprojects/*.wrap
 .vscode/
 node_modules/
+
+__pycache__/

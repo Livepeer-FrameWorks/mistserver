@@ -481,7 +481,7 @@ jobs:
           grep -qE 'Dependency mbedtls for host machine from subproject .* found: YES' build/meson-logs/meson-log.txt || { echo "::error::Pinned MbedTLS was not used"; exit 1; }
           ninja -C build
           ccache --show-stats
-          meson test -C build "Pinned FFmpeg codec registry contract" "WebRTC DTLS-SRTP loopback handshake" --print-errorlogs
+          meson test -C build "Pinned FFmpeg codec registry contract" "AV orientation filter registry" "WebRTC DTLS-SRTP loopback handshake" --print-errorlogs
           scripts/ONNX/prepare_models.sh --dir "$RUNNER_TEMP/onnx-models" yolo26n
           ffmpeg -hide_banner -loglevel error -y -f lavfi -i testsrc2=size=640x640 -frames:v 1 "$RUNNER_TEMP/onnx-test.jpg"
           scripts/ONNX/verify_release.sh --build-dir build --allow-shared \
@@ -738,7 +738,7 @@ jobs:
           grep -qE 'Dependency mbedtls for host machine from subproject .* found: YES' build/meson-logs/meson-log.txt || { echo "::error::Pinned MbedTLS was not used"; exit 1; }
           ninja -C build
           ccache --show-stats
-          meson test -C build "Pinned FFmpeg codec registry contract" "WebRTC DTLS-SRTP loopback handshake" --print-errorlogs
+          meson test -C build "Pinned FFmpeg codec registry contract" "AV orientation filter registry" "WebRTC DTLS-SRTP loopback handshake" --print-errorlogs
           scripts/ONNX/prepare_models.sh --dir "$RUNNER_TEMP/onnx-models" yolo26n
           ffmpeg -hide_banner -loglevel error -y -f lavfi -i testsrc2=size=640x640 -frames:v 1 "$RUNNER_TEMP/onnx-test.jpg"
           scripts/ONNX/verify_release.sh --build-dir build --allow-shared \
