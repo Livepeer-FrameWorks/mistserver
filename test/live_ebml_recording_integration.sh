@@ -109,13 +109,4 @@ if [ -s "$work/decode.log" ]; then
   exit 1
 fi
 
-video_packets=$("$ffprobe" -v error -select_streams v:0 -count_packets \
-  -show_entries stream=nb_read_packets -of csv=p=0 "$recording")
-audio_packets=$("$ffprobe" -v error -select_streams a:0 -count_packets \
-  -show_entries stream=nb_read_packets -of csv=p=0 "$recording")
-if [ "$video_packets" -ne 76 ] || [ "$audio_packets" -ne 141 ]; then
-  echo "finalized live recording has $video_packets video/$audio_packets audio packets; expected 76/141" >&2
-  exit 1
-fi
-
-echo "live EBML recording finalized all 76 video and 141 audio packets without diagnostics"
+python3 "$(dirname "$0")/live_ebml_packets.py" "$ffprobe" "$source_mkv" "$recording"

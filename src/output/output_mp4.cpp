@@ -460,7 +460,15 @@ namespace Mist{
         DTSC::Keys keys = M.getKeys(idx);
         if (keys.getTotalPartCount()) {
           const DTSC::Parts parts(M.parts(idx));
-          duration += parts.getDuration(keys.getFirstPart(keys.getFirstValid()) + keys.getTotalPartCount() - 1);
+          const size_t begin = keys.getFirstPart(keys.getFirstValid());
+          duration += parts.getDuration(begin + keys.getTotalPartCount() - 1);
+          uint64_t decodeTime = 0, presentationEnd = 0;
+          for (size_t part = begin; part < begin + keys.getTotalPartCount(); ++part) {
+            const uint64_t length = parts.getDuration(part);
+            presentationEnd = std::max(presentationEnd, decodeTime + parts.getOffset(part) + length);
+            decodeTime += length;
+          }
+          duration = std::max(duration, presentationEnd);
         }
       }
       return duration;
@@ -1351,8 +1359,19 @@ namespace Mist{
       }
     }
 
+    // Fragmented live output has already written this packet above. Its fragment
+    // schedule may be empty between fragment boundaries.
+    if (M.getLive()) {
+      if (!sortSet.empty()) { sortSet.erase(sortSet.begin()); }
+      return;
+    }
     if (sortSet.empty()) {
-      onFail("MP4 packet order is unavailable", true);
+      if (partOrderComplete) {
+        Util::logExitReason(ER_CLEAN_EOF, "all declared MP4 samples were written");
+        parseData = false;
+      } else {
+        onFail("MP4 packet order is unavailable", true);
+      }
       return;
     }
     keyPart firstKeyPart = *sortSet.begin();
@@ -1380,12 +1399,6 @@ namespace Mist{
                firstKeyPart.trackID, firstKeyPart.time, parts.getSize(firstKeyPart.index), thisIdx, thisPacket.getTime(), len);
       Util::logExitReason(ER_FORMAT_SPECIFIC, "Inconsistent MP4 input");
       onFail("Inconsistent MP4 input", true);
-      return;
-    }
-
-    // The remainder of this function handles non-live situations
-    if (M.getLive()){
-      if (sortSet.size()){sortSet.erase(sortSet.begin());}
       return;
     }
 
@@ -1426,6 +1439,7 @@ namespace Mist{
         ++temp.index;
         sortSet.insert(temp);
       }
+      if (sortSet.empty()) { partOrderComplete = true; }
     }
 
   }
@@ -1451,6 +1465,7 @@ namespace Mist{
   }
 
   void OutMP4::initializePartOrder() {
+    partOrderComplete = false;
     sortSet.clear();
     for (std::map<size_t, Comms::Users>::const_iterator subIt = userSelect.begin(); subIt != userSelect.end(); ++subIt) {
       keyPart temp = {};

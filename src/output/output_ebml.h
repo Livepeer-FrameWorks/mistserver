@@ -18,7 +18,8 @@ namespace Mist{
     virtual void dataCallback(const char *ptr, size_t size);
 
   protected:
-    virtual bool inlineRestartCapable() const{return true;}
+    bool recordingHeaderContainsTrack(size_t track) const override { return declaredTracks.count(track); }
+    virtual bool inlineRestartCapable() const { return true; }
     bool isFileTarget(){
       if (config->getString("target").size() && config->getString("target").substr(0, 9) != "mkv-exec:"){return true;}
       return false;

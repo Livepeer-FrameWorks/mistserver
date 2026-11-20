@@ -125,6 +125,7 @@ namespace Mist{
     uint64_t headerSize;
 
     // variables for standard MP4
+    bool partOrderComplete = false;
     std::set<keyPart> sortSet; // needed for unfragmented MP4, remembers the order of keyparts
 
     // variables for fragmented

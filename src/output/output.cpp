@@ -732,7 +732,8 @@ namespace Mist{
         newSelects.erase(*it);
         continue;
       }
-      if (processingRecordingSkipsLateOriginal(isRecordingToFile, processControlledRecording, sentHeader,
+      if (!recordingHeaderContainsTrack(*it) &&
+          processingRecordingSkipsLateOriginal(isRecordingToFile, processControlledRecording, sentHeader,
                                                M.getSourceTrack(*it) != INVALID_TRACK_ID, M.getType(*it))) {
         if (skippedLateOriginalTracks.insert(*it).second) {
           INFO_MSG("Not adding %s track %zu: it got data after the recording header, which does not declare it",
@@ -758,10 +759,12 @@ namespace Mist{
       newSelects.insert(it->first);
     }
 
-    //After attempting to add/remove tracks, now no changes? Abort and return false;
-    if (oldSelects == newSelects){return false;}
+    // A recorder can lose its last seek point when a process masks the source, before the first
+    // derived track arrives. Seek those late tracks from the requested recording head too.
+    const bool restartRecordingSeek = processControlledRecording && !sentHeader && !buffer.size() && !newSelects.empty();
+    if (oldSelects == newSelects && !restartRecordingSeek) { return false; }
 
-    if (autoSeek){
+    if (autoSeek || restartRecordingSeek) {
       buffer.clear();
       INFO_MSG("Automatically seeking to resume playback");
       if (!seekTargets.size()){
@@ -1556,7 +1559,9 @@ namespace Mist{
       if (targetParams.count("recstop") || !M.getLive()){
         size_t mainTrack = getMainSelectedTrack();
         if (mainTrack != INVALID_TRACK_ID){
-          uint64_t stopPos = M.getLastms(mainTrack);
+          // An unbounded file recording includes the final sample and longer audio tracks.
+          // Lastms is the main track's last timestamp, not the source's exclusive end.
+          uint64_t stopPos = 0xFFFFFFFFFFFFFFFFull;
           if (targetParams.count("recstop")){stopPos = atoll(targetParams["recstop"].c_str());}
           if (!M.getLive() || stopPos <= M.getLastms(mainTrack)){meta.applyLimiter(seekPos, stopPos);}
         }
@@ -2885,6 +2890,13 @@ namespace Mist{
           if (M.getEmbeddedTime(nxt.tid, nxt.partIndex, nxt.time)){
             nxt.ghostPacket = false;
           }else{
+            // Embedded raw tracks have no data-page EOF path. Once their producer has
+            // ended, a missing next frame means the previously emitted frame was the tail.
+            if (processControlledTrackEnded || boundedTrackExhausted || !M.getLive()) {
+              processingDrainedTracks.insert(nxt.tid);
+              dropTrack(nxt.tid, "embedded frame track drained", false);
+              return 1;
+            }
             nxt.time = M.getNowms(nxt.tid);
             uint64_t newPart = M.getKeyNumForTime(nxt.tid, nxt.time);
             if (newPart >= nxt.partIndex){
@@ -3026,7 +3038,8 @@ namespace Mist{
       // Check if we have a next valid packet
       if (cPageIt->second.len > nxt.offset+preLoad.getDataLen()+20 && memcmp(cPageIt->second.mapped + nxt.offset + preLoad.getDataLen(), "\000\000\000\000", 4)){
         nextTime = getDTSCTime(cPageIt->second.mapped, nxt.offset + preLoad.getDataLen());
-        if (!nextTime){
+        DTSC::Packet nextPacket(cPageIt->second.mapped + nxt.offset + preLoad.getDataLen(), 0, true);
+        if (!nextPacket) {
           WARN_MSG("Next packet is available (offset %" PRIu64 " / %" PRIu64 " on %s), but has no time. Please warn the developers if you see this message!", nxt.offset, cPageIt->second.len, cPageIt->second.name.c_str());
           dropTrack(nxt.tid, "EOP: invalid next packet");
           return 1;

@@ -176,12 +176,12 @@ namespace Mist{
       DTSC::Keys keys(M.getKeys(it.first));
 
       uint32_t firstPart = keys.getFirstPart(keys.getFirstValid());
-      uint64_t curMS = 0;
+      uint64_t curMS = keys.getTime(keys.getFirstValid());
 
       if (M.hasEmbeddedFrames(it.first)) {
         for (size_t i = keys.getFirstValid(); i < keys.getEndValid(); ++i) {
           curMS = keys.getTime(i);
-          if (curMS > end) { break; }
+          if (curMS >= end) { break; }
           if (curMS >= start) { sendLen += EBML::sizeSimpleBlock(it.first + 1, keys.getSize(i)); }
         }
       } else {
@@ -632,17 +632,18 @@ namespace Mist{
     // Info
     int64_t utcTime = M.packetTimeToUnixMs(currentTime());
     EBML::sendElemInfo(myConn, APPIDENT, duration, utcTime);
-    // Tracks
+    std::set<size_t> headerTracks;
+    for (const auto & track : userSelect) { headerTracks.insert(track.first); }
     size_t trackSizes = 0;
-    for (std::map<size_t, Comms::Users>::iterator it = userSelect.begin(); it != userSelect.end(); it++){
-      trackSizes += sizeElemTrackEntry(it->first);
-      if (M.hasEmbeddedFrames(idx) && liveMode) { needsLookAhead = 0; }
+    for (const size_t track : headerTracks) {
+      trackSizes += sizeElemTrackEntry(track);
+      if (M.hasEmbeddedFrames(track) && liveMode) { needsLookAhead = 0; }
     }
     EBML::sendElemHead(myConn, EBML::EID_TRACKS, trackSizes);
     declaredTracks.clear();
-    for (std::map<size_t, Comms::Users>::iterator it = userSelect.begin(); it != userSelect.end(); it++){
-      sendElemTrackEntry(it->first);
-      declaredTracks.insert(it->first);
+    for (const size_t track : headerTracks) {
+      sendElemTrackEntry(track);
+      declaredTracks.insert(track);
     }
     if (!liveMode) {
       EBML::sendElemHead(myConn, EBML::EID_CUES, cuesSize);
@@ -706,6 +707,16 @@ namespace Mist{
       doctype = "matroska";
     }
 
+
+    // Use the output clock while sizing cluster timecodes and seeking offsets.
+    std::string timestamps = req.GetVar("ts").size() ? req.GetVar("ts") : "zero";
+    if (timestamps == "zero") { subtractTime = startTime(); }
+    else if (timestamps == "keep") { subtractTime = 0; }
+    else {
+      const int64_t utcTime = M.packetTimeToUnixMs(startTime());
+      if (utcTime) { subtractTime = startTime() - utcTime; }
+    }
+
     // Calculate the sizes of various parts, if we're VoD.
     size_t totalSize = 0;
     if (!liveEBMLMode()) {
@@ -756,8 +767,7 @@ namespace Mist{
       H.SendResponse("200", "OK", myConn);
     }
 
-    std::string timestamps = "zero";
-    if (req.GetVar("ts").size()){timestamps = req.GetVar("ts");}
+
     if (timestamps == "zero"){
       if (liveEBMLMode()) {
         subtractTime = currentTime();
@@ -791,7 +801,7 @@ namespace Mist{
     // Segment contains SeekHead, Info, Tracks, Cues (in that order)
     // Howeveer, SeekHead is dependent on Info/Tracks sizes, so we calculate those first.
     // Calculating Info size
-    infoSize = EBML::sizeElemInfo(APPIDENT, duration);
+    infoSize = EBML::sizeElemInfo(APPIDENT, duration, M.packetTimeToUnixMs(startTime()));
     // Calculating Tracks size
     tracksSize = 0;
     for (std::map<size_t, Comms::Users>::iterator it = userSelect.begin(); it != userSelect.end(); it++){
@@ -818,6 +828,7 @@ namespace Mist{
     for (size_t i = fragments.getFirstValid(); i < fragments.getEndValid(); i++){
       uint64_t clusterStart = M.getTimeForFragmentIndex(idx, i);
       uint64_t clusterEnd = clusterStart + fragments.getDuration(i);
+      if (i == fragments.getFirstValid()) { clusterStart = std::min(clusterStart, startTime()); }
       uint64_t clusterTmpEnd = clusterEnd;
       do{
         clusterTmpEnd = clusterEnd;

@@ -263,6 +263,7 @@ namespace Mist {
                                                   size_t selectedOriginalTracks, size_t readyOriginalTracks,
                                                   size_t selectedOutputTracks, size_t readySelectedOutputTracks) {
     return graphResolved && readyOutputTracks >= expectedOutputTracks &&
+      (!expectedOutputTracks || selectedOriginalTracks || selectedOutputTracks) &&
       readyOriginalTracks >= selectedOriginalTracks && readySelectedOutputTracks >= selectedOutputTracks;
   }
 

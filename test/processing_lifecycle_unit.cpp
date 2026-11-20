@@ -350,6 +350,10 @@ int main() {
     }
   }
 
+  if (processingRecordingTrackCountsReady(true, 2, 2, 0, 0, 0, 0)) {
+    return fail(
+      "an audio-only recorder must not write an empty header when expected output tracks exist but none are selected");
+  }
   if (processingRecordingTrackCountsReady(false, 0, 0, 0, 0, 0, 0)) {
     return fail("a process-controlled recording must remain gated during the unresolved boot window");
   }

@@ -1303,3 +1303,8 @@ if get_option('WITH_AV') and ffmpeg_program.found() and ffprobe_program.found()
        args: [files('process_av_surround_integration.py'), meson.project_build_root(), ffmpeg_program, ffprobe_program],
        env: {'MIST_RUN_MEDIA_TESTS': '1'}, depends: exec_tgts.values(), suite: 'Processing', timeout: 100, is_parallel: false)
 endif
+
+mp4unreadyaudiotest = executable('mp4unreadyaudiotest', ['mp4_unready_audio_unit.cpp', '../src/output/output.cpp', '../src/output/output_http.cpp', '../src/output/output_mp4.cpp', io_cpp], header_tgts, dependencies: libmist_dep)
+test('MP4 keeps ready video while EAC-3 setup is unavailable', mp4unreadyaudiotest, suite: 'MP4')
+test('Premature MP4 sample order exhaustion fails loudly', mp4unreadyaudiotest, args: ['missing-order'], suite: 'MP4')
+test('Live EBML packet oracle rejects missing or changed packets', find_program('python3'), args: files('live_ebml_packets_unit.py'), suite: 'EBML')
