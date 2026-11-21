@@ -572,6 +572,7 @@ namespace Mist{
       if (resampleContext){
         swr_free(&resampleContext);
       }
+      av_frame_free(&frame_RAW);
       av_frame_free(&frameDecodeHW);
       av_buffer_unref(&hw_decode_ctx);
     }
