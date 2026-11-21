@@ -86,13 +86,17 @@ class Fixture:
         self.process = None
         self.group = None
         self.ffmpeg = ffmpeg
+        # System media tools must not load Mist's instrumented build libraries.
+        self.tool_env = dict(os.environ)
+        self.tool_env.pop('LD_LIBRARY_PATH', None)
+        self.tool_env.pop('DYLD_LIBRARY_PATH', None)
 
     def start(self, media=False, streams_override=None, extra_protocols=(), triggers_override=None):
         streams = {}
         if media:
             source = self.root / ('source.mkv' if media == 'mkv' else 'source.mp4' if media in ('mp4', 'mp4-no-b', 'fragmented', 'fragmented-moof') else 'source.webm')
             codecs = ['-c:v', 'libx264', '-bf', '0' if media == 'mp4-no-b' else '2', '-c:a', 'aac', *([] if media == 'mkv' else ['-movflags', '+faststart'])] if media in ('mp4', 'mp4-no-b', 'mkv', 'fragmented', 'fragmented-moof') else ['-c:v', 'libvpx', '-deadline', 'realtime', '-cpu-used', '8', '-b:v', '2M', '-c:a', 'libopus']
-            subprocess.run([self.ffmpeg, '-hide_banner', '-loglevel', 'error', '-y', '-f', 'lavfi', '-i', 'testsrc2=size=320x180:rate=24', '-f', 'lavfi', '-i', 'sine=frequency=440:sample_rate=48000', '-t', '12', *codecs, *(['-movflags', 'frag_keyframe+empty_moov'+('+default_base_moof' if media=='fragmented-moof' else '')] if media in ('fragmented', 'fragmented-moof') else []), str(source)], check=True, timeout=40)
+            subprocess.run([self.ffmpeg, '-hide_banner', '-loglevel', 'error', '-y', '-f', 'lavfi', '-i', 'testsrc2=size=320x180:rate=24', '-f', 'lavfi', '-i', 'sine=frequency=440:sample_rate=48000', '-t', '12', *codecs, *(['-movflags', 'frag_keyframe+empty_moov'+('+default_base_moof' if media=='fragmented-moof' else '')] if media in ('fragmented', 'fragmented-moof') else []), str(source)], env=self.tool_env, check=True, timeout=40)
             streams[self.stream] = {'source': str(source)}
         config = {'bandwidth': {'exceptions': ['::/127']}, 'config': {'controller': {'interface': '127.0.0.1', 'port': self.api, 'username': None}, 'prometheus': 'metrics', 'debug': 4, 'protocols': [{'connector': 'HTTP', 'interface': '127.0.0.1', 'port': self.http}, {'connector': 'WebRTC', 'interface': '127.0.0.1', 'pubhost': '127.0.0.1', 'port': self.udp}, {'connector': 'EBML'}, {'connector': 'HLS'}, {'connector': 'MP4'}]}, 'streams': streams}
         if streams_override is not None:
@@ -222,12 +226,12 @@ def record_mp4(fixture, source):
     assert child.wait(timeout=40) == 0, 'MP4 recording exited with an error'
     assert target.exists() and target.stat().st_size > 4096, 'MP4 recording produced no media'
     decode = subprocess.run([fixture.ffmpeg, '-hide_banner', '-loglevel', 'error', '-xerror', '-i', str(target),
-                             '-map', '0:v', '-map', '0:a', '-f', 'null', '-'], capture_output=True, timeout=30)
+                             '-map', '0:v', '-map', '0:a', '-f', 'null', '-'], env=fixture.tool_env, capture_output=True, timeout=30)
     assert decode.returncode == 0, 'MP4 recording does not decode: ' + decode.stderr.decode(errors='replace')
     probe = shutil.which('ffprobe') or str(Path(fixture.ffmpeg).with_name('ffprobe'))
     def frames(path):
         info = json.loads(subprocess.check_output([probe, '-v', 'error', '-count_frames', '-show_entries',
-                          'stream=codec_type,nb_read_frames', '-of', 'json', str(path)], timeout=30))
+                          'stream=codec_type,nb_read_frames', '-of', 'json', str(path)], env=fixture.tool_env, timeout=30))
         return {row['codec_type']: int(row['nb_read_frames']) for row in info['streams']}
     original = fixture.root / ('source.mkv' if source == 'mkv' else 'source.mp4')
     actual, expected = frames(target), frames(original)
@@ -242,7 +246,7 @@ def progressive_mp4(fixture, media='mp4'):
     with urllib.request.urlopen('http://127.0.0.1:%d/%s.mp4' % (fixture.http, fixture.stream), timeout=30) as response:
         assert response.status == 200, 'progressive MP4 request was refused'
         target.write_bytes(response.read())
-    result = subprocess.run([fixture.ffmpeg, '-hide_banner', '-loglevel', 'error', '-xerror', '-i', str(target), '-map', '0:v:0', '-map', '0:a:0', '-f', 'null', '-'], capture_output=True, text=True, timeout=30)
+    result = subprocess.run([fixture.ffmpeg, '-hide_banner', '-loglevel', 'error', '-xerror', '-i', str(target), '-map', '0:v:0', '-map', '0:a:0', '-f', 'null', '-'], env=fixture.tool_env, capture_output=True, text=True, timeout=30)
     assert result.returncode == 0, 'progressive H264/AAC MP4 does not decode cleanly: ' + result.stderr
 
 

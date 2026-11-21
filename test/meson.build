@@ -758,6 +758,7 @@ test('Replaced connectors wait for the previous listener to release its port', c
   informationalflagstest = find_program('informational_flags_integration.sh')
   test('Every binary prints its version as one process and exits, under any name', informationalflagstest,
        args: [exec_tgts.get('MistController')], depends: exec_tgts.values(),
+       env: {'MIST_INFORMATIONAL_ASAN': get_option('b_sanitize').contains('address') ? '1' : '0'},
        suite: 'Controller', timeout: 120, is_parallel: false)
   controllerangeltest = find_program('controller_angel_integration.sh')
   test('The controller angel runs one controller under any name', controllerangeltest,

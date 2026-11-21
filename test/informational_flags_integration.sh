@@ -64,6 +64,28 @@ fail() {
   failures=$((failures + 1))
 }
 
+# LeakSanitizer clones a tracer that shares the application's command line.
+# Its clone has no exit signal, unlike Mist's forked children (SIGCHLD).
+# Count it only outside address-sanitized runs; real application forks still count.
+count_matching() {
+  cm_matches=$(pgrep -f -- "$1" 2>/dev/null | tr '\n' ' ')
+  cm_count=0
+  for cm_pid in $cm_matches; do
+    if [ "${MIST_INFORMATIONAL_ASAN:-0}" = 1 ] && [ -d /proc/self ]; then
+      IFS= read -r cm_stat 2>/dev/null <"/proc/$cm_pid/stat" || continue
+      cm_fields=${cm_stat##*) }
+      # exit_signal is field 38, or position 36 after pid and comm.
+      # shellcheck disable=SC2086
+      set -- $cm_fields
+      if [ "$#" -ge 36 ] && [ "${36}" -eq 0 ]; then
+        case " $cm_matches " in *" $2 "*) continue ;; esac
+      fi
+    fi
+    cm_count=$((cm_count + 1))
+  done
+  printf '%s\n' "$cm_count"
+}
+
 # Runs "$@" with its output in $work/out, waits about 10 s for it to exit and
 # records the exit code in $run_status (124 when it did not exit) and the most
 # processes matching $1 seen at once in $run_peak. Stops early, killing every
@@ -84,7 +106,7 @@ run_counted() {
   run_status=124
   attempt=0
   while [ "$attempt" -lt 1000 ]; do
-    count=$(pgrep -f -- "$pattern" 2>/dev/null | wc -l | tr -d ' ')
+    count=$(count_matching "$pattern")
     if [ "$count" -gt "$run_peak" ]; then run_peak=$count; fi
     if [ "$count" -gt 20 ]; then break; fi
     if [ -s "$work/status" ]; then
@@ -96,7 +118,7 @@ run_counted() {
   done
   if [ "$run_status" -eq 124 ]; then kill_matching "$pattern"; fi
   wait "$run_pid" 2>/dev/null || true
-  leftover=$(pgrep -f -- "$pattern" 2>/dev/null | wc -l | tr -d ' ')
+  leftover=$(count_matching "$pattern")
   if [ "$leftover" -gt 0 ]; then kill_matching "$pattern"; fi
 }
 
