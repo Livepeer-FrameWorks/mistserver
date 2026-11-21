@@ -1548,3 +1548,8 @@ if get_option('WITH_AV') and ffmpeg_program.found() and ffprobe_program.found()
        env: {'MIST_ROTATION_CASE': 'MPEG4:0', 'MIST_ROTATION_BFRAMES': '2', 'MIST_ROTATION_OUTPUT': 'NV12'},
        depends: media_test_deps, suite: 'Processing', timeout: 120, is_parallel: false)
 endif
+
+procspipecloexectest = executable('procspipecloexectest', 'procs_pipe_cloexec_unit.cpp', header_tgts, dependencies: libmist_dep)
+test('Processor pipes do not survive unrelated child execs', procspipecloexectest, suite: 'Util')
+test('Processor pipes preserve child stdin when parent stdin is closed', procspipecloexectest, args: ['closed-stdin'], suite: 'Util', timeout: 15)
+test('Process pipe probe retries interrupted reads', procspipeinheritance, args: ['interrupt-read'], suite: 'Util', timeout: 15)

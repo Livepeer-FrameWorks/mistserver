@@ -74,6 +74,12 @@ if sys.platform.startswith('linux'):
     required.add('WebRTC signal handler owns the post-dup2 listener descriptor')
     required.add('A session that boots across a second boundary stays up')
     required.add('WHIP offers get an answer or a logged refusal, and a passive offerer can publish')
+required.update({
+    'Process pipes do not leak into unrelated executables',
+    'Processor pipes do not survive unrelated child execs',
+    'Processor pipes preserve child stdin when parent stdin is closed',
+    'Process pipe probe retries interrupted reads',
+})
 missing = sorted(required - names)
 assert not missing, 'required regression tests are absent: ' + ', '.join(missing)
 output = build / 'meson-logs' / 'ingest-capacity-test-inventory.json'
