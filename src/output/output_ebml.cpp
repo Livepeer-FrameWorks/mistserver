@@ -102,6 +102,7 @@ namespace Mist{
     capa["codecs"][0u][1u].append("EAC-3");
     capa["codecs"][0u][1u].append("DTS");
     capa["codecs"][0u][2u].append("+JSON");
+    capa["codecs"][0u][2u].append("+subtitle");
 
     { // Progressive MKV playback method
       JSON::Value & M = capa["methods"].append();
@@ -169,7 +170,8 @@ namespace Mist{
     size_t sendLen = EBML::sizeElemUInt(EBML::EID_TIMECODE, start - subtractTime);
     // In the simple case of start==end, each packet gets its own cluster
     if (start == end || !end) {
-      sendLen += EBML::sizeSimpleBlock(thisIdx + 1, thisDataLen);
+      sendLen += M.getCodec(thisIdx) == "subtitle" ? EBML::sizeSubtitleBlock(thisIdx + 1, thisDataLen)
+                                                   : EBML::sizeSimpleBlock(thisIdx + 1, thisDataLen);
       return sendLen;
     }
     // In the rest of the cases, we need to loop over all tracks and calculate what we will send
@@ -183,7 +185,10 @@ namespace Mist{
         for (size_t i = keys.getFirstValid(); i < keys.getEndValid(); ++i) {
           curMS = keys.getTime(i);
           if (curMS >= end) { break; }
-          if (curMS >= start) { sendLen += EBML::sizeSimpleBlock(it.first + 1, keys.getSize(i)); }
+          if (curMS >= start) {
+            sendLen += M.getCodec(it.first) == "subtitle" ? EBML::sizeSubtitleBlock(it.first + 1, keys.getSize(i))
+                                                          : EBML::sizeSimpleBlock(it.first + 1, keys.getSize(i));
+          }
         }
       } else {
         for (size_t i = keys.getFirstValid(); i < keys.getEndValid(); ++i) {
@@ -194,7 +199,10 @@ namespace Mist{
         DTSC::Parts parts(M.parts(it.first));
         for (size_t i = firstPart; i < parts.getEndValid(); ++i) {
           if (curMS >= end) { break; }
-          if (curMS >= start) { sendLen += EBML::sizeSimpleBlock(it.first + 1, parts.getSize(i)); }
+          if (curMS >= start) {
+            sendLen += M.getCodec(it.first) == "subtitle" ? EBML::sizeSubtitleBlock(it.first + 1, parts.getSize(i))
+                                                          : EBML::sizeSimpleBlock(it.first + 1, parts.getSize(i));
+          }
           curMS += parts.getDuration(i);
         }
       }
@@ -239,6 +247,33 @@ namespace Mist{
       stats();
       Util::sleep(50);
     }
+  }
+
+  bool OutEBML::selectDefaultTracks() {
+    if (doctype != "webm") {
+      const bool explicitSubtitles = targetParams.count("subtitle");
+      if (!explicitSubtitles) { targetParams["subtitle"] = "none"; }
+      const bool changed = Output::selectDefaultTracks();
+      if (!explicitSubtitles) { targetParams.erase("subtitle"); }
+      return changed;
+    }
+    const auto requested = targetParams.find("subtitle");
+    const bool hadRequest = requested != targetParams.end();
+    const std::string value = hadRequest ? requested->second : "";
+    const auto metadata = targetParams.find("meta");
+    const bool hadMetadata = metadata != targetParams.end();
+    const std::string metadataValue = hadMetadata ? metadata->second : "";
+    targetParams["subtitle"] = "none";
+    // Subtitle tracks have type meta, so an explicit metadata selector must exclude them too.
+    if (hadMetadata) { targetParams["meta"] = metadataValue + ",!subtitle"; }
+    const bool changed = Output::selectDefaultTracks();
+    if (hadMetadata) { targetParams["meta"] = metadataValue; }
+    if (hadRequest) {
+      targetParams["subtitle"] = value;
+    } else {
+      targetParams.erase("subtitle");
+    }
+    return changed;
   }
 
   void OutEBML::initialSeek(bool dryRun) {
@@ -405,7 +440,15 @@ namespace Mist{
     } else {
       blockTime += packetOffset;
     }
-    if (bufferedLiveFileClusters()) {
+    if (M.getCodec(thisIdx) == "subtitle") {
+      std::string block;
+      EBML::appendSubtitleBlock(block, thisData, thisDataLen, thisIdx + 1, blockTime, thisPacket.getInt("duration"), currentClusterTime);
+      if (bufferedLiveFileClusters()) {
+        liveFileClusterBuffer += block;
+      } else {
+        myConn.SendNow(block);
+      }
+    } else if (bufferedLiveFileClusters()) {
       EBML::appendSimpleBlock(liveFileClusterBuffer, thisData, thisDataLen, thisIdx + 1, blockTime, isKey, currentClusterTime);
     } else {
       EBML::sendSimpleBlock(myConn, thisData, thisDataLen, thisIdx + 1, blockTime, isKey, currentClusterTime);
@@ -426,6 +469,7 @@ namespace Mist{
     if (codec == "theora"){return "V_THEORA";}
     if (codec == "MPEG2"){return "V_MPEG2";}
     if (codec == "MPEG4") { return "V_MPEG4/ISO/ASP"; }
+    if (codec == "subtitle") { return "S_TEXT/UTF8"; }
     if (codec == "JPEG"){return "V_MJPEG";}
     if (codec == "PCM"){return "A_PCM/INT/BIG";}
     if (codec == "MP2"){return "A_MPEG/L2";}
@@ -531,7 +575,7 @@ namespace Mist{
     if (codec == "ALAW" || codec == "ULAW"){
       sendLen += EBML::sizeElemStr(EBML::EID_CODECPRIVATE, std::string((size_t)18, '\000'));
     }else{
-      if (M.getInit(idx).size()){
+      if (codec != "subtitle" && M.getInit(idx).size()) {
         sendLen += EBML::sizeElemStr(EBML::EID_CODECPRIVATE, M.getInit(idx));
       }
     }
@@ -559,7 +603,7 @@ namespace Mist{
       subLen += EBML::sizeElemUInt(EBML::EID_BITDEPTH, M.getSize(idx));
       sendLen += EBML::sizeElemHead(EBML::EID_AUDIO, subLen);
     }
-    if (type == "meta"){sendLen += EBML::sizeElemUInt(EBML::EID_TRACKTYPE, 3);}
+    if (type == "meta") { sendLen += EBML::sizeElemUInt(EBML::EID_TRACKTYPE, codec == "subtitle" ? 17 : 3); }
     sendLen += subLen;
 
     // Now actually send.
@@ -575,7 +619,7 @@ namespace Mist{
                               M.getBps(idx), M.getChannels(idx) * (M.getSize(idx) << 3), M.getSize(idx));
       EBML::sendElemStr(myConn, EBML::EID_CODECPRIVATE, init.substr(8));
     }else{
-      if (M.getInit(idx).size()){
+      if (codec != "subtitle" && M.getInit(idx).size()) {
         EBML::sendElemStr(myConn, EBML::EID_CODECPRIVATE, M.getInit(idx));
       }
     }
@@ -602,7 +646,7 @@ namespace Mist{
       EBML::sendElemDbl(myConn, EBML::EID_SAMPLINGFREQUENCY, M.getRate(idx));
       EBML::sendElemUInt(myConn, EBML::EID_BITDEPTH, M.getSize(idx));
     }
-    if (type == "meta"){EBML::sendElemUInt(myConn, EBML::EID_TRACKTYPE, 3);}
+    if (type == "meta") { EBML::sendElemUInt(myConn, EBML::EID_TRACKTYPE, codec == "subtitle" ? 17 : 3); }
   }
 
   size_t OutEBML::sizeElemTrackEntry(size_t idx){
@@ -618,7 +662,7 @@ namespace Mist{
     if (codec == "ALAW" || codec == "ULAW"){
       sendLen += EBML::sizeElemStr(EBML::EID_CODECPRIVATE, std::string((size_t)18, '\000'));
     }else{
-      if (M.getInit(idx).size()){
+      if (codec != "subtitle" && M.getInit(idx).size()) {
         sendLen += EBML::sizeElemStr(EBML::EID_CODECPRIVATE, M.getInit(idx));
       }
     }
@@ -646,7 +690,7 @@ namespace Mist{
       subLen += EBML::sizeElemUInt(EBML::EID_BITDEPTH, M.getSize(idx));
       sendLen += EBML::sizeElemHead(EBML::EID_AUDIO, subLen);
     }
-    if (type == "meta"){sendLen += EBML::sizeElemUInt(EBML::EID_TRACKTYPE, 3);}
+    if (type == "meta") { sendLen += EBML::sizeElemUInt(EBML::EID_TRACKTYPE, codec == "subtitle" ? 17 : 3); }
     sendLen += subLen;
     return EBML::sizeElemHead(EBML::EID_TRACKENTRY, sendLen) + sendLen;
   }
@@ -694,6 +738,11 @@ namespace Mist{
     EBML::sendElemInfo(myConn, APPIDENT, duration, utcTime);
     std::set<size_t> headerTracks;
     for (const auto & track : userSelect) { headerTracks.insert(track.first); }
+    const auto subtitleSelector = targetParams.find("subtitle");
+    if (liveMode && isRecording() && isFileTarget() && doctype != "webm" && subtitleSelector != targetParams.end()) {
+      const std::set<size_t> subtitles = Util::pickTracks(M, M.getValidTracks(), "subtitle", subtitleSelector->second);
+      headerTracks.insert(subtitles.begin(), subtitles.end());
+    }
     size_t trackSizes = 0;
     for (const size_t track : headerTracks) {
       trackSizes += sizeElemTrackEntry(track);
@@ -767,6 +816,7 @@ namespace Mist{
       doctype = "matroska";
     }
 
+    if (doctype == "webm") { selectDefaultTracks(); }
 
     // Use the output clock while sizing cluster timecodes and seeking offsets.
     std::string timestamps = req.GetVar("ts").size() ? req.GetVar("ts") : "zero";

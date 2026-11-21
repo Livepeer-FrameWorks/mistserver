@@ -259,9 +259,23 @@ namespace EBML{
     return ret + sizeElemHead(EID_SIMPLEBLOCK, ret);
   }
 
+  uint32_t sizeSubtitleBlock(uint64_t track, uint32_t bytes) {
+    const uint32_t contents = sizeSimpleBlock(track, bytes) + sizeElemHead(EID_BLOCKDURATION, 4) + 4;
+    return sizeElemHead(EID_BLOCKGROUP, contents) + contents;
+  }
 
-
-
+  void appendSubtitleBlock(std::string & buffer, const char *data, size_t bytes, size_t track, uint64_t time,
+                           uint64_t duration, uint64_t clusterTime) {
+    const size_t contents = sizeSimpleBlock(track, bytes) + sizeElemHead(EID_BLOCKDURATION, 4) + 4;
+    appendElemHead(buffer, EID_BLOCKGROUP, contents);
+    const size_t blockStart = buffer.size();
+    appendSimpleBlock(buffer, bytes ? data : "", bytes, track, time, false, clusterTime);
+    buffer[blockStart] = '\xA1';
+    appendElemHead(buffer, EID_BLOCKDURATION, 4);
+    char encoded[4];
+    Bit::htobl(encoded, duration > UINT32_MAX ? UINT32_MAX : duration);
+    buffer.append(encoded, 4);
+  }
 
   void sendElemSeek(Socket::Connection &C, uint32_t ID, uint64_t bytePos){
     uint32_t elems = sizeElemUInt(EID_SEEKID, ID) + sizeElemUInt(EID_SEEKPOSITION, bytePos);
@@ -491,9 +505,14 @@ namespace EBML{
       trueType = "meta";
     }
 
-    if (codec == "S_TEXT/UTF8") {
+    if (codec == "S_TEXT/UTF8" || codec == "S_TEXT/WEBVTT" || codec == "D_WEBVTT/SUBTITLES") {
       trueCodec = "subtitle";
       trueType = "meta";
+      if (codec == "D_WEBVTT/SUBTITLES") {
+        tmpElem = E.findChild(EBML::EID_CODECPRIVATE);
+        init = tmpElem ? tmpElem.getValStringUntrimmed() : "WEBVTT\n";
+        if (init.compare(0, 6, "WEBVTT") != 0) { init = "WEBVTT\n" + init; }
+      }
     }
     if (codec == "S_TEXT/ASS" || codec == "S_TEXT/SSA") {
       trueCodec = "subtitle";
@@ -773,7 +792,8 @@ namespace EBML{
     bool isVideo = (M.getType(idx) == "video");
     bool isAudio = (M.getType(idx) == "audio");
     const bool isSubtitle = M.getCodec(idx) == "subtitle";
-    bool isASS = (isSubtitle && M.getInit(idx).size());
+    const bool isWebVTT = isSubtitle && M.getInit(idx).compare(0, 6, "WEBVTT") == 0;
+    bool isASS = (isSubtitle && !isWebVTT && M.getInit(idx).size());
     // If this is a new video keyframe, finish the corresponding trackPredictor
     if (isVideo && keyframe) { TP.finish(); }
     for (uint64_t frameNo = 0; frameNo < B.getFrameCount(); ++frameNo) {
@@ -797,6 +817,18 @@ namespace EBML{
       if (frameSize) {
         char *ptr = (char *)B.getFrameData(frameNo);
 
+        if (isWebVTT) {
+          for (unsigned int header = 0; header < 2; ++header) {
+            const char *end = (const char *)memchr(ptr, '\n', frameSize);
+            if (!end) {
+              frameSize = 0;
+              break;
+            }
+            const size_t consumed = end + 1 - ptr;
+            ptr += consumed;
+            frameSize -= consumed;
+          }
+        }
         std::string assStr;
         if (isASS) {
           assStr = ASStoSRT(ptr, frameSize);

@@ -12,6 +12,7 @@ namespace Mist{
     void sendNext();
     void sendHeader();
     void initialSeek(bool dryRun = false);
+    bool selectDefaultTracks() override;
     bool onFinish();
     bool reachedPlannedStop() override;
     size_t clusterSize(uint64_t start, uint64_t end);

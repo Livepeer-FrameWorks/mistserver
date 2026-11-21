@@ -100,6 +100,17 @@ def main():
             thread.join()
         print("PASS HTTP M2TS indexes and seeks over byte ranges", flush=True)
 
+        for fmt, codec_id in [("srt", "subrip"), ("vtt", "webvtt")]:
+            text = work / ("cue." + fmt)
+            text.write_text("1\n00:00:00,200 --> 00:00:01,700\nhello\n" if fmt == "srt" else "WEBVTT\n\n00:00.200 --> 00:01.700\nhello\n")
+            target = work / ("subtitle-" + fmt + ".mkv")
+            run([ffmpeg, "-v", "error", "-y", "-i", text, "-c:s", codec_id, target])
+            metadata = json.loads(run([build / "test" / "uploadmetaprobe_ebml", target]))
+            subtitle = list(metadata["tracks"].values())
+            assert metadata["first_subtitle"]["data"] == "hello", metadata
+            assert metadata["first_subtitle"]["duration"] == 1500, metadata
+            assert len(subtitle) == 1 and subtitle[0]["codec"] == "subtitle", subtitle
+            print(f"PASS Matroska {codec_id} metadata", flush=True)
         text = work / "tx3g.srt"
         text.write_text("1\n00:00:00,200 --> 00:00:01,700\nhello\n\n2\n00:00:01,800 --> 00:00:02,500\nlast cue\n")
         for mode in ("progressive", "moof", "absolute"):

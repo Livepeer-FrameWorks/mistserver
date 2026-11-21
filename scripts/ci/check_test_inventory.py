@@ -18,6 +18,13 @@ if sys.platform.startswith('linux'):
 required = {'Controller capacity lifecycle ' + mode for mode in modes}
 required.update({
     'Upload containers preserve video codecs, surround audio and subtitle durations',
+    'Matroska subtitle BlockGroups preserve cue duration',
+    'Matroska recordings retain subtitle cues while WebM excludes them',
+    'Late subtitles survive an AV ladder and thumbnail processing',
+    'Sparse subtitles declare recording headers before a three minute first cue',
+    'Default Matroska output does not select subtitles',
+    'MP4 tx3g cue text and timing survive Matroska recording',
+    'Stored Matroska subtitles serve complete WebVTT over HTTP',
     'All eight orientations produce upright ladder and thumbnail pixels',
     'AAC channel layouts survive Opus processing at full duration',
     'Closed WHEP HTTP setup preserves the media inactivity reason',
@@ -80,7 +87,7 @@ required.update({
     'Processor pipes preserve child stdin when parent stdin is closed',
     'Process pipe probe retries interrupted reads',
 })
-required.add('Non-muxed CMAF EAC-3 waits for a complete decoder configuration')
+required.update(['Reordered EBML frames retain PTS with monotonic nonnegative DTS', 'Audio resampler detects rate and equal-count speaker layout changes', 'EAC-3 decoder configurations retain all dependent substreams', 'Non-muxed CMAF EAC-3 waits for a complete decoder configuration', 'Live republish startup polls count missing logs numerically'])
 missing = sorted(required - names)
 assert not missing, 'required regression tests are absent: ' + ', '.join(missing)
 output = build / 'meson-logs' / 'ingest-capacity-test-inventory.json'

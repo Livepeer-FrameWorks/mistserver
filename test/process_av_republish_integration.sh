@@ -97,7 +97,8 @@ TMP="$ipc_root" MIST_CONTROL=1 "$controller" -c "$config" -C r -L "$work/control
 controller_pid=$!
 
 log_count() {
-  grep -cE -- "$1" "$work/controller.log" 2>/dev/null || true
+  matches=$(grep -cE -- "$1" "$work/controller.log" 2>/dev/null || true)
+  printf '%s\n' "${matches:-0}"
 }
 
 wait_for_log() {

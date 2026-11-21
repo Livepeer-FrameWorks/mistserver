@@ -39,6 +39,9 @@ namespace EBML{
                          uint64_t time, bool keyFrame, uint64_t clusterTime);
   uint32_t sizeSimpleBlock(uint64_t trackId, uint32_t dataSize);
 
+  void appendSubtitleBlock(std::string & buffer, const char *data, size_t bytes, size_t track, uint64_t time,
+                           uint64_t duration, uint64_t clusterTime);
+  uint32_t sizeSubtitleBlock(uint64_t track, uint32_t bytes);
   uint32_t sizeVideoProjection(uint16_t rotation, bool mirror = false);
   void sendVideoProjection(Socket::Connection & connection, uint16_t rotation, bool mirror = false);
   Mist::Orientation videoOrientation(const Element & entry);

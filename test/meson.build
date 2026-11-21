@@ -1554,4 +1554,41 @@ test('Processor pipes do not survive unrelated child execs', procspipecloexectes
 test('Processor pipes preserve child stdin when parent stdin is closed', procspipecloexectest, args: ['closed-stdin'], suite: 'Util', timeout: 15)
 test('Process pipe probe retries interrupted reads', procspipeinheritance, args: ['interrupt-read'], suite: 'Util', timeout: 15)
 
+# Supplemental contract tests cover wire headers and decoder layout transitions.
+ebmldecodetimestamptest = executable('ebmldecodetimestamptest', 'ebml_decode_timestamps_unit.cpp',
+                                   header_tgts, dependencies: libmist_dep)
+test('Reordered EBML frames retain PTS with monotonic nonnegative DTS', ebmldecodetimestamptest, suite: 'EBML')
+if get_option('WITH_AV')
+  avaudioformattest = executable('avaudioformattest', 'process_av_audio_format_unit.cpp', dependencies: av_libs)
+  test('Audio resampler detects rate and equal-count speaker layout changes', avaudioformattest, suite: 'AV')
+endif
+ac3decoderconfigtest = executable('ac3decoderconfigtest', 'ac3_decoder_config_unit.cpp', header_tgts, dependencies: libmist_dep)
+test('EAC-3 decoder configurations retain all dependent substreams', ac3decoderconfigtest, suite: 'audio')
 test('Non-muxed CMAF EAC-3 waits for a complete decoder configuration', cmaf_muxed_test, args: ['unready-single'], suite: 'CMAF')
+test('Live republish startup polls count missing logs numerically', find_program('python3'),
+     args: files('republish_log_count_unit.py'), suite: 'Build')
+
+
+ebmlsubtitletest = executable('ebmlsubtitletest', 'ebml_subtitle_unit.cpp', header_tgts, dependencies: libmist_dep)
+test('Matroska subtitle BlockGroups preserve cue duration', ebmlsubtitletest, suite: 'EBML')
+if get_option('WITH_AV') and ffmpeg_program.found() and ffprobe_program.found()
+  test('Matroska recordings retain subtitle cues while WebM excludes them', find_program('python3'),
+       args: [files('subtitle_roundtrip_integration.py'), meson.project_build_root(), ffmpeg_program, ffprobe_program],
+       depends: media_test_deps, suite: 'Processing', timeout: 120, is_parallel: false)
+  test('Late subtitles survive an AV ladder and thumbnail processing', find_program('python3'),
+       args: [files('subtitle_roundtrip_integration.py'), meson.project_build_root(), ffmpeg_program, ffprobe_program],
+       env: {'MIST_SUBTITLE_PROCESSED': '1', 'MIST_SUBTITLE_LATE': '1'}, depends: media_test_deps, suite: 'Processing', timeout: 120, is_parallel: false)
+  test('Sparse subtitles declare recording headers before a three minute first cue', find_program('python3'),
+       args: [files('subtitle_roundtrip_integration.py'), meson.project_build_root(), ffmpeg_program, ffprobe_program],
+       env: {'MIST_SUBTITLE_PROCESSED': '1', 'MIST_SUBTITLE_SPARSE': '1'}, depends: media_test_deps, suite: 'Processing', timeout: 120, is_parallel: false)
+  test('Default Matroska output does not select subtitles', find_program('python3'),
+       args: [files('subtitle_roundtrip_integration.py'), meson.project_build_root(), ffmpeg_program, ffprobe_program],
+       env: {'MIST_SUBTITLE_DEFAULT': '1'}, depends: media_test_deps, suite: 'Processing', timeout: 120, is_parallel: false)
+  test('MP4 tx3g cue text and timing survive Matroska recording', find_program('python3'),
+       args: [files('subtitle_roundtrip_integration.py'), meson.project_build_root(), ffmpeg_program, ffprobe_program],
+       env: {'MIST_SUBTITLE_CONTAINER': 'mp4'}, depends: media_test_deps, suite: 'Processing', timeout: 120, is_parallel: false)
+  test('Stored Matroska subtitles serve complete WebVTT over HTTP', find_program('python3'),
+       args: [files('subtitle_roundtrip_integration.py'), meson.project_build_root(), ffmpeg_program, ffprobe_program],
+       env: {'MIST_SUBTITLE_HTTP': '1'}, depends: media_test_deps + [exec_tgts['MistOutHTTP'], exec_tgts['MistOutSubRip']],
+       suite: 'Processing', timeout: 120, is_parallel: false)
+endif
