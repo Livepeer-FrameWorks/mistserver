@@ -80,6 +80,7 @@ required.update({
     'Processor pipes preserve child stdin when parent stdin is closed',
     'Process pipe probe retries interrupted reads',
 })
+required.add('Non-muxed CMAF EAC-3 waits for a complete decoder configuration')
 missing = sorted(required - names)
 assert not missing, 'required regression tests are absent: ' + ', '.join(missing)
 output = build / 'meson-logs' / 'ingest-capacity-test-inventory.json'

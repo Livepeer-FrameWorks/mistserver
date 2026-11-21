@@ -3096,6 +3096,9 @@ namespace MP4{
       setCodecBox(dac3Box);
     } else if (tCodec == "EAC-3") {
       setCodec("ec-3");
+      // ETSI TS 102 366 F.5 fixes these prefix fields; dec3 carries the layout.
+      setChannelCount(2);
+      setSampleSize(16);
       MP4::DEC3 dec3Box(M.getInit(idx));
       setCodecBox(dec3Box);
     } else if (tCodec == "opus") {

@@ -1,3 +1,4 @@
+#include <mist/ac3.h>
 #include <mist/bitfields.h>
 #include <mist/cmaf.h>
 
@@ -5,7 +6,7 @@
 #include <iostream>
 #include <vector>
 
-int main() {
+int main(int argc, char **argv) {
   DTSC::Meta meta;
   meta.reInit("", true);
   meta.setMinimumFragmentDuration(100);
@@ -80,6 +81,47 @@ int main() {
       std::cerr << "muxed CMAF emitted samples excluded from its init" << std::endl;
       return 1;
     }
+  }
+  if (argc > 1 && std::string(argv[1]) == "unready-single") {
+    if (!CMAF::trackHeader(meta, audio, false).empty() || !CMAF::keyHeader(meta, audio, 1000, 1120, 1).empty() ||
+        CMAF::keyHeaderSize(meta, audio, uint64_t(1000), uint64_t(1120)) || CMAF::payloadSize(meta, audio, 1000, 1120)) {
+      std::cerr << "unready EAC-3 emitted a non-muxed CMAF fragment without its decoder configuration\n";
+      return 1;
+    }
+    CMAF::MuxedFragment unready;
+    if (!CMAF::muxedFragment(unready, meta, selected, 1000, 1120, 1) ||
+        std::any_of(unready.samples.begin(), unready.samples.end(),
+                    [audio](const CMAF::MuxedSample & sample) { return sample.track == audio; })) {
+      std::cerr << "muxed media did not match its video-only initialization while EAC-3 was unready\n";
+      return 1;
+    }
+    meta.setRate(audio, 48000);
+    meta.setChannels(audio, 6);
+    const std::string decoderConfig("\x02\x00\x20\x3f\x00", 5);
+    meta.setInit(audio, decoderConfig);
+    const std::string ready = CMAF::trackHeader(meta, audio, false);
+    if (ready.empty() || CMAF::keyHeader(meta, audio, 1000, 1120, 1).empty()) {
+      std::cerr << "configured EAC-3 did not become available for CMAF\n";
+      return 1;
+    }
+    MP4::Box ftyp((char *)ready.data(), false),
+      moov((char *)ready.data() + MP4::Box((char *)ready.data(), false).boxedSize(), false);
+    MP4::STSD description =
+      ((MP4::MOOV &)moov).getChild<MP4::TRAK>().getChild<MP4::MDIA>().getChild<MP4::MINF>().getChild<MP4::STBL>().getChild<MP4::STSD>();
+    MP4::AudioSampleEntry entry = (MP4::AudioSampleEntry &)description.getEntry(0);
+    MP4::Box codec = entry.getCodecBox();
+    const AC3::Header decoded = AC3::parseDEC3(codec.payload(), codec.payloadSize());
+    if (!ftyp.isType("ftyp") || !moov.isType("moov") || !entry.isType("ec-3") || entry.getChannelCount() != 2 ||
+        entry.getSampleSize() != 16 || entry.getSampleRate() != 48000 || !codec.isType("dec3") || !decoded.valid ||
+        decoded.channels != 6 || decoded.rate != 48000 || codec.boxedSize() != 8 + decoderConfig.size() ||
+        std::string(codec.asBox() + 8, decoderConfig.size()) != decoderConfig) {
+      std::cerr << "CMAF EAC-3 initialization lost sample entry, rate, channels or decoder bytes: prefixChannels="
+                << entry.getChannelCount() << " sampleSize=" << entry.getSampleSize() << " decodedChannels=" << decoded.channels
+                << " rate=" << entry.getSampleRate() << " codec=" << codec.getType() << "\n";
+      return 1;
+    }
+    std::cout << "PASS unready CMAF EAC-3 emits no media, then exposes its complete configured header\n";
+    return 0;
   }
   meta.setInit(audio, std::string("\x02\x00\x20\x3f\x00", 5));
   if (CMAF::keyHeader(meta, audio, 1000, 1120, 1).empty() || CMAF::trackHeader(meta, audio).empty()) { return 1; }

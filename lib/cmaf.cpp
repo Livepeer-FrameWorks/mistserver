@@ -338,6 +338,7 @@ namespace CMAF{
   };
 
   size_t keyHeaderSize(const DTSC::Meta &M, size_t track, size_t fragment){
+    if (!codecReady(M, track)) { return 0; }
     uint64_t tmpRes = 8 + 16 + 32 + 20;
 
     DTSC::Fragments fragments(M.fragments(track));
@@ -358,6 +359,7 @@ namespace CMAF{
   /// Calculates the full size of a 'moof' box for a DTSC::Key based fragment.
   /// Used when building the 'moof' box to calculate the relative data offsets.
   size_t keyHeaderSize(const DTSC::Meta &M, size_t track, uint64_t startTime, uint64_t endTime){
+    if (!codecReady(M, track)) { return 0; }
     uint64_t tmpRes = 8 + 16 + 32 + 20;
     size_t firstPart = M.getPartIndex(startTime, track);
     size_t endPart = M.getPartIndex(endTime, track);

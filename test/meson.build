@@ -1553,3 +1553,5 @@ procspipecloexectest = executable('procspipecloexectest', 'procs_pipe_cloexec_un
 test('Processor pipes do not survive unrelated child execs', procspipecloexectest, suite: 'Util')
 test('Processor pipes preserve child stdin when parent stdin is closed', procspipecloexectest, args: ['closed-stdin'], suite: 'Util', timeout: 15)
 test('Process pipe probe retries interrupted reads', procspipeinheritance, args: ['interrupt-read'], suite: 'Util', timeout: 15)
+
+test('Non-muxed CMAF EAC-3 waits for a complete decoder configuration', cmaf_muxed_test, args: ['unready-single'], suite: 'CMAF')
