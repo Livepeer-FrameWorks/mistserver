@@ -1,7 +1,16 @@
+#include <cstddef>
 #include <stdint.h>
 #include <string>
 
 namespace Mpeg{
+  struct MPEG4Info {
+      uint32_t width{0}, height{0};
+      double fps{0};
+      bool keyFrame{false};
+      std::string init;
+  };
+  MPEG4Info parseMPEG4Headers(const char *data, size_t length);
+
   const static double sampleRates[2][3] ={{44.1, 48.0, 32.0},{22.05, 24.0, 16.0}};
   const static int sampleCounts[2][3] ={{374, 1152, 1152},{384, 1152, 576}};
   const static int bitRates[2][3][16] ={

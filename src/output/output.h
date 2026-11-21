@@ -150,9 +150,9 @@ namespace Mist{
     virtual bool recordingHeaderContainsTrack(size_t) const { return false; }
     PlayRewriteOutcome applyPlayRewrite(const char *requestType);
     std::string currentTarget;
-    virtual bool inlineRestartCapable() const {
+    virtual bool inlineRestartCapable() const{
       return false;
-    } ///< True if the output is capable of restarting mid-stream. This is used for swapping recording files
+    }///< True if the output is capable of restarting mid-stream. This is used for swapping recording files
     void closeMyConn();
     bool pushing;
     std::map<std::string, std::string> targetParams; /*LTS*/

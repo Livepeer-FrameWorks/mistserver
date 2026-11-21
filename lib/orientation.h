@@ -41,6 +41,10 @@ namespace Mist {
         }
         return false;
       }
+      unsigned int exif() const {
+        static const unsigned int codes[4][2] = {{1, 2}, {6, 5}, {3, 4}, {8, 7}};
+        return codes[rotation < 360 && rotation % 90 == 0 ? rotation / 90 : 0][mirror ? 1 : 0];
+      }
       // ISO BMFF uses row vectors: apply this track matrix, then the movie matrix.
       Orientation then(const Orientation & movie) const {
         return Orientation((rotation + (mirror ? 360 - movie.rotation : movie.rotation)) % 360, mirror != movie.mirror);

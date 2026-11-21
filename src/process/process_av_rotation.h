@@ -87,6 +87,7 @@ namespace Mist {
             return 0;
           }
           graph->nb_threads = 1;
+          graph->scale_sws_opts = av_strdup("flags=bilinear");
           const AVRational aspect = input->sample_aspect_ratio.num && input->sample_aspect_ratio.den ? input->sample_aspect_ratio
                                                                                                      : AVRational{1, 1};
           // Hardware frame context must be installed before the buffer filter is initialized.

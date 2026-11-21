@@ -68,7 +68,8 @@ until grep -q 'Controller started' "$work/controller.log" 2>/dev/null; do
 done
 
 session_id="O$(printf '%016x' "$$")"
-TMP="$ipc_root" LD_PRELOAD="$preload" "$session_binary" "$session_id" -s secondboundary >"$work/session.log" 2>&1 &
+# Keep a log-helper process from masking a session that has already shut down.
+MIST_CONTROL=1 TMP="$ipc_root" LD_PRELOAD="$preload" "$session_binary" "$session_id" -s secondboundary >"$work/session.log" 2>&1 &
 session_pid=$!
 
 attempt=0
@@ -85,7 +86,7 @@ done
 # milliseconds of its start, so three seconds of observation separate the two.
 attempt=0
 while [ "$attempt" -lt 30 ]; do
-  if ! kill -0 "$session_pid" 2>/dev/null; then
+  if ! kill -0 "$session_pid" 2>/dev/null || grep -q "Shutting down session $session_id" "$work/session.log"; then
     echo "session $session_id shut down right after it started:" >&2
     grep 'Shutting down session' "$work/session.log" >&2 || true
     exit 1

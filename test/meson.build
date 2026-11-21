@@ -179,7 +179,7 @@ inputmp4retrytest = executable('inputmp4retrytest',
                                dependencies: libmist_dep)
 test('MP4 input retries incomplete ranged reads', inputmp4retrytest, suite: 'MP4')
 
-if get_option('b_sanitize') == 'none' and host_machine.system() == 'linux'
+if host_machine.system() == 'linux'
   clockstep_preload = shared_module('clockstep_preload', 'clock_step_preload.cpp',
                                     dependencies: ccpp.find_library('dl', required: false))
   sessionsecondboundarytest = find_program('session_start_second_boundary_integration.sh')
@@ -476,6 +476,11 @@ if ffmpeg_program.found() and ffprobe_program.found()
       sessionstopargs = [ffmpeg_program, curl_program, exec_tgts.get('MistController'), exec_tgts.get('MistInBuffer'),
                          exec_tgts.get('MistOutRTMP'), exec_tgts.get('MistProcAV'), exec_tgts.get('MistProcThumbs'),
                          exec_tgts.get('MistProcLivepeer'), exec_tgts.get('MistUtilNuke'), livepeerstub]
+      test('Session-stop fixture removes its thumbnail directory', find_program('python3'),
+           args: [files('session_stop_cleanup_integration.py'), sessionstoptest] + sessionstopargs,
+           env: {'MIST_SESSION_STOP_MODE': 'stop'},
+           depends: [exec_tgts['MistController'], exec_tgts['MistInBuffer'], exec_tgts['MistOutRTMP'], exec_tgts['MistProcAV'], exec_tgts['MistProcThumbs'], exec_tgts['MistProcLivepeer'], exec_tgts['MistUtilNuke'], livepeerstub],
+           suite: 'Processing', timeout: 180, is_parallel: false)
       test('Live processes whose sessions are stopped report it and are not restarted', sessionstoptest,
            args: sessionstopargs, env: {'MIST_SESSION_STOP_MODE': 'stop'},
            suite: 'Processing', timeout: 150, is_parallel: false)
@@ -1238,8 +1243,13 @@ endif
 
 ebmlrotationtest = executable('ebmlrotationtest', 'ebml_rotation_unit.cpp', header_tgts, dependencies: libmist_dep)
 test('Matroska projection rotation preserves exact element lengths', ebmlrotationtest, suite: 'EBML')
+media_test_deps = upload_metadata_probes
+foreach media_target : ['MistProcAV', 'MistProcThumbs', 'MistProcLivepeer', 'MistOutEBML', 'MistOutJPG', 'MistOutCMAF', 'MistOutMP4', 'MistOutHTTP', 'MistInMP4', 'MistInEBML', 'MistInAV', 'MistInBuffer', 'MistInTS', 'MistController', 'MistSession', 'MistUtilNuke']
+  if exec_tgts.has_key(media_target)
+    media_test_deps += [exec_tgts[media_target]]
+  endif
+endforeach
 if get_option('WITH_AV') and ffmpeg_program.found() and ffprobe_program.found()
-  media_test_deps = upload_metadata_probes + [exec_tgts['MistProcAV'], exec_tgts['MistProcThumbs'], exec_tgts['MistProcLivepeer'], exec_tgts['MistOutEBML'], exec_tgts['MistOutJPG'], exec_tgts['MistOutCMAF'], exec_tgts['MistOutMP4'], exec_tgts['MistOutHTTP'], exec_tgts['MistInMP4'], exec_tgts['MistInEBML'], exec_tgts['MistInAV'], exec_tgts['MistInBuffer'], exec_tgts['MistInTS'], exec_tgts['MistController'], exec_tgts['MistSession'], exec_tgts['MistUtilNuke']]
   test('Upload containers preserve video codecs, surround audio and subtitle durations', find_program('python3'),
        args: [files('upload_formats_integration.py'), meson.project_build_root(), ffmpeg_program],
        depends: media_test_deps, suite: 'Processing', timeout: 180, is_parallel: false)
@@ -1445,3 +1455,96 @@ endif
 
 test('CI rejects registered media regressions that skip', find_program('python3'),
      args: [files('ci_inventory_results_integration.py'), meson.project_build_root()], suite: 'Build')
+
+
+test('AC3 header parsing does not copy remaining PES payload', ac3test, args: ['bounded-parse'], suite: 'audio')
+ebmlsubtitleinputtest = executable('ebmlsubtitleinputtest', 'ebml_subtitle_input_unit.cpp', header_tgts, dependencies: libmist_dep)
+test('Matroska UTF8 subtitles retain the upstream input mapping', ebmlsubtitleinputtest, suite: 'EBML')
+rtmpcodecpolicytest = executable('rtmpcodecpolicytest', 'rtmp_codec_policy_unit.cpp', header_tgts, dependencies: libmist_dep)
+test('RTMP enhanced audio advertises only codecs with packet writers', rtmpcodecpolicytest, suite: 'RTMP')
+tsprivatereadinesstest = executable('tsprivatereadinesstest', 'ts_private_readiness_unit.cpp', header_tgts, dependencies: libmist_dep)
+test('Unknown private PIDs do not delay H264 AAC transport readiness', tsprivatereadinesstest, suite: 'TS')
+
+livepeersourcefixture = executable('livepeersourcefixture', 'livepeer_source_fixture.cpp', header_tgts, dependencies: libmist_dep)
+if exec_tgts.has_key('MistProcLivepeer')
+  test('Livepeer refuses transformed and unsupported sources before gateway contact', find_program('python3'),
+       args: [files('livepeer_source_refusal_integration.py'), livepeersourcefixture, exec_tgts.get('MistProcLivepeer')],
+       suite: 'Livepeer', timeout: 180, is_parallel: false)
+endif
+
+test('Non-AV build registers media fixtures without missing dependencies', find_program('python3'),
+     args: [files('non_av_build_configure.py'), meson.project_source_root()], suite: 'Build', timeout: 90, is_parallel: false)
+if host_machine.system() != 'windows' and ffmpeg_program.found() and ffprobe_program.found()
+  test('Fragmented tx3g serves complete SRT and VTT cues over HTTP', find_program('python3'),
+       args: [files('fragmented_subtitle_http_integration.py'), meson.project_build_root(), ffmpeg_program, ffprobe_program],
+       depends: [exec_tgts['MistController'], exec_tgts['MistOutHTTP'], exec_tgts['MistOutSubRip'], exec_tgts['MistInMP4'], exec_tgts['MistSession'], exec_tgts['MistUtilLog']],
+       suite: 'MP4', timeout: 180, is_parallel: false)
+endif
+if get_option('WITH_AV') and ffmpeg_program.found() and ffprobe_program.found()
+  test('HEVC source rotates a complete local ladder and thumbnails', find_program('python3'),
+       args: [files('process_av_rotation_integration.py'), meson.project_build_root(), ffmpeg_program, ffprobe_program],
+       env: {'MIST_ROTATION_CASE': 'HEVC:90'}, depends: media_test_deps, suite: 'Processing', timeout: 120, is_parallel: false)
+endif
+
+if get_option('WITH_AV') and ffmpeg_program.found() and ffprobe_program.found()
+  test('Platform Opus channel limit downmixes surround without upmixing mono', find_program('python3'),
+       args: [files('process_av_surround_integration.py'), meson.project_build_root(), ffmpeg_program, ffprobe_program],
+       env: {'MIST_AUDIO_MAX_CHANNELS': '2'}, depends: media_test_deps, suite: 'Processing', timeout: 120, is_parallel: false)
+endif
+
+if get_option('WITH_AV') and ffmpeg_program.found() and ffprobe_program.found()
+  test('Corrupt video packets fail instead of stalling the decoder', find_program('python3'),
+       args: [files('process_av_invaliddata_integration.py'), meson.project_build_root(), ffmpeg_program, ffprobe_program],
+       depends: media_test_deps, suite: 'Processing', timeout: 90, is_parallel: false)
+endif
+
+procspipeinheritance = executable('procspipeinheritance', 'procs_pipe_inheritance.cpp', header_tgts, dependencies: libmist_dep)
+test('Process pipes do not leak into unrelated executables', procspipeinheritance, suite: 'Util', timeout: 15)
+
+livepeerdrainsignaltest = executable('livepeerdrainsignaltest', ['livepeer_drain_signal_unit.cpp', input_cpp, output_http_cpp, output_ts_base_cpp, output_cpp, io_cpp], header_tgts, dependencies: libmist_dep)
+test('SIGTERM interrupts Livepeer drain without a sink thread', livepeerdrainsignaltest, suite: 'Livepeer', timeout: 5)
+
+cmaforientationtest = executable('cmaforientationtest', 'cmaf_orientation_unit.cpp', header_tgts, dependencies: libmist_dep)
+test('CMAF init preserves rotation without mirrored matrices', cmaforientationtest, suite: 'CMAF')
+if get_option('WITH_AV') and ffmpeg_program.found() and ffprobe_program.found()
+  test('AC3 layout and sample-rate changes keep complete AAC recordings', find_program('python3'),
+       args: [files('process_av_surround_integration.py'), meson.project_build_root(), ffmpeg_program, ffprobe_program],
+       env: ['MIST_RUN_MEDIA_TESTS=1', 'MIST_AUDIO_FORMAT_CHANGE=1'],
+       depends: media_test_deps, suite: 'Processing', timeout: 100, is_parallel: false)
+endif
+
+ebmlpredictortest = executable('ebmlpredictortest', 'ebml_predictor_timestamps.cpp', header_tgts, dependencies: libmist_dep)
+test('Matroska B-frames retain monotonic DTS and unchanged presentation', ebmlpredictortest, suite: 'EBML')
+if ffmpeg_program.found() and ffprobe_program.found()
+  test('Matroska B-frame MP4 recordings preserve pixels and A/V alignment', find_program('python3'),
+       args: [files('ebml_bframe_timeline_integration.py'), meson.project_build_root(), ffmpeg_program, ffprobe_program],
+       depends: media_test_deps, suite: 'Processing', timeout: 100, is_parallel: false)
+endif
+
+if ffmpeg_program.found() and get_option('WITH_AV')
+  test('Processing admission reuses its paused source without a second read', find_program('python3'),
+       args: [files('processing_probe_handoff_integration.py'), meson.project_build_root(), ffmpeg_program],
+       depends: media_test_deps, suite: 'Processing', timeout: 90, is_parallel: false)
+endif
+
+if host_machine.system() != 'windows' and get_option('WITH_AV') and ffmpeg_program.found()
+  test('Actual live AV failures use growing restart backoff', find_program('python3'),
+       args: [files('live_av_backoff_integration.py'), meson.project_build_root(), ffmpeg_program],
+       depends: [exec_tgts.get('MistController'), exec_tgts.get('MistInBuffer'), exec_tgts.get('MistOutHTTP'),
+                 exec_tgts.get('MistOutRTMP'), exec_tgts.get('MistProcAV'), exec_tgts.get('MistSession'),
+                 exec_tgts.get('MistUtilLog'), exec_tgts.get('MistUtilNuke')],
+       suite: 'Processing', timeout: 90, is_parallel: false)
+endif
+
+if get_option('WITH_AV') and ffmpeg_program.found() and ffprobe_program.found()
+  test('MPEG4 container inputs retain Visual decoding and legacy avcC compatibility', find_program('python3'),
+       args: [files('mpeg4_metadata_integration.py'), meson.project_build_root(), ffmpeg_program],
+       depends: media_test_deps, suite: 'Processing', timeout: 120, is_parallel: false)
+  test('MPEG4 uploads decode a complete local ladder and thumbnails', find_program('python3'),
+       args: [files('process_av_rotation_integration.py'), meson.project_build_root(), ffmpeg_program, ffprobe_program],
+       env: {'MIST_ROTATION_CASE': 'MPEG4:0'}, depends: media_test_deps, suite: 'Processing', timeout: 120, is_parallel: false)
+  test('MPEG4 B-frames retain the full raw NV12 tail', find_program('python3'),
+       args: [files('process_av_rotation_integration.py'), meson.project_build_root(), ffmpeg_program, ffprobe_program],
+       env: {'MIST_ROTATION_CASE': 'MPEG4:0', 'MIST_ROTATION_BFRAMES': '2', 'MIST_ROTATION_OUTPUT': 'NV12'},
+       depends: media_test_deps, suite: 'Processing', timeout: 120, is_parallel: false)
+endif

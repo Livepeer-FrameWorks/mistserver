@@ -27,15 +27,16 @@ namespace TS{
 
   bool Assembler::assemble(Stream & TSStrm, const char * ptr, size_t len, bool parse, uint64_t bytePos){
     bool ret = false;
+    const bool endOfInput = !len;
     const auto deliver = [&](const char *packet, uint64_t position){
       tsBuf.FromPointer(packet);
       ret |= tsBuf.getUnitStart();
-          if (parse){
+      if (parse){
         TSStrm.parse(tsBuf, isLive ? 0 : position);
-          }else{
-            TSStrm.add(tsBuf);
-            if (!TSStrm.isDataTrack(tsBuf.getPID())){TSStrm.parse(tsBuf.getPID());}
-          }
+      }else{
+        TSStrm.add(tsBuf);
+        if (!TSStrm.isDataTrack(tsBuf.getPID())){TSStrm.parse(tsBuf.getPID());}
+      }
     };
     while (len || !leftData.empty()){
       if (packetStride && leftData.empty()){
@@ -106,6 +107,36 @@ namespace TS{
           packetOrigin = bufferPos;
           TSStrm.setM2TS(packetStride == 192);
           break;
+        }
+      }
+      if (endOfInput && !packetStride) {
+        // At EOF there may be fewer than three packets left to establish cadence.
+        // Prefer the layout retaining the most complete bytes, so an M2TS arrival
+        // timestamp resembling a TS header cannot steal its four-byte prefix.
+        size_t bestBytes = 0, bestStart = 0, bestPrefix = 0;
+        for (size_t sync = 0; sync + 188 <= leftData.size(); ++sync) {
+          for (size_t stride : {size_t(188), size_t(192)}) {
+            if (stride == 192 && sync < 4) { continue; }
+            const size_t prefix = stride == 192 ? 4 : 0;
+            size_t complete = 0;
+            for (size_t offset = sync; offset + 188 <= leftData.size(); offset += stride) {
+              if ((unsigned char)leftData[offset] != 0x47 || !(leftData[offset + 3] & 0x30)) { break; }
+              ++complete;
+            }
+            if (complete && (complete * stride > bestBytes || (complete * stride == bestBytes && sync - prefix > bestStart))) {
+              bestBytes = complete * stride;
+              bestStart = sync - prefix;
+              bestPrefix = prefix;
+              packetStride = stride;
+            }
+          }
+        }
+        if (bestBytes) {
+          prefixBytes = bestPrefix;
+          leftData.erase(0, bestStart);
+          bufferPos += bestStart;
+          packetOrigin = bufferPos;
+          TSStrm.setM2TS(packetStride == 192);
         }
       }
       if (packetStride){continue;}
@@ -323,6 +354,7 @@ namespace TS{
         case ID3:
         case MP2:
         case MPEG2:
+        case MPEG4:
         case OPUS:
         case AV1:
         case META:{
@@ -400,7 +432,12 @@ namespace TS{
     }
     size_t missing = 0;
     uint64_t firstTime = 0xffffffffffffffffull, lastTime = 0;
+    size_t recognized = 0;
     for (std::map<size_t, uint32_t>::const_iterator it = pidToCodec.begin(); it != pidToCodec.end(); it++){
+      // Undescribed private PES is only a candidate for ADTS detection. Until
+      // identified, it has no media track whose buffering can gate readiness.
+      if (it->second == PRIVATE) { continue; }
+      ++recognized;
       if (!hasPacket(it->first) || !outPackets.count(it->first) || !outPackets.at(it->first).size()){
         missing++;
       }else{
@@ -413,7 +450,7 @@ namespace TS{
       }
     }
 
-    return (!missing || (missing != pidToCodec.size() && lastTime - firstTime > 2000));
+    return recognized && (!missing || (missing != recognized && lastTime - firstTime > 2000));
   }
 
   bool Stream::hasPacket(size_t tid) const{
@@ -719,6 +756,7 @@ namespace TS{
     }
     if (thisCodec == AC3 || thisCodec == EAC3) {
       for (size_t offset = 0; offset + 7 <= realPayloadSize; ++offset) {
+        if ((unsigned char)pesPayload[offset] != 0x0B || (unsigned char)pesPayload[offset + 1] != 0x77) { continue; }
         const ::AC3::Header header = ::AC3::parse(pesPayload + offset, realPayloadSize - offset);
         if (header.valid && header.streamType != 1) {
           ac3Headers[tid] = header;
@@ -902,7 +940,12 @@ namespace TS{
         pesPayload = nextPtr + 3;
       }
     }
-
+    if (thisCodec == MPEG4) {
+      const Mpeg::MPEG4Info info = Mpeg::parseMPEG4Headers(pesPayload, realPayloadSize);
+      if (info.width && info.height && info.init.size()) { metaInit[tid] = info.init; }
+      out.push_back(DTSC::Packet());
+      out.back().genericFill(timeStamp, timeOffset, tid, pesPayload, realPayloadSize, bPos, info.keyFrame);
+    }
     if (thisCodec == MPEG2){
       const char *origBegin = pesPayload;
       size_t origSize = realPayloadSize;
@@ -1185,7 +1228,17 @@ namespace TS{
         trkDta.height = info.height;
         trkDta.fpks = info.fps * 1000;
       }break;
-
+      case MPEG4: {
+        const Mpeg::MPEG4Info info = Mpeg::parseMPEG4Headers(metaInit[it->first].data(), metaInit[it->first].size());
+        if (!info.width || !info.height) { continue; }
+        addNewTrack = true;
+        trkDta.type = "video";
+        trkDta.codec = "MPEG4";
+        trkDta.init = metaInit[it->first];
+        trkDta.width = info.width;
+        trkDta.height = info.height;
+        trkDta.fpks = info.fps * 1000;
+      } break;
       case ID3:{
         addNewTrack = true;
         trkDta.type = "meta";
@@ -1370,6 +1423,7 @@ namespace TS{
             case ID3:
             case MP2:
             case MPEG2:
+            case MPEG4:
             case OPUS:
             case AV1:
             case META: result.insert(entry.getElementaryPid()); break;

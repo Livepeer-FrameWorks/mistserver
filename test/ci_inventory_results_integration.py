@@ -13,7 +13,8 @@ inventory = subprocess.check_output(['meson', 'introspect', str(build), '--tests
 rows = json.loads(inventory)
 # Model the Linux inventory when this guard's fixture runs on another host.
 for name in ('Controller capacity lifecycle whep',
-             'WebRTC signal handler owns the post-dup2 listener descriptor'):
+             'WebRTC signal handler owns the post-dup2 listener descriptor',
+             'A session that boots across a second boundary stays up'):
     if not any(row['name'] == name for row in rows):
         rows.append({'name': name})
 inventory = json.dumps(rows)
@@ -27,7 +28,8 @@ with tempfile.TemporaryDirectory(prefix='mist-inventory-results-') as directory:
     fake.write_text('#!' + sys.executable + '\nfrom pathlib import Path\nprint(Path(' + repr(str(fixture / 'inventory.json')) + ').read_text())\n')
     fake.chmod(0o755)
     for victim in ('Canonical EAC-3 survives actual mp4 passthrough',
-                   'WHIP offers get an answer or a logged refusal, and a passive offerer can publish'):
+                   'WHIP offers get an answer or a logged refusal, and a passive offerer can publish',
+                   'H264 display orientation rotates processing and thumbnails'):
         assert any(row['name'] == victim for row in rows), 'fixture regression is not registered: ' + victim
         results = [{'name': row['name'], 'result': 'SKIP' if row['name'] == victim else 'OK'} for row in rows]
         (fixture / 'meson-logs' / 'testlog.json').write_text(''.join(json.dumps(row)+'\n' for row in results))

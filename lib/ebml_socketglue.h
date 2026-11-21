@@ -46,12 +46,14 @@ namespace EBML{
 
   class packetData {
     public:
-      uint64_t time, offset, track, dsize, bpos;
+      uint64_t time;
+      int64_t offset;
+      uint64_t track, dsize, bpos;
       uint64_t duration{0};
       bool key;
       Util::ResizeablePointer ptr;
       packetData() : time(0), offset(0), track(0), dsize(0), bpos(0), key(false) {}
-      void set(uint64_t packTime, uint64_t packOffset, uint64_t packTrack, uint64_t packDataSize, uint64_t packBytePos,
+      void set(uint64_t packTime, int64_t packOffset, uint64_t packTrack, uint64_t packDataSize, uint64_t packBytePos,
                bool isKeyframe, void *dataPtr = 0) {
         duration = 0;
         time = packTime;
@@ -62,8 +64,8 @@ namespace EBML{
         key = isKeyframe;
         if (dataPtr) { ptr.assign(dataPtr, packDataSize); }
       }
-      packetData(uint64_t packTime, uint64_t packOffset, uint64_t packTrack, uint64_t packDataSize,
-                 uint64_t packBytePos, bool isKeyframe, void *dataPtr = 0) {
+      packetData(uint64_t packTime, int64_t packOffset, uint64_t packTrack, uint64_t packDataSize, uint64_t packBytePos,
+                 bool isKeyframe, void *dataPtr = 0) {
         set(packTime, packOffset, packTrack, packDataSize, packBytePos, isKeyframe, dataPtr);
       }
   };
@@ -73,7 +75,6 @@ namespace EBML{
       packetData pkts[PKT_COUNT]; /// Buffer for packet data
       uint64_t times[PKT_COUNT]; /// Sorted timestamps of buffered packets
       size_t maxDelay{0}; /// Maximum amount of bframes we expect
-      uint32_t timeOffset{0}; /// Milliseconds we need to subtract from times so that offsets are always > 0
       uint64_t ctr{0}; /// ingested frame count
       uint64_t rem{0}; /// removed frame count
       uint64_t finished{INVALID_TRACK_ID};

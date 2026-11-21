@@ -68,6 +68,21 @@ int main() {
     std::cerr << "missing EAC-3 setup emitted an unusable audio track" << std::endl;
     return 1;
   }
+  if (!CMAF::keyHeader(meta, audio, 1000, 1120, 1).empty() || CMAF::payloadSize(meta, audio, 1000, 1120)) {
+    std::cerr << "unready EAC-3 emitted a single-track fragment without a decodable init" << std::endl;
+    return 1;
+  }
+  if (!CMAF::trackHeader(meta, audio).empty()) { return 1; }
+  CMAF::MuxedFragment unreadyFragment;
+  if (!CMAF::muxedFragment(unreadyFragment, meta, selected, 1000, 1120, 1)) { return 1; }
+  for (const auto & sample : unreadyFragment.samples) {
+    if (sample.track == audio) {
+      std::cerr << "muxed CMAF emitted samples excluded from its init" << std::endl;
+      return 1;
+    }
+  }
+  meta.setInit(audio, std::string("\x02\x00\x20\x3f\x00", 5));
+  if (CMAF::keyHeader(meta, audio, 1000, 1120, 1).empty() || CMAF::trackHeader(meta, audio).empty()) { return 1; }
   meta.setCodec(audio, "AAC");
 
   CMAF::MuxedFragment fragment;

@@ -362,7 +362,7 @@ namespace Mist{
         bool isMeta = (tType == "meta");
         for (unsigned int part = 1; part < partCount; ++part){
           uint64_t partDur = parts.getDuration(firstPart + part);
-          uint64_t partOffset = parts.getOffset(firstPart + part);
+          int64_t partOffset = parts.getOffset(firstPart + part);
           uint64_t partSize = parts.getSize(firstPart + part)+(isMeta?2:0);
           if (prevDur != partDur){
             prevDur = partDur;
@@ -644,7 +644,7 @@ namespace Mist{
         //Our MP4 box implementations dynamically reallocate to fit the data you put inside them,
         //Which means setting the last entry first prevents constant reallocs and slowness.
         for (size_t part = 0; part < partCount; ++part){
-          uint64_t partOffset = parts.getOffset(firstPart + part);
+          int64_t partOffset = parts.getOffset(firstPart + part);
           if (partOffset != tmpEntry.sampleOffset){
             ++totalEntries;
             tmpEntry.sampleOffset = partOffset;
@@ -691,7 +691,7 @@ namespace Mist{
           size += partSize;
           
           if (hasCTTS){
-            uint64_t partOffset = parts.getOffset(firstPart + part);
+            int64_t partOffset = parts.getOffset(firstPart + part);
             if (partOffset != tmpEntry.sampleOffset){
               // If the offset of this and previous part differ, write current values and reset
               cttsBox.setCTTSEntry(tmpEntry, totalEntries++);
@@ -1133,7 +1133,7 @@ namespace Mist{
       for (std::set<keyPart>::iterator trunIt = sortSet.begin(); trunIt != sortSet.end(); trunIt++){
         if (trunIt->trackID == tid){
           DTSC::Parts parts(M.parts(trunIt->trackID));
-          uint64_t partOffset = parts.getOffset(trunIt->index);
+          int64_t partOffset = parts.getOffset(trunIt->index);
           uint64_t partSize = parts.getSize(trunIt->index);
           uint64_t partDur = parts.getDuration(trunIt->index);
 

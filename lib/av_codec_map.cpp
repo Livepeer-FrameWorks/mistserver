@@ -11,7 +11,7 @@ namespace {
   const Codec codecs[] = {
     {"H264", AV_CODEC_ID_H264},     {"HEVC", AV_CODEC_ID_HEVC},     {"AV1", AV_CODEC_ID_AV1},
     {"VP8", AV_CODEC_ID_VP8},       {"VP9", AV_CODEC_ID_VP9},       {"MPEG2", AV_CODEC_ID_MPEG2VIDEO},
-    {"JPEG", AV_CODEC_ID_MJPEG},    {"AAC", AV_CODEC_ID_AAC},
+    {"MPEG4", AV_CODEC_ID_MPEG4},   {"JPEG", AV_CODEC_ID_MJPEG},    {"AAC", AV_CODEC_ID_AAC},
     {"opus", AV_CODEC_ID_OPUS},     {"AC3", AV_CODEC_ID_AC3},       {"EAC-3", AV_CODEC_ID_EAC3},
     {"MP3", AV_CODEC_ID_MP3},       {"MP2", AV_CODEC_ID_MP2},       {"FLAC", AV_CODEC_ID_FLAC},
     {"vorbis", AV_CODEC_ID_VORBIS}, {"theora", AV_CODEC_ID_THEORA},
@@ -24,6 +24,22 @@ namespace {
 } // namespace
 
 namespace AVCodecMap {
+  const std::vector<std::string> & videoInputs() {
+    static const std::vector<std::string> values = {"H264",  "HEVC",  "AV1",  "VP8",   "VP9",
+                                                    "MPEG2", "MPEG4", "JPEG", "theora"};
+    return values;
+  }
+  const std::vector<std::string> & audioInputs() {
+    static const std::vector<std::string> values = {"PCM", "opus", "AAC",  "AC3",   "EAC-3",
+                                                    "MP3", "MP2",  "FLAC", "vorbis"};
+    return values;
+  }
+  bool isVideoInput(const std::string & codec) {
+    return std::find(videoInputs().begin(), videoInputs().end(), codec) != videoInputs().end();
+  }
+  bool isAudioInput(const std::string & codec) {
+    return std::find(audioInputs().begin(), audioInputs().end(), codec) != audioInputs().end();
+  }
   AVCodecID codecID(const std::string & codec, unsigned int pcmDepth) {
     const std::string normalized = upper(codec);
     if (normalized == "PCM") {

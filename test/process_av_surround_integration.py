@@ -24,14 +24,29 @@ def main():
     controller, source_process, success = None, None, False
     try:
         channels = 1 if os.environ.get("MIST_AUDIO_MONO") == "1" else 6
-        seconds = 4
+        maximum = int(os.environ.get("MIST_AUDIO_MAX_CHANNELS", "0"))
+        output_channels = min(channels, maximum) if maximum else channels
+        changing = os.environ.get("MIST_AUDIO_FORMAT_CHANGE") == "1"
+        seconds = 8 if changing else 4
         source = work / "surround.mp4"
         fixture_signal = "sine=frequency=440:sample_rate=48000:duration=4" if channels == 1 else "aevalsrc=sin(2*PI*440*t)|sin(2*PI*550*t)|sin(2*PI*660*t)|sin(2*PI*80*t)|sin(2*PI*770*t)|sin(2*PI*880*t):s=48000:d=4:channel_layout=5.1"
         run([ffmpeg, "-v", "error", "-y", "-f", "lavfi", "-i", fixture_signal, "-c:a", "aac", "-b:a", "384k", source])
+        if changing:
+            segments = []
+            for index, rate in enumerate((48000, 44100)):
+                segment = work / ("part%d.ts" % index)
+                run([ffmpeg, "-v", "error", "-y", "-f", "lavfi", "-i", "testsrc2=size=320x180:rate=10:duration=4",
+                     "-f", "lavfi", "-i", "aevalsrc=sin(2*PI*440*t):s=%d:d=4" % rate,
+                     "-c:v", "libx264", "-threads", "1", "-preset", "ultrafast", "-g", "10", "-bf", "0",
+                     "-c:a", "ac3", "-ac", "6" if index == 0 else "2", "-ar", str(rate), "-b:a", "384k",
+                     "-output_ts_offset", str(index * 4), segment])
+                segments.append(segment.read_bytes())
+            source = work / "changing.ts"
+            source.write_bytes(b"".join(segments))
         processes = [{"process": "AV", "x-LSP-kind": "audio", "codec": codec,
-                      "track_select": "audio=AAC&video=none&subtitle=none&meta=none", "source_mask": 4,
-                      "target_mask": 3, "restart_type": "fixed", "bitrate": 384000 if codec == "AAC" else 128000}
-                     for codec in ("opus",)]
+                      "track_select": "audio=%s&video=none&subtitle=none&meta=none" % ("AC3" if changing else "AAC"), "source_mask": 4,
+                      "max_channels": maximum, "target_mask": 3, "restart_type": "fixed", "bitrate": 384000 if codec == "AAC" else 128000}
+                     for codec in (("AAC",) if changing else ("opus",))]
         with socket.socket() as port:
             port.bind(("127.0.0.1", 0))
             api_port = port.getsockname()[1]
@@ -46,21 +61,21 @@ def main():
         controller = subprocess.Popen([str(build / "MistController"), "-c", str(work / "config.json"), "-C", "r", "-L", str(log)], env=env)
         wait_for(lambda: log.exists() and "Controller started" in log.read_text(errors="replace"))
         with (work / "input.log").open("wb") as input_log, (work / "output.log").open("wb") as output_log:
-            source_process = subprocess.Popen([str(build / "MistInMP4"), "-r", "-s", stream, str(source)], env=env, stdout=input_log, stderr=subprocess.STDOUT)
+            source_process = subprocess.Popen([str(build / ("MistInTS" if changing else "MistInMP4")), "-r", "-s", stream, str(source)], env=env, stdout=input_log, stderr=subprocess.STDOUT)
             wait_for(lambda: "Input started" in (work / "input.log").read_text(errors="replace"))
             recording = work / "surround.mkv"
             run([build / "MistOutEBML", "-s", stream, str(recording) + f"?video=none&audio=all&subtitle=none&meta=none&duration={seconds}"],
                 env=env, stdout=output_log, stderr=subprocess.STDOUT, timeout=50)
         probe = json.loads(run([ffprobe, "-v", "error", "-show_streams", "-show_packets", "-of", "json", recording], stdout=subprocess.PIPE).stdout)
         audio = probe["streams"]
-        assert {(s["codec_name"], s["channels"]) for s in audio} == {("opus", channels)}, audio
+        assert {(s["codec_name"], s["channels"]) for s in audio} == {("aac" if changing else "opus", output_channels)}, audio
         for index, channel_count in enumerate(s["channels"] for s in audio):
             packets = [p for p in probe["packets"] if p["stream_index"] == index]
             assert packets, audio
             assert float(packets[-1]["pts_time"]) >= seconds - 0.2, packets[-1]
             samples = run([ffmpeg, "-v", "error", "-i", recording, "-map", f"0:{index}", "-f", "s16le", "-"], stdout=subprocess.PIPE).stdout
             assert len(samples) >= 48000 * channel_count * 2 * (seconds - 0.2), len(samples)
-            if channel_count == 6:
+            if channel_count == 6 and not changing:
                 pcm = array.array("h", samples)
                 if sys.byteorder != "little":
                     pcm.byteswap()
@@ -78,8 +93,13 @@ def main():
                         powers.append(previous * previous + before * before - coefficient * previous * before)
                     assert frequencies[max(range(6), key=lambda i: powers[i])] == expected, (channel, expected, powers)
 
+        if changing:
+            log_text = (work / "input.log").read_text(errors="replace")
+            assert "Decoded audio format changed; draining and rebuilding the resampler" in log_text, log_text[-3000:]
+            assert all(track["sample_rate"] == "48000" for track in audio), audio
+            assert not any(word in log_text for word in ("Could not open resample", "Could not flush audio", "Error while")), log_text[-3000:]
         success = True
-        print(f"PASS AAC {channels} channels -> Opus {channels} channels; full-duration decoding", flush=True)
+        print(f"PASS {'changing AC3' if changing else 'AAC'} {channels} channels -> {'AAC' if changing else 'Opus'} {output_channels} channels; full-duration decoding", flush=True)
         return 0
     finally:
         if controller:

@@ -10,8 +10,8 @@ int main() {
     bytes[1] = 13;
     bytes[2] = objectType;
     MP4::DCDescriptor descriptor(bytes.data(), bytes.size());
-    const std::string expected = objectType == 0x20                        ? "UNKNOWN"
-      : ((objectType >= 0x60 && objectType <= 0x65) || objectType == 0x6A) ? "MPEG2"
+    const std::string expected = objectType == 0x20                        ? "MPEG4"
+      : ((objectType >= 0x60 && objectType <= 0x65) || objectType == 0x6A) ? "UNKNOWN"
       : objectType == 0x40                                                 ? "AAC"
       : (objectType == 0x69 || objectType == 0x6B)                         ? "MP3"
                                                                            : "UNKNOWN";
@@ -40,5 +40,6 @@ int main() {
     std::cerr << "AAC ESDS size disagrees with the progressive MP4 header" << std::endl;
     return 1;
   }
+  std::cout << "PASS upstream MP4 object types and unchanged AAC ESDS sizing" << std::endl;
   return 0;
 }

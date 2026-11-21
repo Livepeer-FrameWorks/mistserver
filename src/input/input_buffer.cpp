@@ -909,7 +909,7 @@ namespace Mist{
       if (streamCfg){
         JSON::Value configuredProcesses;
         /*LTS-START*/
-        if (!processOverrideResolved) {
+        if (!processOverrideResolved && Util::bootMS() >= processOverrideRetryAt) {
           processOverrideResolved = true;
           std::string fullStreamName = config->getString("streamname");
           if (Triggers::shouldTrigger("STREAM_PROCESS", fullStreamName)) {
@@ -921,6 +921,11 @@ namespace Mist{
               if (!processOverride.isArray()) { processOverride.null(); }
             }
           }
+        }
+        if (processOverrideResolved && processingAdmissionPending(processOverride)) {
+          // Admission publishes a final override; keep the same paused source until then.
+          processOverrideResolved = false;
+          processOverrideRetryAt = Util::bootMS() + 1000;
         }
         if (processOverride.isArray() && processOverride.size()) {
           configuredProcesses = processOverride;
@@ -1188,7 +1193,7 @@ namespace Mist{
       if (!processGraphPage) { return; }
     }
     JSON::Value published;
-    published["resolved"] = M.getValidTracks().size() != 0;
+    published["resolved"] = M.getValidTracks().size() != 0 && !processingAdmissionPending(processOverride);
     published["outputs"] = graph.outputs;
     const std::string json = published.toString();
     if (json == publishedProcessGraph) { return; }
@@ -1202,7 +1207,8 @@ namespace Mist{
 
   void InputBuffer::publishFeedPaused() {
     if (!streamStatus || streamStatus.len < 16) { return; }
-    streamStatus.mapped[STRMSTATE_PROCESS_FEED_PAUSED_OFFSET] = processControlledRealtime && consumerLag.held();
+    streamStatus.mapped[STRMSTATE_PROCESS_FEED_PAUSED_OFFSET] =
+      processControlledRealtime && (consumerLag.held() || processingAdmissionPending(processOverride));
   }
 
   /// How far the source leads the slowest HOLDBUFFER recorder (see holdingReadersLeadMs).
@@ -1595,6 +1601,9 @@ namespace Mist{
         VERYHIGH_MSG("Skipping process `%s`, as restarts are disabled", args["process"].asString().c_str());
         continue;
       }
+      const uint64_t defaultWait = defaultLiveAVRestartWaitMs(args["process"].asString(), restartType, restartDelay,
+                                                              processControlledRealtime, procBoots[config]);
+      if (defaultWait && !procNextBoot[config]) { procNextBoot[config] = now + defaultWait; }
       // Apply any delayed start time if we've booted before
       if (restartDelay && procBoots[config] && !procNextBoot[config]) {
         if (restartType == "fixed") {

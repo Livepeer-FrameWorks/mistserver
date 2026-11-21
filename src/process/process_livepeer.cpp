@@ -571,7 +571,7 @@ namespace Mist {
       }
     }
     const uint64_t drainBudgetMs = livepeerDrainBudgetMs(opt, longestSegmentMs, pendingSegments);
-    while (!livepeerStopRequested.load(std::memory_order_acquire) && !livepeerQueuesDrained()) {
+    while (!livepeerStopRequested.load(std::memory_order_acquire) && !Util::Config::stopRequested() && !livepeerQueuesDrained()) {
       uint64_t now = Util::bootMS();
       if (now > start + drainBudgetMs) {
         procExit.log(ER_FORMAT_SPECIFIC, 2, "Timed out waiting for Livepeer segment drain; queueDepth=%u activeUploads=%u",
@@ -586,6 +586,7 @@ namespace Mist {
       }
       Util::sleep(25);
     }
+    if (Util::Config::stopRequested()) { livepeerStopRequested.store(true, std::memory_order_release); }
     return livepeerQueuesDrained();
   }
 } // namespace Mist
@@ -1512,6 +1513,16 @@ int main(int argc, char *argv[]){
   while (++sleeps < 60 && (sourceIdx == INVALID_TRACK_ID || !M.getWidth(sourceIdx) || !M.getHeight(sourceIdx))){
     M.reloadReplacedPagesIfNeeded();
     std::set<size_t> vidTrack = Util::wouldSelect(M, targetParams, sourceCapa);
+    if (vidTrack.empty()) {
+      // Match the sender first. Broaden only to explain a source it cannot carry.
+      JSON::Value selectionCapa = sourceCapa;
+      selectionCapa.removeMember("codecs");
+      const std::set<size_t> validTracks = M.getValidTracks();
+      for (std::set<size_t>::const_iterator it = validTracks.begin(); it != validTracks.end(); ++it) {
+        if (M.getType(*it) == "video") { selectionCapa["codecs"][0u][0u].append("+" + M.getCodec(*it)); }
+      }
+      vidTrack = Util::wouldSelect(M, targetParams, selectionCapa);
+    }
     sourceIdx = vidTrack.size() ? (*(vidTrack.begin())) : INVALID_TRACK_ID;
     if (sourceIdx == INVALID_TRACK_ID || !M.getWidth(sourceIdx) || !M.getHeight(sourceIdx)){
       Util::sleep(250);
@@ -1519,6 +1530,19 @@ int main(int argc, char *argv[]){
   }
   if (sourceIdx == INVALID_TRACK_ID || !M.getWidth(sourceIdx) || !M.getHeight(sourceIdx)){
     procExit.log(ER_FORMAT_SPECIFIC, 2, "No valid source video track found");
+    return procExit.flush(procStatePage);
+  }
+
+  if (M.getRotation(sourceIdx) || M.getMirror(sourceIdx)) {
+    procExit.log(ER_SOURCE_ROTATED, 2, "Source requires %u degree display rotation or reflection; local AV must rotate or reflect it",
+                 (unsigned int)M.getRotation(sourceIdx));
+    return procExit.flush(procStatePage);
+  }
+  const std::string sourceCodec = M.getCodec(sourceIdx);
+  if (sourceCodec != "H264" && sourceCodec != "HEVC") {
+    procExit.log(ER_SOURCE_CODEC_UNSUPPORTED, 2,
+                 "SOURCE_CODEC_UNSUPPORTED: Livepeer transport cannot carry %s; local AV must decode this source",
+                 sourceCodec.c_str());
     return procExit.flush(procStatePage);
   }
 

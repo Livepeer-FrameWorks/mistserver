@@ -3,6 +3,21 @@
 #include <cassert>
 #include <cstdio>
 
+static int acquired = 0, transferred = 0;
+static int acquireFrame(AVCodecContext *encoder, AVFrame *frame) {
+  ++acquired;
+  av_frame_unref(frame);
+  frame->format = encoder->pix_fmt;
+  frame->hw_frames_ctx = av_buffer_ref(encoder->hw_frames_ctx);
+  return frame->hw_frames_ctx ? 0 : AVERROR(ENOMEM);
+}
+static int transferFrame(AVFrame *to, const AVFrame *from, int flags) {
+  ++transferred;
+  assert(flags == 0 && to->format == AV_PIX_FMT_CUDA && from->format == AV_PIX_FMT_CUDA);
+  assert(to->hw_frames_ctx->data != from->hw_frames_ctx->data);
+  return 0;
+}
+
 int main() {
   AVFrame *frame = av_frame_alloc();
   assert(frame);
@@ -36,6 +51,24 @@ int main() {
     assert(!Mist::keepVideoOnDevice(frame, encoder, true));
     encoder->pix_fmt = AV_PIX_FMT_YUV420P;
     assert(!Mist::keepVideoOnDevice(frame, encoder, true));
+    encoder->pix_fmt = AV_PIX_FMT_CUDA;
+    target->sw_format = pool->sw_format = AV_PIX_FMT_NV12;
+    AVFrame *upload = av_frame_alloc();
+    const AVFrame *prepared = 0;
+    const int result = Mist::prepareHardwareEncodeFrame(frame, encoder, upload, prepared, acquireFrame, transferFrame);
+    if (result < 0 || acquired != 1 || transferred != 1 || prepared != upload ||
+        prepared->hw_frames_ctx->data != encoder->hw_frames_ctx->data) {
+      fprintf(stderr, "NVDEC surface bypassed transfer into the NVENC encoder pool: acquired=%d transferred=%d\n",
+              acquired, transferred);
+      return 1;
+    }
+    av_buffer_unref(&encoder->hw_frames_ctx);
+    encoder->hw_frames_ctx = av_buffer_ref(frame->hw_frames_ctx);
+    acquired = transferred = 0;
+    assert(Mist::prepareHardwareEncodeFrame(frame, encoder, upload, prepared, acquireFrame, transferFrame) == 0);
+    assert(prepared == frame && !acquired && !transferred);
+    av_frame_free(&upload);
+    puts("PASS CUDA encoder transfers differing pools on device and reuses a shared pool directly");
     avcodec_free_context(&encoder);
   }
   pool->sw_format = AV_PIX_FMT_NONE;

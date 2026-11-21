@@ -93,9 +93,12 @@ cleanup() {
     wait "$stub_pid" >/dev/null 2>&1 || true
   fi
   if [ "${MIST_KEEP_TEST_ARTIFACTS:-}" = "1" ]; then
+    if [ -d "/tmp/mist_thumbs/$stream" ]; then
+      mv "/tmp/mist_thumbs/$stream" "$work/thumbnail-artifacts"
+    fi
     echo "preserved test artifacts in $work" >&2
   else
-    rm -rf -- "$work"
+    rm -rf -- "$work" "/tmp/mist_thumbs/$stream"
   fi
   exit "$status"
 }

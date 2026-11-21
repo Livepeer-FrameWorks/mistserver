@@ -52,8 +52,8 @@ def exercise(build, ffmpeg, ffprobe, codec, angle, mirror=False):
     success = False
     try:
         base = work / "base.mp4"
-        assert codec == "H264", 'fixture only exercises the existing H264 processor contract'
-        encoder = ["-c:v", "libx264", "-preset", "ultrafast"]
+        assert codec in ("H264", "HEVC", "MPEG2", "MPEG4"), codec
+        encoder = ["-c:v", "libx265", "-preset", "ultrafast", "-x265-params", "log-level=error:pools=1"] if codec == "HEVC" else ["-c:v", "mpeg2video"] if codec == "MPEG2" else ["-c:v", "mpeg4"] if codec == "MPEG4" else ["-c:v", "libx264", "-preset", "ultrafast"]
         bframes = os.environ.get("MIST_ROTATION_BFRAMES", "2" if codec in ("HEVC", "H264") and container not in ("av", "mkv") else "0")
         run([ffmpeg, "-v", "error", "-y", "-f", "lavfi", "-i", "color=blue:size=320x180:rate=10:duration=4",
              "-vf", "drawbox=x=0:y=0:w=80:h=80:color=red:t=fill", *encoder, "-pix_fmt", "yuv420p", "-g", "10", "-bf", bframes, base])

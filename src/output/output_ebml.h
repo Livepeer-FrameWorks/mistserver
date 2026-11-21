@@ -13,6 +13,7 @@ namespace Mist{
     void sendHeader();
     void initialSeek(bool dryRun = false);
     bool onFinish();
+    bool reachedPlannedStop() override;
     size_t clusterSize(uint64_t start, uint64_t end);
     void preHTTP();
     virtual void dataCallback(const char *ptr, size_t size);
@@ -34,6 +35,15 @@ namespace Mist{
     bool seenTime;
     int64_t timeOffset;
     size_t getDataCallbackPos() const { return readPos + readBuffer.size(); }
+
+    bool boundedStop(uint64_t & stop);
+    uint64_t trackStop(size_t track, uint64_t stop) const;
+    struct DecodeTail {
+        size_t cursor{0};
+        int64_t minimum{0};
+        int64_t maximum{0};
+    };
+    std::map<size_t, DecodeTail> decodeTails;
 
     std::string doctype;
     void sendElemTrackEntry(size_t idx);

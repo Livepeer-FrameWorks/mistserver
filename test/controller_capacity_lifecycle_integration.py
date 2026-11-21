@@ -87,7 +87,7 @@ class Fixture:
         self.group = None
         self.ffmpeg = ffmpeg
 
-    def start(self, media=False):
+    def start(self, media=False, streams_override=None, extra_protocols=(), triggers_override=None):
         streams = {}
         if media:
             source = self.root / ('source.mkv' if media == 'mkv' else 'source.mp4' if media in ('mp4', 'mp4-no-b', 'fragmented', 'fragmented-moof') else 'source.webm')
@@ -95,6 +95,11 @@ class Fixture:
             subprocess.run([self.ffmpeg, '-hide_banner', '-loglevel', 'error', '-y', '-f', 'lavfi', '-i', 'testsrc2=size=320x180:rate=24', '-f', 'lavfi', '-i', 'sine=frequency=440:sample_rate=48000', '-t', '12', *codecs, *(['-movflags', 'frag_keyframe+empty_moov'+('+default_base_moof' if media=='fragmented-moof' else '')] if media in ('fragmented', 'fragmented-moof') else []), str(source)], check=True, timeout=40)
             streams[self.stream] = {'source': str(source)}
         config = {'bandwidth': {'exceptions': ['::/127']}, 'config': {'controller': {'interface': '127.0.0.1', 'port': self.api, 'username': None}, 'prometheus': 'metrics', 'debug': 4, 'protocols': [{'connector': 'HTTP', 'interface': '127.0.0.1', 'port': self.http}, {'connector': 'WebRTC', 'interface': '127.0.0.1', 'pubhost': '127.0.0.1', 'port': self.udp}, {'connector': 'EBML'}, {'connector': 'HLS'}, {'connector': 'MP4'}]}, 'streams': streams}
+        if streams_override is not None:
+            config['streams'] = streams_override
+        config['config']['protocols'].extend(extra_protocols)
+        if triggers_override is not None:
+            config['config']['triggers'] = triggers_override
         path = self.root / 'config.json'
         path.write_text(json.dumps(config))
         self.process = subprocess.Popen([self.controller, '-c', str(path), '-L', str(self.root / 'mist.log')], env=self.env, stdout=self.log, stderr=subprocess.STDOUT, start_new_session=True)

@@ -600,7 +600,7 @@ namespace Mist {
         if (decoderReady) { return true; }
         codecName = M.getCodec(thisIdx);
 
-        if (codecName != "H264" && codecName != "AV1" && codecName != "JPEG") {
+        if (!AVCodecMap::isVideoInput(codecName)) {
           ERROR_MSG("Unsupported input codec for thumbnails: %s", codecName.c_str());
           return false;
         }
@@ -745,7 +745,7 @@ namespace Mist {
       static void init(Util::Config *cfg, JSON::Value & capa) {
         Output::init(cfg, capa);
         capa["name"] = "Thumbs";
-        for (const char *codec : {"H264", "AV1", "JPEG"}) { capa["codecs"][0u][0u].append(codec); }
+        for (const std::string & codec : AVCodecMap::videoInputs()) { capa["codecs"][0u][0u].append(codec); }
         cfg->addOption("streamname",
                        JSON::fromString("{\"arg\":\"string\",\"short\":\"s\",\"long\":"
                                         "\"stream\",\"help\":\"The name of the stream "
@@ -1093,7 +1093,7 @@ int main(int argc, char *argv[]) {
     Mist::addDescribeOutputsOption(config);
   }
 
-  for (const char *codec : {"H264", "AV1", "JPEG"}) { capa["codecs"][0u][0u].append(codec); }
+  for (const std::string & codec : AVCodecMap::videoInputs()) { capa["codecs"][0u][0u].append(codec); }
 
   if (!(config.parseArgs(argc, argv))) {
     procExit.log(ER_FORMAT_SPECIFIC, 2, "Failed to parse command-line arguments");

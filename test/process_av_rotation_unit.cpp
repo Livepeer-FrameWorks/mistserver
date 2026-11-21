@@ -1,8 +1,21 @@
 #include "../src/process/process_av_rotation.h"
 
 #include <mist/mp4_generic.h>
+#include <mist/util.h>
 
 #include <cassert>
+#include <cstdarg>
+extern "C" {
+#include <libavutil/log.h>
+}
+static std::string scaleLog;
+static void captureScaleLog(void *context, int level, const char *format, va_list args) {
+  char line[4096];
+  int prefix = 1;
+  av_log_format_line(context, level, format, args, line, sizeof(line), &prefix);
+  scaleLog += line;
+}
+
 extern "C" {
 #include <libavutil/display.h>
 #include <libavutil/imgutils.h>
@@ -37,6 +50,44 @@ int main(int argc, char **argv) {
     }
     av_frame_free(&input);
     return 0;
+  }
+
+  for (AVPixelFormat format : {AV_PIX_FMT_YUV422P, AV_PIX_FMT_YUYV422, AV_PIX_FMT_UYVY422}) {
+    AVFrame *packed = av_frame_alloc();
+    packed->format = format;
+    packed->width = 32;
+    packed->height = 18;
+    assert(av_frame_get_buffer(packed, 32) >= 0);
+    scaleLog.clear();
+    const int oldLogLevel = av_log_get_level();
+    av_log_set_level(AV_LOG_VERBOSE);
+    av_log_set_callback(captureScaleLog);
+    Mist::VideoTransform rotate;
+    AVFrame *result = rotate.apply(packed, AV_PIX_FMT_YUV420P, 18, 32, Mist::Orientation(90));
+    av_log_set_callback(av_log_default_callback);
+    av_log_set_level(oldLogLevel);
+    assert(result);
+    bool automatic = false;
+    size_t start = 0;
+    while (start < scaleLog.size()) {
+      const size_t end = scaleLog.find('\n', start);
+      const std::string line = scaleLog.substr(start, end == std::string::npos ? end : end - start);
+      if (line.find("auto_scale_") != std::string::npos && line.find("flags:") != std::string::npos) {
+        automatic = true;
+        if (line.find("flags:0x2") == std::string::npos && line.find("flags:0x00000002") == std::string::npos &&
+            line.find("flags:bilinear") == std::string::npos && line.find("flags:'bilinear'") == std::string::npos) {
+          fprintf(stderr, "Automatic rotation conversion ignored bilinear scaling: %s\n", line.c_str());
+          return 1;
+        }
+      }
+      if (end == std::string::npos) { break; }
+      start = end + 1;
+    }
+    if (!automatic) {
+      fprintf(stderr, "Rotation fixture did not exercise an automatic scaler: %s\n", scaleLog.c_str());
+      return 1;
+    }
+    av_frame_free(&packed);
   }
 
   // Distinct, asymmetric corner values detect every D4 element independently.
@@ -87,25 +138,38 @@ int main(int argc, char **argv) {
     av_display_matrix_flip(matrix, orientation.mirror, 0);
     assert(Mist::Orientation::fromMatrix(matrix[0], matrix[1], matrix[3], matrix[4], decoded));
     assert(decoded == orientation);
-    const int width = orientation.rotation % 180 ? 18 : 32, height = orientation.rotation % 180 ? 32 : 18;
+    const int width = exif >= 5 ? 18 : 32, height = exif >= 5 ? 32 : 18;
     AVFrame *out = transform.apply(input, AV_PIX_FMT_GRAY8, width, height, orientation);
     assert(out && out->width == width && out->height == height);
     for (int y = 0; y < 18; ++y) {
       for (int x = 0; x < 32; ++x) {
         int dx = x, dy = y;
-        if (orientation.rotation == 90) {
-          dx = 17 - y;
-          dy = x;
+        // Golden EXIF pixel positions are independent of Orientation's angle,
+        // matrix decomposition and filter construction.
+        switch (exif) {
+          case 2: dx = 31 - x; break;
+          case 3:
+            dx = 31 - x;
+            dy = 17 - y;
+            break;
+          case 4: dy = 17 - y; break;
+          case 5:
+            dx = y;
+            dy = x;
+            break;
+          case 6:
+            dx = 17 - y;
+            dy = x;
+            break;
+          case 7:
+            dx = 17 - y;
+            dy = 31 - x;
+            break;
+          case 8:
+            dx = y;
+            dy = 31 - x;
+            break;
         }
-        if (orientation.rotation == 180) {
-          dx = 31 - x;
-          dy = 17 - y;
-        }
-        if (orientation.rotation == 270) {
-          dx = y;
-          dy = 31 - x;
-        }
-        if (orientation.mirror) { dx = width - 1 - dx; }
         assert(out->data[0][dy * out->linesize[0] + dx] == input->data[0][y * input->linesize[0] + x]);
       }
     }
@@ -114,7 +178,13 @@ int main(int argc, char **argv) {
       out = transform.apply(input, format, width * 2, height * 2, orientation);
       assert(out && out->width == width * 2 && out->height == height * 2 && out->format == format);
     }
-    assert(orientation.filters("vt").find("transpose_vt") == 0 || exif == 1);
+    assert(orientation.exif() == exif);
+    static const char *hardwareDirections[] = {"",      "",           "hflip", "reversal", "vflip", "cclock_flip",
+                                               "clock", "clock_flip", "cclock"};
+    for (const std::string & backend : {std::string("vt"), std::string("vaapi")}) {
+      const std::string expected = exif == 1 ? "" : "transpose_" + backend + "=dir=" + hardwareDirections[exif];
+      assert(orientation.filters(backend) == expected);
+    }
     // The native matrix matches FFmpeg for mirrored 0/180 as well as quarter turns.
     MP4::TKHD tkhd(1, 0, 32, 18);
     tkhd.setOrientation(orientation);

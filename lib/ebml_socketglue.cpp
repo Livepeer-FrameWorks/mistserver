@@ -353,7 +353,28 @@ namespace EBML{
       if (tmpElem) { init = tmpElem.getValStringUntrimmed(); }
     }
 
-
+    if (codec == "V_MPEG4/ISO/SP" || codec == "V_MPEG4/ISO/ASP" || codec == "V_MPEG4/ISO/AP") {
+      trueCodec = "MPEG4";
+      trueType = "video";
+      tmpElem = E.findChild(EBML::EID_CODECPRIVATE);
+      if (tmpElem) { init = tmpElem.getValStringUntrimmed(); }
+    }
+    if (codec == "V_MS/VFW/FOURCC") {
+      tmpElem = E.findChild(EBML::EID_CODECPRIVATE);
+      if (tmpElem) {
+        const std::string bitmap = tmpElem.getValStringUntrimmed();
+        if (bitmap.size() >= 40) {
+          const std::string fourcc = bitmap.substr(16, 4);
+          if (fourcc == "XVID" || fourcc == "DIVX" || fourcc == "DX50" || fourcc == "FMP4" || fourcc == "MP4V") {
+            trueCodec = "MPEG4";
+            trueType = "video";
+            const size_t headerSize = Bit::btohl_le(bitmap.data());
+            if (headerSize < 40 || headerSize > bitmap.size()) { return false; }
+            init = bitmap.substr(headerSize);
+          }
+        }
+      }
+    }
     if (codec == "V_MPEGH/ISO/HEVC") {
       trueCodec = "HEVC";
       trueType = "video";
@@ -470,6 +491,10 @@ namespace EBML{
       trueType = "meta";
     }
 
+    if (codec == "S_TEXT/UTF8") {
+      trueCodec = "subtitle";
+      trueType = "meta";
+    }
     if (codec == "S_TEXT/ASS" || codec == "S_TEXT/SSA") {
       trueCodec = "subtitle";
       trueType = "meta";
@@ -592,31 +617,14 @@ namespace EBML{
       initialized = true;
       return p;
     }
-    // Calculate the timeOffset when extracting the first frame
-    if (!initialized) {
-      size_t buffLen = (ctr - rem - 1) % PKT_COUNT;
-      for (size_t i = 0; i <= buffLen; ++i) {
-        if (pkts[i].time < times[i]) {
-          if (times[i] - pkts[i].time > timeOffset) { timeOffset = times[i] - pkts[i].time; }
-        }
-        DONTEVEN_MSG("Checking time offset against entry %zu/%zu: %" PRIu64 "-%" PRIu64 " = %" PRIu32, i, buffLen,
-                     times[i], pkts[i].time, timeOffset);
-      }
-      MEDIUM_MSG("timeOffset calculated to be %" PRIu32 ", max frame delay %zu", timeOffset, maxDelay);
-      initialized = true;
-    }
-
-    uint64_t origTime = p.time;
-    // Set new timestamp to first time in sorted array
-    // Reordered frames near time zero have no room for a negative DTS. Saturate
-    // every affected timestamp consistently; leaving some unshifted moves DTS
-    // backwards when the next frame finally has enough room for the subtraction.
-    p.time = times[0] >= timeOffset ? times[0] - timeOffset : 0;
-    // If possible, calculate offset based on original timestamp difference with new timestamp
-    if (origTime > p.time) { p.offset = origTime - p.time; }
-    // Less than 3 milliseconds off? Assume we needed 0 and it's a rounding error in timestamps.
-    if (p.offset < 3) { p.offset = 0; }
-    DONTEVEN_MSG("Outputting%s %" PRIu64 "+%" PRIu64 " (#%" PRIu64 "), display at %" PRIu64, p.key ? " KEY" : "",
+    initialized = true;
+    const uint64_t presentation = p.time;
+    // Sorted presentation times provide a monotonic decode clock. Signed composition
+    // offsets retain the source presentation timeline without shifting audio or clamping DTS.
+    p.time = times[0];
+    p.offset = int64_t(presentation) - int64_t(p.time);
+    if (p.offset > -3 && p.offset < 3) { p.offset = 0; }
+    DONTEVEN_MSG("Outputting%s %" PRIu64 "+%" PRId64 " (#%" PRIu64 "), display at %" PRIu64, p.key ? " KEY" : "",
                  p.time, p.offset, rem, p.time + p.offset);
     return p;
   }

@@ -1,7 +1,9 @@
 // LD_PRELOAD helper: CLOCK_MONOTONIC reads one second later from the moment main() starts, as
 // when a second boundary passes between a program's static initialisation and its main().
 #include <dlfcn.h>
+#include <sys/syscall.h>
 #include <time.h>
+#include <unistd.h>
 
 namespace {
   bool mainStarted = false;
@@ -14,9 +16,7 @@ namespace {
 } // namespace
 
 extern "C" int clock_gettime(clockid_t clk, struct timespec *tp) {
-  typedef int (*ClockGettime)(clockid_t, struct timespec *);
-  static ClockGettime realClockGettime = (ClockGettime)dlsym(RTLD_NEXT, "clock_gettime");
-  int ret = realClockGettime(clk, tp);
+  int ret = syscall(SYS_clock_gettime, clk, tp);
   if (!ret && mainStarted && clk == CLOCK_MONOTONIC) { tp->tv_sec += 1; }
   return ret;
 }

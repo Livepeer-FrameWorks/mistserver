@@ -23,6 +23,7 @@ namespace Mist{
     void fillBufferDetails(JSON::Value &details) const;
     JSON::Value processOverride; /*LTS*/
     bool processOverrideResolved; /*LTS*/
+    uint64_t processOverrideRetryAt{0};
     // Every publisher left a live buffer; the next one re-resolves STREAM_PROCESS.
     bool publisherSessionEnded;
     uint64_t bufferTime;

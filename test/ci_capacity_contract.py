@@ -21,4 +21,4 @@ for line in meson.splitlines():
     elif value in ('endif', 'endforeach'):
         stack.pop()
     elif value.startswith('test(') and any("get_option('b_sanitize')" in condition for condition in stack):
-        assert 'A session that boots across a second boundary stays up' in value, 'ASan excludes an undocumented regression: ' + value
+        raise AssertionError('ASan excludes a regression: ' + value)

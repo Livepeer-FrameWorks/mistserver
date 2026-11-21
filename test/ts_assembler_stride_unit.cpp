@@ -77,6 +77,28 @@ int main() {
     m2ts.append(transport, pos, 188);
   }
   for (const std::string & fixture : std::vector<std::string>{transport, m2ts}) {
+    const size_t stride = fixture.size() == transport.size() ? 188 : 192;
+    for (size_t packets : {size_t(1), size_t(2)}) {
+      TS::Stream shortStream;
+      TS::Assembler shortAssembler;
+      shortAssembler.assemble(shortStream, fixture.data(), packets * stride, true, 0);
+      if (!shortAssembler.assemble(shortStream, "", 0, true, packets * stride) || shortAssembler.packetSize() != stride) {
+        std::cerr << "EOF discarded " << packets << " complete transport packets with stride " << stride << std::endl;
+        return 1;
+      }
+      TS::Stream resynced;
+      TS::Assembler recovering;
+      recovering.assemble(resynced, fixture.data(), fixture.size(), true, 0);
+      const std::string tail = std::string("bad-sync") + fixture.substr(0, packets * stride);
+      recovering.assemble(resynced, tail.data(), tail.size(), true, fixture.size());
+      if (!recovering.assemble(resynced, "", 0, true, fixture.size() + tail.size())) {
+        std::cerr << "EOF discarded the last " << packets << " packets after resynchronization (stride " << stride
+                  << ")" << std::endl;
+        return 1;
+      }
+    }
+  }
+  for (const std::string & fixture : std::vector<std::string>{transport, m2ts}) {
     for (size_t chunk : std::vector<size_t>{1, 4, 187, 188, 191, 192, 193, 577}) {
       TS::Stream stream;
       TS::Assembler assembler;
@@ -98,5 +120,6 @@ int main() {
       }
     }
   }
+  std::cout << "PASS short TS/M2TS EOF, resynchronization tails, and all chunk boundaries" << std::endl;
   return 0;
 }

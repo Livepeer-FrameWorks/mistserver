@@ -61,6 +61,12 @@ static const Mist::Orientation orientations[] = {
   Mist::Orientation(180), Mist::Orientation(180, true), Mist::Orientation(90, true),
   Mist::Orientation(90),  Mist::Orientation(270, true), Mist::Orientation(270)};
 
+// Frozen corner-permutation composition for EXIF 1..8. Column zero has no
+// movie header; subsequent columns are movie EXIF orientations 1..8.
+static const unsigned composed[8][9] = {
+  {1, 1, 2, 3, 4, 5, 6, 7, 8}, {2, 2, 1, 4, 3, 8, 7, 6, 5}, {3, 3, 4, 1, 2, 7, 8, 5, 6}, {4, 4, 3, 2, 1, 6, 5, 8, 7},
+  {5, 5, 6, 7, 8, 1, 2, 3, 4}, {6, 6, 5, 8, 7, 4, 3, 2, 1}, {7, 7, 8, 5, 6, 3, 4, 1, 2}, {8, 8, 7, 6, 5, 2, 1, 4, 3}};
+
 int main(int argc, char **argv) {
   assert(argc == 2);
   Util::Config cfg("orientation-probe");
@@ -69,7 +75,7 @@ int main(int argc, char **argv) {
     for (unsigned film = 0; film <= 8; ++film) {
       const Mist::Orientation orientation = orientations[track],
                               movieOrientation = film ? orientations[film] : Mist::Orientation();
-      const Mist::Orientation expected = orientation.then(movieOrientation);
+      const Mist::Orientation expected = orientations[composed[track - 1][film]];
       MP4::MOOV movie = movieWith(orientation, movieOrientation, film != 0);
       if (!strcmp(argv[1], "ismv")) {
         if (!ismv.check(movie, expected)) {
@@ -106,4 +112,5 @@ int main(int argc, char **argv) {
       }
     }
   }
+  printf("PASS 72 independent track/movie orientation cases (%s)\n", argv[1]);
 }

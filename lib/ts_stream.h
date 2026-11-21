@@ -20,6 +20,7 @@ namespace TS{
     H265 = 0x24,
     ID3 = 0x15,
     MPEG2 = 0x02,
+    MPEG4 = 0x10,
     MP2 = 0x03,
     META = 0x06,
   };
@@ -132,6 +133,7 @@ namespace TS{
   class Assembler{
   public:
     Assembler();
+    // A zero-length call flushes complete packets buffered at end of input.
     bool assemble(Stream & TSStrm, const char * ptr, size_t len, bool parse = false, uint64_t bytePos = 0);
     void clear();
     void setLive(bool live = true);

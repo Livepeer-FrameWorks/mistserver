@@ -513,6 +513,7 @@ namespace Mist{
     uint64_t lastSendNextEnd; //< End timestamp of the previous source-side processing call
     bool hardwareFormatDeclined{false};
     bool decoderProducedFrame{false};
+    DecoderErrorStreak decoderErrors;
     AVPixelFormat loggedDecodeFormat{AV_PIX_FMT_NONE};
     bool decodedFrameTimestamped; //< The decoder supplied a presentation timestamp for the current frame
     bool decodedFrameTimeOriginSet; //< Whether the decoded presentation clock has been anchored to the Mist timeline
@@ -584,13 +585,9 @@ namespace Mist{
         capa["codecs"][1u][0u].append("UYVY");
         capa["codecs"][2u][0u].append("NV12");
         capa["codecs"][3u][0u].append("I420");
-        capa["codecs"][4u][0u].append("H264");
-        capa["codecs"][5u][0u].append("AV1");
-        capa["codecs"][6u][0u].append("JPEG");
+        for (const std::string & codec : AVCodecMap::videoInputs()) { capa["codecs"][4u][0u].append(codec); }
       } else {
-        capa["codecs"][0u][0u].append("PCM");
-        capa["codecs"][1u][0u].append("opus");
-        capa["codecs"][2u][0u].append("AAC");
+        for (const std::string & codec : AVCodecMap::audioInputs()) { capa["codecs"][0u][0u].append(codec); }
       }
       cfg->addOption("streamname", R"-({
         "arg":"string",
@@ -933,7 +930,8 @@ namespace Mist{
         const bool sourceHasLFE = frame_RAW && (frame_RAW->channel_layout & AV_CH_LOW_FREQUENCY);
 #endif
         const unsigned int channels =
-          encodedAudioChannels(codecOut, decodedChannels ? decodedChannels : M.getChannels(getMainSelectedTrack()), sourceHasLFE);
+          limitedAudioChannels(codecOut, decodedChannels ? decodedChannels : M.getChannels(getMainSelectedTrack()),
+                               sourceHasLFE, std::max<int64_t>(0, Mist::opt["max_channels"].asInt()));
         if (!channels) {
           avcodec_free_context(&tmpCtx);
           ERROR_MSG("Cannot encode audio with no source channel count");
@@ -1097,7 +1095,7 @@ namespace Mist{
           tmpCtx->hw_frames_ctx = av_buffer_ref(hw_frames_ref);
           av_buffer_unref(&hw_frames_ref);
 
-          INFO_MSG("Creating hw frame memory");
+        INFO_MSG("Creating hw frame memory");
 
           frameDecodeHW = av_frame_alloc();
           if (!frameDecodeHW || av_hwframe_get_buffer(tmpCtx->hw_frames_ctx, frameDecodeHW, 0) < 0) {
@@ -1135,7 +1133,9 @@ namespace Mist{
     bool configVideoDecoder() {
       if (pixelFormat != AV_PIX_FMT_NONE || context_in) { return true; }
       codecIn = M.getCodec(thisIdx);
-      if (codecIn != "H264" && codecIn != "AV1" && codecIn != "JPEG" && codecIn != "YUYV" && codecIn != "UYVY" && codecIn != "NV12" && codecIn != "I420") { return false; }
+      if (!AVCodecMap::isVideoInput(codecIn) && codecIn != "YUYV" && codecIn != "UYVY" && codecIn != "NV12" && codecIn != "I420") {
+        return false;
+      }
       if (codecIn == "YUYV") {
         pixelFormat = AV_PIX_FMT_YUYV422;
         return true;
@@ -1153,12 +1153,12 @@ namespace Mist{
         return true;
       }
 #ifdef __APPLE__
-      if (allowHW && codecIn == "H264") {
+      if (videoToolboxDecodeRequested(allowHW, allowSW) && (codecIn == "H264" || codecIn == "HEVC")) {
         if (tryDecoder("", AV_HWDEVICE_TYPE_VIDEOTOOLBOX, AV_PIX_FMT_VIDEOTOOLBOX, AV_PIX_FMT_NV12)) { return true; }
       }
 #endif
-      if (allowHW && (codecIn == "H264" || codecIn == "AV1")) {
-        const std::string decoder = codecIn == "H264" ? "h264_cuvid" : "av1_cuvid";
+      if (allowHW && (codecIn == "H264" || codecIn == "HEVC" || codecIn == "AV1")) {
+        const std::string decoder = codecIn == "H264" ? "h264_cuvid" : codecIn == "HEVC" ? "hevc_cuvid" : "av1_cuvid";
         if (tryDecoder(decoder, AV_HWDEVICE_TYPE_CUDA, AV_PIX_FMT_CUDA, AV_PIX_FMT_YUV420P)) { return true; }
       }
       if (!allowSW) {
@@ -1171,7 +1171,7 @@ namespace Mist{
     bool configAudioDecoder() {
       if (context_in) { return true; }
       codecIn = M.getCodec(thisIdx);
-      if (codecIn != "PCM" && codecIn != "opus" && codecIn != "AAC") { return false; }
+      if (!AVCodecMap::isAudioInput(codecIn)) { return false; }
       const AVCodecID id = AVCodecMap::codecID(codecIn, M.getSize(getMainSelectedTrack()));
       codec_in = id == AV_CODEC_ID_NONE ? NULL : avcodec_find_decoder(id);
       if (!codec_in) {
@@ -1223,9 +1223,18 @@ namespace Mist{
     }
 
     void recoverVideoDecoder() {
-      const bool refused = hardwareFormatDeclined && !decoderProducedFrame;
+      const bool refused = hardwareDecoderFailurePermanent(hardwareFormatDeclined, decoderProducedFrame);
       failVideoDecoder(refused ? "Hardware decoder refused the source"
                                : "Hardware decoder failed; retry the processing job", refused);
+    }
+
+    void invalidDecodePacket() {
+      if (decoderErrors.invalidPacket()) {
+        procExit.log(ER_FORMAT_SPECIFIC, 1, "Decoder rejected 128 consecutive packets without a decoded frame (%s)",
+                     codecIn.c_str());
+        conf.is_active = false;
+        co.is_active = false;
+      }
     }
 
     bool receiveDecodedFrame() {
@@ -1240,6 +1249,7 @@ namespace Mist{
         }
         if (ret < 0 && ret != AVERROR(EAGAIN) && ret != AVERROR_EOF) {
           if (ret == AVERROR_INVALIDDATA) {
+            invalidDecodePacket();
             WARN_MSG("Dropping invalid compressed video input");
             return false;
           }
@@ -1269,6 +1279,7 @@ namespace Mist{
         ret = avcodec_receive_frame(context_in, frame_RAW);
         if (ret == AVERROR(EAGAIN) || ret == AVERROR_EOF) { return false; }
         if (ret < 0) {
+          if (ret == AVERROR_INVALIDDATA) { invalidDecodePacket(); }
           if (isVideo) {
             WARN_MSG("Video decoder rejected a frame (%d)", ret);
           } else {
@@ -1280,6 +1291,7 @@ namespace Mist{
         pixelFormat = (AVPixelFormat)frame_RAW->format;
         decodedFrame = frame_RAW;
       }
+      decoderErrors.decodedFrame();
       if (isVideo && decodedFrame) {
         decoderProducedFrame = true;
         if (loggedDecodeFormat != (AVPixelFormat)decodedFrame->format) {
@@ -1319,6 +1331,7 @@ namespace Mist{
       int ret = avcodec_send_packet(context_in, packet_in);
       av_packet_free(&packet_in);
       if (ret < 0) {
+        if (ret == AVERROR_INVALIDDATA) { invalidDecodePacket(); }
         if (!isVideo) {
           printError("Error sending a packet for decoding", ret);
         } else if (hardwareFormatDeclined) {
@@ -1443,7 +1456,7 @@ namespace Mist{
       const bool unchanged = !sourceRotation && !sourceMirror && width == (uint64_t)decoded->width && height == (uint64_t)decoded->height;
       if (frameInHW && keepVideoOnDevice(decoded, context_out, unchanged)) {
         if (decoded->format == AV_PIX_FMT_CUDA) {
-          // The encoder's pool accepts this surface; encodeVideo transfers it on the device.
+          // encodeVideo copies between distinct CUDA pools on the device before submission.
           frameConverted = const_cast<AVFrame *>(decoded);
           frameConverted->quality = FF_QP2LAMBDA * opt["quality"].asInt();
           return true;
@@ -1877,35 +1890,22 @@ namespace Mist{
       {
         // Encode frame
         {
-          if (frameInHW && frameConverted->format == context_out->pix_fmt && frameConverted->hw_frames_ctx) {
-            ret = avcodec_send_frame(context_out, frameConverted);
+          if (frameInHW) {
+            const AVFrame *prepared = 0;
+            ret = prepareHardwareEncodeFrame(frameConverted, context_out, frameInHW, prepared);
             if (ret < 0) {
-              printError("Unable to send transformed hardware frame to encoder", ret);
+              printError("Unable to prepare encoder hardware frame", ret);
               config->is_active = false;
               return;
             }
-          } else if (frameInHW) {
-            // The asynchronous encoder can retain the previous pixel buffer after send_frame.
-            ret = acquireHardwareUploadFrame(context_out, frameInHW);
+            ret = avcodec_send_frame(context_out, prepared);
             if (ret < 0) {
-              printError("Unable to allocate hardware upload frame", ret);
-              config->is_active = false;
-              return;
-            }
-            ret = av_hwframe_transfer_data(frameInHW, frameConverted, 0);
-            if (ret){
-              printError("Unable to upload frame to the hardware", ret);
-              return;
-            }
-            av_frame_copy_props(frameInHW, frameConverted);
-            ret = avcodec_send_frame(context_out, frameInHW);
-            if (ret < 0) {
-              printError("Unable to send HW uploaded frame to the encoder", ret);
+              printError("Unable to send hardware frame to the encoder", ret);
               config->is_active = false;
               Util::logExitReason(ER_PROCESS_SPECIFIC, "error encoding frame");
               return;
             }
-          } else {
+          }else{
             ret = avcodec_send_frame(context_out, frameConverted);
             if (ret < 0) {
               printError("Unable to send frame to the encoder", ret);
@@ -2085,7 +2085,7 @@ namespace Mist{
       // If the output is RAW, immediately send it to the output using `ptr` rather than going through LibAV's contexts
       if (!context_out && isVideo){
         sendRawVideo();
-          lastSendNextEnd = Util::getMicros();
+        lastSendNextEnd = Util::getMicros();
         return;
       }
 
@@ -2093,7 +2093,7 @@ namespace Mist{
       if (isVideo){
         uint64_t startTime = Util::getMicros();
         encodeVideo();
-          totalEncode += Util::getMicros(startTime);
+        totalEncode += Util::getMicros(startTime);
       }else{
         encodeAudio();
       }
@@ -2505,7 +2505,8 @@ int main(int argc, char *argv[]){
   capa["codecs"][0u][0u].append("NV12");
   capa["codecs"][0u][0u].append("UYVY");
   capa["codecs"][0u][0u].append("I420");
-  for (const char *codec : {"H264", "AV1", "JPEG", "PCM", "opus", "AAC"}) { capa["codecs"][0u][0u].append(codec); }
+  for (const std::string & codec : AVCodecMap::videoInputs()) { capa["codecs"][0u][0u].append(codec); }
+  for (const std::string & codec : AVCodecMap::audioInputs()) { capa["codecs"][0u][0u].append(codec); }
 
   capa["ainfo"]["sinkTime"]["name"] = "Sink timestamp";
   capa["ainfo"]["sourceTime"]["name"] = "Source timestamp";
@@ -2792,6 +2793,14 @@ int main(int argc, char *argv[]){
     capa["optional"]["tune"]["value"] = "zerolatency-lq"; // for EFG
     capa["optional"]["tune"]["sort"] = "g";
     capa["optional"]["tune"]["dependent"]["codec"] = "H264";
+
+    capa["optional"]["max_channels"]["name"] = "Maximum audio channels";
+    capa["optional"]["max_channels"]["help"] =
+      "Downmix audio with more channels than this limit; zero preserves the source layout";
+    capa["optional"]["max_channels"]["type"] = "uint";
+    capa["optional"]["max_channels"]["min"] = 0;
+    capa["optional"]["max_channels"]["max"] = 16;
+    capa["optional"]["max_channels"]["dependent"]["x-LSP-kind"] = "audio";
 
     capa["optional"]["sample_rate"][0u]["name"] = "Sample rate";
     capa["optional"]["sample_rate"][0u]["help"] = "Output sample rate in Hz (by default copies input rate if possible)";

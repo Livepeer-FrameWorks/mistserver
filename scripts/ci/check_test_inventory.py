@@ -39,8 +39,40 @@ required.update({
     'TS container playback mkv-ac3',
     'TS container playback mkv-eac3',
 })
+# Every invocation of a media-gated script must be present and produce a result,
+# including modes beyond the named defect regressions above.
+source = Path(__file__).resolve().parents[2]
+gated_scripts = {path.name for path in (source / 'test').iterdir()
+                 if path.suffix in ('.py', '.sh') and 'MIST_RUN_MEDIA_TESTS' in path.read_text(errors='replace')}
+represented = set()
+for row in inventory:
+    scripts = {Path(arg).name for arg in row.get('cmd', [])
+               if isinstance(arg, str) and arg.endswith(('.py', '.sh'))}
+    gated = scripts & gated_scripts
+    if gated:
+        required.add(row['name'])
+        represented.update(gated)
+optional_scripts = set()
+if not (build / 'MistProcONNX').exists():
+    optional_scripts.update({'onnx_vod_recording_integration.sh', 'processing_graph_integration.sh'})
+missing_scripts = sorted(gated_scripts - represented - optional_scripts)
+assert not missing_scripts, 'media scripts are absent from the test inventory: ' + ', '.join(missing_scripts)
+required.update({
+    'AC3 header parsing does not copy remaining PES payload',
+    'Matroska UTF8 subtitles retain the upstream input mapping',
+    'RTMP enhanced audio advertises only codecs with packet writers',
+    'Livepeer refuses transformed and unsupported sources before gateway contact',
+    'Unknown private PIDs do not delay H264 AAC transport readiness',
+    'Non-AV build registers media fixtures without missing dependencies',
+    'Transport streams retain packet boundaries across 188 and 192 byte chunks',
+    'AV codec mapping and surround channel layouts',
+    'CUDA downloads preserve the actual software pixel format',
+    'AV rotation scales display geometry and rotates planar and packed formats',
+    'EAC-3 access units aggregate dependent substream channels',
+})
 if sys.platform.startswith('linux'):
     required.add('WebRTC signal handler owns the post-dup2 listener descriptor')
+    required.add('A session that boots across a second boundary stays up')
     required.add('WHIP offers get an answer or a logged refusal, and a passive offerer can publish')
 missing = sorted(required - names)
 assert not missing, 'required regression tests are absent: ' + ', '.join(missing)
@@ -49,14 +81,18 @@ output.write_text(json.dumps(inventory, indent=2) + '\n')
 print('CI inventory: %d total tests, %d controller capacity modes, all %d required regressions present' %
       (len(inventory), len(modes), len(required)))
 
-# A preloaded clock shim must run before libc; ASan requires its runtime first.
-exceptions = {'A session that boots across a second boundary stays up':
-              'LD_PRELOAD clock interposition conflicts with ASan runtime ordering; covered by the normal Linux job.'}
+exceptions = {
+    'AV hardware orientation vt keeps all eight transforms on device':
+        'Requires a macOS VideoToolbox hardware device; not registered on Linux.',
+    'Hardware upload preserves pixel buffers retained by an encoder':
+        'Requires a macOS VideoToolbox hardware frame pool; not registered on Linux.',
+}
 if '--results' in sys.argv:
     results = [json.loads(line) for line in (build / 'meson-logs' / 'testlog.json').read_text().splitlines() if line.strip()]
     # Meson result names include the project and suite before the configured test name.
     skipped = [row['name'] for row in results if row.get('result') == 'SKIP' and
-               any(row['name'].endswith(name) for name in required)]
+               (sys.platform.startswith('linux') or any(row['name'].endswith(name) for name in required)) and
+               not any(row['name'].endswith(name) for name in exceptions)]
     assert not skipped, 'required media regressions silently skipped: ' + ', '.join(skipped)
     missing_results = [name for name in required if not any(row['name'].endswith(name) for row in results)]
     assert not missing_results, 'required regressions have no result: ' + ', '.join(missing_results)

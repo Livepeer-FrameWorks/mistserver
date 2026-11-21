@@ -447,6 +447,24 @@ pid_t Util::Procs::StartPiped(const std::deque<std::string> & argDeq, int *fdIn,
 /// contains -1, a new fd is automatically allocated and written into this arg. Then the arg will be
 /// used as fd. \arg fdOut Same as fdIn, but for stdout. \arg fdOut Same as fdIn, but for stderr.
 /// \arg envp The child's environment.
+namespace {
+  int processPipe(int fds[2]) {
+#ifdef __linux__
+    return pipe2(fds, O_CLOEXEC);
+#else
+    if (pipe(fds)) { return -1; }
+    if (fcntl(fds[0], F_SETFD, FD_CLOEXEC) < 0 || fcntl(fds[1], F_SETFD, FD_CLOEXEC) < 0) {
+      const int error = errno;
+      close(fds[0]);
+      close(fds[1]);
+      errno = error;
+      return -1;
+    }
+    return 0;
+#endif
+  }
+} // namespace
+
 pid_t Util::Procs::StartPiped(const char *const *argv, int *fdIn, int *fdOut, int *fdErr, char *const *envp) {
   // NOTE: this function fails if you try and use the same values for all fds
   pid_t pid;
@@ -476,12 +494,12 @@ pid_t Util::Procs::StartPiped(const char *const *argv, int *fdIn, int *fdOut, in
   auto fdNotUnder3 = [&fd_unused](int & fd) {
     while (fd < 3) {
       fd_unused.push_back(fd);
-      fd = dup(fd);
+      fd = fcntl(fd, F_DUPFD_CLOEXEC, 3);
     }
   };
 
   if (fdIn && *fdIn == -1) {
-    if (pipe(pipein) < 0) {
+    if (processPipe(pipein) < 0) {
       ERROR_MSG("stdin pipe creation failed for process %s, reason: %s", argv[0], strerror(errno));
       return 0;
     }
@@ -490,9 +508,9 @@ pid_t Util::Procs::StartPiped(const char *const *argv, int *fdIn, int *fdOut, in
   }
 
   if (fdOut && *fdOut == -1) {
-    if (pipe(pipeout) < 0) {
+    if (processPipe(pipeout) < 0) {
       ERROR_MSG("stdout pipe creation failed for process %s, reason: %s", argv[0], strerror(errno));
-      if (*fdIn == -1) {
+      if (fdIn && *fdIn == -1) {
         close(pipein[0]);
         close(pipein[1]);
       }
@@ -503,13 +521,13 @@ pid_t Util::Procs::StartPiped(const char *const *argv, int *fdIn, int *fdOut, in
   }
 
   if (fdErr && *fdErr == -1) {
-    if (pipe(pipeerr) < 0) {
+    if (processPipe(pipeerr) < 0) {
       ERROR_MSG("stderr pipe creation failed for process %s, reason: %s", argv[0], strerror(errno));
-      if (*fdIn == -1) {
+      if (fdIn && *fdIn == -1) {
         close(pipein[0]);
         close(pipein[1]);
       }
-      if (*fdOut == -1) {
+      if (fdOut && *fdOut == -1) {
         close(pipeout[0]);
         close(pipeout[1]);
       }

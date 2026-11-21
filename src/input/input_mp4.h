@@ -26,6 +26,7 @@ namespace Mist{
     void getNext(size_t idx = INVALID_TRACK_ID);
     void seek(uint64_t seekTime, size_t idx = INVALID_TRACK_ID);
     bool shiftTo(size_t pos, size_t len);
+    bool subtitleLength(uint64_t textPosition, uint32_t & length);
 
     HTTP::URIReader inFile;
     Util::ResizeablePointer readBuffer;

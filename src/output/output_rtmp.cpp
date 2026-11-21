@@ -1,8 +1,7 @@
 #include "output_rtmp.h"
-#include <csignal>
-#include <cstdlib>
-#include <cstring>
-#include <sstream>
+
+#include "rtmp_codec_policy.h"
+
 #include <mist/auth.h>
 #include <mist/bitfields.h>
 #include <mist/defines.h>
@@ -11,6 +10,11 @@
 #include <mist/stream.h>
 #include <mist/triggers.h>
 #include <mist/util.h>
+
+#include <csignal>
+#include <cstdlib>
+#include <cstring>
+#include <sstream>
 #include <sys/stat.h>
 
 #ifdef SSL
@@ -410,21 +414,11 @@ namespace Mist {
       ccList->addContent("hvc1");
       ccList->addContent("vp08");
       ccList->addContent("vp09");
-      ccList->addContent("ac-3");
-      ccList->addContent("ec-3");
-      ccList->addContent("Opus");
-      ccList->addContent(".mp3");
-      ccList->addContent("fLaC");
-      ccList->addContent("mp4a");
+      appendEnhancedRTMPAudio(ccList);
     }
     if (enhanced) {
       AMF::Object *ccList = opts->addContent("audioFourCcInfoMap", AMF::AMF0_OBJECT);
-      ccList->addContent("ac-3", 7.0);
-      ccList->addContent("ec-3", 7.0);
-      ccList->addContent("Opus", 7.0);
-      ccList->addContent(".mp3", 7.0);
-      ccList->addContent("fLaC", 7.0);
-      ccList->addContent("mp4a", 7.0);
+      appendEnhancedRTMPAudio(ccList, true);
     }
     if (enhanced) {
       AMF::Object *ccList = opts->addContent("videoFourCcInfoMap", AMF::AMF0_OBJECT);
@@ -1580,10 +1574,7 @@ namespace Mist {
           if (fourcc == "hvc1") { capa["codecs"][0u][0u].append("HEVC"); }
           if (fourcc == "vp08") { capa["codecs"][0u][0u].append("VP8"); }
           if (fourcc == "vp09") { capa["codecs"][0u][0u].append("VP9"); }
-          if (fourcc == "Opus") { capa["codecs"][0u][1u].append("opus"); }
-          if (fourcc == "ac-3") { capa["codecs"][0u][1u].append("AC3"); }
-          if (fourcc == "ec-3") { capa["codecs"][0u][1u].append("EAC-3"); }
-          if (fourcc == "fLaC") { capa["codecs"][0u][1u].append("FLAC"); }
+          negotiateEnhancedRTMPAudio(capa["codecs"][0u][1u], fourcc);
           if (fourcc == "*") { capa["codecs"][0u] = capa["codecs"][1u]; }
         }
       }
@@ -1591,10 +1582,7 @@ namespace Mist {
         hasAudioCc = true;
         for (auto & it : *(cmd->getContentP("audioFourCcInfoMap"))) {
           const std::string & fourcc = it.Indice();
-          if (fourcc == "Opus") { capa["codecs"][0u][1u].append("opus"); }
-          if (fourcc == "ac-3") { capa["codecs"][0u][1u].append("AC3"); }
-          if (fourcc == "ec-3") { capa["codecs"][0u][1u].append("EAC-3"); }
-          if (fourcc == "fLaC") { capa["codecs"][0u][1u].append("FLAC"); }
+          negotiateEnhancedRTMPAudio(capa["codecs"][0u][1u], fourcc);
           if (fourcc == "*") { capa["codecs"][0u][1u] = capa["codecs"][1u][1u]; }
         }
       }
@@ -1643,21 +1631,11 @@ namespace Mist {
         ccList->addContent("hvc1");
         ccList->addContent("vp08");
         ccList->addContent("vp09");
-        ccList->addContent("ac-3");
-        ccList->addContent("ec-3");
-        ccList->addContent("Opus");
-        ccList->addContent(".mp3");
-        ccList->addContent("fLaC");
-        ccList->addContent("mp4a");
+        appendEnhancedRTMPAudio(ccList);
       }
       if (hasAudioCc) {
         AMF::Object *ccList = info->addContent("audioFourCcInfoMap", AMF::AMF0_OBJECT);
-        ccList->addContent("ac-3", 7.0);
-        ccList->addContent("ec-3", 7.0);
-        ccList->addContent("Opus", 7.0);
-        ccList->addContent(".mp3", 7.0);
-        ccList->addContent("fLaC", 7.0);
-        ccList->addContent("mp4a", 7.0);
+        appendEnhancedRTMPAudio(ccList, true);
       }
       if (hasVideoCc) {
         AMF::Object *ccList = info->addContent("videoFourCcInfoMap", AMF::AMF0_OBJECT);
@@ -2219,10 +2197,7 @@ namespace Mist {
               if (fourcc == "hvc1") { capa["codecs"][0u][0u].append("HEVC"); }
               if (fourcc == "vp08") { capa["codecs"][0u][0u].append("VP8"); }
               if (fourcc == "vp09") { capa["codecs"][0u][0u].append("VP9"); }
-              if (fourcc == "Opus") { capa["codecs"][0u][1u].append("opus"); }
-              if (fourcc == "ac-3") { capa["codecs"][0u][1u].append("AC3"); }
-              if (fourcc == "ec-3") { capa["codecs"][0u][1u].append("EAC-3"); }
-              if (fourcc == "fLaC") { capa["codecs"][0u][1u].append("FLAC"); }
+              negotiateEnhancedRTMPAudio(capa["codecs"][0u][1u], fourcc);
               if (fourcc == "*") { capa["codecs"][0u] = capa["codecs"][1u]; }
             }
           }
@@ -2230,10 +2205,7 @@ namespace Mist {
             moreCodecs = true;
             for (auto & it : *(connInfo->getContentP("audioFourCcInfoMap"))) {
               const std::string & fourcc = it.Indice();
-              if (fourcc == "Opus") { capa["codecs"][0u][1u].append("opus"); }
-              if (fourcc == "ac-3") { capa["codecs"][0u][1u].append("AC3"); }
-              if (fourcc == "ec-3") { capa["codecs"][0u][1u].append("EAC-3"); }
-              if (fourcc == "fLaC") { capa["codecs"][0u][1u].append("FLAC"); }
+              negotiateEnhancedRTMPAudio(capa["codecs"][0u][1u], fourcc);
               if (fourcc == "*") { capa["codecs"][0u][1u] = capa["codecs"][1u][1u]; }
             }
           }

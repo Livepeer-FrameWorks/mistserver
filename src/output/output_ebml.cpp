@@ -82,6 +82,7 @@ namespace Mist{
     capa["codecs"][0u][0u].append("VP9");
     capa["codecs"][0u][0u].append("theora");
     capa["codecs"][0u][0u].append("MPEG2");
+    capa["codecs"][0u][0u].append("MPEG4");
     capa["codecs"][0u][0u].append("AV1");
     capa["codecs"][0u][0u].append("JPEG");
     capa["codecs"][0u][0u].append("YUYV");
@@ -240,8 +241,6 @@ namespace Mist{
     }
   }
 
-
-
   void OutEBML::initialSeek(bool dryRun) {
     // A bounded playback limiter makes live metadata appear to be VOD, but
     // it does not make predicted file/cluster byte counts exact.
@@ -277,7 +276,66 @@ namespace Mist{
     return false;
   }
 
+  bool OutEBML::boundedStop(uint64_t & stop) {
+    bool bounded = false;
+    for (const char *key : {"stop", "recstop"}) {
+      if (!strcmp(key, "recstop") && !(isRecording() && isFileTarget())) { continue; }
+      const auto it = targetParams.find(key);
+      if (it == targetParams.end()) { continue; }
+      const int64_t value = atoll(it->second.c_str());
+      if (value < 0) { continue; }
+      if (!bounded || (uint64_t)value < stop) { stop = value; }
+      bounded = true;
+    }
+    return bounded;
+  }
+
+  uint64_t OutEBML::trackStop(size_t track, uint64_t stop) const {
+    const auto tail = decodeTails.find(track);
+    if (tail == decodeTails.end() || tail->second.minimum >= 0) { return stop; }
+    return stop + std::max((uint64_t)-tail->second.minimum, (uint64_t)tail->second.maximum);
+  }
+
+  bool OutEBML::reachedPlannedStop() {
+    if (!liveEBMLMode()) { return Output::reachedPlannedStop(); }
+    uint64_t stop = 0;
+    if (!boundedStop(stop)) { return Output::reachedPlannedStop(); }
+    uint64_t tailMs = 0;
+    for (const auto & track : userSelect) {
+      if (M.getType(track.first) != "video") { continue; }
+      DTSC::Parts parts(M.parts(track.first));
+      auto & tail = decodeTails[track.first];
+      if (tail.cursor < parts.getFirstValid() || tail.cursor > parts.getEndValid()) {
+        tail.cursor = parts.getFirstValid();
+      }
+      while (tail.cursor < parts.getEndValid()) {
+        const int64_t offset = parts.getOffset(tail.cursor++);
+        tail.minimum = std::min(tail.minimum, offset);
+        tail.maximum = std::max(tail.maximum, offset);
+      }
+      tailMs = std::max(tailMs, trackStop(track.first, 0));
+    }
+    if (!tailMs) { return Output::reachedPlannedStop(); }
+    // B-frames presented before the bound can arrive after its decode clock.
+    // Extend only video consumption; sendNext keeps other tracks at their bound.
+    std::map<std::string, std::string> saved;
+    for (const char *key : {"stop", "recstop"}) {
+      if (!strcmp(key, "recstop") && !(isRecording() && isFileTarget())) { continue; }
+      auto it = targetParams.find(key);
+      if (it != targetParams.end() && atoll(it->second.c_str()) >= 0) {
+        saved[key] = it->second;
+        it->second = std::to_string((uint64_t)atoll(it->second.c_str()) + tailMs);
+      }
+    }
+    const bool ended = Output::reachedPlannedStop();
+    for (const auto & entry : saved) { targetParams[entry.first] = entry.second; }
+    return ended;
+  }
+
   void OutEBML::sendNext(){
+    uint64_t stop = 0;
+    if (liveEBMLMode() && boundedStop(stop) && thisTime >= trackStop(thisIdx, stop)) { return; }
+
     if (myConn.sendLimitReached()) {
       parseData = false;
       return;
@@ -367,6 +425,7 @@ namespace Mist{
     if (codec == "vorbis"){return "A_VORBIS";}
     if (codec == "theora"){return "V_THEORA";}
     if (codec == "MPEG2"){return "V_MPEG2";}
+    if (codec == "MPEG4") { return "V_MPEG4/ISO/ASP"; }
     if (codec == "JPEG"){return "V_MJPEG";}
     if (codec == "PCM"){return "A_PCM/INT/BIG";}
     if (codec == "MP2"){return "A_MPEG/L2";}
@@ -472,7 +531,7 @@ namespace Mist{
     if (codec == "ALAW" || codec == "ULAW"){
       sendLen += EBML::sizeElemStr(EBML::EID_CODECPRIVATE, std::string((size_t)18, '\000'));
     }else{
-      if (M.getInit(idx).size()) {
+      if (M.getInit(idx).size()){
         sendLen += EBML::sizeElemStr(EBML::EID_CODECPRIVATE, M.getInit(idx));
       }
     }
@@ -500,7 +559,7 @@ namespace Mist{
       subLen += EBML::sizeElemUInt(EBML::EID_BITDEPTH, M.getSize(idx));
       sendLen += EBML::sizeElemHead(EBML::EID_AUDIO, subLen);
     }
-    if (type == "meta") { sendLen += EBML::sizeElemUInt(EBML::EID_TRACKTYPE, 3); }
+    if (type == "meta"){sendLen += EBML::sizeElemUInt(EBML::EID_TRACKTYPE, 3);}
     sendLen += subLen;
 
     // Now actually send.
@@ -516,7 +575,7 @@ namespace Mist{
                               M.getBps(idx), M.getChannels(idx) * (M.getSize(idx) << 3), M.getSize(idx));
       EBML::sendElemStr(myConn, EBML::EID_CODECPRIVATE, init.substr(8));
     }else{
-      if (M.getInit(idx).size()) {
+      if (M.getInit(idx).size()){
         EBML::sendElemStr(myConn, EBML::EID_CODECPRIVATE, M.getInit(idx));
       }
     }
@@ -543,7 +602,7 @@ namespace Mist{
       EBML::sendElemDbl(myConn, EBML::EID_SAMPLINGFREQUENCY, M.getRate(idx));
       EBML::sendElemUInt(myConn, EBML::EID_BITDEPTH, M.getSize(idx));
     }
-    if (type == "meta") { EBML::sendElemUInt(myConn, EBML::EID_TRACKTYPE, 3); }
+    if (type == "meta"){EBML::sendElemUInt(myConn, EBML::EID_TRACKTYPE, 3);}
   }
 
   size_t OutEBML::sizeElemTrackEntry(size_t idx){
@@ -559,7 +618,7 @@ namespace Mist{
     if (codec == "ALAW" || codec == "ULAW"){
       sendLen += EBML::sizeElemStr(EBML::EID_CODECPRIVATE, std::string((size_t)18, '\000'));
     }else{
-      if (M.getInit(idx).size()) {
+      if (M.getInit(idx).size()){
         sendLen += EBML::sizeElemStr(EBML::EID_CODECPRIVATE, M.getInit(idx));
       }
     }
@@ -587,7 +646,7 @@ namespace Mist{
       subLen += EBML::sizeElemUInt(EBML::EID_BITDEPTH, M.getSize(idx));
       sendLen += EBML::sizeElemHead(EBML::EID_AUDIO, subLen);
     }
-    if (type == "meta") { sendLen += EBML::sizeElemUInt(EBML::EID_TRACKTYPE, 3); }
+    if (type == "meta"){sendLen += EBML::sizeElemUInt(EBML::EID_TRACKTYPE, 3);}
     sendLen += subLen;
     return EBML::sizeElemHead(EBML::EID_TRACKENTRY, sendLen) + sendLen;
   }

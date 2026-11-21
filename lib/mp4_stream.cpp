@@ -198,7 +198,7 @@ namespace MP4{
       INFO_MSG("Unsupported handler: %s", handler.c_str());
     }
 
-    if (sType == "avc1" || sType == "h264") {
+    if (sType == "avc1" || sType == "h264" || sType == "mp4v") {
       codec = "H264";
       isCompatible = true;
       VisualSampleEntry &vEntryBox = (VisualSampleEntry &)sEntryBox;
@@ -231,8 +231,8 @@ namespace MP4{
         MP4::Box child(entry.payload() + offset, false);
         if (child.isType("esds")) {
           MP4::ESDS & esds = (MP4::ESDS &)child;
-          codec = esds.getCodec();
-          isCompatible = codec == "MPEG2";
+          codec = esds.getCodec() == "MPEG4" ? "MPEG4" : "UNKNOWN";
+          isCompatible = codec == "MPEG4";
           initData = esds.getInitData();
         }
         offset += size;

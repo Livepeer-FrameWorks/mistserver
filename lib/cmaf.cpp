@@ -15,8 +15,13 @@
 static uint64_t unixBootDiff = Util::unixMS();
 
 namespace CMAF{
+  static bool codecReady(const DTSC::Meta & M, size_t track) {
+    return M.getCodec(track) != "EAC-3" || AC3::validDEC3(M.getInit(track));
+  }
+
   /// Function to determine the payload size of a CMAF fragment.
   size_t payloadSize(const DTSC::Meta &M, size_t track, uint64_t startTime, uint64_t endTime){
+    if (!codecReady(M, track)) { return 0; }
     DTSC::Parts parts(M.parts(track));
     size_t firstValidPart = parts.getFirstValid();
     size_t endValidPart = parts.getEndValid();
@@ -34,7 +39,7 @@ namespace CMAF{
   }
 
   std::string trackHeader(const DTSC::Meta &M, size_t track, bool simplifyTrackIds){
-    if (M.getCodec(track) == "EAC-3" && !AC3::validDEC3(M.getInit(track))) { return ""; }
+    if (!codecReady(M, track)) { return ""; }
     std::string tType = M.getType(track);
 
     std::stringstream header;
@@ -363,6 +368,7 @@ namespace CMAF{
   /// Generates the 'moof' box for a DTSC::Key based CMAF fragment.
   std::string keyHeader(const DTSC::Meta &M, size_t track, uint64_t startTime, uint64_t endTime,
                         uint64_t segmentNum, bool simplifyTrackIds, bool UTCTime){
+    if (!codecReady(M, track)) { return ""; }
 
     size_t firstPart = M.getPartIndex(startTime, track);
     size_t endPart = M.getPartIndex(endTime, track);
@@ -467,7 +473,7 @@ namespace CMAF{
     struct SampleInfo {
       MuxedSample sample;
       uint32_t duration;
-      uint32_t offset;
+      int64_t offset;
       uint32_t flags;
       uint64_t mediaOffset;
     };
@@ -477,6 +483,7 @@ namespace CMAF{
          selected != userSelect.end(); ++selected) {
       const size_t track = selected->first;
       if (!M.trackValid(track)) { return false; }
+      if (!codecReady(M, track)) { continue; }
       DTSC::Parts parts(M.parts(track));
       DTSC::Keys keys(M.getKeys(track));
       const size_t firstPart = M.getPartIndex(startTime, track);

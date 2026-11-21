@@ -2,6 +2,8 @@
 
 #include "bitstream.h"
 
+#include <algorithm>
+
 namespace AC3 {
   static const unsigned int rates[] = {48000, 44100, 32000};
   static const unsigned int channelCounts[] = {2, 1, 2, 3, 3, 4, 4, 5};
@@ -19,18 +21,31 @@ namespace AC3 {
     Header h;
     if (!data || bytes < 7) { return h; }
     const unsigned char *p = (const unsigned char *)data;
+    if (p[0] != 0x0B || p[1] != 0x77) { return h; }
     Utils::bitstream bits;
-    bits.append((const char *)data, bytes);
+    size_t loaded = 0;
     bool complete = true;
+    const auto available = [&](size_t count) -> bool {
+      if (bits.size() < count) {
+        const size_t needed = (count - bits.size() + 7) / 8;
+        const size_t take = std::min(needed, bytes - loaded);
+        bits.append((const char *)p + loaded, take);
+        loaded += take;
+      }
+      return count <= bits.size();
+    };
     const auto get = [&](size_t count) -> uint64_t {
-      if (count > 64 || count > bits.size()) {
+      if (count > 64 || !available(count)) {
         complete = false;
         return 0;
       }
       return bits.get(count);
     };
     const auto skip = [&](size_t count) {
-      if (count > bits.size()) { complete = false; }
+      if (!available(count)) {
+        complete = false;
+        return;
+      }
       bits.skip(count);
     };
     if (get(16) != 0x0B77) { return h; }
@@ -124,9 +139,10 @@ namespace AC3 {
     h.valid = complete;
     if (h.valid && h.enhanced && h.streamType == 0 && h.frameBytes <= bytes) {
       size_t offset = h.frameBytes;
+      unsigned int dependentIDs = 0;
       while (offset + 7 <= bytes && h.dependentSubstreams < 15) {
         const Header dependent = parse(p + offset, bytes - offset);
-        if (!dependent.valid || dependent.streamType != 1 || dependent.substream != h.substream ||
+        if (!dependent.valid || dependent.streamType != 1 || (dependentIDs & (1u << dependent.substream)) ||
             dependent.rate != h.rate || dependent.samples != h.samples || dependent.frameBytes > bytes - offset) {
           break;
         }
@@ -135,6 +151,7 @@ namespace AC3 {
           if (dependent.channelMap & (1u << (10 - location))) { h.dependentLocations |= 1u << location; }
         }
         if (dependent.channelMap & 2) { h.dependentLocations |= 1u << 8; }
+        dependentIDs |= 1u << dependent.substream;
         ++h.dependentSubstreams;
         h.bitRate += dependent.bitRate;
         offset += dependent.frameBytes;

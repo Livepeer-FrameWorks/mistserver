@@ -1,6 +1,75 @@
 #include "mpeg.h"
 
+#include "bitstream.h"
+
+#include <algorithm>
+
 namespace Mpeg{
+  MPEG4Info parseMPEG4Headers(const char *data, size_t length) {
+    MPEG4Info result;
+    if (!data || length < 4) { return result; }
+    size_t firstHeader = length;
+    for (size_t offset = 0; offset + 4 <= length; ++offset) {
+      if (data[offset] || data[offset + 1] || (unsigned char)data[offset + 2] != 1) { continue; }
+      const unsigned char code = data[offset + 3];
+      if (code == 0xB6) {
+        if (offset + 4 < length) { result.keyFrame = !((unsigned char)data[offset + 4] >> 6); }
+        if (firstHeader < offset) { result.init.assign(data + firstHeader, offset - firstHeader); }
+        break;
+      }
+      if (firstHeader == length) { firstHeader = offset; }
+      if (code < 0x20 || code > 0x2F) { continue; }
+      Utils::bitstream bits;
+      bits.append(data + offset + 4, std::min<size_t>(64, length - offset - 4));
+      bool complete = true;
+      const auto get = [&](size_t count) -> uint64_t {
+        if (count > 64 || count > bits.size()) {
+          complete = false;
+          return 0;
+        }
+        return bits.get(count);
+      };
+      const auto skip = [&](size_t count) {
+        if (count > bits.size()) {
+          complete = false;
+          return;
+        }
+        bits.skip(count);
+      };
+      skip(9);
+      unsigned int version = 1;
+      if (get(1)) {
+        version = get(4);
+        skip(3);
+      }
+      if (get(4) == 15) { skip(16); }
+      if (get(1)) {
+        skip(3);
+        if (get(1)) { skip(79); }
+      }
+      const unsigned int shape = get(2);
+      if (shape == 3 && version != 1) { skip(4); }
+      if (get(1) != 1) { continue; }
+      const unsigned int resolution = get(16);
+      if (!resolution || get(1) != 1) { continue; }
+      unsigned int increment = 0;
+      if (get(1)) {
+        unsigned int count = 1;
+        while (count < 16 && (1u << count) < resolution) { ++count; }
+        increment = get(count);
+      }
+      if (shape != 0 || get(1) != 1) { continue; }
+      const unsigned int width = get(13);
+      if (get(1) != 1) { continue; }
+      const unsigned int height = get(13);
+      if (!complete || get(1) != 1 || !width || !height) { continue; }
+      result.width = width;
+      result.height = height;
+      if (increment) { result.fps = (double)resolution / increment; }
+    }
+    if (result.init.empty() && firstHeader < length) { result.init.assign(data + firstHeader, length - firstHeader); }
+    return result;
+  }
 
   MP2Info parseMP2Header(const std::string &hdr){return parseMP2Header(hdr.c_str());}
 

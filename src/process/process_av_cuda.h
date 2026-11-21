@@ -1,4 +1,6 @@
 #pragma once
+#include "process_av_hardware.h"
+
 #include <string>
 extern "C" {
 #include <libavcodec/avcodec.h>
@@ -16,6 +18,27 @@ namespace Mist {
     const AVHWFramesContext *target = (const AVHWFramesContext *)encoder->hw_frames_ctx->data;
     return source->sw_format != AV_PIX_FMT_NONE && source->sw_format == target->sw_format;
   }
+  inline int prepareHardwareEncodeFrame(AVFrame *input, AVCodecContext *encoder, AVFrame *upload, const AVFrame *& prepared,
+                                        int (*acquire)(AVCodecContext *, AVFrame *) = acquireHardwareUploadFrame,
+                                        int (*transfer)(AVFrame *, const AVFrame *, int) = av_hwframe_transfer_data) {
+    prepared = 0;
+    if (!input || !encoder || !upload) { return AVERROR(EINVAL); }
+    if (input->format == encoder->pix_fmt && input->hw_frames_ctx &&
+        (input->format != AV_PIX_FMT_CUDA ||
+         (encoder->hw_frames_ctx && input->hw_frames_ctx->data == encoder->hw_frames_ctx->data))) {
+      prepared = input;
+      return 0;
+    }
+    int result = acquire(encoder, upload);
+    if (result < 0) { return result; }
+    result = transfer(upload, input, 0);
+    if (result < 0) { return result; }
+    result = av_frame_copy_props(upload, input);
+    if (result < 0) { return result; }
+    prepared = upload;
+    return 0;
+  }
+
   inline bool cudaDownloadFilters(const AVFrame *frame, std::string & filters) {
     filters.clear();
     if (!frame) { return false; }

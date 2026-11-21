@@ -5,7 +5,7 @@
 
 namespace {
   void readTrack(MP4::TrackHeader & result, uint32_t trackId, uint32_t timeScale, int32_t firstOffset,
-                 int32_t secondOffset, unsigned int rotation = 0, unsigned int movieRotation = 0) {
+                 int32_t secondOffset, unsigned int rotation = 0, unsigned int movieRotation = 0, bool legacyMp4v = false) {
     MP4::TRAK trak;
     MP4::TKHD tkhd(trackId, 80, 16, 16);
     tkhd.setOrientation(Mist::Orientation(rotation));
@@ -24,6 +24,7 @@ namespace {
 
     MP4::STSD stsd(0);
     MP4::VP09 sampleEntry;
+    if (legacyMp4v) { sampleEntry.setCodec("mp4v"); }
     stsd.setEntry(sampleEntry, 0);
     stbl.setContent(stsd, child++);
 
@@ -143,6 +144,14 @@ namespace {
 } // namespace
 
 int main() {
+  {
+    MP4::TrackHeader track;
+    readTrack(track, 1, 1000, 0, 0, 0, 0, true);
+    if (!track.compatible() || track.codec != "H264") {
+      std::cerr << "legacy mp4v no longer follows the upstream input mapping: " << track.codec << std::endl;
+      return 1;
+    }
+  }
   for (unsigned int rotation : {0u, 90u, 180u, 270u}) {
     MP4::TrackHeader track;
     readTrack(track, 1, 1000, 0, 0, rotation, 90);

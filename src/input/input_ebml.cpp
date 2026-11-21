@@ -62,6 +62,7 @@ namespace Mist{
     capa["source_file"] = "$source";
     capa["priority"] = 9;
     capa["codecs"]["video"].append("H264");
+    capa["codecs"]["video"].append("MPEG4");
     capa["codecs"]["video"].append("HEVC");
     capa["codecs"]["video"].append("VP8");
     capa["codecs"]["video"].append("VP9");
@@ -238,7 +239,7 @@ namespace Mist{
 
   bool InputEBML::readExistingHeader(){
     if (!Input::readExistingHeader()) { return false; }
-    if (!M.inputLocalVars.isMember("version") || M.inputLocalVars["version"].asInt() < 3) {
+    if (!M.inputLocalVars.isMember("version") || M.inputLocalVars["version"].asInt() < 4) {
       INFO_MSG("Header needs update, regenerating");
       return false;
     }
@@ -297,7 +298,7 @@ namespace Mist{
     parser.flush();
     parser.enableData(true);
 
-    meta.inputLocalVars["version"] = 3;
+    meta.inputLocalVars["version"] = 4;
     if (wholeFile) { meta.inputLocalVars["complete"] = 1; }
     return true;
   }

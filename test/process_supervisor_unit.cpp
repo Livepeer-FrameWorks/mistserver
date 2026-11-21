@@ -70,6 +70,18 @@ int main() {
     return fail("a track is kept for its producer only while that producer restarts and within its deadline");
   }
 
+  for (uint32_t boots = 1; boots <= 20; ++boots) {
+    const uint64_t wait = defaultLiveAVRestartWaitMs("AV", "fixed", 0, false, boots);
+    if (wait < 1000 || wait > 30000 || (boots > 1 && wait < defaultLiveAVRestartWaitMs("AV", "fixed", 0, false, boots - 1))) {
+      return fail("an unconfigured live AV failure respawns without bounded exponential backoff");
+    }
+  }
+  if (defaultLiveAVRestartWaitMs("AV", "disabled", 0, false, 1) ||
+      defaultLiveAVRestartWaitMs("AV", "fixed", 5000, false, 1) || defaultLiveAVRestartWaitMs("AV", "fixed", 0, true, 1) ||
+      defaultLiveAVRestartWaitMs("Livepeer", "fixed", 0, false, 1) || defaultLiveAVRestartWaitMs("AV", "fixed", 0, false, 0)) {
+    return fail("default live AV backoff changed one-shot jobs, explicit delays or first boots");
+  }
+
   const std::string payload = processExitTriggerPayload("camera", "AV", "{\"process\":\"AV\"}", 1234, -9, 3, "retrying",
                                                         "signal", "terminated by signal");
   const std::string expected = "camera\nAV\n{\"process\":\"AV\"}\n1234\n-9\n3\nretrying\nsignal\nterminated by signal";

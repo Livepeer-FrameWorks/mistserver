@@ -4,6 +4,10 @@ extern "C" {
 }
 
 namespace Mist {
+  inline bool videoToolboxDecodeRequested(bool allowHardware, bool allowSoftware) {
+    return allowHardware && !allowSoftware;
+  }
+
   inline AVPixelFormat videoToolboxDecoderFormat(const AVPixelFormat *formats, bool allowSoftware, bool & declined) {
     for (const AVPixelFormat *format = formats; *format != AV_PIX_FMT_NONE; ++format) {
       if (*format == AV_PIX_FMT_VIDEOTOOLBOX) { return *format; }

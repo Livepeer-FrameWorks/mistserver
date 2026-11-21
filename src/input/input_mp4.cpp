@@ -53,6 +53,7 @@ namespace Mist{
     capa["priority"] = 9;
     capa["codecs"]["video"].append("HEVC");
     capa["codecs"]["video"].append("H264");
+    capa["codecs"]["video"].append("MPEG4");
     capa["codecs"]["video"].append("H263");
     capa["codecs"]["video"].append("VP6");
     capa["codecs"]["video"].append("VP8");
@@ -108,7 +109,7 @@ namespace Mist{
   bool InputMP4::needHeader(){
     //Attempt to read cache, but force calling of the readHeader function anyway
     bool r = Input::needHeader();
-    if (!r && M.inputLocalVars["mp4_input_version"].asInt() != 2) {
+    if (!r && M.inputLocalVars["mp4_input_version"].asInt() != 4) {
       meta.clear();
       return true;
     }
@@ -280,6 +281,7 @@ namespace Mist{
               int32_t prtTimeOff = 0;
               bool prtKey = false;
               it->getPart(partNo, &prtBpos, &prtBlen, &prtTime, &prtTimeOff, &prtKey, 0, &prtDuration);
+              if (it->codec == "subtitle" && !subtitleLength(prtBpos, prtBlen)) { return false; }
               const bool key = it->codec == "subtitle" || (prtKey && it->trackType != "audio");
               meta.update(prtTime, prtTimeOff, tNumber, prtBlen, moovPos, key,
                           DTSC::Packet::genericSize(prtTimeOff, moovPos, key, prtBlen, it->codec == "subtitle" ? prtDuration : 0));
@@ -321,6 +323,7 @@ namespace Mist{
             // Skip any parts that are outside the file limits
             if (inFile.getSize() != std::string::npos && prtBpos + prtBlen > inFile.getSize()){continue;}
             // Note: we set the byte position to the position of the moof, so we can re-read it later with ease
+            if (it->codec == "subtitle" && !subtitleLength(prtBpos, prtBlen)) { return false; }
             const bool key = it->codec == "subtitle" || (prtKey && it->trackType != "audio");
             meta.update(prtTime, prtTimeOff, tNumber, prtBlen, moofPos, key,
                         DTSC::Packet::genericSize(prtTimeOff, moofPos, key, prtBlen, it->codec == "subtitle" ? prtDuration : 0));
@@ -359,6 +362,7 @@ namespace Mist{
           int32_t prtTimeOff = 0;
           bool prtKey = false;
           it->getPart(partNo, &prtBpos, &prtBlen, &prtTime, &prtTimeOff, &prtKey, 0, &prtDuration);
+          if (it->codec == "subtitle" && !subtitleLength(prtBpos, prtBlen)) { return false; }
           const bool key = it->codec == "subtitle" || (prtKey && it->trackType != "audio");
           meta.update(prtTime, prtTimeOff, tNumber, prtBlen, prtBpos, key,
                       DTSC::Packet::genericSize(prtTimeOff, prtBpos, key, prtBlen, it->codec == "subtitle" ? prtDuration : 0));
@@ -369,7 +373,7 @@ namespace Mist{
       }
     }
 
-    meta.inputLocalVars["mp4_input_version"] = 2;
+    meta.inputLocalVars["mp4_input_version"] = 4;
     return true;
   }
 
@@ -430,11 +434,21 @@ namespace Mist{
       MP4::PartTime curPart = *curPositions.begin();
       curPositions.erase(curPositions.begin());
 
-      if (!shiftTo(curPart.bpos, curPart.size)) { return; }
+      const bool subtitle = M.getCodec(curPart.trackID) == "subtitle";
+      const uint64_t samplePosition = subtitle ? curPart.bpos - 2 : curPart.bpos;
+      if (!shiftTo(samplePosition, curPart.size + (subtitle ? 2 : 0))) { return; }
 
-      if (M.getCodec(curPart.trackID) == "subtitle") {
-        thisPacket.genericFill(curPart.time, 0, curPart.trackID, curPart.size ? readBuffer + (curPart.bpos - readPos) : 0,
-                               curPart.size, curPart.bpos, true, curPart.duration);
+      if (subtitle) {
+        // getPart omits the length prefix; the sample can also contain styling boxes.
+        const char *sample = readBuffer + (samplePosition - readPos);
+        const uint32_t textSize = Bit::btohs(sample);
+        if (textSize > curPart.size) {
+          Util::logExitReason(ER_FORMAT_SPECIFIC, "Timed text length exceeds its MP4 sample");
+          thisPacket.null();
+          return;
+        }
+        thisPacket.genericFill(curPart.time, 0, curPart.trackID, textSize ? sample + 2 : 0, textSize, curPart.bpos,
+                               true, curPart.duration);
       } else {
         bool isKeyframe = (curPart.keyframe && meta.getType(curPart.trackID) == "video");
         thisPacket.genericFill(curPart.time, curPart.offset, curPart.trackID, readBuffer + (curPart.bpos - readPos),
@@ -532,6 +546,23 @@ namespace Mist{
 
   /// Shifts the read buffer (if needed) so that bytes pos through pos+len are currently buffered.
   /// Returns true on success, false on failure.
+  bool InputMP4::subtitleLength(uint64_t textPosition, uint32_t & length) {
+    if (textPosition < 2) { return false; }
+    const uint64_t resume = inFile.getPos();
+    if (!inFile.seek(textPosition - 2)) { return false; }
+    char *prefix = 0;
+    size_t size = 0;
+    inFile.readSome(prefix, size, 2);
+    const uint32_t textSize = size == 2 ? Bit::btohs(prefix) : 0;
+    const bool restored = inFile.seek(resume);
+    if (size != 2 || textSize > length || !restored) {
+      Util::logExitReason(ER_FORMAT_SPECIFIC, "Invalid timed text sample length");
+      return false;
+    }
+    length = textSize;
+    return true;
+  }
+
   bool InputMP4::shiftTo(size_t pos, size_t len){
     if (pos < readPos || pos > readPos + readBuffer.size() + 512*1024 + bps){
       INFO_MSG("Buffer contains %" PRIu64 "-%" PRIu64 ", but we need %zu; seeking!", readPos, readPos + readBuffer.size(), pos);

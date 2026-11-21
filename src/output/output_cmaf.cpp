@@ -689,6 +689,11 @@ namespace Mist{
       return;
     }
 
+    if (!requestedMuxed && !trackReadyForOutput(idx)) {
+      sendCmafError("503", "Track initialization is unavailable");
+      return;
+    }
+
     const uint64_t mTrack = (mTrackParam.size() && M.getValidTracks().count(requestedMTrack)) ? requestedMTrack : idx;
     if (requestedMTrack != mTrack) {
       DEBUG_MSG(5, "CMAF segment request %s has no valid mTrack=%s, using request track %zu", url.c_str(),

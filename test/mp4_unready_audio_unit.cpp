@@ -12,7 +12,6 @@ class MP4InitProbe : public Mist::OutMP4 {
   public:
     bool recordingProbe = false;
     bool isRecording() override { return recordingProbe; }
-    void initialSeek(bool = false) override {}
     MP4InitProbe(Socket::Connection & conn, Util::Config & cfg, JSON::Value & capa) : Mist::OutMP4(conn, cfg, capa) {}
     void fileHeaderWaitsForAudio(bool arrives, bool selected) {
       recordingProbe = true;

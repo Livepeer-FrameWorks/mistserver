@@ -121,6 +121,7 @@ namespace MP4{
       innerOffset += 4;
     }
     if (flags & trunsampleOffsets){
+      if (newSample.sampleOffset < 0) { setVersion(1); }
       setInt32((uint32_t)newSample.sampleOffset, offset + no * sampInfoSize + innerOffset);
       innerOffset += 4;
     }
@@ -1096,13 +1097,7 @@ namespace MP4{
   std::string DCDescriptor::getCodec(){
     if (!getDataSize()) { return "UNKNOWN"; }
     switch ((unsigned char)getData()[0]) {
-      case 0x60:
-      case 0x61:
-      case 0x62:
-      case 0x63:
-      case 0x64:
-      case 0x65:
-      case 0x6A: return "MPEG2";
+      case 0x20: return "MPEG4";
       case 0x40: return "AAC"; break;
       case 0x69:
       case 0x6B: return "MP3"; break;
@@ -2575,6 +2570,7 @@ namespace MP4{
   uint32_t CTTS::getEntryCount(){return getInt32(4);}
 
   void CTTS::setCTTSEntry(CTTSEntry newCTTSEntry, uint32_t no){
+    if (newCTTSEntry.sampleOffset < 0) { setVersion(1); }
     if (no + 1 > getEntryCount()){setEntryCount(no + 1);}
     setInt32(*(reinterpret_cast<uint32_t *>(&newCTTSEntry.sampleOffset)), 8 + (no * 8) + 4);
     setInt32(newCTTSEntry.sampleCount, 8 + no * 8);

@@ -62,14 +62,30 @@ namespace Mist {
     return sourceChannels;
   }
 
+  inline unsigned int limitedAudioChannels(const std::string & codec, unsigned int sourceChannels, bool sourceHasLFE,
+                                           unsigned int maximum) {
+    return encodedAudioChannels(codec, maximum ? std::min(sourceChannels, maximum) : sourceChannels, sourceHasLFE);
+  }
+
   inline void setAudioChannelLayout(AVCodecContext *context, unsigned int channels, const std::string & codec = "", AVDictionary **options = 0) {
-    if (codec == "opus" && channels > 2 && options) { av_dict_set_int(options, "mapping_family", 255, 0); }
+    if (codec == "opus" && options && channels > 2) {
+      av_dict_set_int(options, "mapping_family", channels == 16 ? 255 : 1, 0);
+    }
+    // Family 1 uses Vorbis speaker positions, which differ from FFmpeg's default
+    // three- and four-channel layouts (2.1 and 4.0).
+    uint64_t opusLayout = 0;
+    if (codec == "opus" && channels == 3) { opusLayout = AV_CH_LAYOUT_SURROUND; }
+    if (codec == "opus" && channels == 4) { opusLayout = AV_CH_LAYOUT_QUAD; }
 #if LIBAVUTIL_VERSION_MAJOR < 57 || (LIBAVUTIL_VERSION_MAJOR == 57 && LIBAVUTIL_VERSION_MINOR < 24)
     context->channels = channels;
-    context->channel_layout = codec == "AAC" && channels == 3 ? AV_CH_LAYOUT_SURROUND : av_get_default_channel_layout(channels);
+    context->channel_layout = opusLayout ? opusLayout
+      : codec == "AAC" && channels == 3  ? AV_CH_LAYOUT_SURROUND
+                                         : av_get_default_channel_layout(channels);
 #else
     av_channel_layout_uninit(&context->ch_layout);
-    if (codec == "AAC" && channels == 3) {
+    if (opusLayout) {
+      av_channel_layout_from_mask(&context->ch_layout, opusLayout);
+    } else if (codec == "AAC" && channels == 3) {
       av_channel_layout_from_mask(&context->ch_layout, AV_CH_LAYOUT_SURROUND);
     } else {
       av_channel_layout_default(&context->ch_layout, channels);

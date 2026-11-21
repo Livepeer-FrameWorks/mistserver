@@ -241,6 +241,7 @@ namespace Mist{
     capa["incoming_push_url_match"] = "tsudp://*";
     capa["priority"] = 9;
     capa["codecs"]["video"].append("H264");
+    capa["codecs"]["video"].append("MPEG4");
     capa["codecs"]["video"].append("HEVC");
     capa["codecs"]["video"].append("MPEG2");
     capa["codecs"]["audio"].append("AAC");
@@ -438,7 +439,7 @@ namespace Mist{
 
   bool InputTS::needHeader(){
     if (!standAlone){return false;}
-    return Input::needHeader() || M.inputLocalVars["ts_input_version"].asInt() != 1;
+    return Input::needHeader() || M.inputLocalVars["ts_input_version"].asInt() != 2;
   }
 
   /// Reads headers from a TS stream, and saves them into metadata
@@ -481,6 +482,7 @@ namespace Mist{
         }
       }
     }
+    assembler.assemble(tsStream, "", 0, true, readPos);
     tsStream.finish();
     INFO_MSG("Reached %s at %" PRIu64 " bytes", reader.isEOF() ? "EOF" : "error", readPos);
     while (tsStream.hasPacket()){
@@ -497,7 +499,7 @@ namespace Mist{
       meta.update(headerPack.getTime(), headerPack.getInt("offset"), idx, dataLen,
                   headerPack.getInt("bpos"), headerPack.getFlag("keyframe"), headerPack.getDataLen());
     }
-    meta.inputLocalVars["ts_input_version"] = 1;
+    meta.inputLocalVars["ts_input_version"] = 2;
     return true;
   }
 
@@ -522,6 +524,7 @@ namespace Mist{
     }
     if (reader.isEOF()){
       if (!isFinished){
+        assembler.assemble(tsStream, "", 0, true, readPos);
         tsStream.finish();
         isFinished = true;
       }
@@ -556,6 +559,7 @@ namespace Mist{
       uint64_t prePos = readPos;
       reader.readSome(assembler.packetSize(), *this);
       if (reader.isEOF()) {
+        assembler.assemble(tsStream, "", 0, true, readPos);
         tsStream.finish();
         break;
       }

@@ -7,6 +7,7 @@
 
 #include <cassert>
 #include <iostream>
+#include <sys/resource.h>
 
 static std::string enhanced() {
   Utils::bitWriter b;
@@ -28,6 +29,28 @@ static std::string enhanced() {
   frame.resize(256);
   return frame;
 }
+static std::string dependentFrame(unsigned int id, unsigned int channelMap) {
+  Utils::bitWriter b;
+  b.append(0x0B77, 16);
+  b.append(1, 2);
+  b.append(id, 3);
+  b.append(127, 11);
+  b.append(0, 2);
+  b.append(3, 2);
+  b.append(2, 3);
+  b.append(0, 1);
+  b.append(16, 5);
+  b.append(0, 5);
+  b.append(0, 1);
+  b.append(1, 1);
+  b.append(channelMap, 16);
+  b.append(0, 1);
+  b.append(0, 1);
+  std::string frame = b.str();
+  frame.resize(256);
+  return frame;
+}
+
 static bool recognized(const DTSC::Meta & metadata, int type, const std::string & descriptors, bool bluray, bool extension = false) {
   std::set<size_t> selected{0};
   TS::Packet original;
@@ -97,6 +120,25 @@ static bool activePrivateTrack(const DTSC::Meta & meta, int type, bool bluray) {
 }
 
 int main(int argc, char **argv) {
+  if (argc > 1 && std::string(argv[1]) == "bounded-parse") {
+    std::string payload(32 * 1024 * 1024, '\0');
+    payload.replace(0, enhanced().size(), enhanced());
+    struct rusage before, after;
+    getrusage(RUSAGE_SELF, &before);
+    const AC3::Header h = AC3::parse(payload.data(), payload.size());
+    getrusage(RUSAGE_SELF, &after);
+#ifdef __APPLE__
+    const long extraKiB = (after.ru_maxrss - before.ru_maxrss) / 1024;
+#else
+    const long extraKiB = after.ru_maxrss - before.ru_maxrss;
+#endif
+    if (!h.valid || extraKiB > 4096) {
+      std::cerr << "AC3 header parsing copied remaining PES payload: peak grew " << extraKiB << " KiB\n";
+      return 1;
+    }
+    std::cout << "PASS bounded AC3 parse: peak grew " << extraKiB << " KiB for a 32 MiB PES\n";
+    return 0;
+  }
   if (argc > 1 && std::string(argv[1]) == "pes-extension") {
     DTSC::Meta metadata;
     metadata.reInit("", true);
@@ -137,6 +179,20 @@ int main(int argc, char **argv) {
                   << ", want channels=" << 6 + channels[location] << " chan_loc=" << (1u << location) << std::endl;
         failed = true;
       }
+    }
+    const std::string multiple = enhanced() + dependentFrame(0, 1u << 10) + dependentFrame(1, 1u << 5);
+    const AC3::Header multi = AC3::parse(multiple.data(), multiple.size());
+    const std::string setup = AC3::makeDEC3(multi);
+    const AC3::Header stored = AC3::parseDEC3(setup.data(), setup.size());
+    if (!multi.valid || multi.dependentSubstreams != 2 || multi.channels != 10 || multi.dependentLocations != 0x021 ||
+        stored.dependentSubstreams != 2 || stored.channels != 10 || stored.dependentLocations != 0x021) {
+      std::cerr << "Multiple dependent EAC-3 substreams lost: count=" << multi.dependentSubstreams
+                << " channels=" << multi.channels << " chan_loc=" << multi.dependentLocations << ", want 2/10/33\n";
+      failed = true;
+    }
+    if (!failed) {
+      std::cout << "PASS nine EAC-3 channel locations and dependent substreams=" << multi.dependentSubstreams
+                << " channels=" << multi.channels << " chan_loc=" << multi.dependentLocations << "\n";
     }
     return failed ? 1 : 0;
   }

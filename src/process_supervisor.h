@@ -8,6 +8,22 @@
 #include <vector>
 
 namespace Mist {
+  inline bool processingAdmissionPending(const JSON::Value & processes) {
+    if (!processes.isArray()) { return false; }
+    for (size_t i = 0; i < processes.size(); ++i) {
+      if (processes[i]["x-LSP-probe"].asBool()) { return true; }
+    }
+    return false;
+  }
+
+  inline uint64_t defaultLiveAVRestartWaitMs(const std::string & process, const std::string & restartType,
+                                             uint64_t configuredDelay, bool controlledVOD, uint32_t boots) {
+    if (process != "AV" || restartType == "disabled" || configuredDelay || controlledVOD || !boots) { return 0; }
+    uint64_t delay = 1000;
+    for (uint32_t attempt = 1; attempt < boots && delay < 30000; ++attempt) { delay *= 2; }
+    return delay < 30000 ? delay : 30000;
+  }
+
   /// How a collected process exit is handled. A clean exit the controller requested (the stop of
   /// the process's session) is "stopped": the process stays down until a new publisher session or
   /// a configuration change, since restarting it would undo that stop.
