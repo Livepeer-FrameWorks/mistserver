@@ -11,6 +11,10 @@
 #include <sstream>
 
 namespace Mist{
+  static bool isRawVideoCodec(const std::string & codec) {
+    return codec == "YUYV" || codec == "UYVY" || codec == "NV12" || codec == "I420" || codec == "I422" || codec == "I444";
+  }
+
   OutEBML::OutEBML(Socket::Connection & conn, Util::Config & _cfg, JSON::Value & _capa)
     : HTTPOutput(conn, _cfg, _capa) {
     subtractTime = 0;
@@ -85,9 +89,7 @@ namespace Mist{
     capa["codecs"][0u][0u].append("MPEG4");
     capa["codecs"][0u][0u].append("AV1");
     capa["codecs"][0u][0u].append("JPEG");
-    capa["codecs"][0u][0u].append("YUYV");
-    capa["codecs"][0u][0u].append("UYVY");
-    capa["codecs"][0u][0u].append("NV12");
+    for (const char *codec : {"YUYV", "UYVY", "NV12", "I420", "I422", "I444"}) { capa["codecs"][0u][0u].append(codec); }
     capa["codecs"][0u][1u].append("AAC");
     capa["codecs"][0u][1u].append("FLAC");
     capa["codecs"][0u][1u].append("vorbis");
@@ -482,9 +484,7 @@ namespace Mist{
     if (codec == "FLOAT"){return "A_PCM/FLOAT/IEEE";}
     if (codec == "DTS"){return "A_DTS";}
     if (codec == "JSON"){return "M_JSON";}
-    if (codec == "YUYV"){return "V_UNCOMPRESSED";}
-    if (codec == "NV12"){return "V_UNCOMPRESSED";}
-    if (codec == "UYVY"){return "V_UNCOMPRESSED";}
+    if (isRawVideoCodec(codec)) { return "V_UNCOMPRESSED"; }
     return "E_UNKNOWN";
   }
 
@@ -591,9 +591,7 @@ namespace Mist{
       subLen += EBML::sizeElemUInt(EBML::EID_PIXELHEIGHT, M.getHeight(idx));
       subLen += EBML::sizeElemUInt(EBML::EID_DISPLAYWIDTH, M.getWidth(idx));
       subLen += EBML::sizeElemUInt(EBML::EID_DISPLAYHEIGHT, M.getHeight(idx));
-      if (codec == "YUYV" || codec == "NV12" || codec == "UYVY"){
-        subLen += EBML::sizeElemStr(EBML::EID_UNCOMPRESSEDFOURCC, codec);
-      }
+      if (isRawVideoCodec(codec)) { subLen += EBML::sizeElemStr(EBML::EID_UNCOMPRESSEDFOURCC, codec); }
       sendLen += EBML::sizeElemHead(EBML::EID_VIDEO, subLen);
     }
     if (type == "audio"){
@@ -635,9 +633,7 @@ namespace Mist{
       EBML::sendElemUInt(myConn, EBML::EID_PIXELHEIGHT, M.getHeight(idx));
       EBML::sendElemUInt(myConn, EBML::EID_DISPLAYWIDTH, M.getWidth(idx));
       EBML::sendElemUInt(myConn, EBML::EID_DISPLAYHEIGHT, M.getHeight(idx));
-      if (codec == "YUYV" || codec == "NV12" || codec == "UYVY"){
-        EBML::sendElemStr(myConn, EBML::EID_UNCOMPRESSEDFOURCC, codec);
-      }
+      if (isRawVideoCodec(codec)) { EBML::sendElemStr(myConn, EBML::EID_UNCOMPRESSEDFOURCC, codec); }
     }
     if (type == "audio"){
       EBML::sendElemUInt(myConn, EBML::EID_TRACKTYPE, 2);
@@ -678,9 +674,7 @@ namespace Mist{
       subLen += EBML::sizeElemUInt(EBML::EID_PIXELHEIGHT, M.getHeight(idx));
       subLen += EBML::sizeElemUInt(EBML::EID_DISPLAYWIDTH, M.getWidth(idx));
       subLen += EBML::sizeElemUInt(EBML::EID_DISPLAYHEIGHT, M.getHeight(idx));
-      if (codec == "YUYV" || codec == "NV12" || codec == "UYVY"){
-        subLen += EBML::sizeElemStr(EBML::EID_UNCOMPRESSEDFOURCC, codec);
-      }
+      if (isRawVideoCodec(codec)) { subLen += EBML::sizeElemStr(EBML::EID_UNCOMPRESSEDFOURCC, codec); }
       sendLen += EBML::sizeElemHead(EBML::EID_VIDEO, subLen);
     }
     if (type == "audio"){

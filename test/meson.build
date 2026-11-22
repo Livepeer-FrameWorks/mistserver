@@ -1650,3 +1650,9 @@ if host_machine.system() == 'linux'
   test('Detached Mist children fail the process audit', find_program('python3'),
        args: files('leaked_process_fixture.py'), should_fail: true, suite: 'Util', timeout: 15)
 endif
+
+if ffmpeg_program.found()
+  test('Matroska VOD retains embedded planar raw tracks', find_program('python3'),
+       args: [files('ebml_raw_passthrough_integration.py'), meson.project_build_root(), ffmpeg_program],
+       depends: media_test_deps, suite: 'EBML', timeout: 60, is_parallel: false)
+endif
