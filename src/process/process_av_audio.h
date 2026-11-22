@@ -8,6 +8,7 @@ extern "C" {
 #include <libavcodec/avcodec.h>
 #include <libavutil/channel_layout.h>
 #include <libavutil/version.h>
+#include <libswresample/swresample.h>
 }
 
 namespace Mist {
@@ -50,6 +51,41 @@ namespace Mist {
       AudioInputFormat(const AudioInputFormat &) = delete;
       AudioInputFormat & operator=(const AudioInputFormat &) = delete;
   };
+
+  inline int prepareAudioResampleFrame(AVFrame *& frame, int & capacity, AVCodecContext *encoder, SwrContext *resampler,
+                                       int inputSamples) {
+    const int pending = swr_get_out_samples(resampler, inputSamples);
+    if (pending < 0) { return pending; }
+    const int required = std::max(pending, encoder->frame_size > 0 ? encoder->frame_size : encoder->sample_rate / 50);
+    if (!frame || required > capacity) {
+      AVFrame *replacement = av_frame_alloc();
+      if (!replacement) { return AVERROR(ENOMEM); }
+      replacement->sample_rate = encoder->sample_rate;
+      replacement->format = encoder->sample_fmt;
+      replacement->nb_samples = required;
+#if LIBAVUTIL_VERSION_MAJOR < 57 || (LIBAVUTIL_VERSION_MAJOR == 57 && LIBAVUTIL_VERSION_MINOR < 24)
+      replacement->channels = encoder->channels;
+      replacement->channel_layout = encoder->channel_layout;
+#else
+      int result = av_channel_layout_copy(&replacement->ch_layout, &encoder->ch_layout);
+      if (result < 0) {
+        av_frame_free(&replacement);
+        return result;
+      }
+#endif
+      int allocated = av_frame_get_buffer(replacement, 0);
+      if (allocated < 0) {
+        av_frame_free(&replacement);
+        return allocated;
+      }
+      av_frame_free(&frame);
+      frame = replacement;
+      capacity = required;
+    }
+    // Encoding may retain the previous samples and change nb_samples to its frame size.
+    frame->nb_samples = capacity;
+    return av_frame_make_writable(frame);
+  }
 
   inline unsigned int encodedAudioChannels(const std::string & codec, unsigned int sourceChannels, bool sourceHasLFE = false) {
     if (!sourceChannels) { return 0; }

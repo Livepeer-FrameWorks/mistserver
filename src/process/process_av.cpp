@@ -507,8 +507,6 @@ namespace Mist{
     int64_t pts;
     int resampledSampleCount;
     AVBufferRef *hw_decode_ctx;
-    AVPixelFormat hw_decode_fmt;
-    AVPixelFormat hw_decode_sw_fmt;
     uint64_t skippedFrames; //< Amount of frames since last JPEG image
     uint64_t lastSendNextEnd; //< End timestamp of the previous source-side processing call
     bool hardwareFormatDeclined{false};
@@ -572,6 +570,7 @@ namespace Mist{
       if (resampleContext){
         swr_free(&resampleContext);
       }
+      if (!isVideo) { av_frame_free(&frameConverted); }
       av_frame_free(&frame_RAW);
       av_frame_free(&frameDecodeHW);
       av_buffer_unref(&hw_decode_ctx);
@@ -1068,38 +1067,11 @@ namespace Mist{
           softDecodeFormat = softFmt;
           frameDecodeHW = av_frame_alloc();
         } else {
-          INFO_MSG("Creating hw frame context");
-          AVBufferRef *hw_frames_ref = av_hwframe_ctx_alloc(hw_decode_ctx);
-
-          if (!hw_frames_ref) {
-            av_buffer_unref(&hw_decode_ctx);
-            avcodec_free_context(&tmpCtx);
-            return false;
-          }
-          AVHWFramesContext *frames_ctx;
-          frames_ctx = (AVHWFramesContext *)(hw_frames_ref->data);
-          frames_ctx->initial_pool_size = 1;
-          frames_ctx->format = pixFmt;
-          frames_ctx->sw_format = softFmt;
+          // Decoder-owned pools select NV12/P010 from the compressed stream.
+          tmpCtx->hw_device_ctx = av_buffer_ref(hw_decode_ctx);
           softDecodeFormat = softFmt;
-          frames_ctx->width = w;
-          frames_ctx->height = h;
-          hw_decode_fmt = pixFmt;
-          hw_decode_sw_fmt = softFmt;
-
-          if (av_hwframe_ctx_init(hw_frames_ref) < 0) {
-            av_buffer_unref(&hw_frames_ref);
-            av_buffer_unref(&hw_decode_ctx);
-            avcodec_free_context(&tmpCtx);
-            return false;
-          }
-          tmpCtx->hw_frames_ctx = av_buffer_ref(hw_frames_ref);
-          av_buffer_unref(&hw_frames_ref);
-
-        INFO_MSG("Creating hw frame memory");
-
           frameDecodeHW = av_frame_alloc();
-          if (!frameDecodeHW || av_hwframe_get_buffer(tmpCtx->hw_frames_ctx, frameDecodeHW, 0) < 0) {
+          if (!tmpCtx->hw_device_ctx || !frameDecodeHW) {
             av_frame_free(&frameDecodeHW);
             av_buffer_unref(&hw_decode_ctx);
             avcodec_free_context(&tmpCtx);
@@ -1158,11 +1130,10 @@ namespace Mist{
         if (tryDecoder("", AV_HWDEVICE_TYPE_VIDEOTOOLBOX, AV_PIX_FMT_VIDEOTOOLBOX, AV_PIX_FMT_NV12)) { return true; }
       }
 #endif
-      if (allowHW && (codecIn == "H264" || codecIn == "HEVC" || codecIn == "AV1")) {
-        const std::string decoder = codecIn == "H264" ? "h264_cuvid" : codecIn == "HEVC" ? "hevc_cuvid" : "av1_cuvid";
-        if (tryDecoder(decoder, AV_HWDEVICE_TYPE_CUDA, AV_PIX_FMT_CUDA, AV_PIX_FMT_YUV420P)) { return true; }
-      }
+      // CUDA decoding remains disabled until the NVIDIA lifecycle gate passes.
+      // Hardware encoding is independent and can consume software-decoded frames.
       if (!allowSW) {
+        hardwareFormatDeclined = true;
         failVideoDecoder("Hardware decoder refused the source and software decode is disabled", hardwareDecoderFailurePermanent(hardwareFormatDeclined, decoderProducedFrame));
         return false;
       }
@@ -1524,73 +1495,17 @@ namespace Mist{
         INFO_MSG("Allocated resampling context!");
       }
 
-      // Create frame to hold converted samples
-      if (!frameConverted){
-        INFO_MSG("Allocating converted frame...");
-        frameConverted = av_frame_alloc();
-        if (!frameConverted) {
-          FAIL_MSG("Could not allocate audio resampling frame");
-          return false;
-        }
-        // If we have a target codec, we need to transform to something compatible with the output
-        frameConverted->sample_rate = context_out->sample_rate;
-        #if (LIBAVUTIL_VERSION_MAJOR < 57 || (LIBAVUTIL_VERSION_MAJOR == 57 && LIBAVUTIL_VERSION_MINOR < 24))
-          frameConverted->channels = context_out->channels;
-          frameConverted->channel_layout = context_out->channel_layout;
-        #else
-          frameConverted->ch_layout.nb_channels = context_out->ch_layout.nb_channels;
-          frameConverted->ch_layout = context_out->ch_layout;
-        #endif
-        frameConverted->format = context_out->sample_fmt;
-        // Since PCM has no concept of a frame, retain input frame size
-        if (codecOut == "PCM"){
-          frameConverted->nb_samples = frame_RAW->nb_samples;
-        }else{
-          frameConverted->nb_samples = context_out->frame_size;
-        }
-        resampledSampleCount = swr_get_out_samples(resampleContext, frame_RAW->nb_samples) * 3 + frame_RAW->nb_samples;
-        int reqSize = 0;
-        if (context_out->frame_size) {
-          reqSize = context_out->frame_size;
-        } else {
-          reqSize = context_out->time_base.den / 50;
-        }
-        if (reqSize > resampledSampleCount) { resampledSampleCount = reqSize; }
-        frameConverted->nb_samples = resampledSampleCount;
-
-        // Allocate buffers
-        int ret = av_frame_get_buffer(frameConverted, 0);
-        if (ret < 0) {
-          printError("Could not allocate output frame sample buffer", ret);
-          av_frame_free(&frameConverted);
-          return false;
-        }else{
-          INFO_MSG("Allocated converted frame!");
-        }
-      }
-
-      // Allocate local audio sample buffer
-      static uint8_t **converted_input_samples = NULL;
-      int ret;
-      if (!converted_input_samples){
-        #if (LIBAVUTIL_VERSION_MAJOR < 57 || (LIBAVUTIL_VERSION_MAJOR == 57 && LIBAVUTIL_VERSION_MINOR < 24))
-          ret = av_samples_alloc_array_and_samples(&converted_input_samples, NULL, context_out->channels,
-                                                  resampledSampleCount, context_out->sample_fmt, 0);
-        #else
-          ret = av_samples_alloc_array_and_samples(&converted_input_samples, NULL, context_out->ch_layout.nb_channels,
-                                                  resampledSampleCount, context_out->sample_fmt, 0);
-        #endif
-        if (ret < 0) {
-          printError("Could not allocate converted input samples", ret);
-          return false;
-        }
+      int ret = prepareAudioResampleFrame(frameConverted, resampledSampleCount, context_out, resampleContext, frame_RAW->nb_samples);
+      if (ret < 0) {
+        printError("Could not allocate audio resampling frame", ret);
+        return false;
       }
 
       // Resample audio
-      int samplesConverted = swr_convert(resampleContext, converted_input_samples, resampledSampleCount,
-                        (const uint8_t**)frame_RAW->extended_data, frame_RAW->nb_samples);
+      int samplesConverted = swr_convert(resampleContext, frameConverted->extended_data, resampledSampleCount,
+                                         (const uint8_t **)frame_RAW->extended_data, frame_RAW->nb_samples);
       if (samplesConverted < 0) {
-        printError("Could not convert input samples", ret);
+        printError("Could not convert input samples", samplesConverted);
         return false;
       }
 
@@ -1610,7 +1525,7 @@ namespace Mist{
       }
 
       // Copy local buffer over to audio sample buffer
-      if (av_audio_fifo_write(audioBuffer, (void **)converted_input_samples, samplesConverted) < samplesConverted) {
+      if (av_audio_fifo_write(audioBuffer, (void **)frameConverted->extended_data, samplesConverted) < samplesConverted) {
         printError("Could not write data to audio sample buffer", ret);
         return false;
       }
@@ -1810,13 +1725,18 @@ namespace Mist{
       if (isVideo || !resampleContext || !audioBuffer || !frameConverted || !context_out) { return; }
       INFO_MSG("Flushing audio resampler");
       while (conf.is_active && co.is_active) {
-        int samplesConverted = swr_convert(resampleContext, frameConverted->data, resampledSampleCount, NULL, 0);
+        int prepared = prepareAudioResampleFrame(frameConverted, resampledSampleCount, context_out, resampleContext, 0);
+        if (prepared < 0) {
+          printError("Could not allocate resampler tail buffer", prepared);
+          return;
+        }
+        int samplesConverted = swr_convert(resampleContext, frameConverted->extended_data, resampledSampleCount, NULL, 0);
         if (samplesConverted == 0) { return; }
         if (samplesConverted < 0) {
           printError("Could not flush audio resampler", samplesConverted);
           return;
         }
-        if (av_audio_fifo_write(audioBuffer, (void **)frameConverted->data, samplesConverted) < samplesConverted) {
+        if (av_audio_fifo_write(audioBuffer, (void **)frameConverted->extended_data, samplesConverted) < samplesConverted) {
           FAIL_MSG("Could not write resampler tail to audio buffer");
           return;
         }

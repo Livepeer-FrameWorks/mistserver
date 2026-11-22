@@ -1570,6 +1570,9 @@ test('Reordered EBML frames retain PTS with monotonic nonnegative DTS', ebmldeco
 if get_option('WITH_AV')
   avaudioformattest = executable('avaudioformattest', 'process_av_audio_format_unit.cpp', dependencies: av_libs)
   test('Audio resampler detects rate and equal-count speaker layout changes', avaudioformattest, suite: 'AV')
+  test('MP3 rate changes retain the complete Opus timeline', find_program('python3'),
+       args: [files('process_av_surround_integration.py'), meson.project_build_root(), ffmpeg_program, ffprobe_program],
+       env: {'MIST_AUDIO_RATE_CHANGE': '1'}, depends: media_test_deps, suite: 'Processing', timeout: 120, is_parallel: false)
 endif
 ac3decoderconfigtest = executable('ac3decoderconfigtest', 'ac3_decoder_config_unit.cpp', header_tgts, dependencies: libmist_dep)
 test('EAC-3 decoder configurations retain all dependent substreams', ac3decoderconfigtest, suite: 'audio')
@@ -1616,4 +1619,15 @@ if ffmpeg_program.found()
   test('HLS defaults to AAC over EAC-3', find_program('python3'),
        args: [files('hls_audio_preference_integration.py'), meson.project_build_root(), ffmpeg_program],
        depends: media_test_deps, suite: 'Processing', timeout: 100, is_parallel: false)
+endif
+
+if get_option('WITH_AV') and ffmpeg_program.found() and ffprobe_program.found()
+  foreach codec : ['MP2', 'MP3', 'AC3', 'EAC-3']
+    test(codec + ' sources decode complete Opus output', find_program('python3'),
+         args: [files('process_av_surround_integration.py'), meson.project_build_root(), ffmpeg_program, ffprobe_program],
+         env: {'MIST_AUDIO_CODEC': codec}, depends: media_test_deps, suite: 'Processing', timeout: 120, is_parallel: false)
+  endforeach
+  test('MPEG2 sources decode a complete local ladder and thumbnails', find_program('python3'),
+       args: [files('process_av_rotation_integration.py'), meson.project_build_root(), ffmpeg_program, ffprobe_program],
+       env: {'MIST_ROTATION_CASE': 'MPEG2:0', 'MIST_ROTATION_CONTAINER': 'mkv'}, depends: media_test_deps, suite: 'Processing', timeout: 120, is_parallel: false)
 endif
