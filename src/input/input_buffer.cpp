@@ -1495,6 +1495,8 @@ namespace Mist{
           }
           // If we stop a process this way, reset it's counter and delayed start time
           procBoots.erase(processConfig);
+          procRestartBoots.erase(processConfig);
+          procStartedAt.erase(processConfig);
           procNextBoot.erase(processConfig);
           procHardFailed.erase(processConfig);
           procStopped.erase(processConfig);
@@ -1565,6 +1567,10 @@ namespace Mist{
         const std::string status = processExitStatus(exitCode, configuredRestartType, procBoots[config], shortReason);
 
         std::string procType = args["process"].asString();
+        const auto started = procStartedAt.find(config);
+        if (procType == "AV" && started != procStartedAt.end() && now - started->second >= 60000) {
+          procRestartBoots[config] = 1;
+        }
         if (Triggers::shouldTrigger("PROCESS_EXIT", streamName)) {
           std::string payload = processExitTriggerPayload(streamName, procType, config, deadPid, exitCode,
                                                           procBoots[config], status, shortReason, longReason);
@@ -1602,7 +1608,7 @@ namespace Mist{
         continue;
       }
       const uint64_t defaultWait = defaultLiveAVRestartWaitMs(args["process"].asString(), restartType, restartDelay,
-                                                              processControlledRealtime, procBoots[config]);
+                                                              processControlledRealtime, procRestartBoots[config]);
       if (defaultWait && !procNextBoot[config]) { procNextBoot[config] = now + defaultWait; }
       // Apply any delayed start time if we've booted before
       if (restartDelay && procBoots[config] && !procNextBoot[config]) {
@@ -1649,6 +1655,8 @@ namespace Mist{
       INFO_MSG("Started process %zu: %s %s", (size_t)runningProcs[config], argarr[0].c_str(), argarr[1].c_str());
       // Increment per-process boot counter
       procBoots[config]++;
+      procRestartBoots[config] = std::min<uint32_t>(procRestartBoots[config] + 1, 32);
+      procStartedAt[config] = now;
       // Remove the delayed start counter
       procNextBoot.erase(config);
     }

@@ -97,6 +97,8 @@ namespace Mist{
     IPC::sharedPage processGraphPage;
     std::string publishedProcessGraph;
     std::map<std::string, uint32_t> procBoots;
+    std::map<std::string, uint32_t> procRestartBoots;
+    std::map<std::string, uint64_t> procStartedAt;
     std::map<std::string, uint64_t> procNextBoot;
     std::set<std::string> procHardFailed; // configs that hit unrecoverable error
     std::set<std::string> procStopped; // configs whose process the controller stopped (its session)

@@ -1633,3 +1633,9 @@ if get_option('WITH_AV') and ffmpeg_program.found() and ffprobe_program.found()
 endif
 
 test('MP4 B-frame offsets do not inflate sample durations', mp4unreadyaudiotest, args: ['bframe-duration'], suite: 'MP4')
+
+if get_option('WITH_AV') and ffmpeg_program.found()
+  test('Stable live AV runs reset their restart backoff', find_program('python3'),
+       args: [files('live_av_backoff_integration.py'), meson.project_build_root(), ffmpeg_program],
+       env: {'MIST_AV_BACKOFF_STABLE': '1'}, depends: media_test_deps, suite: 'Processing', timeout: 150, is_parallel: false)
+endif
