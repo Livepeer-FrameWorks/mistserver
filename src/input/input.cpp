@@ -1356,6 +1356,33 @@ namespace Mist{
     uint64_t pacedSpeed = 0;
     validTracks.clear();
 
+    // Admission pauses the first packet. Publish the source session before
+    // that pause so controller health can expose its metadata to the planner.
+    const auto reportInputStats = [&]() -> bool {
+      if (Util::bootSecs() - statTimer <= 1) { return true; }
+      if (!statComm && !getenv("NOSESS")) {
+        statComm.reload(streamName, getConnectedBinHost(), JSON::Value(getpid()).asString(),
+                        "INPUT:" + capa["name"].asStringRef(), "");
+      }
+      if (statComm) {
+        if (statComm.getStatus() & COMM_STATUS_REQDISCONNECT) {
+          config->is_active = false;
+          Util::logExitReason(ER_CLEAN_CONTROLLER_REQ, "received shutdown request from session");
+          return false;
+        }
+        const uint64_t now = Util::bootSecs();
+        statComm.setNow(now);
+        statComm.setStream(streamName);
+        statComm.setConnector("INPUT:" + capa["name"].asStringRef());
+        statComm.setTime(now - startTime);
+        statComm.setLastSecond(0);
+        connStats(statComm);
+      }
+      statTimer = Util::bootSecs();
+      return true;
+    };
+    if (processControlledRealtime && !reportInputStats()) { return; }
+
     seek(0);/// \TODO Is this actually needed?
     while (config->is_active){
       getNext();
@@ -1399,6 +1426,7 @@ namespace Mist{
                streamStatus.mapped[STRMSTATE_PROCESS_FEED_PAUSED_OFFSET] && config->is_active && userSelect[idx]) {
           if (!pauseStartedMs) { pauseStartedMs = Util::bootMS(); }
           activityCounter = Util::bootSecs();
+          if (!reportInputStats()) { return; }
           Util::sleep(10);
         }
         if (pauseStartedMs) {
@@ -1453,29 +1481,7 @@ namespace Mist{
       // timeout that the source reads check through keepRunning().
       activityCounter = Util::bootSecs();
 
-      if (Util::bootSecs() - statTimer > 1){
-        // Connect to stats for INPUT detection
-        if (!statComm && !getenv("NOSESS")) {
-          statComm.reload(streamName, getConnectedBinHost(), JSON::Value(getpid()).asString(),
-                          "INPUT:" + capa["name"].asStringRef(), "");
-        }
-        if (statComm){
-          if (statComm.getStatus() & COMM_STATUS_REQDISCONNECT){
-            config->is_active = false;
-            Util::logExitReason(ER_CLEAN_CONTROLLER_REQ, "received shutdown request from session");
-            return;
-          }
-          uint64_t now = Util::bootSecs();
-          statComm.setNow(now);
-          statComm.setStream(streamName);
-          statComm.setConnector("INPUT:" + capa["name"].asStringRef());
-          statComm.setTime(now - startTime);
-          statComm.setLastSecond(0);
-          connStats(statComm);
-        }
-
-        statTimer = Util::bootSecs();
-      }
+      if (!reportInputStats()) { return; }
     }
     for (std::map<uint64_t, uint64_t>::iterator it = realTimeTrackMap.begin(); it != realTimeTrackMap.end(); ++it){
       liveMeta.abandonTrack(it->second);

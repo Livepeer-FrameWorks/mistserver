@@ -1528,6 +1528,9 @@ if ffmpeg_program.found() and get_option('WITH_AV')
   test('Processing admission reuses its paused source without a second read', find_program('python3'),
        args: [files('processing_probe_handoff_integration.py'), meson.project_build_root(), ffmpeg_program],
        depends: media_test_deps, suite: 'Processing', timeout: 90, is_parallel: false)
+  test('A single metadata boot exposes paused source health before admission', find_program('python3'),
+       args: [files('processing_probe_stats_integration.py'), meson.project_build_root(), ffmpeg_program],
+       depends: media_test_deps, suite: 'Processing', timeout: 90, is_parallel: false)
 endif
 
 if host_machine.system() != 'windows' and get_option('WITH_AV') and ffmpeg_program.found()
