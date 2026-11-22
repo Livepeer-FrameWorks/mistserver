@@ -164,7 +164,6 @@ namespace Mist{
     static void addSourceCodecs(JSON::Value & sourceCapa) {
       sourceCapa["codecs"][0u][0u].append("+H264");
       sourceCapa["codecs"][0u][0u].append("+HEVC");
-      sourceCapa["codecs"][0u][0u].append("+MPEG2");
       sourceCapa["codecs"][0u][1u].append("+AAC");
     }
     ProcessSource(Socket::Connection & c, Util::Config & _cfg, JSON::Value & _capa) : TSOutput(c, _cfg, _capa) {
@@ -1504,7 +1503,6 @@ int main(int argc, char *argv[]){
   sourceCapa["name"] = "Livepeer";
   sourceCapa["codecs"][0u][0u].append("+H264");
   sourceCapa["codecs"][0u][0u].append("+HEVC");
-  sourceCapa["codecs"][0u][0u].append("+MPEG2");
   if (Mist::opt.isMember("source_track") && Mist::opt["source_track"].isString() && Mist::opt["source_track"]){
     targetParams["video"] = Mist::opt["source_track"].asStringRef();
   }

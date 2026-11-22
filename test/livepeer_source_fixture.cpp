@@ -22,7 +22,7 @@ int main(int argc, char **argv) {
   const size_t track = meta.addTrack(1, 1, 16, 2, true);
   meta.setID(track, 1);
   meta.setType(track, "video");
-  meta.setCodec(track, !strcmp(argv[2], "H264+RAW") ? "H264" : argv[2]);
+  meta.setCodec(track, !strncmp(argv[2], "H264+", 5) ? "H264" : argv[2]);
   meta.setWidth(track, 320);
   meta.setHeight(track, 180);
   meta.setRotation(track, atoi(argv[3]));
@@ -31,11 +31,11 @@ int main(int argc, char **argv) {
   meta.setLive(!strcmp(argv[5], "live"));
   meta.update(0, 0, track, 1, 0, true, 1);
   meta.setBps(track, 100000);
-  if (!strcmp(argv[2], "H264+RAW")) {
+  if (!strncmp(argv[2], "H264+", 5)) {
     const size_t raw = meta.addTrack(1, 1, 16, 2, true);
     meta.setID(raw, 2);
     meta.setType(raw, "video");
-    meta.setCodec(raw, "I420");
+    meta.setCodec(raw, !strcmp(argv[2], "H264+MPEG2") ? "MPEG2" : "I420");
     meta.setWidth(raw, 320);
     meta.setHeight(raw, 180);
     meta.update(0, 0, raw, 1, 0, true, 1);

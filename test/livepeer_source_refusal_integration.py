@@ -35,7 +35,8 @@ with http.server.ThreadingHTTPServer(('127.0.0.1', 0), API) as server:
                     ('VP9', 0, 0, 'SOURCE_CODEC_UNSUPPORTED'),
                     ('H264', 0, 0, 'FORMAT_SPECIFIC'),
                     ('H264', 360, 0, 'FORMAT_SPECIFIC'),
-                    ('H264+RAW', 0, 0, 'FORMAT_SPECIFIC')):
+                    ('H264+RAW', 0, 0, 'FORMAT_SPECIFIC'),
+                    ('H264+MPEG2', 0, 0, 'FORMAT_SPECIFIC')):
                 with tempfile.TemporaryDirectory(prefix='mist-source-refusal-') as directory:
                     env = dict(os.environ, TMP=directory, MIST_CONTROL='1')
                     stream = 'lprefusal' + str(os.getpid())

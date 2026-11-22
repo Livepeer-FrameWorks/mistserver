@@ -28,7 +28,10 @@ namespace Mist{
     size_t vidTracks = 0;
     bool hasSubs = false;
     for (std::map<size_t, Comms::Users>::iterator it = userSelect.begin(); it != userSelect.end(); ++it){
-      if (audioId == INVALID_TRACK_ID && M.getType(it->first) == "audio"){audioId = it->first;}
+      if (M.getType(it->first) == "audio" &&
+          (audioId == INVALID_TRACK_ID || (M.getCodec(audioId) != "AAC" && M.getCodec(it->first) == "AAC"))) {
+        audioId = it->first;
+      }
       if (!hasSubs && M.getCodec(it->first) == "subtitle"){hasSubs = true;}
     }
     std::string tknStr;

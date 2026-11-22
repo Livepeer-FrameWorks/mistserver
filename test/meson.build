@@ -1607,3 +1607,13 @@ if have_libxml2
                                          dependencies: [libmist_dep, onvif_lib_dep, libxml2])
   test('SOAP discovery releases temporary XML bodies', soapdiscoveryownershiptest, suite: 'SOAP')
 endif
+
+if exec_tgts.has_key('MistOutRTMP')
+  test('Actual RTMP wildcard capabilities omit unwritable EAC-3', find_program('python3'),
+       args: [files('rtmp_capability_integration.py'), exec_tgts.get('MistOutRTMP')], suite: 'RTMP')
+endif
+if ffmpeg_program.found()
+  test('HLS defaults to AAC over EAC-3', find_program('python3'),
+       args: [files('hls_audio_preference_integration.py'), meson.project_build_root(), ffmpeg_program],
+       depends: media_test_deps, suite: 'Processing', timeout: 100, is_parallel: false)
+endif

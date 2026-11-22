@@ -529,7 +529,6 @@ namespace Mist {
     capa["codecs"][1u][0u].append("VP9");
     capa["codecs"][1u][1u].append("opus");
     capa["codecs"][1u][1u].append("AC3");
-    capa["codecs"][1u][1u].append("EAC-3");
     capa["codecs"][1u][1u].append("FLAC");
 
     { // playback method
