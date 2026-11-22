@@ -1669,3 +1669,11 @@ endif
 
 test('Fixture teardown preserves controller diagnostic logs', python_program,
      args: files('fixture_cleanup_log_test.py'), suite: 'Build', timeout: 30)
+
+if get_option('WITH_AV') and ffmpeg_program.found() and ffprobe_program.found()
+  foreach codec : ['HEVC', 'MPEG2', 'MPEG4', 'MP2', 'MP3', 'AC3', 'EAC-3']
+    test('Live ' + codec + ' sources decode complete local output', find_program('python3'),
+         args: [files('process_av_live_codec_integration.py'), meson.project_build_root(), ffmpeg_program, ffprobe_program, codec],
+         depends: media_test_deps, suite: 'Processing', timeout: 120, is_parallel: false)
+  endforeach
+endif
