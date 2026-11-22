@@ -7,6 +7,7 @@ from pathlib import Path
 import re
 import subprocess
 import sys
+import time
 
 
 def fallback_root(env=None):
@@ -41,6 +42,30 @@ def release_page(name, env=None):
         if unlink(actual.encode()) != 0 and ctypes.get_errno() != errno.ENOENT:
             raise OSError(ctypes.get_errno(), name)
     (fallback_root(env) / name.lstrip('/')).unlink(missing_ok=True)
+
+
+def wait_dead(pid, timeout=5):
+    """A zombie has exited; read its state without a kill(0)/ps disappearance race."""
+    if pid <= 1:
+        raise ValueError('expected a fixture process PID greater than one')
+    deadline = time.monotonic() + timeout
+    while True:
+        if sys.platform.startswith('linux'):
+            try:
+                state = Path('/proc/%d/stat' % pid).read_text().rsplit(')', 1)[1].split()[0]
+            except (FileNotFoundError, ProcessLookupError):
+                return
+        else:
+            result = subprocess.run(['ps', '-p', str(pid), '-o', 'stat='], capture_output=True, text=True)
+            if result.returncode == 1 and not result.stdout.strip():
+                return
+            result.check_returncode()
+            state = result.stdout.strip()
+        if 'Z' in state:
+            return
+        if time.monotonic() >= deadline:
+            raise TimeoutError('targeted fixture PID %d remains alive in state %s' % (pid, state))
+        time.sleep(0.02)
 
 
 def run_owned(command, *, timeout=None, **kwargs):
@@ -89,6 +114,7 @@ def cleanup_logs(directory, streams=(), sessions=(), env=None):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--logs')
+    parser.add_argument('--wait-dead', type=int)
     parser.add_argument('--stream', action='append', default=[])
     parser.add_argument('--session', action='append', default=[])
     parser.add_argument('--timeout', type=float, default=5)
@@ -96,6 +122,8 @@ if __name__ == '__main__':
     args = parser.parse_args()
     if args.logs:
         cleanup_logs(args.logs, args.stream, args.session)
+    elif args.wait_dead is not None:
+        wait_dead(args.wait_dead, args.timeout)
     elif args.command:
         command = args.command[1:] if args.command[0] == '--' else args.command
         try:

@@ -8,7 +8,7 @@ import tempfile
 import unittest
 from unittest import mock
 import controller_capacity_lifecycle_integration as capacity_fixture
-from fixture_ipc import cleanup_logs, release_page, run_owned
+from fixture_ipc import cleanup_logs, release_page, run_owned, wait_dead
 
 
 class FixtureIpcTest(unittest.TestCase):
@@ -65,6 +65,19 @@ class FixtureIpcTest(unittest.TestCase):
              mock.patch.object(capacity_fixture.os, 'killpg', side_effect=PermissionError('empty group')), \
              mock.patch.object(capacity_fixture, 'cleanup_logs'):
             fixture.close()
+
+    def test_wait_dead_rejects_live_child_and_accepts_its_death(self):
+        child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(30)'])
+        try:
+            with self.assertRaises(TimeoutError):
+                wait_dead(child.pid, timeout=0.05)
+            child.kill()
+            wait_dead(child.pid)
+        finally:
+            if child.poll() is None:
+                child.kill()
+            child.wait()
+        wait_dead(child.pid)
 
     def test_rejects_path_traversal(self):
         with self.assertRaises(ValueError):

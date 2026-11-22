@@ -402,17 +402,7 @@ if [ "${LIVEPEER_TEST_HEADER_BUFFER_KILLED:-}" = "1" ]; then
   for killed_pid in $buffer_pids; do kill -0 "$killed_pid"; done
   for killed_pid in $buffer_pids; do kill -KILL "$killed_pid"; done
   for killed_pid in $buffer_pids; do
-    attempt=0
-    while [ "$attempt" -lt 50 ] && kill -0 "$killed_pid" 2>/dev/null; do
-      buffer_state=$(ps -p "$killed_pid" -o stat= 2>/dev/null || true)
-      case "$buffer_state" in *Z*) break ;; esac
-      attempt=$((attempt + 1))
-      sleep 0.1
-    done
-    if kill -0 "$killed_pid" 2>/dev/null; then
-      buffer_state=$(ps -p "$killed_pid" -o stat= 2>/dev/null || true)
-      case "$buffer_state" in *Z*) ;; *) echo "the targeted buffer PID $killed_pid survived SIGKILL" >&2; exit 1 ;; esac
-    fi
+    python3 "$(dirname "$0")/fixture_ipc.py" --wait-dead "$killed_pid"
   done
   attempt=0
   while [ "$attempt" -lt 600 ] && kill -0 "$output_pid" 2>/dev/null; do
