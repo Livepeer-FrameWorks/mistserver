@@ -1,11 +1,22 @@
 #include <mist/proc_stats.h>
+#include <mist/stream.h>
 
 #include <cerrno>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <limits>
 
 int main(int argc, char **argv) {
+  if (argc == 3 && !strcmp(argv[1], "--stream-input-pid")) {
+    const pid_t pid = Util::streamInputPid(argv[2]);
+    if (pid <= 1) {
+      fprintf(stderr, "stream has no active input pid\n");
+      return 1;
+    }
+    printf("%d\n", (int)pid);
+    return 0;
+  }
   if (argc != 2) {
     fprintf(stderr, "usage: %s pid\n", argv[0]);
     return 2;

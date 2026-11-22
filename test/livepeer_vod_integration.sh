@@ -379,7 +379,41 @@ if [ "${LIVEPEER_TEST_HEADER_BUFFER_KILLED:-}" = "1" ]; then
     echo "the recording never waited for its header" >&2
     exit 1
   fi
-  pkill -KILL -f "MistInBuffer.*$stream" || true
+  buffer_pid=$(TMP="$ipc_root" "$proc_state_probe" --stream-input-pid "$stream")
+  case "$buffer_pid" in ''|*[!0-9]*) echo "invalid stream buffer PID: $buffer_pid" >&2; exit 1 ;; esac
+  buffer_command=$(ps -p "$buffer_pid" -o comm=)
+  case "$buffer_command" in
+    *MistInBuffer*) ;;
+    *) echo "stream input PID $buffer_pid is not MistInBuffer: $buffer_command" >&2; exit 1 ;;
+  esac
+  buffer_pids="$buffer_pid"
+  # The stream page names the input angel; its direct MistInBuffer child owns the metadata.
+  # Kill both, so the assertion cannot pass by killing only the angel while its worker survives.
+  buffer_workers=0
+  for child_pid in $(pgrep -P "$buffer_pid" || true); do
+    child_command=$(ps -p "$child_pid" -o comm=)
+    case "$child_command" in *MistInBuffer*) buffer_pids="$buffer_pids $child_pid"; buffer_workers=$((buffer_workers + 1)) ;; esac
+  done
+  if [ "$buffer_workers" -eq 0 ] && ! grep -q 'MistInBuffer.*Not using angel process due to ATHEIST' "$work/input.log"; then
+    echo "the stream input angel $buffer_pid has no live MistInBuffer worker" >&2
+    exit 1
+  fi
+  echo "killing stream-owned MistInBuffer PIDs $buffer_pids while recording waits for its header"
+  for killed_pid in $buffer_pids; do kill -0 "$killed_pid"; done
+  for killed_pid in $buffer_pids; do kill -KILL "$killed_pid"; done
+  for killed_pid in $buffer_pids; do
+    attempt=0
+    while [ "$attempt" -lt 50 ] && kill -0 "$killed_pid" 2>/dev/null; do
+      buffer_state=$(ps -p "$killed_pid" -o stat= 2>/dev/null || true)
+      case "$buffer_state" in *Z*) break ;; esac
+      attempt=$((attempt + 1))
+      sleep 0.1
+    done
+    if kill -0 "$killed_pid" 2>/dev/null; then
+      buffer_state=$(ps -p "$killed_pid" -o stat= 2>/dev/null || true)
+      case "$buffer_state" in *Z*) ;; *) echo "the targeted buffer PID $killed_pid survived SIGKILL" >&2; exit 1 ;; esac
+    fi
+  done
   attempt=0
   while [ "$attempt" -lt 600 ] && kill -0 "$output_pid" 2>/dev/null; do
     attempt=$((attempt + 1))
