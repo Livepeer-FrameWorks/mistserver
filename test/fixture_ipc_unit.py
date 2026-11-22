@@ -55,9 +55,13 @@ class FixtureIpcTest(unittest.TestCase):
         fixture.root = self.root
         fixture.env = self.env
         fixture.stream = 'owned'
+        fixture.streams = set()
+        fixture.controller = str(self.root / 'MistController')
         fixture.log = mock.Mock()
         fixture.temp = mock.Mock()
-        with mock.patch.object(capacity_fixture, 'processes', return_value=set()), \
+        with mock.patch.object(capacity_fixture, 'process_table', return_value={}), \
+             mock.patch.object(capacity_fixture, 'fixture_inputs', return_value={}), \
+             mock.patch.object(capacity_fixture, 'processes', return_value=set()), \
              mock.patch.object(capacity_fixture.os, 'killpg', side_effect=PermissionError('empty group')), \
              mock.patch.object(capacity_fixture, 'cleanup_logs'):
             fixture.close()
