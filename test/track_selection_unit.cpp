@@ -157,5 +157,37 @@ int main() {
     return fail("an incompatible source video must wait for a compatible rendition");
   }
 
+  DTSC::Meta sizes;
+  sizes.reInit("", true);
+  const size_t landscape = addVideoTrack(sizes, 50, "H264", 640, 360, 100000);
+  const size_t portrait = addVideoTrack(sizes, 51, "H264", 360, 640, 100000);
+  const size_t ultrawide = addVideoTrack(sizes, 52, "H264", 3840, 1080, 100000);
+  const size_t square = addVideoTrack(sizes, 53, "H264", 1080, 1080, 100000);
+  const size_t small = addVideoTrack(sizes, 54, "H264", 320, 180, 100000);
+  const size_t image = addVideoTrack(sizes, 55, "JPEG", 160, 90, 1000);
+  const std::set<size_t> sizeTracks = {landscape, portrait, ultrawide, square, small, image};
+  if (Util::pickTracks(sizes, sizeTracks, "video", "<0x480") != std::set<size_t>{landscape, portrait, small}) {
+    return fail("short-side selector must inhibit larger rungs for landscape and portrait sources");
+  }
+  if (Util::pickTracks(sizes, sizeTracks, "video", "<0x360") != std::set<size_t>{small}) {
+    return fail("short-side comparison must be strict at the minimum rung boundary");
+  }
+  if (Util::pickTracks(sizes, sizeTracks, "video", ">0x360") != std::set<size_t>{ultrawide, square}) {
+    return fail("greater-than short-side selection must handle wide and square sources");
+  }
+  if (Util::pickTracks(sizes, sizeTracks, "video", ">0x1080").size()) {
+    return fail("ultrawide area must not satisfy a taller short-side threshold");
+  }
+  if (Util::pickTracks(sizes, sizeTracks, "video", ">1920x1080") != std::set<size_t>{ultrawide}) {
+    return fail("explicit width and height comparators must retain their area semantics");
+  }
+  if (Util::pickTracks(sizes, sizeTracks, "JPEG", "<0x360") != std::set<size_t>{image}) {
+    return fail("explicit image short-side selectors must still work");
+  }
+  sizes.setSourceTrack(ultrawide, landscape);
+  sizes.setSourceTrack(square, landscape);
+  if (!Util::inhibitorMatchesSource(sizes, "video=<0x480")) {
+    return fail("source-only short-side inhibition must ignore larger processed tracks");
+  }
   return 0;
 }

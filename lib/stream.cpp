@@ -1455,18 +1455,22 @@ std::set<size_t> Util::pickTracks(const DTSC::Meta &M, const std::set<size_t> tr
       }
       return result;
     }
-    unsigned int resX, resY;
-    uint64_t targetArea = 0;
-    if (sscanf(trackLow.c_str(), "<%ux%u", &resX, &resY) == 2){targetArea = resX*resY;}
-    if (sscanf(trackLow.c_str(), ">%ux%u", &resX, &resY) == 2){targetArea = resX*resY;}
-    if (targetArea){
+    unsigned int resX = 0, resY = 0;
+    const bool resolution = sscanf(trackLow.c_str() + 1, "%ux%u", &resX, &resY) == 2;
+    // A zero width names a short-side threshold so portrait and landscape
+    // sources use the same ladder. Explicit WxH selectors compare pixel area.
+    const bool shortSide = resolution && !resX && resY;
+    const uint64_t targetArea = resolution ? (uint64_t)resX * resY : 0;
+    const uint64_t targetSize = shortSide ? resY : targetArea;
+    if (targetSize) {
       // select all tracks of this type that match the requirements
       for (std::set<size_t>::iterator it = trackList.begin(); it != trackList.end(); it++){
         if (!trackType.size() || M.getType(*it) == trackType || M.getCodec(*it) == trackType){
           if (imageViaTypeSelector(*it)) { continue; }
-          uint64_t trackArea = M.getWidth(*it)*M.getHeight(*it);
-          if (trackLow[0] == '>' && trackArea > targetArea){result.insert(*it);}
-          if (trackLow[0] == '<' && trackArea < targetArea){result.insert(*it);}
+          const uint64_t trackSize =
+            shortSide ? std::min(M.getWidth(*it), M.getHeight(*it)) : (uint64_t)M.getWidth(*it) * M.getHeight(*it);
+          if (trackLow[0] == '>' && trackSize > targetSize) { result.insert(*it); }
+          if (trackLow[0] == '<' && trackSize < targetSize) { result.insert(*it); }
         }
       }
       return result;
