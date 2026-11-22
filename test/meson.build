@@ -1598,3 +1598,9 @@ if get_option('WITH_AV') and ffmpeg_program.found() and ffprobe_program.found()
        env: {'MIST_SUBTITLE_HTTP': '1'}, depends: media_test_deps + [exec_tgts['MistOutHTTP'], exec_tgts['MistOutSubRip']],
        suite: 'Processing', timeout: 120, is_parallel: false)
 endif
+
+if have_libxml2
+  soapdiscoveryownershiptest = executable('soapdiscoveryownershiptest', 'soap_discovery_ownership_unit.cpp', header_tgts,
+                                         dependencies: [libmist_dep, onvif_lib_dep, libxml2])
+  test('SOAP discovery releases temporary XML bodies', soapdiscoveryownershiptest, suite: 'SOAP')
+endif
