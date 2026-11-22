@@ -1656,3 +1656,11 @@ if ffmpeg_program.found()
        args: [files('ebml_raw_passthrough_integration.py'), meson.project_build_root(), ffmpeg_program],
        depends: media_test_deps, suite: 'EBML', timeout: 60, is_parallel: false)
 endif
+
+if get_option('WITH_AV') and ffmpeg_program.found()
+  avaudiosourcecalltest = executable('avaudiosourcecalltest', ['process_av_audio_call_unit.cpp', input_cpp, output_cpp, io_cpp], header_tgts,
+                                   dependencies: [libmist_dep, av_codec_map_dep])
+  test('Actual ProcAV resampler keeps changing EAC3 block sizes current before EOF', find_program('python3'),
+       args: [files('process_av_audio_call_integration.py'), avaudiosourcecalltest, ffmpeg_program],
+       suite: 'AV', timeout: 60)
+endif
