@@ -492,6 +492,19 @@ namespace Mist{
   class ProcessSource : public Output{
   protected:
     inline virtual bool keepGoing(){return config->is_active;}
+    void determineExitReason() override {
+      // A signal on another thread can end the loop before doStats observes
+      // the session flag. Its reason is thread-local, so read this connection.
+      if (statComm && (statComm.getStatus() & COMM_STATUS_SESSSTOP)) {
+        if (!strcmp(Util::mRExitReason, ER_CLEAN_SIGNAL) || !strcmp(Util::mRExitReason, ER_CLEAN_EOF)) {
+          Util::exitReason[0] = 0;
+        }
+        Util::logExitReason(ER_CLEAN_CONTROLLER_REQ, "shutdown due to session end");
+      } else if (Util::Config::stopRequested()) {
+        Util::logExitReason(ER_CLEAN_SIGNAL, "process stopped");
+      }
+    }
+
   private:
     SwrContext *resampleContext; ///< Resample audio formats
     AudioInputFormat resampleInputFormat;

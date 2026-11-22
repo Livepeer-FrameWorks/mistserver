@@ -1585,6 +1585,11 @@ if get_option('WITH_AV')
   avencodecalltest = executable('avencodecalltest', ['process_av_encode_call_unit.cpp', input_cpp, output_cpp, io_cpp], header_tgts,
                                dependencies: [libmist_dep, av_codec_map_dep])
   test('Actual AV encoder stops explicitly after failed hardware frame transfer', avencodecalltest, suite: 'AV')
+  test('Actual AV source keeps a session stop received by another thread', avencodecalltest, args: ['session-stop'], suite: 'AV')
+  test('Actual AV source classifies an external stop without a session stop', avencodecalltest, args: ['external-stop'], suite: 'AV')
+  test('Actual AV source does not hide a decoder failure on stop', avencodecalltest, args: ['failure-then-stop'], suite: 'AV')
+  test('Actual AV source keeps its session stop when it receives the signal', avencodecalltest, args: ['source-signal'], suite: 'AV')
+  test('Actual AV source prefers a session stop over concurrent EOF', avencodecalltest, args: ['eof-then-stop'], suite: 'AV')
   avaudioformattest = executable('avaudioformattest', 'process_av_audio_format_unit.cpp', dependencies: av_libs)
   test('Audio resampler detects rate and equal-count speaker layout changes', avaudioformattest, suite: 'AV')
   test('MP3 rate changes retain the complete Opus timeline', find_program('python3'),

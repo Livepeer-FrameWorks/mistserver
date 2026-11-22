@@ -34,7 +34,58 @@ extern "C" int testSubmitEncoderFrame(AVCodecContext *, const AVFrame *) {
   return AVERROR(EAGAIN);
 }
 
-int main() {
+namespace {
+  class ExitProbe : public Mist::ProcessSource {
+    public:
+      using Mist::ProcessSource::determineExitReason;
+      using Mist::ProcessSource::ProcessSource;
+      using Mist::ProcessSource::statComm;
+  };
+
+  int checkSourceStop(const std::string & mode) {
+    DTSC::trackValidMask = TRACK_VALID_INT_PROCESS;
+    Util::Config config("av-source-stop-test");
+    config.is_active = true;
+    JSON::Value capa;
+    Mist::ProcessSource::init(&config, capa);
+    const std::string session = "avstop" + std::to_string(getpid());
+    char name[NAME_BUFFER_SIZE];
+    snprintf(name, sizeof(name), SEM_SESSION, session.c_str());
+    IPC::semaphore lock(name, O_CREAT | O_RDWR, ACCESSPERMS, 1);
+    int result = 0;
+    {
+      Comms::Connections owner;
+      owner.reload(session, true);
+      Socket::Connection connection;
+      ExitProbe source(connection, config, capa);
+      source.statComm.reload(session);
+      if (!owner || !source.statComm) { return 2; }
+      source.statComm.setStatus(COMM_STATUS_ACTIVE | COMM_STATUS_REQDISCONNECT | (mode == "external-stop" ? 0 : COMM_STATUS_SESSSTOP));
+      if (mode == "failure-then-stop") { Util::logExitReason(ER_PROCESS_SPECIFIC, "decoder failed"); }
+      if (mode == "source-signal") { Util::logExitReason(ER_CLEAN_SIGNAL, "source received signal"); }
+      if (mode == "eof-then-stop") { Util::logExitReason(ER_CLEAN_EOF, "source finished"); }
+      std::thread signalThread([]() { Util::Config::requestStop(); });
+      signalThread.join();
+      source.determineExitReason();
+      const char *expected = mode == "external-stop" ? ER_CLEAN_SIGNAL
+        : mode == "failure-then-stop"                ? ER_PROCESS_SPECIFIC
+                                                     : ER_CLEAN_CONTROLLER_REQ;
+      if (!Util::mRExitReason || std::string(Util::mRExitReason) != expected) {
+        fprintf(stderr, "AV source stop mode=%s expected=%s actual=%s reason=%s\n", mode.c_str(), expected,
+                Util::mRExitReason ? Util::mRExitReason : "none", Util::exitReason);
+        result = 1;
+      }
+    }
+    lock.unlink();
+    if (!result) {
+      puts("PASS actual AV source preserves stop classification across threads without masking failures");
+    }
+    return result;
+  }
+} // namespace
+
+int main(int argc, char **argv) {
+  if (argc == 2) { return checkSourceStop(argv[1]); }
   DTSC::trackValidMask = TRACK_VALID_INT_PROCESS;
   Util::Config config("av-encode-call-test");
   JSON::Value capa;
