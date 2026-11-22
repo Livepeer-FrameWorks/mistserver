@@ -13,6 +13,7 @@ inventory = subprocess.check_output(['meson', 'introspect', str(build), '--tests
 rows = json.loads(inventory)
 # Model the Linux inventory when this guard's fixture runs on another host.
 for name in ('Controller capacity lifecycle whep',
+             'Detached Mist children fail the process audit',
              'WebRTC signal handler owns the post-dup2 listener descriptor',
              'A session that boots across a second boundary stays up'):
     if not any(row['name'] == name for row in rows):
