@@ -33,6 +33,22 @@ def video_timestamps(data):
     return result
 
 
+def assert_pid_media_stable(data):
+    kinds = {}
+    for start in range(0, len(data), 188):
+        packet = data[start:start + 188]
+        if not packet[1] & 0x40 or not packet[3] & 0x10:
+            continue
+        offset = 4 + (1 + packet[4] if packet[3] & 0x20 else 0)
+        pes = packet[offset:]
+        if len(pes) < 4 or pes[:3] != b'\x00\x00\x01' or not 0xc0 <= pes[3] <= 0xef:
+            continue
+        pid = ((packet[1] & 0x1f) << 8) | packet[2]
+        kind = 'video' if pes[3] >= 0xe0 else 'audio'
+        assert pid not in kinds or kinds[pid] == kind, ('PID changed media type before EOF', pid, kinds.get(pid), kind)
+        kinds[pid] = kind
+
+
 build, ffmpeg, ffprobe = Path(sys.argv[1]).resolve(), sys.argv[2], sys.argv[3]
 f = Fixture(build / 'MistController', ffmpeg)
 f.env['UDP_API'] = 'udp://127.0.0.1:0'
@@ -47,6 +63,7 @@ try:
     with urllib.request.urlopen('http://127.0.0.1:%d/%s.ts' % (f.http, f.stream), timeout=30) as response:
         assert response.status == 200, 'TS request was refused'
         output.write_bytes(response.read())
+    assert_pid_media_stable(output.read_bytes())
     times = video_timestamps(output.read_bytes())
     assert len(times) == 150, ('TS output lost video packets', len(times))
     backwards = [(i, before[1], after[1]) for i, (before, after) in enumerate(zip(times, times[1:]), 1) if after[1] <= before[1]]
@@ -83,14 +100,24 @@ try:
     shifts = []
     for selector in ('v:0', 'a:0'):
         original, recorded = packets(source, selector), packets(output, selector)
-        # Compare the demuxable prefix: default TS PID changes at EOF can hide
-        # the final packet. PES timestamp coverage above still checks all 150.
-        assert len(recorded) > (100 if selector == 'v:0' else 250), (selector, 'too little demuxable media', len(recorded))
+        if selector == 'v:0':
+            assert len(recorded) == len(original) == 150, ('TS EOF lost a demuxed video frame', len(original), len(recorded))
+        else:
+            assert len(recorded) > 250, (selector, 'too little demuxable media', len(recorded))
         changes = [float(after['pts_time']) - float(before['pts_time']) for before, after in zip(original, recorded)]
         assert max(changes) - min(changes) < 0.003, (selector, 'presentation times changed unevenly', changes[:10])
         shifts.append(changes[0])
     assert abs(shifts[0] - shifts[1]) < 0.025, ('video/audio sync shifted', shifts)
+    def frame_hashes(path):
+        decoded = subprocess.check_output([ffmpeg, '-v', 'error', '-i', str(path), '-map', '0:v:0',
+                                           '-fps_mode', 'passthrough', '-f', 'framemd5', '-'],
+                                          env=f.tool_env, text=True, timeout=30)
+        return [line.rsplit(',', 1)[-1].strip() for line in decoded.splitlines() if line and not line.startswith('#')]
+    original_hashes, recorded_hashes = frame_hashes(source), frame_hashes(output)
+    assert len(original_hashes) == len(recorded_hashes) == 150, ('TS EOF lost decoded frames', len(original_hashes), len(recorded_hashes))
+    assert recorded_hashes == original_hashes, 'TS remux changed decoded frame pixels or presentation order'
+
     success = True
-    print('PASS Matroska B-frame TS: 150 packets, strictly increasing DTS, PTS >= DTS, matching HLS/audio-only clocks and preserved A/V alignment', flush=True)
+    print('PASS Matroska B-frame TS: 150 pixel-identical frames and packets, strictly increasing DTS, PTS >= DTS, matching HLS/audio-only clocks and preserved A/V alignment', flush=True)
 finally:
     f.close(failed=not success)

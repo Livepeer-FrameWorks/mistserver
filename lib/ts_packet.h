@@ -278,7 +278,8 @@ namespace TS{
   size_t getUniqTrackID(const DTSC::Meta &M, size_t idx);
 
   std::map<size_t, size_t> buildPidMap(const DTSC::Meta & meta, const std::set<size_t> & selectedTracks,
-                                       const std::map<std::string, std::string> & parameters);
+                                       const std::map<std::string, std::string> & parameters,
+                                       const std::map<size_t, size_t> & previous = std::map<size_t, size_t>());
 
   const char *createPMT(std::set<size_t> & selectedTracks, const DTSC::Meta & M, int contCounter = 0,
                         const std::function<size_t(const DTSC::Meta &, size_t)> & = getUniqTrackID);

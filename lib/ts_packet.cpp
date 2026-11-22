@@ -47,13 +47,19 @@ namespace TS{
   std::map<unsigned int, std::string> stream_pids;
 
   std::map<size_t, size_t> buildPidMap(const DTSC::Meta & meta, const std::set<size_t> & selectedTracks,
-                                       const std::map<std::string, std::string> & parameters) {
-    std::map<size_t, size_t> result;
+                                       const std::map<std::string, std::string> & parameters,
+                                       const std::map<size_t, size_t> & previous) {
+    std::map<size_t, size_t> result = previous;
 
     for (const size_t track : selectedTracks) {
       const std::string parameter = "mappid" + JSON::Value(track).asString();
-      if (parameters.count(parameter)) { result[track] = JSON::Value(parameters.at(parameter)).asInt(); }
+      if (!result.count(track) && parameters.count(parameter)) {
+        result[track] = JSON::Value(parameters.at(parameter)).asInt();
+      }
     }
+
+    std::set<size_t> allocated;
+    for (const auto & mapping : result) { allocated.insert(mapping.second); }
 
     const struct {
         const char *parameter;
@@ -71,7 +77,9 @@ namespace TS{
         const bool isSubtitle = meta.getCodec(track) == "subtitle";
         if (!result.count(track) && meta.getType(track) == range.type &&
             (range.type != std::string("meta") || isSubtitle == range.subtitle)) {
-          result[track] = currentPid++;
+          while (allocated.count(currentPid)) { ++currentPid; }
+          result[track] = currentPid;
+          allocated.insert(currentPid++);
         }
       }
     }

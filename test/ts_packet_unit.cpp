@@ -242,6 +242,16 @@ int main(int argc, char **argv) {
   assert(pidMap.at(subtitle) == 740);
   assert(pidMap.at(unspecified) == 741);
 
+  const size_t laterAudio = addTrack(mappingMeta, 202, "audio", "AAC");
+  const std::map<size_t, size_t> retained = TS::buildPidMap(mappingMeta, {audio, laterAudio}, parameters, pidMap);
+  assert(retained.at(audio) == 720 && retained.at(videoOne) == 700);
+  assert(retained.at(laterAudio) == 721);
+  const std::map<size_t, size_t> defaults = TS::buildPidMap(mappingMeta, {videoOne, audio}, {});
+  const std::map<size_t, size_t> afterVideoEOF = TS::buildPidMap(mappingMeta, {audio, laterAudio}, {}, defaults);
+  assert(afterVideoEOF.at(videoOne) == defaults.at(videoOne));
+  assert(afterVideoEOF.at(audio) == defaults.at(audio));
+  assert(afterVideoEOF.at(laterAudio) != defaults.at(videoOne) && afterVideoEOF.at(laterAudio) != defaults.at(audio));
+
   std::set<size_t> mappedTracks = mappingTracks;
   TS::Packet customPmtPacket;
   customPmtPacket.FromPointer(TS::createPMT(mappedTracks, mappingMeta, 0,

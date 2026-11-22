@@ -64,10 +64,11 @@ namespace Mist{
   }
 
   size_t TSOutput::pidMapper(const DTSC::Meta & M, size_t idx) {
-    if (pidMap.size() != userSelect.size() || !pidMap.count(idx)) {
+    // EOF removes finished tracks from userSelect; their PIDs remain reserved for this output.
+    if (!pidMap.count(idx)) {
       std::set<size_t> selectedTracks;
       for (const auto & selection : userSelect) { selectedTracks.insert(selection.first); }
-      pidMap = TS::buildPidMap(M, selectedTracks, targetParams);
+      pidMap = TS::buildPidMap(M, selectedTracks, targetParams, pidMap);
     }
     // Return 0 if not found, or found mapping otherwise
     auto f = pidMap.find(idx);
