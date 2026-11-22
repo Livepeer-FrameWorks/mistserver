@@ -1568,6 +1568,9 @@ ebmldecodetimestamptest = executable('ebmldecodetimestamptest', 'ebml_decode_tim
                                    header_tgts, dependencies: libmist_dep)
 test('Reordered EBML frames retain PTS with monotonic nonnegative DTS', ebmldecodetimestamptest, suite: 'EBML')
 if get_option('WITH_AV')
+  avencodecalltest = executable('avencodecalltest', ['process_av_encode_call_unit.cpp', input_cpp, output_cpp, io_cpp], header_tgts,
+                               dependencies: [libmist_dep, av_codec_map_dep])
+  test('Actual AV encoder stops explicitly after failed hardware frame transfer', avencodecalltest, suite: 'AV')
   avaudioformattest = executable('avaudioformattest', 'process_av_audio_format_unit.cpp', dependencies: av_libs)
   test('Audio resampler detects rate and equal-count speaker layout changes', avaudioformattest, suite: 'AV')
   test('MP3 rate changes retain the complete Opus timeline', find_program('python3'),

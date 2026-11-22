@@ -1817,6 +1817,7 @@ namespace Mist{
             if (ret < 0) {
               printError("Unable to prepare encoder hardware frame", ret);
               config->is_active = false;
+              Util::logExitReason(ER_PROCESS_SPECIFIC, "error preparing encoder hardware frame");
               return;
             }
             ret = avcodec_send_frame(context_out, prepared);
