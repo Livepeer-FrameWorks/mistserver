@@ -342,9 +342,10 @@ namespace SOAP {
 
     void DiscoveryFactory::createDiscoveryBody(Message & msg, const DiscoveryOptions & options,
                                                const std::string & elementName) const {
-      // Create root element (e.g. <wsd:Probe>)
-      auto doc = msg.getDocument();
+      XML::Document doc;
       auto root = doc.createNode("wsd:" + elementName);
+      // setBodyNode imports a copy; this document owns the temporary body tree.
+      doc.setRoot(root);
 
       // Add Types element
       if (!options.types.empty()) {
