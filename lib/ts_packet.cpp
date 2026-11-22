@@ -385,7 +385,7 @@ namespace TS{
   }
 
   unsigned int Packet::getDataSize() const{
-    return 184 - ((getAdaptationField() > 1) ? getAdaptationFieldLen() + 1 : 0);
+    return getPayloadLength();
   }
 
   /// Returns true if this PID contains a PMT.
@@ -788,13 +788,32 @@ namespace TS{
   /// Gets the payload of this packet, as a raw char array
   ///\return The payload of this ts packet as a char pointer
   const char *Packet::getPayload() const{
-    return strBuf + (4 + (getAdaptationField() > 1 ? getAdaptationFieldLen() + 1 : 0));
+    return strBuf + 188 - getPayloadLength();
   }
 
   /// Gets the length of the payload for this apcket
   ///\return The amount of bytes payload in this packet
   int Packet::getPayloadLength() const{
-    return 184 - ((getAdaptationField() > 1 ? getAdaptationFieldLen() + 1 : 0));
+    if (!(getAdaptationField() & 1)) { return 0; }
+    const int length = 184 - (getAdaptationField() == 3 ? getAdaptationFieldLen() + 1 : 0);
+    return length > 0 ? length : 0;
+  }
+
+  // offset points to the byte before table_id; end excludes the CRC when the
+  // section fits. A split section exposes only complete entries in this packet.
+  static bool tableBounds(const Packet & packet, size_t & offset, size_t & end, size_t minimum, unsigned char tableID) {
+    const size_t payloadLength = packet.getPayloadLength();
+    if (!payloadLength) { return false; }
+    const unsigned char *payload = (const unsigned char *)packet.getPayload();
+    const size_t pointer = payload[0];
+    if (pointer + minimum + 4 > payloadLength) { return false; }
+    offset = 188 - payloadLength + pointer;
+    const unsigned char *data = (const unsigned char *)packet.checkAndGetBuffer();
+    if (data[offset + 1] != tableID) { return false; }
+    const size_t length = ((data[offset + 2] & 0x0f) << 8) | data[offset + 3];
+    if (length < minimum) { return false; }
+    end = offset + length < 188 ? offset + length : 188;
+    return true;
   }
 
   ProgramAssociationTable &ProgramAssociationTable::operator=(const Packet &rhs){
@@ -804,75 +823,79 @@ namespace TS{
   }
   /// Retrieves the current addStuffingoffset value for a PAT
   char ProgramAssociationTable::getOffset() const{
-    unsigned int loc = 4 + (getAdaptationField() > 1 ? getAdaptationFieldLen() + 1 : 0);
-    return strBuf[loc];
+    size_t offset, end;
+    if (!tableBounds(*this, offset, end, 9, 0)) { return 0; }
+    return offset - (188 - getPayloadLength());
   }
 
   /// Retrieves the ID of this table
   char ProgramAssociationTable::getTableId() const{
-    unsigned int loc = 4 + (getAdaptationField() > 1 ? getAdaptationFieldLen() + 1 : 0) + getOffset() + 1;
-    return strBuf[loc];
+    size_t offset, end;
+    return tableBounds(*this, offset, end, 9, 0) ? strBuf[offset + 1] : 0;
   }
 
   /// Retrieves the current section length
   short ProgramAssociationTable::getSectionLength() const{
-    unsigned int loc = 4 + (getAdaptationField() > 1 ? getAdaptationFieldLen() + 1 : 0) + getOffset() + 2;
-    return (short)(strBuf[loc] & 0x0F) << 8 | strBuf[loc + 1];
+    size_t offset, end;
+    return tableBounds(*this, offset, end, 9, 0) ? end - offset : 0;
   }
 
   /// Retrieves the Transport Stream ID
   short ProgramAssociationTable::getTransportStreamId() const{
-    unsigned int loc = 4 + (getAdaptationField() > 1 ? getAdaptationFieldLen() + 1 : 0) + getOffset() + 4;
-    return (short)(strBuf[loc] & 0x0F) << 8 | strBuf[loc + 1];
+    size_t offset, end;
+    if (!tableBounds(*this, offset, end, 9, 0)) { return 0; }
+    return ((unsigned char)strBuf[offset + 4] << 8) | (unsigned char)strBuf[offset + 5];
   }
 
   /// Retrieves the version number
   char ProgramAssociationTable::getVersionNumber() const{
-    unsigned int loc = 4 + (getAdaptationField() > 1 ? getAdaptationFieldLen() + 1 : 0) + getOffset() + 6;
-    return (strBuf[loc] >> 1) & 0x1F;
+    size_t offset, end;
+    return tableBounds(*this, offset, end, 9, 0) ? (strBuf[offset + 6] >> 1) & 0x1f : 0;
   }
 
   /// Retrieves the "current/next" indicator
   bool ProgramAssociationTable::getCurrentNextIndicator() const{
-    unsigned int loc = 4 + (getAdaptationField() > 1 ? getAdaptationFieldLen() + 1 : 0) + getOffset() + 6;
-    return strBuf[loc] & 0x01;
+    size_t offset, end;
+    return tableBounds(*this, offset, end, 9, 0) && (strBuf[offset + 6] & 1);
   }
 
   /// Retrieves the section number
   char ProgramAssociationTable::getSectionNumber() const{
-    unsigned int loc = 4 + (getAdaptationField() > 1 ? getAdaptationFieldLen() + 1 : 0) + getOffset() + 7;
-    return strBuf[loc];
+    size_t offset, end;
+    return tableBounds(*this, offset, end, 9, 0) ? strBuf[offset + 7] : 0;
   }
 
   /// Retrieves the last section number
   char ProgramAssociationTable::getLastSectionNumber() const{
-    unsigned int loc = 4 + (getAdaptationField() > 1 ? getAdaptationFieldLen() + 1 : 0) + getOffset() + 8;
-    return strBuf[loc];
+    size_t offset, end;
+    return tableBounds(*this, offset, end, 9, 0) ? strBuf[offset + 8] : 0;
   }
 
   /// Returns the amount of programs in this table
   short ProgramAssociationTable::getProgramCount() const{
-    // This is correct, not -12 since we already parsed 4 bytes here
-    return (getSectionLength() - 8) / 4;
+    size_t offset, end;
+    return tableBounds(*this, offset, end, 9, 0) ? (end - offset - 9) / 4 : 0;
   }
 
   short ProgramAssociationTable::getProgramNumber(short index) const{
-    if (index > getProgramCount()){return 0;}
-    unsigned int loc = 4 + (getAdaptationField() > 1 ? getAdaptationFieldLen() + 1 : 0) + getOffset() + 9;
-    return ((short)(strBuf[loc + (index * 4)]) << 8) | strBuf[loc + (index * 4) + 1];
+    size_t offset, end;
+    if (index < 0 || !tableBounds(*this, offset, end, 9, 0) || (size_t)index >= (end - offset - 9) / 4) { return 0; }
+    const size_t loc = offset + 9 + index * 4;
+    return ((unsigned char)strBuf[loc] << 8) | (unsigned char)strBuf[loc + 1];
   }
 
   short ProgramAssociationTable::getProgramPID(short index) const{
-    if (index > getProgramCount()){return 0;}
-    unsigned int loc = 4 + (getAdaptationField() > 1 ? getAdaptationFieldLen() + 1 : 0) + getOffset() + 9;
-    return (((short)(strBuf[loc + (index * 4) + 2]) << 8) | strBuf[loc + (index * 4) + 3]) & 0x1FFF;
+    size_t offset, end;
+    if (index < 0 || !tableBounds(*this, offset, end, 9, 0) || (size_t)index >= (end - offset - 9) / 4) { return 0; }
+    const size_t loc = offset + 11 + index * 4;
+    return (((unsigned char)strBuf[loc] << 8) | (unsigned char)strBuf[loc + 1]) & 0x1fff;
   }
 
   int ProgramAssociationTable::getCRC() const{
-    unsigned int loc = 4 + (getAdaptationField() > 1 ? getAdaptationFieldLen() + 1 : 0) +
-                       getOffset() + 9 + (getProgramCount() * 4);
-    return ((int)(strBuf[loc]) << 24) | ((int)(strBuf[loc + 1]) << 16) |
-           ((int)(strBuf[loc + 2]) << 8) | strBuf[loc + 3];
+    size_t offset, end;
+    if (!tableBounds(*this, offset, end, 9, 0) || end > 184) { return 0; }
+    return ((uint32_t)(unsigned char)strBuf[end] << 24) | ((uint32_t)(unsigned char)strBuf[end + 1] << 16) |
+      ((uint32_t)(unsigned char)strBuf[end + 2] << 8) | (unsigned char)strBuf[end + 3];
   }
 
   void ProgramAssociationTable::parsePIDs(std::set<unsigned int> & pidlist){
@@ -1008,8 +1031,9 @@ namespace TS{
   }
 
   char ProgramMappingTable::getOffset() const{
-    unsigned int loc = 4 + (getAdaptationField() > 1 ? getAdaptationFieldLen() + 1 : 0);
-    return strBuf[loc];
+    size_t offset, end;
+    if (!descriptorBounds(offset, end)) { return 0; }
+    return offset - (188 - getPayloadLength());
   }
 
   void ProgramMappingTable::setOffset(char newVal){
@@ -1018,8 +1042,8 @@ namespace TS{
   }
 
   char ProgramMappingTable::getTableId() const{
-    unsigned int loc = 4 + (getAdaptationField() > 1 ? getAdaptationFieldLen() + 1 : 0) + getOffset() + 1;
-    return strBuf[loc];
+    size_t offset, end;
+    return descriptorBounds(offset, end) ? strBuf[offset + 1] : 0;
   }
 
   void ProgramMappingTable::setTableId(char newVal){
@@ -1029,8 +1053,9 @@ namespace TS{
   }
 
   short ProgramMappingTable::getSectionLength() const{
-    unsigned int loc = 4 + (getAdaptationField() > 1 ? getAdaptationFieldLen() + 1 : 0) + getOffset() + 2;
-    return (((short)strBuf[loc] & 0x0F) << 8) | strBuf[loc + 1];
+    size_t offset, end;
+    if (!descriptorBounds(offset, end)) { return 0; }
+    return (((unsigned char)strBuf[offset + 2] & 0x0f) << 8) | (unsigned char)strBuf[offset + 3];
   }
 
   void ProgramMappingTable::setSectionLength(short newVal){
@@ -1041,8 +1066,9 @@ namespace TS{
   }
 
   short ProgramMappingTable::getProgramNumber() const{
-    unsigned int loc = 4 + (getAdaptationField() > 1 ? getAdaptationFieldLen() + 1 : 0) + getOffset() + 4;
-    return (((short)strBuf[loc]) << 8) | strBuf[loc + 1];
+    size_t offset, end;
+    if (!descriptorBounds(offset, end)) { return 0; }
+    return ((unsigned char)strBuf[offset + 4] << 8) | (unsigned char)strBuf[offset + 5];
   }
 
   void ProgramMappingTable::setProgramNumber(short newVal){
@@ -1053,8 +1079,8 @@ namespace TS{
   }
 
   char ProgramMappingTable::getVersionNumber() const{
-    unsigned int loc = 4 + (getAdaptationField() > 1 ? getAdaptationFieldLen() + 1 : 0) + getOffset() + 6;
-    return (strBuf[loc] >> 1) & 0x1F;
+    size_t offset, end;
+    return descriptorBounds(offset, end) ? (strBuf[offset + 6] >> 1) & 0x1f : 0;
   }
 
   void ProgramMappingTable::setVersionNumber(char newVal){
@@ -1065,8 +1091,8 @@ namespace TS{
 
   /// Retrieves the "current/next" indicator
   bool ProgramMappingTable::getCurrentNextIndicator() const{
-    unsigned int loc = 4 + (getAdaptationField() > 1 ? getAdaptationFieldLen() + 1 : 0) + getOffset() + 6;
-    return strBuf[loc] & 0x01;
+    size_t offset, end;
+    return descriptorBounds(offset, end) && (strBuf[offset + 6] & 1);
   }
 
   /// Sets the "current/next" indicator
@@ -1078,8 +1104,8 @@ namespace TS{
 
   /// Retrieves the section number
   char ProgramMappingTable::getSectionNumber() const{
-    unsigned int loc = 4 + (getAdaptationField() > 1 ? getAdaptationFieldLen() + 1 : 0) + getOffset() + 7;
-    return strBuf[loc];
+    size_t offset, end;
+    return descriptorBounds(offset, end) ? strBuf[offset + 7] : 0;
   }
 
   /// Sets the section number
@@ -1091,8 +1117,8 @@ namespace TS{
 
   /// Retrieves the last section number
   char ProgramMappingTable::getLastSectionNumber() const{
-    unsigned int loc = 4 + (getAdaptationField() > 1 ? getAdaptationFieldLen() + 1 : 0) + getOffset() + 8;
-    return strBuf[loc];
+    size_t offset, end;
+    return descriptorBounds(offset, end) ? strBuf[offset + 8] : 0;
   }
 
   /// Sets the last section number
@@ -1103,8 +1129,9 @@ namespace TS{
   }
 
   short ProgramMappingTable::getPCRPID() const{
-    unsigned int loc = 4 + (getAdaptationField() > 1 ? getAdaptationFieldLen() + 1 : 0) + getOffset() + 9;
-    return (((short)strBuf[loc] & 0x1F) << 8) | strBuf[loc + 1];
+    size_t offset, end;
+    if (!descriptorBounds(offset, end)) { return 0; }
+    return (((unsigned char)strBuf[offset + 9] & 0x1f) << 8) | (unsigned char)strBuf[offset + 10];
   }
 
   void ProgramMappingTable::setPCRPID(short newVal){
@@ -1115,15 +1142,7 @@ namespace TS{
   }
 
   bool ProgramMappingTable::descriptorBounds(size_t & offset, size_t & end) const {
-    if (getAdaptationField() != 1 && getAdaptationField() != 3) { return false; }
-    const size_t payload = 4 + (getAdaptationField() == 3 ? (unsigned char)strBuf[4] + 1 : 0);
-    if (payload >= 188) { return false; }
-    offset = payload + (unsigned char)strBuf[payload];
-    if (offset > 188 - 13) { return false; }
-    const size_t sectionLength = (((unsigned char)strBuf[offset + 2] & 0x0f) << 8) | (unsigned char)strBuf[offset + 3];
-    if (sectionLength < 13 || sectionLength > 188 - offset - 4) { return false; }
-    end = offset + sectionLength;
-    return true;
+    return tableBounds(*this, offset, end, 13, 2);
   }
 
   short ProgramMappingTable::getProgramInfoLength() const{
@@ -1158,10 +1177,10 @@ namespace TS{
   }
 
   int ProgramMappingTable::getCRC() const{
-    unsigned int loc = 4 + (getAdaptationField() > 1 ? getAdaptationFieldLen() + 1 : 0) +
-                       getOffset() + getSectionLength();
-    return ((int)(strBuf[loc]) << 24) | ((int)(strBuf[loc + 1]) << 16) |
-           ((int)(strBuf[loc + 2]) << 8) | strBuf[loc + 3];
+    size_t offset, end;
+    if (!descriptorBounds(offset, end) || end > 184) { return 0; }
+    return ((uint32_t)(unsigned char)strBuf[end] << 24) | ((uint32_t)(unsigned char)strBuf[end + 1] << 16) |
+      ((uint32_t)(unsigned char)strBuf[end + 2] << 8) | (unsigned char)strBuf[end + 3];
   }
 
   void ProgramMappingTable::calcCRC(){
@@ -1204,9 +1223,7 @@ namespace TS{
            << std::endl;
     output << std::string(indent + 2, ' ') << "PCR PID: " << getPCRPID() << std::endl;
     output << std::string(indent + 2, ' ') << "Program Info (" << getProgramInfoLength() << "):" << std::endl;
-    output << ProgramDescriptors(strBuf + 4 + (getAdaptationField() > 1 ? getAdaptationFieldLen() + 1 : 0) + getOffset() + 13,
-                                 getProgramInfoLength())
-                .toPrettyString(indent + 4);
+    output << ProgramDescriptors(getProgramInfo(), getProgramInfoLength()).toPrettyString(indent + 4);
     ProgramMappingEntry entry = getEntry(0);
     while (entry){
       output << std::string(indent + 4, ' ');

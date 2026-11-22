@@ -50,7 +50,74 @@ namespace {
 
 } // namespace
 
-int main() {
+int main(int argc, char **argv) {
+  if (argc == 2 && std::string(argv[1]) == "large-pmt") {
+    DTSC::Meta meta;
+    meta.reInit("", true);
+    const size_t video = addTrack(meta, 1, "video", "H264");
+    std::set<size_t> selected{video};
+    TS::Packet packet;
+    packet.FromPointer(TS::createPMT(selected, meta));
+    TS::ProgramMappingTable pmt;
+    pmt = packet;
+    pmt.setSectionLength(300);
+    const auto entry = pmt.getEntry(0);
+    if (!entry || entry.getStreamType() != 0x1b) {
+      fprintf(stderr, "large PMT lost its complete first H264 entry\n");
+      return 1;
+    }
+    return 0;
+  }
+  if (argc == 2 && std::string(argv[1]) == "malformed") {
+    for (unsigned int length = 184; length <= 255; ++length) {
+      std::string raw(TS::PAT, 188);
+      raw[3] = 0x30;
+      raw[4] = length;
+      TS::Packet packet;
+      packet.FromPointer(raw.data());
+      if (packet.getPayloadLength() != 0) {
+        fprintf(stderr, "invalid adaptation length %u yielded payload length %d\n", length, packet.getPayloadLength());
+        return 1;
+      }
+      const char *payload = packet.getPayload();
+      const char *begin = packet.checkAndGetBuffer();
+      if (payload < begin || payload > begin + 188) { return 1; }
+      TS::ProgramAssociationTable pat;
+      pat = packet;
+      std::set<unsigned int> pids;
+      pat.parsePIDs(pids);
+      if (pat.getProgramCount() || !pids.empty()) {
+        fprintf(stderr, "invalid adaptation length yielded PAT programs\n");
+        return 1;
+      }
+      pat.toPrettyString(0);
+      TS::ProgramMappingTable pmt;
+      pmt = packet;
+      if (pmt.getEntry(0)) { return 1; }
+      pmt.toPrettyString(0);
+      TS::Stream stream;
+      stream.parse(packet, 0);
+      stream.finish();
+    }
+    for (unsigned int pointer = 171; pointer <= 255; ++pointer) {
+      std::string raw(TS::PAT, 188);
+      raw[4] = pointer;
+      TS::Packet packet;
+      packet.FromPointer(raw.data());
+      TS::ProgramAssociationTable pat;
+      pat = packet;
+      std::set<unsigned int> pids;
+      pat.parsePIDs(pids);
+      if (!pids.empty()) {
+        fprintf(stderr, "out-of-packet PAT pointer %u yielded programs\n", pointer);
+        return 1;
+      }
+      pat.toPrettyString(0);
+    }
+    puts("PASS malformed adaptation lengths and PAT pointers yield no payload or programs");
+    return 0;
+  }
+
   {
     DTSC::Meta meta;
     meta.reInit("", true);
