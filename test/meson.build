@@ -1642,3 +1642,11 @@ if get_option('WITH_AV') and ffmpeg_program.found()
        args: [files('live_av_backoff_integration.py'), meson.project_build_root(), ffmpeg_program],
        env: {'MIST_AV_BACKOFF_STABLE': '1'}, depends: media_test_deps, suite: 'Processing', timeout: 150, is_parallel: false)
 endif
+
+if host_machine.system() == 'linux'
+  add_test_setup('owned_processes', exe_wrapper: [find_program('python3'), meson.current_source_dir() / 'owned_process_guard.py'], is_default: true)
+  test('Process audit bounds children that ignore stop signals', python_program,
+       args: [files('process_guard_signal_test.py'), files('owned_process_guard.py')], suite: 'Build', timeout: 10)
+  test('Detached Mist children fail the process audit', find_program('python3'),
+       args: files('leaked_process_fixture.py'), should_fail: true, suite: 'Util', timeout: 15)
+endif

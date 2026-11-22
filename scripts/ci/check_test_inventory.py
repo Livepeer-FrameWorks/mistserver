@@ -78,6 +78,7 @@ required.update({
     'EAC-3 access units aggregate dependent substream channels',
 })
 if sys.platform.startswith('linux'):
+    required.add('Detached Mist children fail the process audit')
     required.add('WebRTC signal handler owns the post-dup2 listener descriptor')
     required.add('A session that boots across a second boundary stays up')
     required.add('WHIP offers get an answer or a logged refusal, and a passive offerer can publish')
@@ -104,6 +105,14 @@ exceptions = {
 if '--results' in sys.argv:
     results = [json.loads(line) for line in (build / 'meson-logs' / 'testlog.json').read_text().splitlines() if line.strip()]
     # Meson result names include the project and suite before the configured test name.
+    leak_probe = 'Detached Mist children fail the process audit'
+    leaked = [row['name'] for row in results
+              if 'Test leaked adopted descendants:' in (row.get('stdout', '') + row.get('stderr', ''))
+              and not row['name'].endswith(leak_probe)]
+    assert not leaked, 'fixtures leaked child processes: ' + ', '.join(leaked)
+    unclean = [row['name'] for row in results
+               if 'Owned descendants survived cleanup:' in (row.get('stdout', '') + row.get('stderr', ''))]
+    assert not unclean, 'fixture descendants survived cleanup: ' + ', '.join(unclean)
     skipped = [row['name'] for row in results if row.get('result') == 'SKIP' and
                (sys.platform.startswith('linux') or any(row['name'].endswith(name) for name in required)) and
                not any(row['name'].endswith(name) for name in exceptions)]
