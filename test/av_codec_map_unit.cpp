@@ -37,7 +37,7 @@ int main() {
     avcodec_free_context(&context);
     if (!valid) { return 1; }
   }
-  for (unsigned int channels : {1u, 2u, 3u, 4u, 5u, 6u, 7u, 8u, 16u}) {
+  for (unsigned int channels : {1u, 2u, 3u, 4u, 5u, 6u, 7u, 8u, 9u, 10u, 11u, 12u, 13u, 14u, 15u, 16u}) {
     const AVCodec *encoder = avcodec_find_encoder_by_name("libopus");
     if (!encoder) { return 1; }
     AVCodecContext *context = avcodec_alloc_context3(encoder);

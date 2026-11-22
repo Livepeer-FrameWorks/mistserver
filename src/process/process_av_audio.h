@@ -69,7 +69,7 @@ namespace Mist {
 
   inline void setAudioChannelLayout(AVCodecContext *context, unsigned int channels, const std::string & codec = "", AVDictionary **options = 0) {
     if (codec == "opus" && options && channels > 2) {
-      av_dict_set_int(options, "mapping_family", channels == 16 ? 255 : 1, 0);
+      av_dict_set_int(options, "mapping_family", channels > 8 ? 255 : 1, 0);
     }
     // Family 1 uses Vorbis speaker positions, which differ from FFmpeg's default
     // three- and four-channel layouts (2.1 and 4.0).
