@@ -24,6 +24,9 @@ namespace Mist{
     size_t pidMapper(const DTSC::Meta & M, size_t idx);
 
   protected:
+    void updatePresentationDelay();
+    uint64_t presentationDelay = 0;
+    std::map<size_t, size_t> scannedParts;
     std::map<size_t, size_t> pidMap;
     virtual bool inlineRestartCapable() const{return true;}
     std::map<size_t, bool> first;

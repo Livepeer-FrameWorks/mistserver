@@ -75,6 +75,27 @@ namespace Mist{
     return f->second;
   }
 
+  void TSOutput::updatePresentationDelay() {
+    // TS requires PTS >= DTS. A common presentation delay makes signed source
+    // composition offsets nonnegative without changing decode order or A/V sync.
+    // Use the whole stream so HLS video variants and audio-only requests share a clock.
+    for (const size_t track : M.getValidTracks()) {
+      if (!M.trackLoaded(track) || M.getType(track) != "video" || M.hasEmbeddedFrames(track)) { continue; }
+      const DTSC::Parts parts(M.parts(track));
+      size_t & cursor = scannedParts[track];
+      if (cursor < parts.getFirstValid() || cursor > parts.getEndValid()) { cursor = parts.getFirstValid(); }
+      while (cursor < parts.getEndValid()) {
+        const int64_t offset = parts.getOffset(cursor++);
+        if (offset < 0 && (uint64_t)-offset > presentationDelay) { presentationDelay = -offset; }
+      }
+    }
+    // A live packet may precede its part metadata.
+    if (M.getType(thisIdx) == "video") {
+      const int64_t offset = thisPacket.getInt("offset");
+      if (offset < 0 && (uint64_t)-offset > presentationDelay) { presentationDelay = -offset; }
+    }
+  }
+
   void TSOutput::sendNext(){
     static uint64_t lastMeta = 0;
     if (Util::epoch() > lastMeta + 5){
@@ -106,7 +127,9 @@ namespace Mist{
       return;
     }
 
+    updatePresentationDelay();
     packTime *= 90;
+    if (!video && type != "audio") { packTime += presentationDelay * 90; }
     std::string bs;
     // prepare bufferstring
     if (video){
@@ -152,7 +175,7 @@ namespace Mist{
         const uint32_t MAX_PES_SIZE = 65490 - 13;
         uint32_t ThisNaluSize = 0;
         uint32_t i = 0;
-        int64_t offset = (int64_t)thisPacket.getInt("offset") * 90;
+        int64_t offset = ((int64_t)thisPacket.getInt("offset") + (int64_t)presentationDelay) * 90;
 
         bs.clear();
         TS::Packet::getPESVideoLeadIn(bs,
@@ -204,7 +227,7 @@ namespace Mist{
           i += ThisNaluSize + lenSize;
         }
       }else{
-        uint64_t offset = thisPacket.getInt("offset") * 90;
+        int64_t offset = ((int64_t)thisPacket.getInt("offset") + (int64_t)presentationDelay) * 90;
         bs.clear();
         TS::Packet::getPESVideoLeadIn(bs, 0, packTime, offset, true, M.getBps(thisIdx));
         fillPacket(bs.data(), bs.size(), firstPack, video, keyframe, pkgPid, contPkg);
@@ -226,6 +249,7 @@ namespace Mist{
           packTime = aacSamples * 90000 / freq;
         }
       }
+      packTime += presentationDelay * 90;
       if (codec == "opus"){
         tempLen += 3 + (dataLen/255);
         bs = TS::Packet::getPESPS1LeadIn(tempLen, packTime, M.getBps(thisIdx));

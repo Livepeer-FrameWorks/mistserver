@@ -1519,6 +1519,9 @@ endif
 ebmlpredictortest = executable('ebmlpredictortest', 'ebml_predictor_timestamps.cpp', header_tgts, dependencies: libmist_dep)
 test('Matroska B-frames retain monotonic DTS and unchanged presentation', ebmlpredictortest, suite: 'EBML')
 if ffmpeg_program.found() and ffprobe_program.found()
+  test('Matroska B-frame TS output keeps DTS before presentation', find_program('python3'),
+       args: [files('ebml_bframe_ts_integration.py'), meson.project_build_root(), ffmpeg_program, ffprobe_program],
+       depends: media_test_deps + [exec_tgts['MistOutHTTPTS'], exec_tgts['MistOutHLS']], suite: 'Processing', timeout: 100, is_parallel: false)
   test('Matroska B-frame MP4 recordings preserve pixels and A/V alignment', find_program('python3'),
        args: [files('ebml_bframe_timeline_integration.py'), meson.project_build_root(), ffmpeg_program, ffprobe_program],
        depends: media_test_deps, suite: 'Processing', timeout: 100, is_parallel: false)
