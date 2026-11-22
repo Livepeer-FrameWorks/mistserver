@@ -13,7 +13,9 @@ namespace Mist {
   inline bool keepVideoOnDevice(const AVFrame *input, const AVCodecContext *encoder, bool unchanged) {
     if (!input || !encoder || input->format != encoder->pix_fmt) { return false; }
     if (input->format == AV_PIX_FMT_VIDEOTOOLBOX) { return true; }
-    if (input->format != AV_PIX_FMT_CUDA || !unchanged || !input->hw_frames_ctx || !encoder->hw_frames_ctx) { return false; }
+    if (input->format != AV_PIX_FMT_CUDA || !unchanged || !input->hw_frames_ctx || !encoder->hw_frames_ctx) {
+      return false;
+    }
     const AVHWFramesContext *source = (const AVHWFramesContext *)input->hw_frames_ctx->data;
     const AVHWFramesContext *target = (const AVHWFramesContext *)encoder->hw_frames_ctx->data;
     return source->sw_format != AV_PIX_FMT_NONE && source->sw_format == target->sw_format;

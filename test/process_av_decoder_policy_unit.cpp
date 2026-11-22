@@ -1,4 +1,5 @@
 #include "../src/process/process_av_decoder_policy.h"
+
 #include <cstdio>
 int main() {
   Mist::DecoderErrorStreak errors;

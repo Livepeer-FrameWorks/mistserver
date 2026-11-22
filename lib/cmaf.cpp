@@ -188,7 +188,9 @@ namespace CMAF{
   bool header(Util::ResizeablePointer & headOut, const DTSC::Meta & M, const std::map<size_t, Comms::Users> & userSelect) {
     std::set<size_t> unready;
     for (const auto & track : userSelect) {
-      if (M.getCodec(track.first) == "EAC-3" && !AC3::validDEC3(M.getInit(track.first))) { unready.insert(track.first); }
+      if (M.getCodec(track.first) == "EAC-3" && !AC3::validDEC3(M.getInit(track.first))) {
+        unready.insert(track.first);
+      }
     }
     if (unready.size() == userSelect.size()) { return false; }
     // MP4 Files always start with an FTYP box. Constructor sets default values

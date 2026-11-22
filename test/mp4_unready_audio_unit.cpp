@@ -161,7 +161,10 @@ int main(int argc, char **argv) {
   Mist::OutMP4::init(&cfg, capa);
   Socket::Connection conn;
   MP4InitProbe probe(conn, cfg, capa);
-  if (argc > 1 && std::string(argv[1]) == "missing-order") { probe.missingSampleOrderFails(); return 0; }
+  if (argc > 1 && std::string(argv[1]) == "missing-order") {
+    probe.missingSampleOrderFails();
+    return 0;
+  }
   if (argc > 1 && std::string(argv[1]) == "bframe-duration") {
     probe.bframeDuration();
     return 0;

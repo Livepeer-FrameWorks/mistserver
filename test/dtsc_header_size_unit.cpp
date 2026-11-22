@@ -1,6 +1,7 @@
+#include <mist/bitfields.h>
 #include <mist/dtsc.h>
 #include <mist/socket.h>
-#include <mist/bitfields.h>
+
 #include <cstdio>
 #include <unistd.h>
 
@@ -35,9 +36,10 @@ int main() {
     ssize_t size;
     while ((size = read(fds[0], data, sizeof(data))) > 0) { wire.append(data, size); }
     close(fds[0]);
-    const uint64_t declared = Bit::btohl(wire.data()+4) + 8;
+    const uint64_t declared = Bit::btohl(wire.data() + 4) + 8;
     if (wire.size() != declared || declared != meta.getSendLen(true, selection)) {
-      fprintf(stderr, "DTSH selected/empty-track size mismatch: wrote %zu, declared %llu, measured %llu\n", wire.size(), (unsigned long long)declared, (unsigned long long)meta.getSendLen(true, selection));
+      fprintf(stderr, "DTSH selected/empty-track size mismatch: wrote %zu, declared %llu, measured %llu\n", wire.size(),
+              (unsigned long long)declared, (unsigned long long)meta.getSendLen(true, selection));
       return 1;
     }
   }

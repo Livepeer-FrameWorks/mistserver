@@ -2,22 +2,24 @@
 
 #include <cassert>
 #include <cstdlib>
-#include <new>
 #include <iostream>
+#include <new>
 #include <string>
 #include <vector>
 
 namespace {
   thread_local bool trackAllocation = false;
   thread_local size_t largestAllocation = 0;
-}
+} // namespace
 void *operator new(size_t bytes) {
   if (trackAllocation && bytes > largestAllocation) { largestAllocation = bytes; }
   void *memory = std::malloc(bytes);
   if (!memory) { throw std::bad_alloc(); }
   return memory;
 }
-void operator delete(void *memory) noexcept { std::free(memory); }
+void operator delete(void *memory) noexcept {
+  std::free(memory);
+}
 
 namespace {
   std::string makeSinglePesTransportStream() {
@@ -57,15 +59,21 @@ namespace {
 
 int main() {
   {
-    std::string packet(188, '\xff'); packet[0]=0x47; packet[1]=0x1f; packet[2]='\xff'; packet[3]=0x10;
-    std::string warm=packet+packet+packet, bulk;
-    for (size_t i=0;i<8192;++i) { bulk+=packet; }
-    TS::Stream stream; TS::Assembler assembler;
-    assembler.assemble(stream,warm.data(),warm.size(),true,0);
-    largestAllocation=0;trackAllocation=true;
-    assembler.assemble(stream,bulk.data(),bulk.size(),true,warm.size());
-    trackAllocation=false;
-    if (largestAllocation>16*1024) {
+    std::string packet(188, '\xff');
+    packet[0] = 0x47;
+    packet[1] = 0x1f;
+    packet[2] = '\xff';
+    packet[3] = 0x10;
+    std::string warm = packet + packet + packet, bulk;
+    for (size_t i = 0; i < 8192; ++i) { bulk += packet; }
+    TS::Stream stream;
+    TS::Assembler assembler;
+    assembler.assemble(stream, warm.data(), warm.size(), true, 0);
+    largestAllocation = 0;
+    trackAllocation = true;
+    assembler.assemble(stream, bulk.data(), bulk.size(), true, warm.size());
+    trackAllocation = false;
+    if (largestAllocation > 16 * 1024) {
       std::cerr << "aligned transport input copied into a bulk allocation: " << largestAllocation << " bytes" << std::endl;
       return 1;
     }

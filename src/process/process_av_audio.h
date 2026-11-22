@@ -103,7 +103,8 @@ namespace Mist {
     return encodedAudioChannels(codec, maximum ? std::min(sourceChannels, maximum) : sourceChannels, sourceHasLFE);
   }
 
-  inline void setAudioChannelLayout(AVCodecContext *context, unsigned int channels, const std::string & codec = "", AVDictionary **options = 0) {
+  inline void setAudioChannelLayout(AVCodecContext *context, unsigned int channels, const std::string & codec = "",
+                                    AVDictionary **options = 0) {
     if (codec == "opus" && options && channels > 2) {
       av_dict_set_int(options, "mapping_family", channels > 8 ? 255 : 1, 0);
     }

@@ -303,7 +303,7 @@ namespace MP4{
       } else if (sType == "ac-3") {
         codec = "AC3";
         isCompatible = true;
-      }else{
+      } else {
         MP4::Box codingBox = aEntryBox.getCodecBox();
         if (codingBox.getType() == "esds"){
           MP4::ESDS & esdsBox = (MP4::ESDS &)codingBox;

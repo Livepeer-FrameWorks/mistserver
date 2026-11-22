@@ -1,8 +1,8 @@
 #include <dlfcn.h>
 #include <fcntl.h>
 #include <stdlib.h>
-#include <unistd.h>
 #include <sys/socket.h>
+#include <unistd.h>
 
 static int (*realShutdown)(int, int) = 0;
 static int auditFD = -1;

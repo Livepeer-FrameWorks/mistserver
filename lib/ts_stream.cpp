@@ -33,17 +33,17 @@ namespace TS{
       if (!(packet[3] & 0x30)) { return; }
       tsBuf.FromPointer(packet);
       ret |= tsBuf.getUnitStart();
-      if (parse){
+      if (parse) {
         TSStrm.parse(tsBuf, isLive ? 0 : position);
-      }else{
+      } else {
         TSStrm.add(tsBuf);
-        if (!TSStrm.isDataTrack(tsBuf.getPID())){TSStrm.parse(tsBuf.getPID());}
+        if (!TSStrm.isDataTrack(tsBuf.getPID())) { TSStrm.parse(tsBuf.getPID()); }
       }
     };
-    while (len || !leftData.empty()){
-      if (packetStride && leftData.empty()){
+    while (len || !leftData.empty()) {
+      if (packetStride && leftData.empty()) {
         // Aligned packets borrow the caller's bytes; only split packets need a copy.
-        while (len >= packetStride){
+        while (len >= packetStride) {
           const char *packet = ptr + prefixBytes;
           if ((unsigned char)packet[0] != 0x47) {
             packetStride = prefixBytes = 0;
@@ -54,21 +54,21 @@ namespace TS{
           len -= packetStride;
           bytePos += packetStride;
         }
-        if (!len){return ret;}
-        if (packetStride){
+        if (!len) { return ret; }
+        if (packetStride) {
           bufferPos = bytePos;
           leftData.assign(ptr, len);
-        return ret;
+          return ret;
+        }
       }
-    }
-      if (packetStride){
-        if (leftData.size() < packetStride){
+      if (packetStride) {
+        if (leftData.size() < packetStride) {
           const size_t take = std::min(len, packetStride - leftData.size());
           leftData.append(ptr, take);
           ptr += take;
           len -= take;
           bytePos += take;
-          if (leftData.size() < packetStride){return ret;}
+          if (leftData.size() < packetStride) { return ret; }
         }
         const char *packet = leftData.data() + prefixBytes;
         if ((unsigned char)packet[0] == 0x47) {
@@ -78,8 +78,8 @@ namespace TS{
           continue;
         }
         packetStride = prefixBytes = 0;
-        }
-      if (leftData.empty()){bufferPos = bytePos;}
+      }
+      if (leftData.empty()) { bufferPos = bytePos; }
       const size_t window = 3 * 192 + 4;
       const size_t take = std::min(len, window - leftData.size());
       leftData.append(ptr, take);
@@ -88,17 +88,17 @@ namespace TS{
       bytePos += take;
       const auto synchronized = [this](size_t sync, size_t stride) {
         size_t usable = 0;
-        for (size_t packet = 0; packet < 3; ++packet){
+        for (size_t packet = 0; packet < 3; ++packet) {
           const size_t offset = sync + packet * stride;
           if (offset + 4 > leftData.size() || (unsigned char)leftData[offset] != 0x47) { return false; }
           if (leftData[offset + 3] & 0x30) { ++usable; }
         }
         return usable >= 2;
       };
-      for (size_t sync = 0; sync < leftData.size() && !packetStride; ++sync){
-        for (size_t stride : {size_t(188), size_t(192)}){
+      for (size_t sync = 0; sync < leftData.size() && !packetStride; ++sync) {
+        for (size_t stride : {size_t(188), size_t(192)}) {
           if (stride == 192 && leftData.size() < sync + 2 * 192 + 8) { continue; }
-          if (!synchronized(sync, stride)){continue;}
+          if (!synchronized(sync, stride)) { continue; }
           // Arrival timestamps can resemble TS headers; prefer the real sync bytes.
           if (stride == 192 && synchronized(sync + 4, stride)) { sync += 4; }
           packetStride = stride;
@@ -141,19 +141,21 @@ namespace TS{
           TSStrm.setM2TS(packetStride == 192);
         }
       }
-      if (packetStride){continue;}
+      if (packetStride) { continue; }
       const size_t retained = 2 * 192 + 4;
-      if (leftData.size() >= window){
+      if (leftData.size() >= window) {
         const size_t discarded = leftData.size() - retained;
         leftData.erase(0, discarded);
         bufferPos += discarded;
       }
-      if (!len){return ret;}
+      if (!len) { return ret; }
     }
     return ret;
   }
 
-  void Assembler::clear(){leftData.clear();}
+  void Assembler::clear() {
+    leftData.clear();
+  }
 
   void ADTSRemainder::setRemainder(const aac::adts &p, const void *source, uint32_t avail, uint64_t bPos){
     if (!p.getCompleteSize()){return;}
@@ -601,7 +603,7 @@ namespace TS{
       const char *pesHeader = payload + offset;
 
       // Check for large enough buffer
-      if ((paySize - offset) < 9 || (paySize - offset) < 9 + (unsigned char)pesHeader[8]){
+      if ((paySize - offset) < 9 || (paySize - offset) < 9 + (unsigned char)pesHeader[8]) {
         INFO_MSG("Not enough data (%d / %d) on track %zu (%" PRIu32 "), discarding remainder of data", paySize - offset,
                  9 + (unsigned char)pesHeader[8], tid, codec);
         break;
@@ -1265,7 +1267,7 @@ namespace TS{
         trkDta.rate = header.rate;
         trkDta.channels = header.channels;
         if (header.enhanced) { trkDta.init = ::AC3::makeDEC3(header); }
-      }break;
+      } break;
       case JSON:{
         addNewTrack = true;
         trkDta.type = "meta";

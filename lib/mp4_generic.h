@@ -1,6 +1,6 @@
 #pragma once
-#include "orientation.h"
 #include "mp4.h"
+#include "orientation.h"
 
 namespace h265{
   struct metaInfo;

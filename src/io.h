@@ -27,14 +27,14 @@ namespace Mist{
     void bufferRemove(size_t idx, uint32_t pageNumber, uint32_t pageIdx = INVALID_KEY_NUM);
     void bufferLivePacket(const DTSC::Packet &packet);
 
-    void bufferNext(uint64_t packTime, int64_t packOffset, uint32_t packTrack, const char *packData,
-                    size_t packDataSize, uint64_t packBytePos, bool isKeyframe, IPC::sharedPage & page, DTSC::Meta & aMeta, uint64_t duration = 0);
-    void bufferNext(uint64_t packTime, int64_t packOffset, uint32_t packTrack, const char *packData,
-                    size_t packDataSize, uint64_t packBytePos, bool isKeyframe, IPC::sharedPage & page, uint64_t duration = 0);
+    void bufferNext(uint64_t packTime, int64_t packOffset, uint32_t packTrack, const char *packData, size_t packDataSize,
+                    uint64_t packBytePos, bool isKeyframe, IPC::sharedPage & page, DTSC::Meta & aMeta, uint64_t duration = 0);
+    void bufferNext(uint64_t packTime, int64_t packOffset, uint32_t packTrack, const char *packData, size_t packDataSize,
+                    uint64_t packBytePos, bool isKeyframe, IPC::sharedPage & page, uint64_t duration = 0);
     void bufferLivePacket(uint64_t packTime, int64_t packOffset, uint32_t packTrack, const char *packData,
                           size_t packDataSize, uint64_t packBytePos, bool isKeyframe, uint64_t duration = 0);
-    void bufferLivePacket(uint64_t packTime, int64_t packOffset, uint32_t packTrack, const char *packData,
-                          size_t packDataSize, uint64_t packBytePos, bool isKeyframe, DTSC::Meta & aMeta, uint64_t duration = 0);
+    void bufferLivePacket(uint64_t packTime, int64_t packOffset, uint32_t packTrack, const char *packData, size_t packDataSize,
+                          uint64_t packBytePos, bool isKeyframe, DTSC::Meta & aMeta, uint64_t duration = 0);
     const std::string & getStreamName() const{return streamName;}
 
   protected:

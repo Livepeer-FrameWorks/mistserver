@@ -27,7 +27,7 @@ namespace EBML{
     ELEM_BLOCK
   };
 
-  enum ElementID{
+  enum ElementID {
     EID_EBML = 0x0A45DFA3,
     EID_EBMLVERSION = 0x286,
     EID_EBMLREADVERSION = 0x2F7,

@@ -252,8 +252,8 @@ namespace Mist{
 
   /// Buffers the next packet on the currently opened page
   ///\param pack The packet to buffer
-  void InOutBase::bufferNext(uint64_t packTime, int64_t packOffset, uint32_t packTrack, const char *packData,
-                             size_t packDataSize, uint64_t packBytePos, bool isKeyframe, IPC::sharedPage & page, uint64_t duration) {
+  void InOutBase::bufferNext(uint64_t packTime, int64_t packOffset, uint32_t packTrack, const char *packData, size_t packDataSize,
+                             uint64_t packBytePos, bool isKeyframe, IPC::sharedPage & page, uint64_t duration) {
     bufferNext(packTime, packOffset, packTrack, packData, packDataSize, packBytePos, isKeyframe, page, meta, duration);
   }
 
@@ -385,8 +385,8 @@ namespace Mist{
   ///Buffers the given packet data into the given metadata structure.
   ///Uses class member variables livePage and curPageNum internally for bookkeeping.
   ///These member variables are not (and should not, in the future) be accessed anywhere else.
-  void InOutBase::bufferLivePacket(uint64_t packTime, int64_t packOffset, uint32_t packTrack, const char *packData,
-                                   size_t packDataSize, uint64_t packBytePos, bool isKeyframe, DTSC::Meta & aMeta, uint64_t duration) {
+  void InOutBase::bufferLivePacket(uint64_t packTime, int64_t packOffset, uint32_t packTrack, const char *packData, size_t packDataSize,
+                                   uint64_t packBytePos, bool isKeyframe, DTSC::Meta & aMeta, uint64_t duration) {
     aMeta.reloadReplacedPagesIfNeeded();
     if (!aMeta) {
       if (shouldLogPacketDrop(packTrack)) {

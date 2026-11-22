@@ -1434,7 +1434,7 @@ namespace Mist{
     const bool sourceEofFlag = streamStatus && streamStatus.len > STRMSTATE_PROCESS_SOURCE_EOF_OFFSET &&
       streamStatus.mapped[STRMSTATE_PROCESS_SOURCE_EOF_OFFSET];
     const bool sourceEof = processSourceEnded(processControlledRealtime, sourceEofFlag, everHadPush, hasPush);
-    if (!M.getValidTracks().size() && !sourceEof){return;}
+    if (!M.getValidTracks().size() && !sourceEof) { return; }
     std::set<std::string> newProcs;
     uint64_t now = Util::bootMS(); //< Used for delayed starts
 
@@ -1453,9 +1453,7 @@ namespace Mist{
       // configured, uninhibited readers until their natural exit is collected.
       for (const auto & process : runningProcs) {
         const auto node = processGraphNodes.find(process.first);
-        if (node != processGraphNodes.end() && node->second.inhibited.empty()) {
-          newProcs.insert(process.first);
-        }
+        if (node != processGraphNodes.end() && node->second.inhibited.empty()) { newProcs.insert(process.first); }
       }
     }
 

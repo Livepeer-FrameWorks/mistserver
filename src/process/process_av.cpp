@@ -6,8 +6,8 @@
 #include "process.hpp"
 #include "process_av_audio.h"
 #include "process_av_bitrate.h"
-#include "process_av_geometry.h"
 #include "process_av_decoder_policy.h"
+#include "process_av_geometry.h"
 #include "process_av_hardware.h"
 #include "process_av_progress.h"
 #include "process_av_rotation.h"
@@ -839,7 +839,8 @@ namespace Mist{
         INFO_MSG("Initting %s encoder", codecOut.c_str());
         if(codecOut == "H264"){
 #ifdef __APPLE__
-          if (allowHW && !allowSW && tryEncoder("h264_videotoolbox", AV_HWDEVICE_TYPE_VIDEOTOOLBOX, AV_PIX_FMT_VIDEOTOOLBOX, AV_PIX_FMT_NV12)) {
+          if (allowHW && !allowSW &&
+              tryEncoder("h264_videotoolbox", AV_HWDEVICE_TYPE_VIDEOTOOLBOX, AV_PIX_FMT_VIDEOTOOLBOX, AV_PIX_FMT_NV12)) {
             return;
           }
 #endif
@@ -1134,7 +1135,8 @@ namespace Mist{
       // Hardware encoding is independent and can consume software-decoded frames.
       if (!allowSW) {
         hardwareFormatDeclined = true;
-        failVideoDecoder("Hardware decoder refused the source and software decode is disabled", hardwareDecoderFailurePermanent(hardwareFormatDeclined, decoderProducedFrame));
+        failVideoDecoder("Hardware decoder refused the source and software decode is disabled",
+                         hardwareDecoderFailurePermanent(hardwareFormatDeclined, decoderProducedFrame));
         return false;
       }
       return tryDecoder("", AV_HWDEVICE_TYPE_NONE, AV_PIX_FMT_YUV420P, AV_PIX_FMT_NONE);
@@ -1196,8 +1198,7 @@ namespace Mist{
 
     void recoverVideoDecoder() {
       const bool refused = hardwareDecoderFailurePermanent(hardwareFormatDeclined, decoderProducedFrame);
-      failVideoDecoder(refused ? "Hardware decoder refused the source"
-                               : "Hardware decoder failed; retry the processing job", refused);
+      failVideoDecoder(refused ? "Hardware decoder refused the source" : "Hardware decoder failed; retry the processing job", refused);
     }
 
     void invalidDecodePacket() {
@@ -1425,7 +1426,8 @@ namespace Mist{
         width = rawOutputWidth;
         height = rawOutputHeight;
       }
-      const bool unchanged = !sourceRotation && !sourceMirror && width == (uint64_t)decoded->width && height == (uint64_t)decoded->height;
+      const bool unchanged =
+        !sourceRotation && !sourceMirror && width == (uint64_t)decoded->width && height == (uint64_t)decoded->height;
       if (frameInHW && keepVideoOnDevice(decoded, context_out, unchanged)) {
         if (decoded->format == AV_PIX_FMT_CUDA) {
           // encodeVideo copies between distinct CUDA pools on the device before submission.
@@ -1715,7 +1717,7 @@ namespace Mist{
         } else {
           sendRawVideo();
         }
-          totalDecode += transformStart - decodeStart;
+        totalDecode += transformStart - decodeStart;
         totalTransform += encodeStart - transformStart;
         totalEncode += Util::getMicros(encodeStart);
       }
@@ -1827,7 +1829,7 @@ namespace Mist{
               Util::logExitReason(ER_PROCESS_SPECIFIC, "error encoding frame");
               return;
             }
-          }else{
+          } else {
             ret = avcodec_send_frame(context_out, frameConverted);
             if (ret < 0) {
               printError("Unable to send frame to the encoder", ret);

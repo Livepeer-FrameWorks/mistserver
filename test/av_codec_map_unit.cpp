@@ -24,7 +24,8 @@ int main() {
   for (unsigned int channels = 1; channels <= 8; ++channels) {
     if (Mist::encodedAudioChannels("AAC", channels) != (channels == 7 ? 8u : channels) ||
         Mist::encodedAudioChannels("opus", channels) != channels) {
-      std::cerr << "Opus changed " << channels << " source channels to " << Mist::encodedAudioChannels("opus", channels) << std::endl;
+      std::cerr << "Opus changed " << channels << " source channels to " << Mist::encodedAudioChannels("opus", channels)
+                << std::endl;
       return 1;
     }
     AVCodecContext *context = avcodec_alloc_context3(NULL);
@@ -57,7 +58,10 @@ int main() {
     }
     av_dict_free(&options);
     avcodec_free_context(&context);
-    if (!correct) { std::cerr << "Opus encoder lost " << channels << " channels or mapping family" << std::endl; return 1; }
+    if (!correct) {
+      std::cerr << "Opus encoder lost " << channels << " channels or mapping family" << std::endl;
+      return 1;
+    }
   }
   if (Mist::limitedAudioChannels("opus", 6, true, 2) != 2 || Mist::limitedAudioChannels("opus", 1, false, 2) != 1 ||
       Mist::limitedAudioChannels("AAC", 6, true, 0) != 6) {

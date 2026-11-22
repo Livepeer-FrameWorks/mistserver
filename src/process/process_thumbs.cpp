@@ -1151,7 +1151,6 @@ int main(int argc, char *argv[]) {
       capa["optional"][key]["display"] = "hidden";
     }
 
-
     capa["optional"]["thumb_width"]["name"] = "Thumbnail width";
     capa["optional"]["thumb_width"]["help"] = "Maximum width of each individual thumbnail in the grid";
     capa["optional"]["thumb_width"]["type"] = "uint";

@@ -814,9 +814,11 @@ namespace Mist{
 
     // Use the output clock while sizing cluster timecodes and seeking offsets.
     std::string timestamps = req.GetVar("ts").size() ? req.GetVar("ts") : "zero";
-    if (timestamps == "zero") { subtractTime = startTime(); }
-    else if (timestamps == "keep") { subtractTime = 0; }
-    else {
+    if (timestamps == "zero") {
+      subtractTime = startTime();
+    } else if (timestamps == "keep") {
+      subtractTime = 0;
+    } else {
       const int64_t utcTime = M.packetTimeToUnixMs(startTime());
       if (utcTime) { subtractTime = startTime() - utcTime; }
     }
@@ -870,7 +872,6 @@ namespace Mist{
       /// \todo Switch to chunked?
       H.SendResponse("200", "OK", myConn);
     }
-
 
     if (timestamps == "zero"){
       if (liveEBMLMode()) {

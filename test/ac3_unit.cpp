@@ -163,11 +163,23 @@ int main(int argc, char **argv) {
     bool failed = false;
     for (size_t location = 0; location < 9; ++location) {
       Utils::bitWriter b;
-      b.append(0x0B77, 16); b.append(1, 2); b.append(0, 3); b.append(127, 11);
-      b.append(0, 2); b.append(3, 2); b.append(channels[location] == 2 ? 2 : 1, 3);
-      b.append(0, 1); b.append(16, 5); b.append(0, 5); b.append(0, 1);
-      b.append(1, 1); b.append(1u << chanmapBits[location], 16); b.append(0, 1); b.append(0, 1);
-      std::string dependent = b.str(); dependent.resize(256);
+      b.append(0x0B77, 16);
+      b.append(1, 2);
+      b.append(0, 3);
+      b.append(127, 11);
+      b.append(0, 2);
+      b.append(3, 2);
+      b.append(channels[location] == 2 ? 2 : 1, 3);
+      b.append(0, 1);
+      b.append(16, 5);
+      b.append(0, 5);
+      b.append(0, 1);
+      b.append(1, 1);
+      b.append(1u << chanmapBits[location], 16);
+      b.append(0, 1);
+      b.append(0, 1);
+      std::string dependent = b.str();
+      dependent.resize(256);
       const std::string packet = enhanced() + dependent;
       const AC3::Header h = AC3::parse(packet.data(), packet.size());
       const std::string setup = AC3::makeDEC3(h);
