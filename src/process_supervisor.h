@@ -111,6 +111,18 @@ namespace Mist {
       shortReason + "\n" + longReason;
   }
 
+  // A deferred answer is distinct from [], which permanently leaves a process disabled.
+  inline uint64_t processReplacementRetryMs(const JSON::Value & response) {
+    if (!response.isObject() || !response["wait_reason"].isString() ||
+        (response["wait_reason"].asString() != "memory" && response["wait_reason"].asString() != "node_unavailable") ||
+        !response["retry_after_ms"].isInt()) {
+      return 0;
+    }
+    const int64_t delay = response["retry_after_ms"].asInt();
+    if (delay <= 0) { return 0; }
+    return delay < 100 ? 100 : (delay > 5000 ? 5000 : delay);
+  }
+
   /// Parses a PROCESS_REPLACE response into the replacement process configs.
   /// Only objects naming a process are kept; an empty, non-array or unusable response yields an
   /// empty array, which means the failed process is not replaced.

@@ -890,9 +890,15 @@ namespace Mist{
         break;
       }
     }
-    bool restartDue = false;
+    bool restartDue = wakeDeferredProcessReplacements();
     for (std::map<std::string, uint64_t>::iterator it = procNextBoot.begin(); it != procNextBoot.end(); ++it) {
       if (it->second && it->second <= Util::bootMS() && it->second > lastProcTime) {
+        restartDue = true;
+        break;
+      }
+    }
+    for (const auto & pending : deferredProcessReplacements) {
+      if (pending.second.retryAt <= Util::bootMS()) {
         restartDue = true;
         break;
       }
@@ -932,7 +938,6 @@ namespace Mist{
         } else {
           configuredProcesses = streamCfg.getMember("processes").asJSON();
         }
-        if (processReplacements.size()) { configuredProcesses = applyProcessReplacements(configuredProcesses); }
         /*LTS-END*/
         processControlledRealtime = streamCfg.getMember("process_controlled_realtime").asBool();
         checkProcesses(configuredProcesses);
@@ -1439,7 +1444,8 @@ namespace Mist{
     // Why each configured process is excluded from newProcs this tick.
     // Consulted when stopping a still-running process so the stop log and
     // PROCESS_EXIT trigger name the guard that retired it.
-    const ProcessGraph & graph = resolveProcessGraph(procs);
+    retryProcessReplacements(procs, now);
+    const ProcessGraph & graph = resolveProcessGraph(applyProcessReplacements(procs));
     newProcs = graph.runs;
     std::map<std::string, std::string> skipReasons = graph.skipReasons;
     if (sourceEof) {
@@ -1729,6 +1735,23 @@ namespace Mist{
     std::string response;
     const std::string payload = processReplaceTriggerPayload(streamName, procType, config, exitCode, shortReason, longReason);
     if (!requestProcessReplacement(payload, response)) { return; }
+    acceptProcessReplacement(config, payload, response, Util::bootMS());
+  }
+
+  void InputBuffer::acceptProcessReplacement(const std::string & config, const std::string & payload,
+                                             const std::string & response, uint64_t now) {
+    const JSON::Value parsed = JSON::fromString(response);
+    const uint64_t retry = processReplacementRetryMs(parsed);
+    if (retry) {
+      const std::string reason = parsed["wait_reason"].asString();
+      if (!deferredProcessReplacements.count(config) || deferredProcessReplacements[config].reason != reason) {
+        WARN_MSG("PROCESS_REPLACE waiting: %s; local admission will be retried", reason.c_str());
+      }
+      deferredProcessReplacements[config] = {payload, reason, now + retry};
+      return;
+    }
+    deferredProcessReplacements.erase(config);
+    const std::string procType = JSON::fromString(config)["process"].asString();
     JSON::Value replacements = processReplacementConfigs(response);
     if (!replacements.size()) {
       WARN_MSG("PROCESS_REPLACE returned no usable replacement for process `%s`; it stays disabled", procType.c_str());
@@ -1741,6 +1764,52 @@ namespace Mist{
     }
     WARN_MSG("Replacing failed process `%s` with %zu replacement process(es)", procType.c_str(), (size_t)replacements.size());
     processReplacements[config] = replacements;
+  }
+
+  bool InputBuffer::wakeDeferredProcessReplacements() {
+    if (deferredProcessReplacements.empty()) { return false; }
+    if (!processingCapacityPage) { processingCapacityPage.init(processingCapacityPageName, 8, false, false); }
+    if (!processingCapacityPage || processingCapacityPage.len < 8) { return false; }
+    uint64_t generation = 0;
+    memcpy(&generation, processingCapacityPage.mapped, sizeof(generation));
+    if (!generation || generation == processingCapacityGeneration) { return false; }
+    processingCapacityGeneration = generation;
+    for (auto & waiting : deferredProcessReplacements) { waiting.second.retryAt = 0; }
+    return true;
+  }
+
+  void InputBuffer::retryProcessReplacements(const JSON::Value & procs, uint64_t now) {
+    std::set<std::string> configured;
+    jsonForEachConst (procs, it) {
+      JSON::Value keyed = *it;
+      keyed["source"] = streamName;
+      configured.insert(keyed.toString());
+    }
+    std::vector<std::string> due;
+    for (auto it = deferredProcessReplacements.begin(); it != deferredProcessReplacements.end();) {
+      if (!configured.count(it->first)) {
+        replaceAttempted.erase(it->first);
+        it = deferredProcessReplacements.erase(it);
+      } else {
+        if (it->second.retryAt <= now) { due.push_back(it->first); }
+        ++it;
+      }
+    }
+    const bool sourceEnded = processSourceEnded(processControlledRealtime,
+                                                streamStatus && streamStatus.len > STRMSTATE_PROCESS_SOURCE_EOF_OFFSET &&
+                                                  streamStatus.mapped[STRMSTATE_PROCESS_SOURCE_EOF_OFFSET],
+                                                everHadPush, hasPush);
+    if (!config->is_active || sourceEnded) {
+      for (const auto & key : due) { deferredProcessReplacements[key].retryAt = now + 1000; }
+      return;
+    }
+    for (const auto & key : due) {
+      const std::string payload = deferredProcessReplacements[key].payload;
+      std::string response;
+      // A transient trigger failure retains the queue, never the failed process.
+      deferredProcessReplacements[key].retryAt = now + 1000;
+      if (requestProcessReplacement(payload, response)) { acceptProcessReplacement(key, payload, response, now); }
+    }
   }
 
   bool InputBuffer::requestProcessReplacement(const std::string & payload, std::string & response) {

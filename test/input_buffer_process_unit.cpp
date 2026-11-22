@@ -83,9 +83,7 @@ namespace {
       }
 
       // Mirrors how userLeadIn feeds checkProcesses: the replacement layer over the configured list.
-      void tick(const JSON::Value & configured) {
-        checkProcesses(processReplacements.size() ? applyProcessReplacements(configured) : configured);
-      }
+      void tick(const JSON::Value & configured) { checkProcesses(configured); }
 
       void stopAll() {
         for (std::map<std::string, pid_t>::iterator it = runningProcs.begin(); it != runningProcs.end(); ++it) {
@@ -692,6 +690,53 @@ namespace {
       check(other.replacePayloads.size() == 1, "an empty replacement must not be retried");
       check(other.processReplacements.empty(), "an empty response must not install a replacement layer");
       other.stopAll();
+    }
+
+    // A busy admission response must be retried without starting the failed process again.
+    {
+      config.is_active = true;
+      InputBufferProbe waiting(&config);
+      waiting.initMetadata(stream);
+      waiting.addTrack("video", "H264", 1280, 720);
+      waiting.replaceResponse = R"({"wait_reason":"memory","retry_after_ms":100})";
+      const uint64_t waitDeadline = Util::bootMS() + 5000;
+      while (Util::bootMS() < waitDeadline && waiting.replacePayloads.empty()) {
+        waiting.tick(configured);
+        Util::sleep(20);
+      }
+      check(waiting.replacePayloads.size() == 1, "initial failure must ask for a replacement");
+      JSON::Value ready;
+      ready.append(survivor);
+      waiting.replaceResponse = ready.toString();
+      // A node-capacity event wakes admission before a long configured retry delay.
+      waiting.processingCapacityPageName = "/MstCapacityUnit" + suffix;
+      IPC::sharedPage capacity(waiting.processingCapacityPageName, 8, true, false);
+      check(capacity && capacity.len >= 8, "capacity event page must exist");
+      if (capacity && capacity.len >= 8) {
+        uint64_t generation = 1;
+        memcpy(capacity.mapped, &generation, sizeof(generation));
+        waiting.deferredProcessReplacements[failedKey].retryAt = Util::bootMS() + 60000;
+        check(waiting.wakeDeferredProcessReplacements(), "released capacity must wake a queued replacement");
+        check(!waiting.wakeDeferredProcessReplacements(), "a consumed capacity event must not retrigger admission");
+      }
+      const uint64_t releaseDeadline = Util::bootMS() + 3000;
+      while (Util::bootMS() < releaseDeadline && !waiting.runningProcs.count(survivorKey)) {
+        waiting.tick(configured);
+        Util::sleep(20);
+      }
+      check(waiting.runningProcs.count(survivorKey) && Util::Procs::isActive(waiting.runningProcs[survivorKey]),
+            "a deferred live ladder must start when admission becomes available");
+      check(waiting.replacePayloads.size() == 2, "deferred admission must retry exactly once after release");
+      check(!waiting.runningProcs.count(failedKey), "admission retry must not restart the failed process");
+      waiting.stopAll();
+      waiting.deferredProcessReplacements[failedKey] = {"obsolete", "memory", 0};
+      JSON::Value removed;
+      removed.append(JSON::Value());
+      removed.shrink(0);
+      const size_t attempts = waiting.replacePayloads.size();
+      waiting.tick(removed);
+      check(waiting.deferredProcessReplacements.empty(), "removing a config must cancel its queued replacement");
+      check(waiting.replacePayloads.size() == attempts, "a removed config must not request admission");
     }
 
     input.stopAll();

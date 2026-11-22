@@ -82,6 +82,8 @@ namespace Mist{
     JSON::Value applyProcessReplacements(const JSON::Value & procs) const;
     void replaceFailedProcess(const std::string & config, const std::string & procType, int exitCode,
                               const std::string & shortReason, const std::string & longReason);
+    void retryProcessReplacements(const JSON::Value & procs, uint64_t now);
+    void acceptProcessReplacement(const std::string & config, const std::string & payload, const std::string & response, uint64_t now);
     virtual bool requestProcessReplacement(const std::string & payload, std::string & response);
     void updateProcessingRate();
     std::map<std::string, pid_t> runningProcs;     // LTS
@@ -108,6 +110,16 @@ namespace Mist{
     // Keyed configs that may no longer fire PROCESS_REPLACE: every config that already fired it,
     // and every replacement config, so a failing replacement cannot start a replacement loop.
     std::set<std::string> replaceAttempted;
+    struct DeferredProcessReplacement {
+        std::string payload;
+        std::string reason;
+        uint64_t retryAt;
+    };
+    std::map<std::string, DeferredProcessReplacement> deferredProcessReplacements;
+    bool wakeDeferredProcessReplacements();
+    IPC::sharedPage processingCapacityPage;
+    std::string processingCapacityPageName{SHM_PROCESSING_CAPACITY};
+    uint64_t processingCapacityGeneration{0};
 
     // Generic proc-authored rate state (ProcState).
     uint64_t effectiveSpeed;

@@ -82,6 +82,15 @@ int main() {
     return fail("default live AV backoff changed one-shot jobs, explicit delays or first boots");
   }
 
+  if (processReplacementRetryMs(JSON::fromString(R"({"wait_reason":"memory","retry_after_ms":1000})")) != 1000 ||
+      processReplacementRetryMs(JSON::fromString(R"({"wait_reason":"node_unavailable","retry_after_ms":1})")) != 100 ||
+      processReplacementRetryMs(JSON::fromString(R"({"wait_reason":"memory","retry_after_ms":9999999})")) != 5000 ||
+      processReplacementRetryMs(JSON::fromString(R"({"wait_reason":"memory","retry_after_ms":-1})")) ||
+      processReplacementRetryMs(JSON::fromString(R"({"wait_reason":"other","retry_after_ms":1000})")) ||
+      processReplacementRetryMs(JSON::fromString("[]"))) {
+    return fail("deferred replacement responses must have a known reason and a bounded positive retry interval");
+  }
+
   const std::string payload = processExitTriggerPayload("camera", "AV", "{\"process\":\"AV\"}", 1234, -9, 3, "retrying",
                                                         "signal", "terminated by signal");
   const std::string expected = "camera\nAV\n{\"process\":\"AV\"}\n1234\n-9\n3\nretrying\nsignal\nterminated by signal";

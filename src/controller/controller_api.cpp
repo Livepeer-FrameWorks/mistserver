@@ -1967,6 +1967,26 @@ void Controller::handleAPICommands(JSON::Value &Request, JSON::Value &Response){
     }
   }
 
+  if (Request.isMember("processing_capacity_released") && Request["processing_capacity_released"].asBool()) {
+    // Only the controller writes this hint; missing or collapsed events are covered by the
+    // buffer's retry timer. The page carries no admission authority or reservations.
+    static IPC::sharedPage capacity;
+    static std::mutex capacityMutex;
+    std::lock_guard<std::mutex> lock(capacityMutex);
+    if (!capacity) { capacity.init(SHM_PROCESSING_CAPACITY, 8, true, false); }
+    if (capacity && capacity.len >= 8) {
+      uint64_t generation = 0;
+      memcpy(&generation, capacity.mapped, sizeof(generation));
+      ++generation;
+      if (!generation) { generation = 1; }
+      memcpy(capacity.mapped, &generation, sizeof(generation));
+      Response["processing_capacity_released"] = true;
+      Response["processing_capacity_generation"] = generation;
+    } else {
+      Response["processing_capacity_released"] = false;
+    }
+  }
+
   if (Request.isMember("nuke_stream") && Request["nuke_stream"].isString() && Request["nuke_stream"].asStringRef().size()){
     nukeStream(Request["nuke_stream"].asStringRef());
   }

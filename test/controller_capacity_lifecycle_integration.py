@@ -371,6 +371,18 @@ def internal_bandwidth(fixture):
         connection.close()
 
 
+def processing_capacity_wake(fixture):
+    fixture.start()
+    made = fixture.request({'authorize': {'new_username': 'capacity-test', 'new_password': 'fixture-only'}})
+    assert made.get('authorize', {}).get('status') == 'ACC_MADE', ('could not create private fixture account', made)
+    first = fixture.request({'processing_capacity_released': True})
+    second = fixture.request({'processing_capacity_released': True})
+    assert first.get('authorize', {}).get('status') == 'OK', ('fixture authentication failed', first)
+    assert first.get('processing_capacity_released') is True, ('capacity release was not acknowledged', first)
+    assert second.get('processing_capacity_released') is True, ('second capacity release was not acknowledged', second)
+    assert 0 < first.get('processing_capacity_generation', 0) < second.get('processing_capacity_generation', 0), ('capacity generation did not advance', first, second)
+
+
 def main():
     mode, controller, ffmpeg = sys.argv[1:]
     if mode in ('whep', 'whep-idle-timer', 'bandwidth', 'progressive-mp4', 'fragmented-mp4', 'fragmented-mp4-moof', 'record-mp4-no-b', 'record-mp4-av', 'record-mkv') and not shutil.which(ffmpeg):
@@ -379,7 +391,7 @@ def main():
     fixture = Fixture(controller, ffmpeg)
     failed = True
     try:
-        {'record-mp4-no-b': lambda f: record_mp4(f, 'mp4-no-b'), 'record-mp4-av': lambda f: record_mp4(f, 'mp4'), 'record-mkv': lambda f: record_mp4(f, 'mkv'), 'whep-idle-timer': whep_dtls_idle, 'stun-replies': stale_stun_replies, 'webrtc-idle': webrtc_idle, 'webrtc-reload': webrtc_reload, 'whep': whep_liveness, 'bandwidth': internal_bandwidth, 'progressive-mp4': progressive_mp4, 'fragmented-mp4': lambda f: progressive_mp4(f, 'fragmented'), 'fragmented-mp4-moof': lambda f: progressive_mp4(f, 'fragmented-moof')}[mode](fixture)
+        {'processing-capacity-wake': processing_capacity_wake, 'record-mp4-no-b': lambda f: record_mp4(f, 'mp4-no-b'), 'record-mp4-av': lambda f: record_mp4(f, 'mp4'), 'record-mkv': lambda f: record_mp4(f, 'mkv'), 'whep-idle-timer': whep_dtls_idle, 'stun-replies': stale_stun_replies, 'webrtc-idle': webrtc_idle, 'webrtc-reload': webrtc_reload, 'whep': whep_liveness, 'bandwidth': internal_bandwidth, 'progressive-mp4': progressive_mp4, 'fragmented-mp4': lambda f: progressive_mp4(f, 'fragmented'), 'fragmented-mp4-moof': lambda f: progressive_mp4(f, 'fragmented-moof')}[mode](fixture)
         failed = False
         print('PASS:', mode)
     finally:

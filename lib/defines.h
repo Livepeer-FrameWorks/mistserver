@@ -260,6 +260,8 @@ static inline void prime_stackframe() {}
 // add, published by the stream's buffer for its recordings (see src/process_graph.h).
 #define SHM_STREAM_PGRAPH "/MstPGrf%s" //%s stream name
 #define PROCESS_GRAPH_PAGE_LEN 65536
+// Controller-published capacity wake-up generation. It is a hint; buffers also retry on a timer.
+#define SHM_PROCESSING_CAPACITY "/MstProcessingCapacity"
 #define SHM_GLOBAL_CONF "/MstGlobalConfig"
 #define SHM_STREAMKEYS "/MstStrmKeys"
 // Stream state values stored at SHM_STREAM_STATE byte 0.

@@ -1313,7 +1313,7 @@ endif
 python_program = find_program('python3', required: false)
 if host_machine.system() != 'windows' and python_program.found()
   ffmpeg_argument = ffmpeg_program.found() ? ffmpeg_program.full_path() : ''
-  capacity_contracts = ['bandwidth', 'progressive-mp4', 'fragmented-mp4', 'fragmented-mp4-moof', 'record-mp4-no-b', 'record-mp4-av', 'record-mkv']
+  capacity_contracts = ['processing-capacity-wake', 'bandwidth', 'progressive-mp4', 'fragmented-mp4', 'fragmented-mp4-moof', 'record-mp4-no-b', 'record-mp4-av', 'record-mkv']
   if exec_tgts.has_key('MistOutWebRTC')
     capacity_contracts += ['webrtc-idle', 'webrtc-reload', 'stun-replies', 'whep-idle-timer']
     if host_machine.system() == 'linux'
