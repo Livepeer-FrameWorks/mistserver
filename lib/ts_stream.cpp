@@ -28,7 +28,9 @@ namespace TS{
   bool Assembler::assemble(Stream & TSStrm, const char * ptr, size_t len, bool parse, uint64_t bytePos){
     bool ret = false;
     const bool endOfInput = !len;
-    const auto deliver = [&](const char *packet, uint64_t position){
+    const auto deliver = [&](const char *packet, uint64_t position) {
+      // Reserved adaptation control invalidates this packet, not the established cadence.
+      if (!(packet[3] & 0x30)) { return; }
       tsBuf.FromPointer(packet);
       ret |= tsBuf.getUnitStart();
       if (parse){
@@ -43,10 +45,10 @@ namespace TS{
         // Aligned packets borrow the caller's bytes; only split packets need a copy.
         while (len >= packetStride){
           const char *packet = ptr + prefixBytes;
-          if ((unsigned char)packet[0] != 0x47 || !(packet[3] & 0x30)){
+          if ((unsigned char)packet[0] != 0x47) {
             packetStride = prefixBytes = 0;
             break;
-        }
+          }
           deliver(packet, bytePos);
           ptr += packetStride;
           len -= packetStride;
@@ -69,12 +71,12 @@ namespace TS{
           if (leftData.size() < packetStride){return ret;}
         }
         const char *packet = leftData.data() + prefixBytes;
-        if ((unsigned char)packet[0] == 0x47 && (packet[3] & 0x30)){
+        if ((unsigned char)packet[0] == 0x47) {
           deliver(packet, bufferPos);
           leftData.erase(0, packetStride);
           bufferPos += packetStride;
           continue;
-          }
+        }
         packetStride = prefixBytes = 0;
         }
       if (leftData.empty()){bufferPos = bytePos;}
@@ -84,21 +86,21 @@ namespace TS{
       ptr += take;
       len -= take;
       bytePos += take;
-      const auto synchronized = [this](size_t sync, size_t stride){
+      const auto synchronized = [this](size_t sync, size_t stride) {
+        size_t usable = 0;
         for (size_t packet = 0; packet < 3; ++packet){
           const size_t offset = sync + packet * stride;
-          if (offset + 4 > leftData.size() || (unsigned char)leftData[offset] != 0x47 || !(leftData[offset + 3] & 0x30)){
-            return false;
-      }
+          if (offset + 4 > leftData.size() || (unsigned char)leftData[offset] != 0x47) { return false; }
+          if (leftData[offset + 3] & 0x30) { ++usable; }
         }
-        return true;
+        return usable >= 2;
       };
       for (size_t sync = 0; sync < leftData.size() && !packetStride; ++sync){
         for (size_t stride : {size_t(188), size_t(192)}){
-          if (stride == 192 && sync == 0 && leftData.size() < 2 * 192 + 8){continue;}
+          if (stride == 192 && leftData.size() < sync + 2 * 192 + 8) { continue; }
           if (!synchronized(sync, stride)){continue;}
           // Arrival timestamps can resemble TS headers; prefer the real sync bytes.
-          if (stride == 192 && sync == 0 && synchronized(4, stride)){sync = 4;}
+          if (stride == 192 && synchronized(sync + 4, stride)) { sync += 4; }
           packetStride = stride;
           prefixBytes = stride == 192 && sync >= 4 ? 4 : 0;
           const size_t start = sync - prefixBytes;

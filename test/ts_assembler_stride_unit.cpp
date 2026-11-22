@@ -76,6 +76,44 @@ int main() {
     m2ts.append("\x47\x10\x00\x10", 4);
     m2ts.append(transport, pos, 188);
   }
+  {
+    bool failed = false;
+    std::string nullPacket(188, '\xff');
+    nullPacket[0] = 0x47;
+    nullPacket[1] = 0x1f;
+    nullPacket[2] = '\xff';
+    nullPacket[3] = 0x10;
+    const std::string arrival("\x47\x10\x00\x10", 4);
+    const std::string warm = arrival + nullPacket + arrival + nullPacket + arrival + nullPacket;
+    for (size_t chunk : {size_t(1), size_t(192), size_t(577)}) {
+      TS::Stream stream;
+      TS::Assembler assembler;
+      assembler.assemble(stream, warm.data(), warm.size(), true, 0);
+      const std::string resumed = std::string("bad-sync") + m2ts;
+      for (size_t pos = 0; pos < resumed.size(); pos += chunk) {
+        assembler.assemble(stream, resumed.data() + pos, std::min(chunk, resumed.size() - pos), true, warm.size() + pos);
+      }
+      assembler.assemble(stream, "", 0, true, warm.size() + resumed.size());
+      stream.finish();
+      if (!stream.hasPacketOnEachTrack()) {
+        std::cerr << "M2TS arrival timestamps stole synchronization after junk with chunk " << chunk << std::endl;
+        failed = true;
+      }
+    }
+    std::string invalid = nullPacket;
+    invalid[3] = 0; // Reserved adaptation control is a damaged packet, not a new packet boundary.
+    const std::string damaged = transport.substr(0, 188) + invalid + transport.substr(188);
+    TS::Stream stream;
+    TS::Assembler assembler;
+    assembler.assemble(stream, damaged.data(), damaged.size(), true, 0);
+    assembler.assemble(stream, "", 0, true, damaged.size());
+    stream.finish();
+    if (!stream.hasPacketOnEachTrack()) {
+      std::cerr << "Reserved adaptation control discarded the preceding valid PAT" << std::endl;
+      failed = true;
+    }
+    if (failed) { return 1; }
+  }
   for (const std::string & fixture : std::vector<std::string>{transport, m2ts}) {
     const size_t stride = fixture.size() == transport.size() ? 188 : 192;
     for (size_t packets : {size_t(1), size_t(2)}) {
