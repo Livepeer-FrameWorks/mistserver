@@ -234,8 +234,9 @@ class Fixture:
             # Inputs may detach from the controller's process group. Stop their
             # exact fixture streams while the controller still owns their IPC.
             nuke = Path(self.controller).parent / 'MistUtilNuke'
-            for stream in self.streams:
-                subprocess.run([str(nuke), stream], env=self.env, stdout=self.log, stderr=subprocess.STDOUT, timeout=15)
+            with (self.root / 'cleanup.log').open('ab') as cleanup_log:
+                for stream in self.streams:
+                    subprocess.run([str(nuke), stream], env=self.env, stdout=cleanup_log, stderr=subprocess.STDOUT, timeout=15)
             owned = owned_descendants(roots, owned)
             owned.update(fixture_inputs(self.env))
             if self.process.poll() is None:

@@ -1666,3 +1666,6 @@ if get_option('WITH_AV') and ffmpeg_program.found()
        args: [files('process_av_audio_call_integration.py'), avaudiosourcecalltest, ffmpeg_program],
        suite: 'AV', timeout: 60)
 endif
+
+test('Fixture teardown preserves controller diagnostic logs', python_program,
+     args: files('fixture_cleanup_log_test.py'), suite: 'Build', timeout: 30)
