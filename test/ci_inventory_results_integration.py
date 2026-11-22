@@ -14,6 +14,8 @@ rows = json.loads(inventory)
 # Model the Linux inventory when this guard's fixture runs on another host.
 for name in ('Controller capacity lifecycle whep',
              'Detached Mist children fail the process audit',
+             'Process audit reaps adopted zombies while the test runs',
+             'Process audit bounds children that ignore stop signals',
              'WebRTC signal handler owns the post-dup2 listener descriptor',
              'A session that boots across a second boundary stays up'):
     if not any(row['name'] == name for row in rows):

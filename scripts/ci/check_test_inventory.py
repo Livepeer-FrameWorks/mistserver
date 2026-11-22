@@ -18,6 +18,8 @@ if sys.platform.startswith('linux'):
 required = {'Controller capacity lifecycle ' + mode for mode in modes}
 required.update({
     'Upload containers preserve video codecs, surround audio and subtitle durations',
+    'Matroska VOD retains embedded planar raw tracks',
+    'Actual ProcAV resampler keeps changing EAC3 block sizes current before EOF',
     'Matroska subtitle BlockGroups preserve cue duration',
     'Matroska recordings retain subtitle cues while WebM excludes them',
     'Late subtitles survive an AV ladder and thumbnail processing',
@@ -79,6 +81,8 @@ required.update({
 })
 if sys.platform.startswith('linux'):
     required.add('Detached Mist children fail the process audit')
+    required.add('Process audit reaps adopted zombies while the test runs')
+    required.add('Process audit bounds children that ignore stop signals')
     required.add('WebRTC signal handler owns the post-dup2 listener descriptor')
     required.add('A session that boots across a second boundary stays up')
     required.add('WHIP offers get an answer or a logged refusal, and a passive offerer can publish')
