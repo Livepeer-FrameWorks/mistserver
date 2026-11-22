@@ -1511,7 +1511,26 @@ int main(int argc, char *argv[]){
   while (++sleeps < 60 && (sourceIdx == INVALID_TRACK_ID || !M.getWidth(sourceIdx) || !M.getHeight(sourceIdx))){
     M.reloadReplacedPagesIfNeeded();
     std::set<size_t> vidTrack = Util::wouldSelect(M, targetParams, sourceCapa);
+    std::set<size_t> pendingVideo;
     if (vidTrack.empty()) {
+      // Metadata can precede the first packet. Do not let a preview or an unsupported
+      // track force local fallback while the selected transport codec is starting.
+      for (const size_t track : M.getValidTracks()) {
+        const std::string codec = M.getCodec(track);
+        if (M.getType(track) == "video" && (codec == "H264" || codec == "HEVC") && M.getEncryption(track).empty()) {
+          pendingVideo.insert(track);
+        }
+      }
+      const std::set<size_t> selected = Util::pickTracks(M, pendingVideo, "video", targetParams["video"]);
+      for (std::set<size_t>::iterator it = pendingVideo.begin(); it != pendingVideo.end();) {
+        if (!selected.count(*it)) {
+          pendingVideo.erase(it++);
+        } else {
+          ++it;
+        }
+      }
+    }
+    if (vidTrack.empty() && pendingVideo.empty()) {
       // Match the sender first. Broaden only to explain a source it cannot carry.
       JSON::Value selectionCapa = sourceCapa;
       selectionCapa.removeMember("codecs");

@@ -18,6 +18,7 @@ int main(int argc, char **argv) {
     return 0;
   }
   if (argc != 6) { return 2; }
+  const bool delayed = !strncmp(argv[2], "H264+EARLY", 10);
   DTSC::Meta meta(argv[1], true);
   const size_t track = meta.addTrack(1, 1, 16, 2, true);
   meta.setID(track, 1);
@@ -29,13 +30,13 @@ int main(int argc, char **argv) {
   meta.setMirror(track, atoi(argv[4]));
   meta.setVod(!strcmp(argv[5], "vod"));
   meta.setLive(!strcmp(argv[5], "live"));
-  meta.update(0, 0, track, 1, 0, true, 1);
+  if (!delayed) { meta.update(0, 0, track, 1, 0, true, 1); }
   meta.setBps(track, 100000);
   if (!strncmp(argv[2], "H264+", 5)) {
     const size_t raw = meta.addTrack(1, 1, 16, 2, true);
     meta.setID(raw, 2);
     meta.setType(raw, "video");
-    meta.setCodec(raw, !strcmp(argv[2], "H264+MPEG2") ? "MPEG2" : "I420");
+    meta.setCodec(raw, delayed ? (strstr(argv[2], "EARLYJPEG") ? "JPEG" : "AV1") : (!strcmp(argv[2], "H264+MPEG2") ? "MPEG2" : "I420"));
     meta.setWidth(raw, 320);
     meta.setHeight(raw, 180);
     meta.update(0, 0, raw, 1, 0, true, 1);
@@ -43,6 +44,12 @@ int main(int argc, char **argv) {
   }
   puts("ready");
   fflush(stdout);
+  if (delayed) {
+    getchar();
+    meta.update(0, 0, track, 1, 0, true, 1);
+    puts("published");
+    fflush(stdout);
+  }
   getchar();
   return 0;
 }
