@@ -14,14 +14,16 @@ def children():
     return [int(pid) for pid in path.read_text().split()]
 
 
-def reap():
-    while True:
+def reap(exclude=()):
+    # The direct test child belongs to Popen. Only reap adopted children here,
+    # otherwise its real exit status could be consumed before Popen observes it.
+    for pid in children():
+        if pid in exclude:
+            continue
         try:
-            pid, _ = os.waitpid(-1, os.WNOHANG)
+            os.waitpid(pid, os.WNOHANG)
         except ChildProcessError:
-            return
-        if not pid:
-            return
+            pass
 
 
 def cleanup(kill_window=5):
@@ -35,6 +37,12 @@ def cleanup(kill_window=5):
     if not alive:
         return False
     print('Test leaked adopted descendants: ' + ', '.join(map(str, alive)), file=sys.stderr, flush=True)
+    for pid in alive:
+        try:
+            command = (Path('/proc') / str(pid) / 'cmdline').read_bytes().replace(b'\0', b' ').decode(errors='replace')
+            print('Leaked owned command: ' + str(pid) + ' ' + command, file=sys.stderr, flush=True)
+        except (FileNotFoundError, ProcessLookupError):
+            pass
     # Every PID comes from this wrapper's own adopted children. Killing a parent
     # adopts any further descendants, so repeat until all owned children exit.
     deadline = time.monotonic() + kill_window
@@ -78,6 +86,7 @@ def main():
     signal.signal(signal.SIGINT, stop)
     try:
         while child.poll() is None:
+            reap(exclude=(child.pid,))
             if stop_deadline is not None and time.monotonic() >= stop_deadline:
                 try:
                     os.killpg(child.pid, signal.SIGKILL)

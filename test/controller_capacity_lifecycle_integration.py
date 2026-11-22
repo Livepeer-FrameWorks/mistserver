@@ -70,6 +70,84 @@ def processes(group, name=None):
     return result
 
 
+def process_birth(pid):
+    if Path('/proc/self/stat').exists():
+        try:
+            return Path('/proc/%d/stat' % pid).read_text().rsplit(')', 1)[1].split()[19]
+        except (FileNotFoundError, ProcessLookupError, PermissionError):
+            return None
+    result = subprocess.run(['ps', '-p', str(pid), '-o', 'lstart='], capture_output=True, text=True)
+    return result.stdout.strip() if result.returncode == 0 else None
+
+
+def owned_descendants(roots, known=None):
+    known = {} if known is None else dict(known)
+    table = process_table()
+    owners = set(roots) | {pid for pid, birth in known.items() if process_birth(pid) == birth}
+    while True:
+        added = {pid for pid, (parent, _, state, _) in table.items()
+                 if parent in owners and pid not in owners and not state.startswith('Z')}
+        if not added:
+            break
+        owners.update(added)
+        for pid in added:
+            birth = process_birth(pid)
+            if birth is not None:
+                known[pid] = birth
+    return known
+
+
+def fixture_inputs(env):
+    owned = {}
+    if not Path('/proc/self/stat').exists():
+        return owned
+    expected = ('TMP=' + env['TMP']).encode()
+    # A direct output can start an input and exit before teardown. Its orphan
+    # no longer belongs to the controller tree, but carries this fixture's
+    # unique IPC directory. Never signal a process without that ownership mark.
+    for pid in process_table():
+        try:
+            path = Path('/proc/%d' % pid)
+            birth = process_birth(pid)
+            if birth is None or not (path / 'comm').read_text().startswith('Mist'):
+                continue
+            if expected not in (path / 'environ').read_bytes().split(b'\0'):
+                continue
+            if process_birth(pid) == birth:
+                owned[pid] = birth
+        except (FileNotFoundError, ProcessLookupError, PermissionError):
+            continue
+    return owned
+
+
+def stop_owned_descendants(owned):
+    # A fixture's input angels may detach from its process group. Preserve the
+    # exact captured birth identity so PID reuse cannot target another process.
+    deadline = time.monotonic() + 5
+    while True:
+        owned = owned_descendants((), owned)
+        table = process_table()
+        alive = {pid: birth for pid, birth in owned.items()
+                 if pid in table and not table[pid][2].startswith('Z') and process_birth(pid) == birth}
+        if not alive:
+            return
+        forced = time.monotonic() >= deadline
+        for pid in alive:
+            with contextlib.suppress(ProcessLookupError):
+                if process_birth(pid) == alive[pid]:
+                    os.kill(pid, signal.SIGKILL if forced else signal.SIGTERM)
+        if forced:
+            limit = time.monotonic() + 2
+            while time.monotonic() < limit:
+                table = process_table()
+                if not any(pid in table and not table[pid][2].startswith('Z') and process_birth(pid) == birth
+                           for pid, birth in alive.items()):
+                    return
+                time.sleep(.02)
+            raise AssertionError('fixture-owned descendants survived termination: ' + repr(list(alive)))
+        time.sleep(.05)
+
+
 class Fixture:
     def __init__(self, controller, ffmpeg):
         self.temp = tempfile.TemporaryDirectory(prefix='mist-capacity-lifecycle-')
@@ -85,6 +163,7 @@ class Fixture:
         self.children = []
         self.process = None
         self.group = None
+        self.streams = set()
         self.ffmpeg = ffmpeg
         # System media tools must not load Mist's instrumented build libraries.
         self.tool_env = dict(os.environ)
@@ -98,6 +177,7 @@ class Fixture:
             codecs = ['-c:v', 'libx264', '-bf', '0' if media == 'mp4-no-b' else '2', '-c:a', 'aac', *([] if media == 'mkv' else ['-movflags', '+faststart'])] if media in ('mp4', 'mp4-no-b', 'mkv', 'fragmented', 'fragmented-moof') else ['-c:v', 'libvpx', '-deadline', 'realtime', '-cpu-used', '8', '-b:v', '2M', '-c:a', 'libopus']
             subprocess.run([self.ffmpeg, '-hide_banner', '-loglevel', 'error', '-y', '-f', 'lavfi', '-i', 'testsrc2=size=320x180:rate=24', '-f', 'lavfi', '-i', 'sine=frequency=440:sample_rate=48000', '-t', '12', *codecs, *(['-movflags', 'frag_keyframe+empty_moov'+('+default_base_moof' if media=='fragmented-moof' else '')] if media in ('fragmented', 'fragmented-moof') else []), str(source)], env=self.tool_env, check=True, timeout=40)
             streams[self.stream] = {'source': str(source)}
+        self.streams.update(streams)
         config = {'bandwidth': {'exceptions': ['::/127']}, 'config': {'controller': {'interface': '127.0.0.1', 'port': self.api, 'username': None}, 'prometheus': 'metrics', 'debug': 4, 'protocols': [{'connector': 'HTTP', 'interface': '127.0.0.1', 'port': self.http}, {'connector': 'WebRTC', 'interface': '127.0.0.1', 'pubhost': '127.0.0.1', 'port': self.udp}, {'connector': 'EBML'}, {'connector': 'HLS'}, {'connector': 'MP4'}]}, 'streams': streams}
         if streams_override is not None:
             config['streams'] = streams_override
@@ -126,6 +206,11 @@ class Fixture:
             return json.load(response)
 
     def close(self, failed=False):
+        roots = [child.pid for child in self.children]
+        if self.process:
+            roots.append(self.process.pid)
+        owned = owned_descendants(roots)
+        owned.update(fixture_inputs(self.env))
         if self.process and self.group is None:
             child = (self.process.pid, os.getpgid(self.process.pid))
             if child:
@@ -146,6 +231,13 @@ class Fixture:
                 child.kill()
                 child.wait()
         if self.process:
+            # Inputs may detach from the controller's process group. Stop their
+            # exact fixture streams while the controller still owns their IPC.
+            nuke = Path(self.controller).parent / 'MistUtilNuke'
+            for stream in self.streams:
+                subprocess.run([str(nuke), stream], env=self.env, stdout=self.log, stderr=subprocess.STDOUT, timeout=15)
+            owned = owned_descendants(roots, owned)
+            owned.update(fixture_inputs(self.env))
             if self.process.poll() is None:
                 self.process.send_signal(signal.SIGINT)
                 with contextlib.suppress(subprocess.TimeoutExpired):
@@ -163,6 +255,8 @@ class Fixture:
                 with contextlib.suppress(ProcessLookupError):
                     os.killpg(group, signal.SIGKILL)
             self.process.wait()
+        owned.update(fixture_inputs(self.env))
+        stop_owned_descendants(owned)
         self.log.close()
         cleanup_logs(self.root, [self.stream], env=self.env)
         self.temp.cleanup()

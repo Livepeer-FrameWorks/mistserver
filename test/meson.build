@@ -1645,6 +1645,8 @@ endif
 
 if host_machine.system() == 'linux'
   add_test_setup('owned_processes', exe_wrapper: [find_program('python3'), meson.current_source_dir() / 'owned_process_guard.py'], is_default: true)
+  test('Process audit reaps adopted zombies while the test runs', python_program,
+       args: files('process_guard_reap_test.py'), suite: 'Build', timeout: 10)
   test('Process audit bounds children that ignore stop signals', python_program,
        args: [files('process_guard_signal_test.py'), files('owned_process_guard.py')], suite: 'Build', timeout: 10)
   test('Detached Mist children fail the process audit', find_program('python3'),
