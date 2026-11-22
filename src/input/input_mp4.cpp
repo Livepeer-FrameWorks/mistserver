@@ -383,7 +383,7 @@ namespace Mist{
 
       if (curPositions.empty()) {
         // fMP4 file? Seek to the right header and read it in
-        if (nextBox) {
+        while (curPositions.empty() && nextBox) {
           uint32_t trackId = M.getID(idx);
           MP4::TrackHeader & thisHeader = headerData(trackId);
 

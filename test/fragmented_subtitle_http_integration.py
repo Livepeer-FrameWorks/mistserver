@@ -97,10 +97,10 @@ for mode in ('moof', 'absolute', 'progressive', 'moof-noaudio', 'absolute-noaudi
     success = False
     try:
         text = fixture.root / 'source.srt'
-        text.write_text('1\n00:00:00,200 --> 00:00:01,700\n<b>hello</b>\n\n2\n00:00:01,800 --> 00:00:02,500\nlast cue\n')
+        text.write_text('1\n00:00:01,000 --> 00:00:03,000\n<b>hello</b>\n\n2\n00:00:04,000 --> 00:00:06,500\nlast cue\n')
         source = fixture.root / 'source.mp4'
         flags = ['-movflags', '+frag_keyframe+empty_moov' + ('+default_base_moof' if mode.startswith('moof') else '')] if mode != 'progressive' else []
-        subprocess.run([ffmpeg, '-v','error','-y','-f','lavfi','-i','testsrc2=size=320x180:rate=10:duration=3','-f','lavfi','-i','sine=frequency=701:sample_rate=48000:duration=3','-i',str(text),*(['-an'] if mode.endswith('-noaudio') else ['-c:a','aac']),'-c:v','libx264','-threads','1','-preset','ultrafast','-g','10','-bf','0','-c:s','mov_text',*flags,str(source)], check=True, timeout=30)
+        subprocess.run([ffmpeg, '-v','error','-y','-f','lavfi','-i','testsrc2=size=320x180:rate=10:duration=8','-f','lavfi','-i','sine=frequency=701:sample_rate=48000:duration=8','-i',str(text),*(['-an'] if mode.endswith('-noaudio') else ['-c:a','aac']),'-c:v','libx264','-threads','1','-preset','ultrafast','-g','25','-bf','0','-c:s','mov_text',*flags,str(source)], check=True, timeout=30)
         probe = json.loads(subprocess.check_output([ffprobe,'-v','error','-select_streams','s','-show_packets','-show_streams','-of','json',str(source)],text=True))
         packets = probe['packets']
         cues = [packet for packet in packets if int(packet['size']) > 2]
