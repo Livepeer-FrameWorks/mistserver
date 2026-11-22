@@ -1,5 +1,10 @@
 #include "output_ts_base.h"
+
 #include <mist/bitfields.h>
+#include <mist/h264.h>
+#include <mist/h265.h>
+
+#include <cmath>
 
 namespace Mist{
   TSOutput::TSOutput(Socket::Connection & conn, Util::Config & _cfg, JSON::Value & _capa)
@@ -77,24 +82,57 @@ namespace Mist{
   }
 
   void TSOutput::updatePresentationDelay() {
-    // TS requires PTS >= DTS. A common presentation delay makes signed source
-    // composition offsets nonnegative without changing decode order or A/V sync.
-    // Use the whole stream so HLS video variants and audio-only requests share a clock.
+    if (presentationClockInitialized) { return; }
+    // Each live connection and HLS segment derives the same fixed clock from
+    // codec parameters, independent of the packets still in the DVR window.
     for (const size_t track : M.getValidTracks()) {
       if (!M.trackLoaded(track) || M.getType(track) != "video" || M.hasEmbeddedFrames(track)) { continue; }
-      const DTSC::Parts parts(M.parts(track));
-      size_t & cursor = scannedParts[track];
-      if (cursor < parts.getFirstValid() || cursor > parts.getEndValid()) { cursor = parts.getFirstValid(); }
-      while (cursor < parts.getEndValid()) {
-        const int64_t offset = parts.getOffset(cursor++);
-        if (offset < 0 && (uint64_t)-offset > presentationDelay) { presentationDelay = -offset; }
+      if (!M.getSourceLive()) {
+        const DTSC::Parts parts(M.parts(track));
+        for (size_t part = parts.getFirstValid(); part < parts.getEndValid(); ++part) {
+          const int64_t offset = parts.getOffset(part);
+          if (offset < 0 && (uint64_t)-offset > presentationDelay) { presentationDelay = -offset; }
+        }
+        continue;
+      }
+      const std::string codec = M.getCodec(track);
+      uint64_t reorderFrames = codec == "H264" || codec == "HEVC" ? 16 : 1;
+      double fps = M.getFpks(track) / 1000.0;
+      if (codec == "H264") {
+        MP4::AVCC avcc;
+        avcc.setPayload(M.getInit(track));
+        if (avcc.getSPSCount() && avcc.getSPSLen()) {
+          h264::spsUnit sps(avcc.getSPS(), avcc.getSPSLen());
+          if (sps.vuiParametersPresentFlag) {
+            if (sps.vuiParams.bitstreamRestrictionFlag) { reorderFrames = sps.vuiParams.numReorderFrames; }
+            if (sps.vuiParams.timingInfoPresentFlag && sps.vuiParams.derived_fps > 0) {
+              fps = sps.vuiParams.derived_fps;
+            }
+          }
+        }
+      } else if (codec == "HEVC") {
+        h265::initData init(M.getInit(track));
+        if (init.haveRequired()) {
+          const h265::metaInfo info = init.getMeta();
+          reorderFrames = info.maxReorderFrames;
+          if (info.fps > 0) { fps = info.fps; }
+        }
+      }
+      if (fps <= 0) {
+        const DTSC::Parts parts(M.parts(track));
+        for (size_t part = parts.getFirstValid(); part < parts.getEndValid(); ++part) {
+          if (parts.getDuration(part)) {
+            fps = 1000.0 / parts.getDuration(part);
+            break;
+          }
+        }
+      }
+      if (fps > 0) {
+        const uint64_t delay = std::ceil(1000.0 * reorderFrames / fps);
+        if (delay > presentationDelay) { presentationDelay = delay; }
       }
     }
-    // A live packet may precede its part metadata.
-    if (M.getType(thisIdx) == "video") {
-      const int64_t offset = thisPacket.getInt("offset");
-      if (offset < 0 && (uint64_t)-offset > presentationDelay) { presentationDelay = -offset; }
-    }
+    presentationClockInitialized = true;
   }
 
   void TSOutput::sendNext(){

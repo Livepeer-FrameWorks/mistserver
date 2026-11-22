@@ -1519,6 +1519,20 @@ endif
 ebmlpredictortest = executable('ebmlpredictortest', 'ebml_predictor_timestamps.cpp', header_tgts, dependencies: libmist_dep)
 test('Matroska B-frames retain monotonic DTS and unchanged presentation', ebmlpredictortest, suite: 'EBML')
 if ffmpeg_program.found() and ffprobe_program.found()
+  test('B-frame Matroska SDP output preserves RTP presentation time', find_program('python3'),
+       args: [files('ebml_sdp_timestamps_integration.py'), meson.project_build_root(), ffmpeg_program, ffprobe_program],
+       depends: media_test_deps + [exec_tgts['MistOutSDP']], suite: 'Processing', timeout: 60, is_parallel: false)
+  foreach return_bframes : ['0', '3']
+    test('Livepeer B-frame Matroska round trip retains source PTS bf=' + return_bframes, find_program('python3'),
+         args: [files('livepeer_bframe_timing_integration.py'), meson.project_build_root(), ffmpeg_program, ffprobe_program, return_bframes],
+         depends: media_test_deps, suite: 'Processing', timeout: 100, is_parallel: false)
+  endforeach
+  test('Live HEVC Matroska uses its declared TS reorder bound', find_program('python3'),
+       args: [files('ebml_live_ts_clock_integration.py'), meson.project_build_root(), ffmpeg_program, ffprobe_program, 'HEVC'],
+       depends: media_test_deps + [exec_tgts['MistOutHTTPTS'], exec_tgts['MistOutHLS']], suite: 'Processing', timeout: 90, is_parallel: false)
+  test('Adaptive live Matroska keeps one TS and HLS presentation clock', find_program('python3'),
+       args: [files('ebml_live_ts_clock_integration.py'), meson.project_build_root(), ffmpeg_program, ffprobe_program],
+       depends: media_test_deps + [exec_tgts['MistOutHTTPTS'], exec_tgts['MistOutHLS']], suite: 'Processing', timeout: 90, is_parallel: false)
   test('Matroska B-frame TS output keeps DTS before presentation', find_program('python3'),
        args: [files('ebml_bframe_ts_integration.py'), meson.project_build_root(), ffmpeg_program, ffprobe_program],
        depends: media_test_deps + [exec_tgts['MistOutHTTPTS'], exec_tgts['MistOutHLS']], suite: 'Processing', timeout: 100, is_parallel: false)
@@ -1677,3 +1691,6 @@ if get_option('WITH_AV') and ffmpeg_program.found() and ffprobe_program.found()
          depends: media_test_deps, suite: 'Processing', timeout: 120, is_parallel: false)
   endforeach
 endif
+
+sdpsignedclocktest = executable('sdpsignedclocktest', ['sdp_signed_timestamps_unit.cpp', '../src/output/output_sdp.cpp', output_http_cpp, output_cpp, io_cpp], header_tgts, dependencies: libmist_dep)
+test('SDP sendNext retains negative presentation time in RTP', sdpsignedclocktest, suite: 'SDP')

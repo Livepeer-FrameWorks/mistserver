@@ -20,6 +20,7 @@ namespace h265{
     uint64_t width;
     uint64_t height;
     double fps;
+    uint64_t maxReorderFrames{0};
     uint8_t general_profile_space;
     bool general_tier_flag;
     uint8_t general_profile_idc;

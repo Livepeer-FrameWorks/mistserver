@@ -156,15 +156,17 @@ namespace Mist{
     uint64_t timestamp = thisPacket.getTime();
 
     SDP::Track & sdpTrk = sdpState.tracks[thisIdx];
-    uint64_t offset = thisPacket.getInt("offset");
-    sdpTrk.pack.setTimestamp((timestamp + offset) * SDP::getMultiplier(&M, thisIdx));
+    const int64_t offset = thisPacket.getInt("offset");
+    // Scale signed presentation time before wrapping to the 32-bit RTP clock.
+    const int64_t presentationTimestamp = (int64_t(timestamp) + offset) * SDP::getMultiplier(&M, thisIdx);
+    sdpTrk.pack.setTimestamp(uint32_t(presentationTimestamp));
     sdpTrk.pack.sendData([this, &sdpTrk](const char* data, size_t len){
       sdpTrk.data.SendNow(data, len);
       myConn.addUp(len);
     }, dataPointer, dataLen, meta.getCodec(thisIdx));
     // Send RTCP Sender Report every second
     if (Util::bootSecs() != sdpTrk.rtcpSent){
-      sdpTrk.pack.setTimestamp(timestamp * SDP::getMultiplier(&M, thisIdx));
+      sdpTrk.pack.setTimestamp(uint32_t(int64_t(timestamp * SDP::getMultiplier(&M, thisIdx))));
       sdpTrk.rtcpSent = Util::bootSecs();
       sdpTrk.pack.sendRTCP_SR([this, &sdpTrk](const char * data, size_t len){
         sdpTrk.rtcp.SendNow(data, len);

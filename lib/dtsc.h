@@ -579,6 +579,8 @@ namespace DTSC{
 
     void setLive(bool live);
     bool getLive() const;
+    /// Source liveness before an output limiter turns this view into VOD.
+    bool getSourceLive() const;
 
     bool hasBFrames(size_t idx = INVALID_TRACK_ID) const;
 

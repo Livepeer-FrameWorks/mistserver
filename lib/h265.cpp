@@ -559,9 +559,11 @@ namespace h265{
     bs.getUExpGolomb();
     uint64_t log2MaxPicOrderCntLsbMinus4 = bs.getUExpGolomb();
     bool subLayerOrdering = bs.get(1);
+    res.maxReorderFrames = 0;
     for (int i = (subLayerOrdering ? 0 : maxSubLayersMinus1); i <= maxSubLayersMinus1; i++){
       bs.getUExpGolomb();
-      bs.getUExpGolomb();
+      const uint64_t reorderFrames = bs.getUExpGolomb();
+      if (reorderFrames > res.maxReorderFrames) { res.maxReorderFrames = reorderFrames; }
       bs.getUExpGolomb();
     }
     bs.getUExpGolomb();

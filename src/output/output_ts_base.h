@@ -26,7 +26,7 @@ namespace Mist{
   protected:
     void updatePresentationDelay();
     uint64_t presentationDelay = 0;
-    std::map<size_t, size_t> scannedParts;
+    bool presentationClockInitialized = false;
     std::map<size_t, size_t> pidMap;
     virtual bool inlineRestartCapable() const{return true;}
     std::map<size_t, bool> first;

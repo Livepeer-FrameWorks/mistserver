@@ -214,10 +214,17 @@ namespace Mist{
     size_t currPreSeg;
     bool tailFinalized;
     void sendTS(const char *tsData, size_t len = 188){
-      if (!presegs[currPreSeg].data.size()){
-        presegs[currPreSeg].time = thisPacket.getTime();
+      preparedSegment & segment = presegs[currPreSeg];
+      if (!segment.data.size()) {
+        segment.time = thisPacket.getTime();
+        segment.hasVideo = false;
       }
-      presegs[currPreSeg].data.append(tsData, len);
+      if (!segment.hasVideo && M.getType(thisIdx) == "video") {
+        segment.videoTime = thisPacket.getTime();
+        segment.videoOffset = thisPacket.getInt("offset");
+        segment.hasVideo = true;
+      }
+      segment.data.append(tsData, len);
     };
     bool finishCurrentSegment() {
       if (tailFinalized) { return false; }
@@ -467,18 +474,6 @@ namespace Mist{
             }
             if (S.S.hasPacket()){
               S.S.getEarliestPacket(thisPacket);
-              if (!S.offsetCalcd){
-                S.timeOffset = S.time - thisPacket.getTime();
-                HIGH_MSG("First timestamp of %s at time %" PRIu64 " is %" PRIu64 ", adjusting by %" PRId64, oRend.c_str(), S.time, thisPacket.getTime(), S.timeOffset);
-                S.offsetCalcd = true;
-              }
-              timeOffset = S.timeOffset;
-              if (thisPacket){
-                S.lastPacket = thisPacket.getTime() + timeOffset;
-                uint64_t sinkMs = statSinkMs.load(std::memory_order_relaxed);
-                while (S.lastPacket >= sinkMs &&
-                       !statSinkMs.compare_exchange_weak(sinkMs, S.lastPacket, std::memory_order_relaxed)) {}
-              }
               trackId = (S.ID << 16) + thisPacket.getTrackId();
               thisIdx = M.trackIDToIndex(trackId, getpid());
               if (thisIdx == INVALID_TRACK_ID || !M.getCodec(thisIdx).size()){
@@ -494,6 +489,33 @@ namespace Mist{
                 if (thisIdx != INVALID_TRACK_ID && M.getLastms(thisIdx)) {
                   resumedUntil[thisIdx] = M.getLastms(thisIdx);
                 }
+              }
+              if (M.getType(thisIdx) == "audio") {
+                thisPacket.null();
+                droppedProduced = true;
+              } else {
+                if (!S.offsetCalcd) {
+                  S.timeOffset = int64_t(S.time) - int64_t(thisPacket.getTime());
+                  // Align both decode and presentation anchors: a returned encoder may
+                  // add its own composition lead to the source's TS transport delay.
+                  S.compositionAdjustment = S.sourceOffset - int64_t(thisPacket.getInt("offset"));
+                  S.offsetCalcd = true;
+                }
+                timeOffset = S.timeOffset;
+                if (S.compositionAdjustment) {
+                  char *payload = 0;
+                  size_t bytes = 0;
+                  thisPacket.getString("data", payload, bytes);
+                  DTSC::Packet adjusted;
+                  adjusted.genericFill(thisPacket.getTime(), int64_t(thisPacket.getInt("offset")) + S.compositionAdjustment,
+                                       thisPacket.getTrackId(), payload, bytes, thisPacket.getInt("bpos"),
+                                       thisPacket.getFlag("keyframe"), thisPacket.getInt("duration"));
+                  thisPacket = adjusted;
+                }
+                S.lastPacket = thisPacket.getTime() + timeOffset;
+                uint64_t sinkMs = statSinkMs.load(std::memory_order_relaxed);
+                while (S.lastPacket >= sinkMs &&
+                       !statSinkMs.compare_exchange_weak(sinkMs, S.lastPacket, std::memory_order_relaxed)) {}
               }
               // A restarted run may start at the keyframe before the end of what the previous
               // run produced; the part it already produced is dropped.
@@ -756,7 +778,7 @@ bool insertPart(const Mist::preparedSegment & mySeg, const std::string & renditi
       if (seg.S.getOutputName().empty()) { seg.S.setOutputName(rendition); }
       if (seg.fullyRead) {
         HIGH_MSG("Inserting %zi bytes of %s, originally for time %" PRIu64, len, rendition.c_str(), mySeg.time);
-        seg.set(mySeg.time, ptr, len);
+        seg.set(mySeg.hasVideo ? mySeg.videoTime : mySeg.time, ptr, len, mySeg.videoOffset);
         return true;
       }
     }

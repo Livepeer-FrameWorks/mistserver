@@ -132,9 +132,11 @@ namespace Mist{
       if (liveSeek()){return;}
     }
 
-    uint64_t offset = thisPacket.getInt("offset");
+    const int64_t offset = thisPacket.getInt("offset");
     SDP::Track & sdpTrk = sdpState.tracks[thisIdx];
-    sdpTrk.pack.setTimestamp((timestamp + offset) * SDP::getMultiplier(&M, thisIdx));
+    // Scale signed presentation time before wrapping to the 32-bit RTP clock.
+    const int64_t presentationTimestamp = (int64_t(timestamp) + offset) * SDP::getMultiplier(&M, thisIdx);
+    sdpTrk.pack.setTimestamp(uint32_t(presentationTimestamp));
 
     // Callback function used in sendData and sendRTCP_SR
     auto sendFunc = [this, &sdpTrk](const char * data, size_t len){
