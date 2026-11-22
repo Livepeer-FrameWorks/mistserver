@@ -299,7 +299,8 @@ namespace TS{
     if (tid == 0){return false;}
     {
       std::lock_guard<std::recursive_mutex> guard(tMutex);
-      return pidToCodec.count(tid);
+      const auto codec = pidToCodec.find(tid);
+      return codec != pidToCodec.end() && codec->second != PRIVATE;
     }
   }
 
@@ -1408,7 +1409,7 @@ namespace TS{
           ProgramMappingEntry entry = mappingTable[pid].getEntry(0);
           // Add all tracks in PMT
           while (entry){
-            if (!pidToCodec.count(entry.getElementaryPid())) {
+            if (!pidToCodec.count(entry.getElementaryPid()) || pidToCodec.at(entry.getElementaryPid()) == PRIVATE) {
               entry.advance();
               continue;
             }

@@ -140,6 +140,11 @@ int main(int argc, char **argv) {
     pat.FromPointer(TS::PAT);
     stream.parse(pat, 0);
     stream.parse(pmt, 188);
+    const size_t privatePID = TS::getUniqTrackID(meta, track);
+    if (stream.isDataTrack(privatePID)) {
+      fprintf(stderr, "unidentified private PES would spawn a worker that never receives media\n");
+      return 1;
+    }
     const std::string adts("\xff\xf1\x50\x80\x01\x7f\xfc\x01\x02\x03\x04", 11);
     assert(aac::adts(adts.data(), adts.size()));
     std::string pes;
@@ -161,6 +166,7 @@ int main(int argc, char **argv) {
     stream.initializeMetadata(parsed);
     const auto tracks = parsed.getValidTracks();
     assert(!tracks.empty() && parsed.getCodec(*tracks.begin()) == "AAC");
+    assert(stream.isDataTrack(privatePID));
   }
 
   std::string reorderedPes;

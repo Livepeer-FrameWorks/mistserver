@@ -1631,3 +1631,5 @@ if get_option('WITH_AV') and ffmpeg_program.found() and ffprobe_program.found()
        args: [files('process_av_rotation_integration.py'), meson.project_build_root(), ffmpeg_program, ffprobe_program],
        env: {'MIST_ROTATION_CASE': 'MPEG2:0', 'MIST_ROTATION_CONTAINER': 'mkv'}, depends: media_test_deps, suite: 'Processing', timeout: 120, is_parallel: false)
 endif
+
+test('MP4 B-frame offsets do not inflate sample durations', mp4unreadyaudiotest, args: ['bframe-duration'], suite: 'MP4')

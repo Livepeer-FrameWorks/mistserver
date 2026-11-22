@@ -462,13 +462,6 @@ namespace Mist{
           const DTSC::Parts parts(M.parts(idx));
           const size_t begin = keys.getFirstPart(keys.getFirstValid());
           duration += parts.getDuration(begin + keys.getTotalPartCount() - 1);
-          uint64_t decodeTime = 0, presentationEnd = 0;
-          for (size_t part = begin; part < begin + keys.getTotalPartCount(); ++part) {
-            const uint64_t length = parts.getDuration(part);
-            presentationEnd = std::max(presentationEnd, decodeTime + parts.getOffset(part) + length);
-            decodeTime += length;
-          }
-          duration = std::max(duration, presentationEnd);
         }
       }
       return duration;

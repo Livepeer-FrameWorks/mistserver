@@ -84,6 +84,37 @@ class MP4InitProbe : public Mist::OutMP4 {
         exit(1);
       }
     }
+    void bframeDuration() {
+      meta.reInit("", true);
+      meta.setVod(true);
+      const size_t video = meta.addTrack();
+      meta.setID(video, 1);
+      meta.setType(video, "video");
+      meta.setCodec(video, "H264");
+      meta.setWidth(video, 320);
+      meta.setHeight(video, 180);
+      for (int part = 0; part < 4; ++part) { meta.update(part * 40, 80, video, 4, part * 4, !part, 40); }
+      userSelect[video];
+      Util::ResizeablePointer head;
+      uint64_t size = 0;
+      assert(mp4Header(head, size, 0));
+      MP4::Box ftyp((char *)head, false);
+      MP4::Box moov((char *)head + ftyp.boxedSize(), false);
+      MP4::TRAK track = ((MP4::MOOV &)moov).getChild<MP4::TRAK>();
+      MP4::MDIA media = track.getChild<MP4::MDIA>();
+      MP4::STTS stts = media.getChild<MP4::MINF>().getChild<MP4::STBL>().getChild<MP4::STTS>();
+      uint64_t samplesDuration = 0;
+      for (size_t i = 0; i < stts.getEntryCount(); ++i) {
+        const MP4::STTSEntry entry = stts.getSTTSEntry(i);
+        samplesDuration += uint64_t(entry.sampleCount) * entry.sampleDelta;
+      }
+      const uint64_t mediaDuration = media.getChild<MP4::MDHD>().getDuration();
+      if (mediaDuration != 160 || samplesDuration != mediaDuration || track.getChild<MP4::TKHD>().getDuration() != 160) {
+        fprintf(stderr, "B-frame offset inflated MP4 duration: media=%llu samples=%llu\n",
+                (unsigned long long)mediaDuration, (unsigned long long)samplesDuration);
+        exit(1);
+      }
+    }
     void check() {
       meta.reInit("", true);
       meta.setLive(true);
@@ -131,6 +162,10 @@ int main(int argc, char **argv) {
   Socket::Connection conn;
   MP4InitProbe probe(conn, cfg, capa);
   if (argc > 1 && std::string(argv[1]) == "missing-order") { probe.missingSampleOrderFails(); return 0; }
+  if (argc > 1 && std::string(argv[1]) == "bframe-duration") {
+    probe.bframeDuration();
+    return 0;
+  }
   probe.check();
   for (unsigned int scenario = 0; scenario < 3; ++scenario) {
     const bool arrives = scenario == 0;
