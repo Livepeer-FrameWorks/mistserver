@@ -1,8 +1,8 @@
 #!/bin/sh
 set -eu
 
-if [ "$#" -ne 7 ]; then
-  echo "usage: $0 ffmpeg ffprobe MistController MistInRawGenerator MistOutEBML MistSession MistUtilLog" >&2
+if [ "$#" -ne 8 ]; then
+  echo "usage: $0 ffmpeg ffprobe MistController MistInRawGenerator MistOutEBML MistSession MistUtilLog MistUtilNuke" >&2
   exit 2
 fi
 if [ "${MIST_RUN_MEDIA_TESTS:-}" != "1" ]; then
@@ -17,7 +17,8 @@ input_raw=$4
 output_ebml=$5
 session=$6
 util_log=$7
-for program in "$ffmpeg" "$ffprobe" "$controller" "$input_raw" "$output_ebml" "$session" "$util_log"; do
+util_nuke=$8
+for program in "$ffmpeg" "$ffprobe" "$controller" "$input_raw" "$output_ebml" "$session" "$util_log" "$util_nuke"; do
   if [ ! -x "$program" ]; then
     echo "required executable is unavailable: $program" >&2
     exit 77
@@ -56,6 +57,11 @@ cleanup() {
     done
   fi
   if [ -n "$controller_pid" ]; then
+    if ! TMP="$ipc_root" MIST_CONTROL=1 "$util_nuke" "$stream" >"$work/nuke.log" 2>&1; then
+      echo "RawGenerator stream cleanup failed" >&2
+      cat "$work/nuke.log" >&2
+      status=1
+    fi
     kill -INT "$controller_pid" >/dev/null 2>&1 || true
     wait "$controller_pid" >/dev/null 2>&1 || true
   fi

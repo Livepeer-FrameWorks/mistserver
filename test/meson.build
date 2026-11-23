@@ -603,7 +603,7 @@ if ffmpeg_program.found() and ffprobe_program.found()
     test('RawGenerator publishes its advertised raw video stream', rawgeneratortest,
          args: [ffmpeg_program, ffprobe_program, exec_tgts.get('MistController'),
                 exec_tgts.get('MistInRawGenerator'), exec_tgts.get('MistOutEBML'),
-                exec_tgts.get('MistSession'), exec_tgts.get('MistUtilLog')],
+                exec_tgts.get('MistSession'), exec_tgts.get('MistUtilLog'), exec_tgts.get('MistUtilNuke')],
          suite: 'RawGenerator', timeout: 45, is_parallel: false)
     if have_onnx
       procstateprobe = executable('procstateprobe', 'proc_state_probe.cpp', header_tgts,
