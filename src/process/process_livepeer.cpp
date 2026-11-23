@@ -1571,7 +1571,7 @@ int main(int argc, char *argv[]){
     }
   }
   if (sourceIdx == INVALID_TRACK_ID || !M.getWidth(sourceIdx) || !M.getHeight(sourceIdx)){
-    procExit.log(ER_FORMAT_SPECIFIC, 2, "No valid source video track found");
+    procExit.log(ER_SOURCE_CODEC_UNSUPPORTED, 2, "No usable H264 or HEVC video arrived during startup; local AV must handle this source");
     return procExit.flush(procStatePage);
   }
 

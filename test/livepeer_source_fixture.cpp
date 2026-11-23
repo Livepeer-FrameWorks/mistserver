@@ -18,12 +18,13 @@ int main(int argc, char **argv) {
     return 0;
   }
   if (argc != 6) { return 2; }
-  const bool delayed = !strncmp(argv[2], "H264+EARLY", 10);
+  const bool noData = !strcmp(argv[2], "H264NODATA");
+  const bool delayed = noData || !strncmp(argv[2], "H264+EARLY", 10);
   DTSC::Meta meta(argv[1], true);
   const size_t track = meta.addTrack(1, 1, 16, 2, true);
   meta.setID(track, 1);
   meta.setType(track, "video");
-  meta.setCodec(track, !strncmp(argv[2], "H264+", 5) ? "H264" : argv[2]);
+  meta.setCodec(track, noData || !strncmp(argv[2], "H264+", 5) ? "H264" : argv[2]);
   meta.setWidth(track, 320);
   meta.setHeight(track, 180);
   meta.setRotation(track, atoi(argv[3]));
@@ -44,7 +45,7 @@ int main(int argc, char **argv) {
   }
   puts("ready");
   fflush(stdout);
-  if (delayed) {
+  if (delayed && !noData) {
     getchar();
     meta.update(0, 0, track, 1, 0, true, 1);
     puts("published");
