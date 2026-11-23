@@ -1,6 +1,7 @@
 #include "input.h"
 
 #include "../processing_lifecycle.h"
+#include "realtime_track.h"
 
 #include <mist/auth.h>
 #include <mist/defines.h>
@@ -1322,17 +1323,7 @@ namespace Mist{
         realTimeTrackMap[*it] = newIdx;
         MEDIUM_MSG("Gonna write track %zu to %zu", *it, newIdx);
         liveMeta.setID(newIdx, newID++);
-        liveMeta.setType(newIdx, M.getType(*it));
-        liveMeta.setCodec(newIdx, M.getCodec(*it));
-        liveMeta.setFpks(newIdx, M.getFpks(*it));
-        liveMeta.setInit(newIdx, M.getInit(*it));
-        liveMeta.setLang(newIdx, M.getLang(*it));
-        liveMeta.setRate(newIdx, M.getRate(*it));
-        liveMeta.setSize(newIdx, M.getSize(*it));
-        liveMeta.setWidth(newIdx, M.getWidth(*it));
-        liveMeta.setRotation(newIdx, M.getRotation(*it));
-        liveMeta.setMirror(newIdx, M.getMirror(*it));
-        liveMeta.setHeight(newIdx, M.getHeight(*it));
+        describeRealtimeTrack(liveMeta, newIdx, M, *it);
       }
     }else{
       validTracks = M.getValidTracks();

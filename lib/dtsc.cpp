@@ -3858,6 +3858,18 @@ namespace DTSC{
     uint64_t lastFragNum = t.fragments.getEndPos() - 1;
     t.fragments.setInt(t.fragmentSizeField,
                        t.fragments.getInt(t.fragmentSizeField, lastFragNum) + packDataSize, lastFragNum);
+    // Until its first fragment closes a track has no measured bitrate; a single long GOP (or a short
+    // VOD that is one GOP) never closes it. Once that open fragment spans a second its average is
+    // the bitrate, unless one is known already (a VOD header's). A closed fragment replaces it.
+    if (t.fragments.getEndPos() - t.fragments.getDeleted() == 1 && (!getBps(tNumber) || t.bpsFromOpenFragment)) {
+      const uint64_t fragStart = t.keys.getInt(t.keyTimeField, t.fragments.getInt(t.fragmentFirstKeyField, lastFragNum));
+      if (packTime >= fragStart + 1000) {
+        setBps(tNumber, t.fragments.getInt(t.fragmentSizeField, lastFragNum) * 1000 / (packTime - fragStart));
+        t.bpsFromOpenFragment = true;
+      }
+    } else {
+      t.bpsFromOpenFragment = false;
+    }
     t.track.setInt(t.trackLastmsField, packTime);
     t.track.setInt(t.trackNowmsField, packTime);
     markUpdated(tNumber);

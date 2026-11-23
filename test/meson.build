@@ -106,6 +106,8 @@ dtscunixzerotest = executable('dtscunixzerotest', 'dtsc_unixzero_unit.cpp', head
 test('DTSC preserves the authoritative Unix clock for live DVR', dtscunixzerotest, suite: 'DTSC')
 
 dtscresumetest = executable('dtscresumetest', 'dtsc_resume_unit.cpp', header_tgts, dependencies: libmist_dep)
+dtscbitratetest = executable('dtscbitratetest', 'dtsc_bitrate_unit.cpp', header_tgts, dependencies: libmist_dep)
+test('Tracks report a bitrate before their first fragment closes', dtscbitratetest, suite: 'DTSC')
 dtscoutputkeytest = executable('dtscoutputkeytest', 'dtsc_output_key_unit.cpp', header_tgts, dependencies: libmist_dep)
 test('Process outputs resume by output key only', dtscoutputkeytest, suite: 'DTSC')
 dtscreservedoutputtest = executable('dtscreservedoutputtest', 'dtsc_reserved_output_unit.cpp', header_tgts,

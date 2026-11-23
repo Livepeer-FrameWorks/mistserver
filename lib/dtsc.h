@@ -275,6 +275,8 @@ namespace DTSC{
     Util::RelAccX frames;
 
     frameRateCalculator fpsCalc;
+    /// Whether the track's bps is the estimate of its still-open first fragment (see Meta::update).
+    bool bpsFromOpenFragment{false};
 
     // Internal buffers so we don't always need to search for everything
     Util::RelAccXFieldData trackIdField;
