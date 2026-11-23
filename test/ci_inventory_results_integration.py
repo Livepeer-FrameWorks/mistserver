@@ -13,6 +13,9 @@ inventory = subprocess.check_output(['meson', 'introspect', str(build), '--tests
 rows = json.loads(inventory)
 # Model the Linux inventory when this guard's fixture runs on another host.
 for name in ('Controller capacity lifecycle whep',
+             'Controller capacity lifecycle webrtc-idle',
+             'Controller capacity lifecycle webrtc-reload',
+             'Controller capacity lifecycle whep-idle-timer',
              'Detached Mist children fail the process audit',
              'Process audit reaps adopted zombies while the test runs',
              'Process audit bounds children that ignore stop signals',
@@ -20,6 +23,11 @@ for name in ('Controller capacity lifecycle whep',
              'A session that boots across a second boundary stays up'):
     if not any(row['name'] == name for row in rows):
         rows.append({'name': name})
+# Focused hardware builds can omit the WebRTC connector. The synthetic Linux
+# inventory still needs its script identity to exercise the result guard itself.
+whip = 'WHIP offers get an answer or a logged refusal, and a passive offerer can publish'
+if not any(row['name'] == whip for row in rows):
+    rows.append({'name': whip, 'cmd': [str(Path(__file__).with_name('webrtc_whip_setup_integration.sh'))]})
 inventory = json.dumps(rows)
 root = Path(__file__).resolve().parents[1]
 with tempfile.TemporaryDirectory(prefix='mist-inventory-results-') as directory:
