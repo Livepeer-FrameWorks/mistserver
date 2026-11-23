@@ -3001,6 +3001,7 @@ namespace Mist{
         // We're still on the same page; ghost packets should update their time and retry later
         if (nxt.ghostPacket){
           if (boundedTrackExhausted) {
+            processingDrainedTracks.insert(nxt.tid);
             dropTrack(nxt.tid, "no more data in range", false);
             return 1;
           }
@@ -3830,13 +3831,14 @@ namespace Mist{
     const IPC::sharedPage & statePage = Util::streamStatePage(streamName);
     ProcessStreamState current;
     if (!statePage || !current.read(statePage.mapped, statePage.len)) { return; }
+    const bool sourceResumed = processStreamState.sourceEof && !current.sourceEof;
     processStreamState = current;
     if (current.sourceEof) {
       if (!procSourceEndedSinceMs) { procSourceEndedSinceMs = Util::bootMS(); }
     } else {
       // A resumable producer came back; measure a future EOF from the new loss.
       procSourceEndedSinceMs = 0;
-      processingDrainedTracks.clear();
+      if (sourceResumed) { processingDrainedTracks.clear(); }
     }
   }
 

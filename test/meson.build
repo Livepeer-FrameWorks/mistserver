@@ -1806,3 +1806,9 @@ if get_option('WITH_AV') and ffmpeg_program.found() and ffprobe_program.found()
        env: {'MIST_ROTATION_CASE': 'MPEG2:0', 'MIST_ROTATION_CONTAINER': 'av', 'MIST_ROTATION_ACCEL': 'sw'},
        depends: media_test_deps, suite: 'Processing', timeout: 120, is_parallel: false)
 endif
+
+if get_option('WITH_AV') and ffmpeg_program.found() and ffprobe_program.found()
+  test('Bounded recording never replays a stopped audio rendition tail', find_program('python3'),
+       args: [files('stopped_audio_recording_integration.py'), meson.project_build_root(), ffmpeg_program, ffprobe_program],
+       depends: media_test_deps, suite: 'Processing', timeout: 90, is_parallel: false)
+endif
