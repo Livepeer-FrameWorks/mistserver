@@ -49,3 +49,12 @@ Configuration: Linux, WITH_AV=false, ONNX/SSL/SRT/RIST disabled; real system FFm
 R3/CUDA work already exists in 0acdc92e1, with the actual decoder resampler regression in 4097475ed; preserved rather than redone. Subsequent handoff work must use this advanced baseline and retain those commits.
 
 Sign-off: the five requested R1 review items are implemented and covered by the focused Linux checks. Full handoff/release sign-off remains incomplete; full gates remain scheduled for the end of the work list.
+
+
+## Native HEVC open-GOP follow-up (2026-11-23)
+
+The integrated native AV-enabled build exposed a real HEVC loss that the focused Linux fixture did not: 230 video PES packets over 18 seconds, while all 844 audio packets remained continuous. The reader joined in 0.45 seconds. Ingest logged out-of-order drops (80 < 120 ms). HEVC CRA keyframes were flushing the predictor before their leading pictures arrived, and the initial short GOP froze a zero reorder window.
+
+The parser now retains HEVC's SPS-declared reorder window across keyframes, with a bounded 16-picture fallback when setup is unavailable. EOF still drains all buffered packets. A deterministic real toDTSC parser regression covers both actual x265 VPS/SPS/PPS and missing setup. Compiled with the old production parser, it fails at frame 2 (DTS 40 after 120); it passes with the fix. The unchanged real HEVC live TS/HLS test now captures 451 video packets over 18 seconds with continuous PTS/DTS and matching HLS clocks. Its H264 companion and all 11 EBML tests pass. All native build targets and changed-line clang-format21 checks pass.
+
+Evidence: /private/tmp/fw-media-round8-20261120/round9/R1-hevc-diagnostic/, including retained red stream/metadata/timings, red-unit-run.log, unit-final-green.log, fix2-run.log, final-related-ebml.log and final-related-live.log. Linux normal/strict-ASan, exact native package and full stack qualification remain pending; this does not grant release sign-off.

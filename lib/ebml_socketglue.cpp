@@ -2,6 +2,7 @@
 
 #include "ac3.h"
 #include "bitfields.h"
+#include "h265.h"
 
 #include <cmath>
 
@@ -794,8 +795,15 @@ namespace EBML{
     const bool isSubtitle = M.getCodec(idx) == "subtitle";
     const bool isWebVTT = isSubtitle && M.getInit(idx).compare(0, 6, "WEBVTT") == 0;
     bool isASS = (isSubtitle && !isWebVTT && M.getInit(idx).size());
-    // If this is a new video keyframe, finish the corresponding trackPredictor
-    if (isVideo && keyframe) { TP.finish(); }
+    // Closed-GOP codecs can drain buffered pictures before the next keyframe.
+    if (isVideo && keyframe && M.getCodec(idx) != "HEVC") { TP.finish(); }
+    if (isVideo && M.getCodec(idx) == "HEVC" && !TP.ctr) {
+      // CRA keyframes may precede leading pictures in decode order. Keep the
+      // declared reorder window across GOP boundaries instead of draining there.
+      TP.maxDelay = 16;
+      h265::initData init(M.getInit(idx));
+      if (init.haveRequired()) { TP.maxDelay = std::min<uint64_t>(init.getMeta().maxReorderFrames, PKT_COUNT - 1); }
+    }
     for (uint64_t frameNo = 0; frameNo < B.getFrameCount(); ++frameNo) {
       if (frameNo) {
         if (M.getCodec(idx) == "AAC") {
