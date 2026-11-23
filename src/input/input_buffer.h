@@ -106,8 +106,9 @@ namespace Mist{
     std::string renditionDecisionTracks;
     uint64_t renditionDecisionSince = 0;
     // Original tracks masked because the ladder replaces them (see replacedOriginals), with the
-    // validity they had before, restored once they are no longer replaced.
+    // validity they had before, restored once a new decision no longer replaces them.
     std::map<size_t, uint8_t> replacedOriginalValidity;
+    std::string replacedOriginalDecision; ///< renditionDecisionTracks the masks were made under
     void applyReplacedOriginalMasks(const ProcessGraph & graph);
     IPC::sharedPage processGraphPage;
     std::string publishedProcessGraph;

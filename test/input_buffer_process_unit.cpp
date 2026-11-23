@@ -319,6 +319,8 @@ namespace {
       uint32_t width, height;
       double rate;
       bool derived;
+      uint16_t rotation;
+      bool mirror;
   };
 
   /// A stream with original (and derived) video tracks the rendition retention rule decides on,
@@ -355,6 +357,15 @@ namespace {
        {{"H264", 1920, 1080, 7.5}, {"JPEG", 640, 360, 50}, {"H264", 1280, 720, 40, true}},
        {"360p", "480p", "720p"},
        {}},
+      // A passthrough rendition cannot carry a display orientation (HLS-TS has none).
+      {"a rotated in-band original retains nothing",
+       {{"H264", 1920, 1080, 7.5}, {"H264", 1280, 720, 4, false, 90}},
+       {"360p", "480p", "720p"},
+       {1}},
+      {"a mirrored in-band original retains nothing",
+       {{"H264", 1920, 1080, 7.5}, {"H264", 1280, 720, 4, false, 0, true}},
+       {"360p", "480p", "720p"},
+       {1}},
     };
   }
 
@@ -364,6 +375,8 @@ namespace {
     for (const CaseTrack & t : rc.tracks) {
       const size_t idx = input.addTrack("video", t.codec, t.width, t.height, t.derived ? tracks.at(0) : INVALID_TRACK_ID);
       input.meta.setBps(idx, mbit(t.rate));
+      input.meta.setRotation(idx, t.rotation);
+      input.meta.setMirror(idx, t.mirror);
       tracks.push_back(idx);
     }
     input.addTrack("audio", "AAC", 0, 0);
@@ -594,6 +607,34 @@ namespace {
         state.master = true;
         state.close();
       }
+    }
+
+    {
+      // A recording writes its header only from a graph that made every rendition decision and was
+      // resolved for every original track it records (a Matroska source registers its tracks as
+      // their first frames arrive).
+      InputBufferProbe input(&config);
+      const std::string stream = "retainPublish" + suffix;
+      input.initMetadata(stream);
+      const size_t audio = input.addTrack("audio", "AAC", 0, 0);
+      const JSON::Value livepeer = retainLadder(lpName);
+      JSON::Value configured;
+      configured.append(livepeer);
+      input.publishProcessGraph(input.resolveProcessGraph(configured));
+      JSON::Value published;
+      check(Mist::readProcessGraphPage(input.processGraphPage, published), "publish: the graph page must be readable");
+      check(Mist::processGraphCoversOriginal(published, audio), "publish: the graph lists the original it was resolved for");
+      const size_t video = input.addTrack("video", "H264", 960, 540);
+      check(!Mist::processGraphCoversOriginal(published, video), "publish: a later original is not covered by an earlier graph");
+      input.publishProcessGraph(input.resolveProcessGraph(configured));
+      check(Mist::readProcessGraphPage(input.processGraphPage, published) && !published["resolved"].asBool(),
+            "publish: a graph whose ladder still waits for the new original's bitrate is not resolved");
+      input.meta.setBps(video, mbit(2));
+      input.publishProcessGraph(input.resolveProcessGraph(configured));
+      check(Mist::readProcessGraphPage(input.processGraphPage, published) && published["resolved"].asBool() &&
+              Mist::processGraphCoversOriginal(published, video) && published["outputs"].size() == 2,
+            "publish: once decided the graph is resolved for the new original with its renditions, got " + published.toString());
+      input.processGraphPage.master = true;
     }
 
     unlink(lpPath.c_str());

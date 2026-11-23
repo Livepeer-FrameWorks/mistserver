@@ -1203,7 +1203,7 @@ namespace Mist{
       nodes.push_back(node);
     }
     inputs += "\n";
-    const uint8_t oldMask = DTSC::trackValidMask;
+    uint8_t oldMask = DTSC::trackValidMask;
     DTSC::trackValidMask = TRACK_VALID_ALL;
     const std::set<size_t> withData = M.getValidTracks(true);
     for (const size_t track : M.getValidTracks()) {
@@ -1218,6 +1218,15 @@ namespace Mist{
     processGraphNodes.clear();
     for (const ProcessGraphNode & node : nodes) { processGraphNodes[node.config] = node; }
     processGraph = buildProcessGraph(M, nodes);
+    for (const ProcessGraphNode & node : nodes) {
+      if (!node.decision.decided) { processGraph.waiting = true; }
+    }
+    oldMask = DTSC::trackValidMask;
+    DTSC::trackValidMask = TRACK_VALID_ALL;
+    for (const size_t track : M.getValidTracks()) {
+      if (M.getSourceTrack(track) == INVALID_TRACK_ID) { processGraph.originals.insert(track); }
+    }
+    DTSC::trackValidMask = oldMask;
   }
 
   /// Publishes the outputs the processing graph expects for recordings (see src/process_graph.h),
@@ -1230,8 +1239,11 @@ namespace Mist{
       if (!processGraphPage) { return; }
     }
     JSON::Value published;
-    published["resolved"] = M.getValidTracks().size() != 0 && !processingAdmissionPending(processOverride);
+    published["resolved"] = M.getValidTracks().size() != 0 && !processingAdmissionPending(processOverride) && !graph.waiting;
     published["outputs"] = graph.outputs;
+    published["originals"].append(JSON::Value());
+    published["originals"].shrink(0);
+    for (const size_t track : graph.originals) { published["originals"].append(track); }
     const std::string json = published.toString();
     if (json == publishedProcessGraph) { return; }
     if (!writeProcessGraphPage(processGraphPage, json)) {
@@ -1753,9 +1765,8 @@ namespace Mist{
   }
 
   /// Masks the original tracks the ladder replaces (see replacedOriginals) the way source_mask
-  /// masks a process's source, and restores the validity of those no longer replaced: when the
-  /// ladder retires, or a new decision has the original retain a rung. Nothing changes while a
-  /// rendition decision is not made yet.
+  /// masks a process's source, for as long as the rendition decision they were masked under
+  /// holds. Nothing changes while a rendition decision is not made yet.
   void InputBuffer::applyReplacedOriginalMasks(const ProcessGraph & graph) {
     std::vector<ProcessGraphNode> nodes;
     for (const auto & node : processGraphNodes) {
@@ -1763,16 +1774,22 @@ namespace Mist{
       nodes.push_back(node.second);
     }
     const std::map<size_t, uint8_t> replaced = replacedOriginals(M, nodes, graph);
-    for (std::map<size_t, uint8_t>::iterator it = replacedOriginalValidity.begin(); it != replacedOriginalValidity.end();) {
-      if (replaced.count(it->first)) {
-        ++it;
-        continue;
+    // A mask holds for the decision it was made under: a ladder that retires (a VOD encode that
+    // finished) does not bring the original back while a recording of the stream runs. Only a
+    // new decision restores the originals it no longer replaces.
+    if (replacedOriginalDecision != renditionDecisionTracks) {
+      for (std::map<size_t, uint8_t>::iterator it = replacedOriginalValidity.begin(); it != replacedOriginalValidity.end();) {
+        if (replaced.count(it->first)) {
+          ++it;
+          continue;
+        }
+        if (M.trackValid(it->first)) {
+          INFO_MSG("Unmasking original track %zu: the new rendition decision does not replace it", it->first);
+          meta.validateTrack(it->first, it->second);
+        }
+        replacedOriginalValidity.erase(it++);
       }
-      if (M.trackValid(it->first)) {
-        INFO_MSG("Unmasking original track %zu: the rendition ladder no longer replaces it", it->first);
-        meta.validateTrack(it->first, it->second);
-      }
-      replacedOriginalValidity.erase(it++);
+      replacedOriginalDecision = renditionDecisionTracks;
     }
     for (const auto & original : replaced) {
       if (replacedOriginalValidity.count(original.first)) { continue; }

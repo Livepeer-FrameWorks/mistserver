@@ -1741,7 +1741,8 @@ bool Util::retentionPending(const DTSC::Meta & M, size_t *pendingTrack) {
 }
 
 /// The original track that satisfies a rendition's track_retain selector, or INVALID_TRACK_ID.
-/// Of the original continuous-video tracks the selector selects, the one whose bitrate is
+/// Of the upright, unreflected original continuous-video tracks the selector selects (rotation 0,
+/// mirror false), the one whose bitrate is
 /// closest to the rendition's target bitrate (bits per second) wins, the lowest index on a tie.
 /// FrameWorks (pkg/mist PlanRetention) predicts renditions with the same rule.
 size_t Util::retainedTrack(const DTSC::Meta & M, const std::string & retain, uint64_t bitrate) {
@@ -1753,6 +1754,9 @@ size_t Util::retainedTrack(const DTSC::Meta & M, const std::string & retain, uin
     if (M.getType(track) != "video" || isImageCodec(M.getCodec(track)) || M.getSourceTrack(track) != INVALID_TRACK_ID) {
       continue;
     }
+    // A rendition passed through as is cannot carry a display rotation or reflection (HLS-TS has
+    // no place for one), so only an upright, unreflected original retains a rung.
+    if (M.getRotation(track) || M.getMirror(track)) { continue; }
     const uint64_t rate = (uint64_t)M.getBps(track) * 8;
     const uint64_t distance = rate > bitrate ? rate - bitrate : bitrate - rate;
     if (best == INVALID_TRACK_ID || distance < bestDistance) {

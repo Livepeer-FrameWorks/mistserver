@@ -3917,6 +3917,13 @@ namespace Mist{
                                              validTracksWithData.count(track))) {
         continue;
       }
+      // A graph resolved before this original arrived does not expect its outputs yet.
+      if (!processGraphCoversOriginal(graph, track)) {
+        if (recordingHeaderWaitLog.shouldLog("graph-original", Util::bootMS())) {
+          INFO_MSG("Waiting for the processing graph to include original track %zu before recording header", track);
+        }
+        return false;
+      }
       ++selectedOriginalTracks;
       if (validTracksWithData.count(track)) { ++readyOriginalTracks; }
     }

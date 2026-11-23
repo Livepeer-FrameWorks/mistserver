@@ -299,6 +299,8 @@ namespace Mist {
       /// The outputs the running, producing processes add to this stream: one description per
       /// declared output (see describeExistingTrack) with its output key and the config producing it.
       JSON::Value outputs;
+      std::set<size_t> originals; ///< the original tracks it was resolved for
+      bool waiting = false; ///< a process's rendition decision is not made yet
   };
 
   /// The declared outputs of a node that go to this stream and are not dropped by its rendition
@@ -435,8 +437,9 @@ namespace Mist {
 
   /// The page a processing stream's buffer publishes its graph on (SHM_STREAM_PGRAPH): a sequence
   /// number that is odd while the buffer writes, the length of the JSON that follows, and
-  /// {"resolved": bool, "outputs": [...]} with the expected outputs of ProcessGraph::outputs.
-  /// The graph is resolved once the stream has its source tracks.
+  /// {"resolved": bool, "outputs": [...], "originals": [...]} with the expected outputs of
+  /// ProcessGraph::outputs and the original tracks they were resolved for. The graph is resolved
+  /// once the stream has its source tracks and every rendition decision is made.
   static const size_t PROCESS_GRAPH_HEADER_LEN = 8;
 
   inline bool writeProcessGraphPage(IPC::sharedPage & page, const std::string & json) {
@@ -466,6 +469,15 @@ namespace Mist {
       if (__atomic_load_n(seq, __ATOMIC_ACQUIRE) != before) { continue; }
       graph = JSON::fromString(json);
       return graph.isObject();
+    }
+    return false;
+  }
+
+  /// Whether a published graph (see PROCESS_GRAPH_HEADER_LEN) was resolved for an original track:
+  /// a track that arrived after it may still add expected outputs.
+  inline bool processGraphCoversOriginal(const JSON::Value & graph, size_t track) {
+    jsonForEachConst (graph["originals"], it) {
+      if ((size_t)it->asInt() == track) { return true; }
     }
     return false;
   }

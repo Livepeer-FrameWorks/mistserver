@@ -1257,6 +1257,9 @@ foreach media_target : ['MistProcAV', 'MistProcThumbs', 'MistProcLivepeer', 'Mis
   endif
 endforeach
 if get_option('WITH_AV') and ffmpeg_program.found() and ffprobe_program.found()
+  test('A Matroska upload recording declares every ladder rendition in its header', find_program('python3'),
+       args: [files('mkv_processing_header_integration.py'), meson.project_build_root(), ffmpeg_program, ffprobe_program],
+       depends: media_test_deps, suite: 'Processing', timeout: 180, is_parallel: false)
   test('Upload containers preserve video codecs, surround audio and subtitle durations', find_program('python3'),
        args: [files('upload_formats_integration.py'), meson.project_build_root(), ffmpeg_program],
        depends: media_test_deps, suite: 'Processing', timeout: 180, is_parallel: false)
