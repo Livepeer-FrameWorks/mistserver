@@ -13,6 +13,7 @@ static int acquireFrame(AVCodecContext *encoder, AVFrame *frame) {
 }
 static int transferFrame(AVFrame *to, const AVFrame *from, int flags) {
   ++transferred;
+  if (to->format == AV_PIX_FMT_QSV || from->format == AV_PIX_FMT_QSV) { return 0; }
   assert(flags == 0 && to->format == AV_PIX_FMT_CUDA && from->format == AV_PIX_FMT_CUDA);
   assert(to->hw_frames_ctx->data != from->hw_frames_ctx->data);
   return 0;
@@ -62,6 +63,14 @@ int main() {
               acquired, transferred);
       return 1;
     }
+    frame->format = encoder->pix_fmt = AV_PIX_FMT_QSV;
+    acquired = transferred = 0;
+    const int qsvResult = Mist::prepareHardwareEncodeFrame(frame, encoder, upload, prepared, acquireFrame, transferFrame);
+    if (qsvResult < 0 || prepared == frame || acquired != 1 || transferred != 2) {
+      fprintf(stderr, "Distinct QSV pools must download then upload: acquired=%d transferred=%d\n", acquired, transferred);
+      return 1;
+    }
+    frame->format = encoder->pix_fmt = AV_PIX_FMT_CUDA;
     av_buffer_unref(&encoder->hw_frames_ctx);
     encoder->hw_frames_ctx = av_buffer_ref(frame->hw_frames_ctx);
     acquired = transferred = 0;

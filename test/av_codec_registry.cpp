@@ -1,7 +1,9 @@
 #include <iostream>
+#include <string>
 
 extern "C" {
 #include <libavcodec/avcodec.h>
+#include <libavfilter/avfilter.h>
 }
 
 struct RequiredCodec {
@@ -23,7 +25,29 @@ static bool requireDecoder(const RequiredCodec & codec) {
   return false;
 }
 
-int main() {
+int main(int argc, char **argv) {
+  if (argc > 1 && std::string(argv[1]) == "hardware-linux") {
+    bool ok = true;
+    for (const char *name : {"h264_qsv", "hevc_qsv", "av1_qsv", "vp9_qsv", "mpeg2_qsv", "h264_cuvid", "hevc_cuvid", "av1_cuvid"}) {
+      if (!avcodec_find_decoder_by_name(name)) {
+        std::cerr << "Missing packaged hardware decoder: " << name << std::endl;
+        ok = false;
+      }
+    }
+    for (const char *name : {"h264_qsv", "av1_qsv", "mjpeg_qsv", "h264_nvenc", "av1_nvenc", "h264_vaapi", "mjpeg_vaapi"}) {
+      if (!avcodec_find_encoder_by_name(name)) {
+        std::cerr << "Missing packaged hardware encoder: " << name << std::endl;
+        ok = false;
+      }
+    }
+    for (const char *name : {"vpp_qsv", "scale_qsv", "scale_cuda", "scale_vaapi", "hwdownload", "hwupload"}) {
+      if (!avfilter_get_by_name(name)) {
+        std::cerr << "Missing packaged hardware filter: " << name << std::endl;
+        ok = false;
+      }
+    }
+    return ok ? 0 : 1;
+  }
   static const RequiredCodec requiredEncoders[] = {
     {"H264", AV_CODEC_ID_H264},
     {"HEVC", AV_CODEC_ID_HEVC},

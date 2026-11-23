@@ -328,6 +328,45 @@ if get_option('WITH_AV')
     'decklink_indev=disabled',
     'decklink_outdev=disabled',
   ]
+  if host_machine.system() == 'linux'
+    ffmpeg_opts += ['ffnvcodec=enabled', 'cuda=enabled', 'cuvid=enabled', 'nvdec=enabled', 'nvenc=enabled',
+                    'ff_cuda_llvm=enabled', 'vaapi=enabled', 'vaapi_drm=enabled', 'libdrm=enabled',
+                    'hwupload_filter=enabled', 'hwupload_cuda_filter=enabled', 'scale_cuda_filter=enabled',
+                    'scale_vaapi_filter=enabled', 'transpose_vaapi_filter=enabled']
+    foreach codec : ['h264', 'hevc', 'av1']
+      ffmpeg_opts += [codec + '_nvenc_encoder=enabled']
+    endforeach
+    foreach codec : ['h264', 'hevc', 'av1', 'mjpeg', 'mpeg1', 'mpeg2', 'mpeg4', 'vc1', 'vp8', 'vp9']
+      ffmpeg_opts += [codec + '_cuvid_decoder=enabled']
+    endforeach
+    foreach codec : ['h264', 'hevc', 'av1', 'mjpeg', 'mpeg1', 'mpeg2', 'mpeg4', 'vc1', 'vp8', 'vp9', 'wmv3']
+      ffmpeg_opts += [codec + '_nvdec_hwaccel=enabled']
+    endforeach
+    foreach codec : ['h264', 'hevc', 'av1', 'h263', 'mjpeg', 'mpeg2', 'mpeg4', 'vc1', 'vp8', 'vp9', 'wmv3']
+      ffmpeg_opts += [codec + '_vaapi_hwaccel=enabled']
+    endforeach
+    foreach codec : ['h264', 'hevc', 'av1', 'mjpeg', 'mpeg2', 'vp8', 'vp9']
+      ffmpeg_opts += [codec + '_vaapi_encoder=enabled']
+    endforeach
+    # The Linux oneVPL runtime is supplied for Intel's x86 target architecture.
+    if host_machine.cpu_family() == 'x86_64' or dependency('vpl', required: false).found()
+      ffmpeg_opts += ['libvpl=enabled', 'vpp_qsv_filter=enabled', 'scale_qsv_filter=enabled']
+      foreach codec : ['h264', 'hevc', 'av1', 'mjpeg', 'mpeg2', 'vc1', 'vp8', 'vp9']
+        ffmpeg_opts += [codec + '_qsv_decoder=enabled']
+      endforeach
+      foreach codec : ['h264', 'hevc', 'av1', 'mjpeg', 'mpeg2', 'vp9']
+        ffmpeg_opts += [codec + '_qsv_encoder=enabled']
+      endforeach
+    endif
+  elif host_machine.system() == 'darwin'
+    ffmpeg_opts += ['videotoolbox=enabled', 'scale_vt_filter=enabled', 'transpose_vt_filter=enabled']
+    foreach codec : ['h263', 'h264', 'hevc', 'mpeg1', 'mpeg2', 'mpeg4', 'prores', 'vp9']
+      ffmpeg_opts += [codec + '_videotoolbox_hwaccel=enabled']
+    endforeach
+    foreach codec : ['h264', 'hevc', 'prores']
+      ffmpeg_opts += [codec + '_videotoolbox_encoder=enabled']
+    endforeach
+  endif
   av_libs += dependency('libswscale', fallback: ['ffmpeg', 'libswscale_dep'], default_options: ffmpeg_opts)
   av_libs += dependency('libavformat', fallback: ['ffmpeg', 'libavformat_dep'], default_options: ffmpeg_opts)
   av_libs += dependency('libavcodec', fallback: ['ffmpeg', 'libavcodec_dep'], default_options: ffmpeg_opts)

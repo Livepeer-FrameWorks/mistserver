@@ -25,15 +25,28 @@ namespace Mist {
                                         int (*transfer)(AVFrame *, const AVFrame *, int) = av_hwframe_transfer_data) {
     prepared = 0;
     if (!input || !encoder || !upload) { return AVERROR(EINVAL); }
-    if (input->format == encoder->pix_fmt && input->hw_frames_ctx &&
-        (input->format != AV_PIX_FMT_CUDA ||
-         (encoder->hw_frames_ctx && input->hw_frames_ctx->data == encoder->hw_frames_ctx->data))) {
+    if (input->format == encoder->pix_fmt && input->hw_frames_ctx && encoder->hw_frames_ctx &&
+        input->hw_frames_ctx->data == encoder->hw_frames_ctx->data) {
       prepared = input;
       return 0;
     }
     int result = acquire(encoder, upload);
     if (result < 0) { return result; }
-    result = transfer(upload, input, 0);
+    const AVPixFmtDescriptor *description = av_pix_fmt_desc_get((AVPixelFormat)input->format);
+    if (description && (description->flags & AV_PIX_FMT_FLAG_HWACCEL) && input->format != AV_PIX_FMT_CUDA) {
+      if (!input->hw_frames_ctx) { return AVERROR(EINVAL); }
+      const AVHWFramesContext *source = (const AVHWFramesContext *)input->hw_frames_ctx->data;
+      AVFrame *download = av_frame_alloc();
+      if (!download) { return AVERROR(ENOMEM); }
+      download->format = source->sw_format;
+      download->width = input->width;
+      download->height = input->height;
+      result = transfer(download, input, 0);
+      if (result >= 0) { result = transfer(upload, download, 0); }
+      av_frame_free(&download);
+    } else {
+      result = transfer(upload, input, 0);
+    }
     if (result < 0) { return result; }
     result = av_frame_copy_props(upload, input);
     if (result < 0) { return result; }

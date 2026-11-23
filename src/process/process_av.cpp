@@ -4,6 +4,7 @@
 #include "../input/input.h"
 #include "../output/output.h"
 #include "process.hpp"
+#include "process_av_acceleration.h"
 #include "process_av_audio.h"
 #include "process_av_bitrate.h"
 #include "process_av_decoder_policy.h"
@@ -68,6 +69,7 @@ const AVCodec *codec_out = 0, *codec_in = 0;      ///< Decoding/encoding codecs 
 bool skipPacket = false;
 AVPacket* packet_out;                             ///< Buffer for encoded audio/video packets
 AVFrame *frameConverted = 0;                      ///< Buffer for encoded audio/video frames
+std::atomic<uint64_t> videoEncoderGeneration(0);
 AVFrame *frameInHW = 0;                           ///< Buffer for frames when encoding hardware accelerated
 AVFrame *frameDecodeHW = 0;                       ///< Buffer for frames when decoding hardware accelerated
 AVAudioFifo *audioBuffer = 0;                     ///< Buffer for encoded audio samples
@@ -162,6 +164,8 @@ namespace Mist{
     size_t trkIdx;
     Util::ResizeablePointer ppsInfo;
     Util::ResizeablePointer spsInfo;
+    bool videoInitDirty = false;
+    uint64_t encoderGeneration = 0;
 
   public:
     ProcessSink(Util::Config *cfg) : Input(cfg){
@@ -207,9 +211,13 @@ namespace Mist{
           // Set PPS/SPS info
           uint8_t typeNal = bufIt[0] & 0x1F;
           if (typeNal == 0x07){
-            spsInfo.assign(std::string(bufIt, (nextPtr - bufIt)));
+            const std::string value(bufIt, nextPtr - bufIt);
+            videoInitDirty = videoInitDirty || std::string(spsInfo, spsInfo.size()) != value;
+            spsInfo.assign(value);
           } else if (typeNal == 0x08){
-            ppsInfo.assign(std::string(bufIt, (nextPtr - bufIt)));
+            const std::string value(bufIt, nextPtr - bufIt);
+            videoInitDirty = videoInitDirty || std::string(ppsInfo, ppsInfo.size()) != value;
+            ppsInfo.assign(value);
           }
           thisPacket.appendNal(bufIt, nalSize);
         }
@@ -388,7 +396,9 @@ namespace Mist{
 
     /// \brief Sets init data based on the last loaded SPS and PPS data
     void setVideoInit(){
-      if (trkIdx != INVALID_TRACK_ID){return;}
+      const uint64_t generation = videoEncoderGeneration.load();
+      if (trkIdx != INVALID_TRACK_ID && !videoInitDirty && encoderGeneration == generation) { return; }
+      encoderGeneration = generation;
       // We're encoding to a target codec
       DTSC::TrackMetadata trkDta = outputTrackBase();
       // The source can already be resetting its next frame while this packet is buffered.
@@ -429,6 +439,14 @@ namespace Mist{
         }
       }
 
+      if (trkIdx != INVALID_TRACK_ID) {
+        meta.setInit(trkIdx, trkDta.init);
+        meta.setWidth(trkIdx, trkDta.width);
+        meta.setHeight(trkIdx, trkDta.height);
+        videoInitDirty = false;
+        return;
+      }
+      videoInitDirty = false;
       // Add a single track and init some metadata
       meta.reInit(streamName, false);
       size_t lineage = INVALID_TRACK_ID;
@@ -523,7 +541,23 @@ namespace Mist{
     uint64_t skippedFrames; //< Amount of frames since last JPEG image
     uint64_t lastSendNextEnd; //< End timestamp of the previous source-side processing call
     bool hardwareFormatDeclined{false};
+    AVPixelFormat requestedDecodeFormat{AV_PIX_FMT_NONE};
+    std::vector<HardwareCodecCandidate> decoderCandidates;
+    size_t nextDecoderCandidate{0};
+    std::vector<HardwareCodecCandidate> encoderCandidates;
+    size_t nextEncoderCandidate{0};
     bool decoderProducedFrame{false};
+    std::vector<AVPacket *> decoderReplay;
+    size_t decoderReplayBytes = 0;
+    bool replayingDecoder = false, replayFailed = false, haveReplayKey = false, waitingDecoderKey = false;
+    bool publishedVideoFrame = false;
+    uint64_t lastPublishedVideoTime = 0;
+    void clearDecoderReplay() {
+      for (AVPacket *packet : decoderReplay) { av_packet_free(&packet); }
+      decoderReplay.clear();
+      decoderReplayBytes = 0;
+      haveReplayKey = false;
+    }
     DecoderErrorStreak decoderErrors;
     AVPixelFormat loggedDecodeFormat{AV_PIX_FMT_NONE};
     bool decodedFrameTimestamped; //< The decoder supplied a presentation timestamp for the current frame
@@ -579,6 +613,7 @@ namespace Mist{
     }
 
     ~ProcessSource(){
+      clearDecoderReplay();
 
       if (resampleContext){
         swr_free(&resampleContext);
@@ -650,7 +685,8 @@ namespace Mist{
     }
 
     /// \brief Tries to open a given encoder. On success immediately configures it
-    bool tryEncoder(std::string encoder, AVHWDeviceType hwDev, AVPixelFormat pixFmt, AVPixelFormat softFmt){
+    bool tryEncoder(std::string encoder, AVHWDeviceType hwDev, AVPixelFormat pixFmt, AVPixelFormat softFmt,
+                    const std::string & selector = "") {
       av_logLevel = AV_LOG_DEBUG;
       if (encoder.size()){
         codec_out = avcodec_find_encoder_by_name(encoder.c_str());
@@ -731,7 +767,7 @@ namespace Mist{
       AVBufferRef *hw_device_ctx = 0;
       if (hwDev != AV_HWDEVICE_TYPE_NONE){
         tmpCtx->refs = 0;
-        av_hwdevice_ctx_create(&hw_device_ctx, hwDev, 0, 0, 0);
+        createHardwareDevice(&hw_device_ctx, hwDev, selector);
 
         if (!hw_device_ctx){
           INFO_MSG("Could not open %s %s hardware acceleration", encoder.c_str(), codecOut.c_str());
@@ -741,32 +777,45 @@ namespace Mist{
           return false;
         }
 
-        INFO_MSG("Creating hw frame context");
-        const int framesResult = configureHardwareUploadPool(tmpCtx, hw_device_ctx, pixFmt, softFmt, reqWidth, reqHeight);
+        int framesResult = 0;
+        tmpCtx->hw_device_ctx = av_buffer_ref(hw_device_ctx);
+        if (!tmpCtx->hw_device_ctx) { framesResult = AVERROR(ENOMEM); }
+        if (framesResult >= 0 && hardwarePixelFormat(pixFmt)) {
+          framesResult = configureHardwareUploadPool(tmpCtx, hw_device_ctx, pixFmt, softFmt, reqWidth, reqHeight);
+          if (framesResult >= 0) {
+            frameInHW = av_frame_alloc();
+            if (!frameInHW) { framesResult = AVERROR(ENOMEM); }
+          }
+        }
         av_buffer_unref(&hw_device_ctx);
         if (framesResult < 0) {
+          av_frame_free(&frameInHW);
           avcodec_free_context(&tmpCtx);
           softFormat = AV_PIX_FMT_NONE;
           return false;
         }
-        softFormat = softFmt;
-        frameInHW = av_frame_alloc();
+        softFormat = hardwarePixelFormat(pixFmt) ? softFmt : AV_PIX_FMT_NONE;
+      }
+      if (codecOut == "JPEG") {
+        tmpCtx->color_range = AVCOL_RANGE_JPEG;
+        tmpCtx->flags |= AV_CODEC_FLAG_QSCALE;
+        tmpCtx->global_quality = FF_QP2LAMBDA * Mist::opt["quality"].asInt();
       }
 
       INFO_MSG("Initing codec...");
       int ret;
+      AVDictionary *avDict = 0;
       if (hwDev == AV_HWDEVICE_TYPE_CUDA){
-        AVDictionary *avDict = NULL;
         if (codecOut == "H264" && Mist::opt["tune"].asString() == "zerolatency"){
-          av_dict_set(&avDict, "preset", "ll", 0);
+          av_dict_set(&avDict, "preset", "p4", 0);
           av_dict_set(&avDict, "tune", "ull", 0);
         }
         if (Mist::opt["tune"].asString() == "zerolatency-lq"){
-          av_dict_set(&avDict, "preset", "llhp", 0);
+          av_dict_set(&avDict, "preset", "p1", 0);
           av_dict_set(&avDict, "tune", "ull", 0);
         }
         if (Mist::opt["tune"].asString() == "zerolatency-hq"){
-          av_dict_set(&avDict, "preset", "llhq", 0);
+          av_dict_set(&avDict, "preset", "p7", 0);
           av_dict_set(&avDict, "tune", "ull", 0);
         }
         av_dict_set(&avDict, "rc", "cbr", 0);
@@ -783,7 +832,6 @@ namespace Mist{
         }
         ret = avcodec_open2(tmpCtx, codec_out, &avDict);
       }else if (hwDev == AV_HWDEVICE_TYPE_QSV){
-        AVDictionary *avDict = NULL;
         if (codecOut == "H264"){
           av_dict_set(&avDict, "preset", "medium", 0);
 #if defined(LIBAVCODEC_VERSION_MAJOR) && LIBAVCODEC_VERSION_MAJOR >= 61
@@ -799,7 +847,6 @@ namespace Mist{
         av_dict_set(&avDict, "look_ahead", "0", 0);
         ret = avcodec_open2(tmpCtx, codec_out, &avDict);
       }else{
-        AVDictionary *avDict = NULL;
         if (codecOut == "H264"){
           // x264 has basically 2 useful encode modes:
           // - average bit rate (default)
@@ -826,6 +873,8 @@ namespace Mist{
         ret = avcodec_open2(tmpCtx, codec_out, &avDict);
       }
 
+      av_dict_free(&avDict);
+
       if (ret < 0) {
         if (hw_device_ctx){av_buffer_unref(&hw_device_ctx);}
         if (frameInHW){av_frame_free(&frameInHW);}
@@ -836,6 +885,7 @@ namespace Mist{
         return false;
       }
       context_out = tmpCtx;
+      ++videoEncoderGeneration;
       // Record whether the encode negotiated to HW; the ProcState publisher
       // switches its primary resource and measured feed contract accordingly.
       hwEncodeActive = (hwDev != AV_HWDEVICE_TYPE_NONE);
@@ -850,44 +900,24 @@ namespace Mist{
       // Prepare target codec encoder
       if (!context_out && (codecOut == "H264" || codecOut == "AV1" || codecOut == "JPEG")) {
         INFO_MSG("Initting %s encoder", codecOut.c_str());
-        if(codecOut == "H264"){
-#ifdef __APPLE__
-          if (allowHW && !allowSW &&
-              tryEncoder("h264_videotoolbox", AV_HWDEVICE_TYPE_VIDEOTOOLBOX, AV_PIX_FMT_VIDEOTOOLBOX, AV_PIX_FMT_NV12)) {
-            return;
+        if (encoderCandidates.empty()) {
+          encoderCandidates = videoCodecCandidates(AVCodecMap::codecID(codecOut), true, allowHW, allowSW);
+        }
+        while (nextEncoderCandidate < encoderCandidates.size()) {
+          const HardwareCodecCandidate & candidate = encoderCandidates[nextEncoderCandidate++];
+          INFO_MSG("Trying video encoder %s device=%s selector=%s", candidate.codec->name,
+                   candidate.device == AV_HWDEVICE_TYPE_NONE ? (candidate.hardware ? "internal" : "software")
+                                                             : av_hwdevice_get_type_name(candidate.device),
+                   candidate.selector.empty() ? "default" : candidate.selector.c_str());
+          if (tryEncoder(candidate.codec->name, candidate.device, candidate.format, candidate.software, candidate.selector)) {
+            hwEncodeActive = candidate.hardware;
+            break;
           }
-#endif
-          // if (!allowHW || !tryEncoder("h264_qsv", AV_HWDEVICE_TYPE_QSV, AV_PIX_FMT_QSV, AV_PIX_FMT_YUV420P)){
-            if (!allowHW || !tryEncoder("h264_nvenc", AV_HWDEVICE_TYPE_CUDA, AV_PIX_FMT_CUDA, AV_PIX_FMT_YUV420P)){
-              INFO_MSG("Falling back to software encoder.");
-              if (!allowSW || !tryEncoder("", AV_HWDEVICE_TYPE_NONE, AV_PIX_FMT_YUV420P, AV_PIX_FMT_NONE)){
-                ERROR_MSG("Could not allocate H264 context");
-                exit(1);
-              }
-            }
-          // }
-        }else if(codecOut == "AV1"){
-          // if (!allowHW || !tryEncoder("av1_qsv", AV_HWDEVICE_TYPE_QSV, AV_PIX_FMT_QSV, AV_PIX_FMT_YUV420P)){
-            if (!allowHW || !tryEncoder("av1_nvenc", AV_HWDEVICE_TYPE_CUDA, AV_PIX_FMT_CUDA, AV_PIX_FMT_YUV420P)){
-              INFO_MSG("Falling back to software encoder.");
-              if (!allowSW || !tryEncoder("", AV_HWDEVICE_TYPE_NONE, AV_PIX_FMT_YUV420P, AV_PIX_FMT_NONE)){
-                ERROR_MSG("Could not allocate AV1 context");
-                exit(1);
-              }
-            }
-          // }
-        }else if(codecOut == "JPEG"){
-          // Default to a software transcode
-          if (!allowSW || !tryEncoder("", AV_HWDEVICE_TYPE_NONE, AV_PIX_FMT_YUVJ420P, AV_PIX_FMT_NONE)){
-            // if (!allowHW || !tryEncoder("mjpeg_qsv", AV_HWDEVICE_TYPE_QSV, AV_PIX_FMT_QSV, AV_PIX_FMT_YUVJ420P)){
-              if (!allowHW || !tryEncoder("mjpeg_nvenc", AV_HWDEVICE_TYPE_CUDA, AV_PIX_FMT_CUDA, AV_PIX_FMT_YUVJ420P)){
-                  ERROR_MSG("Could not allocate AV1 context");
-                  exit(1);
-              }
-            // }
-          }
-
-
+        }
+        if (!context_out) {
+          procExit.log(ER_FORMAT_SPECIFIC, 2, "No available encoder accepts %s", codecOut.c_str());
+          config->is_active = false;
+          return;
         }
         INFO_MSG("%s encoder initted", codecOut.c_str());
       }
@@ -1013,77 +1043,63 @@ namespace Mist{
       }
 
     /// \brief Tries to open a given encoder. On success immediately configures it
-    bool tryDecoder(std::string decoder, AVHWDeviceType hwDev, AVPixelFormat pixFmt, AVPixelFormat softFmt){
-      av_logLevel = AV_LOG_DEBUG;
-       if (decoder.size()){
-         codec_in = avcodec_find_decoder_by_name(decoder.c_str());
-      }else{
-        const AVCodecID id = AVCodecMap::codecID(codecIn);
-        codec_in = id == AV_CODEC_ID_NONE ? NULL : avcodec_find_decoder(id);
-      }
-      if (!codec_in) {
-        ERROR_MSG("No decoder for input codec %s", codecIn.c_str());
-        av_logLevel = AV_LOG_WARNING;
-        return false;
-      }
-      AVCodecContext * tmpCtx = avcodec_alloc_context3(codec_in);
-      if (!tmpCtx) {
-        ERROR_MSG("Could not allocate %s %s decode context", decoder.c_str(), codecIn.c_str());
-        av_logLevel = AV_LOG_WARNING;
-        return false;
-      }
-
-      std::string init = M.getInit(thisIdx);
-      if (init.size()) {
-        tmpCtx->extradata = (unsigned char *)av_mallocz(init.size() + AV_INPUT_BUFFER_PADDING_SIZE);
-        if (!tmpCtx->extradata) {
-          avcodec_free_context(&tmpCtx);
-          av_logLevel = AV_LOG_WARNING;
-          return false;
-        }
-        tmpCtx->extradata_size = init.size();
-        memcpy(tmpCtx->extradata, init.data(), init.size());
-      }
-
-      uint64_t h = M.getHeight(thisIdx);
-      uint64_t w = M.getWidth(thisIdx);
-      tmpCtx->pix_fmt = pixFmt;
-      tmpCtx->height = h;
-      tmpCtx->width = w;
-      tmpCtx->pkt_timebase = (AVRational){1, 1000};
-      if (Mist::opt["decode_threads"].asInt() > 0) {
-        tmpCtx->thread_count = std::min<int64_t>(64, Mist::opt["decode_threads"].asInt());
-      }
-
-      if (hwDev != AV_HWDEVICE_TYPE_NONE){
-        tmpCtx->refs = 0;
-        av_hwdevice_ctx_create(&hw_decode_ctx, hwDev, 0, 0, 0);
-
-        if (!hw_decode_ctx){
-          INFO_MSG("Could not open %s %s hardware decode acceleration", decoder.c_str(), codecIn.c_str());
-          avcodec_free_context(&tmpCtx);
-          av_logLevel = AV_LOG_WARNING;
-          softDecodeFormat = AV_PIX_FMT_NONE;
-          return false;
-        }
-
-        if (hwDev == AV_HWDEVICE_TYPE_VIDEOTOOLBOX) {
-          tmpCtx->hw_device_ctx = av_buffer_ref(hw_decode_ctx);
-          tmpCtx->opaque = this;
-          tmpCtx->get_format = [](AVCodecContext *ctx, const AVPixelFormat *formats) {
-            ProcessSource *owner = static_cast<ProcessSource *>(ctx->opaque);
-            const AVPixelFormat format = videoToolboxDecoderFormat(formats, allowSW, owner->hardwareFormatDeclined);
-            if (format != AV_PIX_FMT_NONE && format != AV_PIX_FMT_VIDEOTOOLBOX) {
-              INFO_MSG("VideoToolbox declined this stream; decoding with software pixel format %s", av_get_pix_fmt_name(format));
-            }
-            return format;
-          };
-          softDecodeFormat = softFmt;
-          frameDecodeHW = av_frame_alloc();
+      bool tryDecoder(std::string decoder, AVHWDeviceType hwDev, AVPixelFormat pixFmt, AVPixelFormat softFmt,
+                      const std::string & selector = "") {
+        av_logLevel = AV_LOG_DEBUG;
+        if (decoder.size()) {
+          codec_in = avcodec_find_decoder_by_name(decoder.c_str());
         } else {
-          // Decoder-owned pools select NV12/P010 from the compressed stream.
+          const AVCodecID id = AVCodecMap::codecID(codecIn);
+          codec_in = id == AV_CODEC_ID_NONE ? NULL : avcodec_find_decoder(id);
+        }
+        if (!codec_in) {
+          ERROR_MSG("No decoder for input codec %s", codecIn.c_str());
+          av_logLevel = AV_LOG_WARNING;
+          return false;
+        }
+        AVCodecContext *tmpCtx = avcodec_alloc_context3(codec_in);
+        if (!tmpCtx) {
+          ERROR_MSG("Could not allocate %s %s decode context", decoder.c_str(), codecIn.c_str());
+          av_logLevel = AV_LOG_WARNING;
+          return false;
+        }
+
+        std::string init = M.getInit(thisIdx);
+        if (init.size()) {
+          tmpCtx->extradata = (unsigned char *)av_mallocz(init.size() + AV_INPUT_BUFFER_PADDING_SIZE);
+          if (!tmpCtx->extradata) {
+            avcodec_free_context(&tmpCtx);
+            av_logLevel = AV_LOG_WARNING;
+            return false;
+          }
+          tmpCtx->extradata_size = init.size();
+          memcpy(tmpCtx->extradata, init.data(), init.size());
+        }
+
+        uint64_t h = M.getHeight(thisIdx);
+        uint64_t w = M.getWidth(thisIdx);
+        // get_format negotiates the hardware format after parsing the sequence header.
+        tmpCtx->height = h;
+        tmpCtx->width = w;
+        tmpCtx->pkt_timebase = (AVRational){1, 1000};
+        if (Mist::opt["decode_threads"].asInt() > 0) {
+          tmpCtx->thread_count = std::min<int64_t>(64, Mist::opt["decode_threads"].asInt());
+        }
+
+        if (hwDev != AV_HWDEVICE_TYPE_NONE) {
+          tmpCtx->refs = 0;
+          createHardwareDevice(&hw_decode_ctx, hwDev, selector);
+
+          if (!hw_decode_ctx) {
+            INFO_MSG("Could not open %s %s hardware decode acceleration", decoder.c_str(), codecIn.c_str());
+            avcodec_free_context(&tmpCtx);
+            av_logLevel = AV_LOG_WARNING;
+            softDecodeFormat = AV_PIX_FMT_NONE;
+            return false;
+          }
+
+          // The decoder selects and owns the pool from the actual stream format.
           tmpCtx->hw_device_ctx = av_buffer_ref(hw_decode_ctx);
-          softDecodeFormat = softFmt;
           frameDecodeHW = av_frame_alloc();
           if (!tmpCtx->hw_device_ctx || !frameDecodeHW) {
             av_frame_free(&frameDecodeHW);
@@ -1091,30 +1107,44 @@ namespace Mist{
             avcodec_free_context(&tmpCtx);
             return false;
           }
+          softDecodeFormat = softFmt;
         }
-      }
+        hardwareFormatDeclined = false;
+        requestedDecodeFormat = hwDev == AV_HWDEVICE_TYPE_NONE ? AV_PIX_FMT_NONE : pixFmt;
+        tmpCtx->opaque = this;
+        tmpCtx->get_format = [](AVCodecContext *ctx, const AVPixelFormat *formats) {
+          ProcessSource *owner = static_cast<ProcessSource *>(ctx->opaque);
+          for (const AVPixelFormat *p = formats; *p != AV_PIX_FMT_NONE; ++p) {
+            if (owner->requestedDecodeFormat == AV_PIX_FMT_NONE ? !hardwarePixelFormat(*p) : *p == owner->requestedDecodeFormat) {
+              return *p;
+            }
+          }
+          owner->hardwareFormatDeclined = owner->requestedDecodeFormat != AV_PIX_FMT_NONE;
+          return AV_PIX_FMT_NONE;
+        };
 
-      INFO_MSG("Initing codec...");
-      int ret = avcodec_open2(tmpCtx, codec_in, 0);
+        INFO_MSG("Initing codec...");
+        int ret = avcodec_open2(tmpCtx, codec_in, 0);
 
-      if (ret < 0) {
-        if (hw_decode_ctx) {
-          av_buffer_unref(&hw_decode_ctx);
-          hw_decode_ctx = NULL;
+        if (ret < 0) {
+          if (hw_decode_ctx) {
+            av_buffer_unref(&hw_decode_ctx);
+            hw_decode_ctx = NULL;
+          }
+          if (frameDecodeHW) { av_frame_free(&frameDecodeHW); }
+          avcodec_free_context(&tmpCtx);
+          printError("Could not open codec context", ret);
+          av_logLevel = AV_LOG_WARNING;
+          softDecodeFormat = AV_PIX_FMT_NONE;
+          return false;
         }
-        if (frameDecodeHW){av_frame_free(&frameDecodeHW);}
-        avcodec_free_context(&tmpCtx);
-        printError("Could not open codec context", ret);
+        context_in = tmpCtx;
+        INFO_MSG("Opened video decoder candidate=%s",
+                 hwDev == AV_HWDEVICE_TYPE_NONE ? "software" : av_hwdevice_get_type_name(hwDev));
+
         av_logLevel = AV_LOG_WARNING;
-        softDecodeFormat = AV_PIX_FMT_NONE;
-        return false;
+        return true;
       }
-      context_in = tmpCtx;
-      INFO_MSG("Opened video decoder candidate=%s", hwDev == AV_HWDEVICE_TYPE_NONE ? "software" : av_hwdevice_get_type_name(hwDev));
-
-      av_logLevel = AV_LOG_WARNING;
-      return true;
-    }
 
     /// \brief Init some flags and variables based on the input track
     bool configVideoDecoder() {
@@ -1139,20 +1169,21 @@ namespace Mist{
         pixelFormat = AV_PIX_FMT_YUV420P;
         return true;
       }
-#ifdef __APPLE__
-      if (videoToolboxDecodeRequested(allowHW, allowSW) && (codecIn == "H264" || codecIn == "HEVC")) {
-        if (tryDecoder("", AV_HWDEVICE_TYPE_VIDEOTOOLBOX, AV_PIX_FMT_VIDEOTOOLBOX, AV_PIX_FMT_NV12)) { return true; }
+      if (decoderCandidates.empty()) {
+        decoderCandidates = videoCodecCandidates(AVCodecMap::codecID(codecIn), false, allowHW, allowSW);
       }
-#endif
-      // CUDA decoding remains disabled until the NVIDIA lifecycle gate passes.
-      // Hardware encoding is independent and can consume software-decoded frames.
-      if (!allowSW) {
-        hardwareFormatDeclined = true;
-        failVideoDecoder("Hardware decoder refused the source and software decode is disabled",
-                         hardwareDecoderFailurePermanent(hardwareFormatDeclined, decoderProducedFrame));
-        return false;
+      while (nextDecoderCandidate < decoderCandidates.size()) {
+        const HardwareCodecCandidate & candidate = decoderCandidates[nextDecoderCandidate++];
+        INFO_MSG("Trying video decoder %s device=%s selector=%s", candidate.codec->name,
+                 candidate.device == AV_HWDEVICE_TYPE_NONE ? (candidate.hardware ? "internal" : "software")
+                                                           : av_hwdevice_get_type_name(candidate.device),
+                 candidate.selector.empty() ? "default" : candidate.selector.c_str());
+        if (tryDecoder(candidate.codec->name, candidate.device, candidate.format, candidate.software, candidate.selector)) {
+          return true;
+        }
       }
-      return tryDecoder("", AV_HWDEVICE_TYPE_NONE, AV_PIX_FMT_YUV420P, AV_PIX_FMT_NONE);
+      failVideoDecoder("No available decoder accepts the source", true);
+      return false;
     }
 
     bool configAudioDecoder() {
@@ -1209,9 +1240,49 @@ namespace Mist{
       return true;
     }
 
+    void releaseVideoDecoder() {
+      videoTransform.reset();
+      frameConverted = 0;
+      if (frame_RAW) { av_frame_unref(frame_RAW); }
+      av_frame_free(&frameDecodeHW);
+      avcodec_free_context(&context_in);
+      av_buffer_unref(&hw_decode_ctx);
+      pixelFormat = softDecodeFormat = AV_PIX_FMT_NONE;
+      loggedDecodeFormat = AV_PIX_FMT_NONE;
+      decoderErrors = DecoderErrorStreak();
+    }
+
     void recoverVideoDecoder() {
-      const bool refused = hardwareDecoderFailurePermanent(hardwareFormatDeclined, decoderProducedFrame);
-      failVideoDecoder(refused ? "Hardware decoder refused the source" : "Hardware decoder failed; retry the processing job", refused);
+      if (replayingDecoder) {
+        replayFailed = true;
+        return;
+      }
+      do {
+        WARN_MSG("Video decoder failed; trying the next available backend");
+        releaseVideoDecoder();
+        if (!configVideoDecoder()) { return; }
+        replayFailed = false;
+        waitingDecoderKey = decoderReplay.empty() && publishedVideoFrame;
+        replayingDecoder = true;
+        // Rebuild reference pictures from the last keyframe without publishing duplicates.
+        for (AVPacket *packet : decoderReplay) {
+          int result = avcodec_send_packet(context_in, packet);
+          if (result < 0) {
+            replayFailed = true;
+            break;
+          }
+          while (receiveDecodedFrame()) {
+            if (!publishedVideoFrame || thisTime > lastPublishedVideoTime) {
+              if (!publishDecodedVideo()) {
+                replayFailed = true;
+                break;
+              }
+            }
+          }
+          if (replayFailed || !config->is_active) { break; }
+        }
+        replayingDecoder = false;
+      } while (replayFailed && config->is_active);
     }
 
     void invalidDecodePacket() {
@@ -1313,6 +1384,21 @@ namespace Mist{
       memcpy(packet_in->data, dataPointer, dataLen);
       packet_in->dts = (int64_t)thisTime;
       packet_in->pts = (int64_t)(thisTime + thisPacket.getInt("offset"));
+      if (isVideo && !replayingDecoder) {
+        if (thisPacket.getFlag("keyframe")) {
+          clearDecoderReplay();
+          haveReplayKey = true;
+        }
+        if (haveReplayKey && decoderReplay.size() < 2048 && decoderReplayBytes + dataLen <= 32 * 1024 * 1024) {
+          AVPacket *copy = av_packet_clone(packet_in);
+          if (copy) {
+            decoderReplay.push_back(copy);
+            decoderReplayBytes += dataLen;
+          }
+        } else {
+          clearDecoderReplay();
+        }
+      }
       // Send packet to decoding context
       int ret = avcodec_send_packet(context_in, packet_in);
       av_packet_free(&packet_in);
@@ -1340,6 +1426,10 @@ namespace Mist{
     bool decodeVideoFrame(char *dataPointer, size_t dataLen){
       ++inputFrameCount;
 
+      if (waitingDecoderKey) {
+        if (!thisPacket.getFlag("keyframe")) { return false; }
+        waitingDecoderKey = false;
+      }
       // Generic case with a allocated decoding context
       if (context_in){
         if(decodeFrame(dataPointer, dataLen)){return true;}
@@ -1819,42 +1909,63 @@ namespace Mist{
     }
 
     void encodeVideo(){
-      // Encode to target codec. Force P frame to prevent keyframe-only outputs from appearing
-      int ret;
-      frameConverted->pict_type = AV_PICTURE_TYPE_P;
-      frameConverted->pts = pts++;
-      {
-        // Encode frame
-        {
-          if (frameInHW) {
-            const AVFrame *prepared = 0;
-            ret = prepareHardwareEncodeFrame(frameConverted, context_out, frameInHW, prepared);
-            if (ret < 0) {
-              printError("Unable to prepare encoder hardware frame", ret);
-              config->is_active = false;
-              Util::logExitReason(ER_PROCESS_SPECIFIC, "error preparing encoder hardware frame");
-              return;
-            }
-            ret = avcodec_send_frame(context_out, prepared);
-            if (ret < 0) {
-              printError("Unable to send hardware frame to the encoder", ret);
-              config->is_active = false;
-              Util::logExitReason(ER_PROCESS_SPECIFIC, "error encoding frame");
-              return;
-            }
-          } else {
-            ret = avcodec_send_frame(context_out, frameConverted);
-            if (ret < 0) {
-              printError("Unable to send frame to the encoder", ret);
-              config->is_active = false;
-              Util::logExitReason(ER_PROCESS_SPECIFIC, "error encoding frame");
-              return;
-            }
-          }
+      while (context_out && frameConverted) {
+        frameConverted->pict_type = AV_PICTURE_TYPE_P;
+        frameConverted->pts = pts;
+        const AVFrame *prepared = frameConverted;
+        int result = frameInHW ? prepareHardwareEncodeFrame(frameConverted, context_out, frameInHW, prepared) : 0;
+        const bool uploadFailed = result < 0;
+        if (result >= 0) { result = avcodec_send_frame(context_out, prepared); }
+        if (result == AVERROR(EAGAIN)) {
+          if (!receiveEncodedVideoPackets()) { return; }
+          continue;
         }
+        if (result >= 0) { break; }
+        printError(uploadFailed ? "Unable to prepare encoder hardware frame" : "Unable to send frame to the encoder", result);
+        if (nextEncoderCandidate >= encoderCandidates.size()) {
+          config->is_active = false;
+          Util::logExitReason(ER_PROCESS_SPECIFIC, uploadFailed ? "error preparing encoder hardware frame" : "error encoding frame");
+          return;
+        }
+        AVFrame *retry = av_frame_clone(frameConverted);
+        if (!retry) {
+          failVideoDecoder("Could not retain video frame for encoder fallback");
+          return;
+        }
+        if (!waitForSinkPacketSlot()) {
+          av_frame_free(&retry);
+          return;
+        }
+        // Finish queued packets before the sink observes the replacement encoder's headers.
+        flushVideoEncoder();
+        if (!waitForSinkPacketSlot()) {
+          av_frame_free(&retry);
+          return;
+        }
+        frameTimes.clear();
+        av_frame_free(&frameInHW);
+        avcodec_free_context(&context_out);
+        softFormat = AV_PIX_FMT_NONE;
+        allocateVideoEncoder();
+        if (!context_out) {
+          av_frame_free(&retry);
+          return;
+        }
+        videoTransform.reset();
+        frameConverted = videoTransform.apply(retry, softFormat == AV_PIX_FMT_NONE ? context_out->pix_fmt : softFormat,
+                                              context_out->width, context_out->height, Orientation());
+        av_frame_free(&retry);
+        if (!frameConverted) {
+          failVideoDecoder("Could not convert video frame for encoder fallback");
+          return;
+        }
+        frameConverted->quality = FF_QP2LAMBDA * opt["quality"].asInt();
       }
-
+      if (!context_out || !frameConverted) { return; }
+      ++pts;
       queueFrameTime(thisTime);
+      publishedVideoFrame = true;
+      lastPublishedVideoTime = thisTime;
       receiveEncodedVideoPackets();
     }
 
@@ -2911,6 +3022,7 @@ int main(int argc, char *argv[]){
 
   if (context_out){avcodec_free_context(&context_out);}
   av_packet_free(&packet_out);
+  av_frame_free(&frameInHW);
 
   return procExit.flush(procStatsPage);
 }

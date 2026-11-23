@@ -1263,7 +1263,7 @@ if get_option('WITH_AV') and ffmpeg_program.found() and ffprobe_program.found()
        args: [files('process_av_rotation_integration.py'), meson.project_build_root(), ffmpeg_program, ffprobe_program],
        env: ['MIST_ORIENTATION_ALL=1'], depends: media_test_deps, suite: 'Processing', timeout: 240, is_parallel: false)
   if host_machine.system() == 'darwin'
-    test('Automatic macOS processing retains the software H264 encoder', find_program('python3'),
+    test('Automatic macOS processing tries hardware before software', find_program('python3'),
          args: [files('process_av_rotation_integration.py'), meson.project_build_root(), ffmpeg_program, ffprobe_program],
          env: {'MIST_ROTATION_ACCEL': 'auto', 'MIST_ROTATION_CASE': 'H264:90'},
          depends: media_test_deps, suite: 'Processing', timeout: 60, is_parallel: false)
@@ -1723,4 +1723,72 @@ if ffmpeg_program.found() and ffprobe_program.found()
          env: {'MIST_TIMELINE_FPS': '30', 'MIST_TIMELINE_DURATION': '40', 'MIST_TIMELINE_STRIP': stripped == '1' ? '1' : ''},
          depends: media_test_deps, suite: 'Processing', timeout: 180, is_parallel: false)
   endforeach
+endif
+
+if get_option('WITH_AV')
+  avhardwareselectiontest = executable('avhardwareselectiontest', ['process_av_hardware_selection_unit.cpp', input_cpp, output_cpp, io_cpp], header_tgts,
+                                       dependencies: [libmist_dep, av_codec_map_dep])
+  foreach selection_mode : ['auto', 'hw', 'failed-open', 'encoder']
+    test('Actual AV hardware selection and decoder pool ownership ' + selection_mode, avhardwareselectiontest,
+         args: [selection_mode], suite: 'AV', timeout: 30, is_parallel: false)
+  endforeach
+endif
+
+if get_option('WITH_AV')
+  avhardwaretransformtest = executable('avhardwaretransformtest', 'process_av_hardware_transform.cpp', header_tgts, dependencies: [libmist_dep, av_libs])
+  if get_option('AV_HARDWARE_TEST_DEVICE') != 'none'
+    test('Real hardware video scales and downloads with orientation', avhardwaretransformtest,
+         env: {'MIST_TEST_HW_DEVICE': get_option('AV_HARDWARE_TEST_DEVICE')}, suite: 'AV', timeout: 60)
+  endif
+endif
+
+if get_option('WITH_AV')
+  test('Actual AV hardware selection continues after runtime decoder failure', avhardwareselectiontest, args: ['runtime-failure'], suite: 'AV')
+endif
+
+if get_option('WITH_AV') and get_option('AV_HARDWARE_TEST_DEVICE') != 'none' and ffmpeg_program.found() and ffprobe_program.found()
+  test('Real hardware codecs process a local ladder and thumbnails', find_program('python3'),
+       args: [files('process_av_hardware_integration.py'), meson.project_build_root(), ffmpeg_program, ffprobe_program],
+       env: {'MIST_TEST_HW_DEVICE': get_option('AV_HARDWARE_TEST_DEVICE')}, depends: media_test_deps, suite: 'Processing', timeout: 600, is_parallel: false)
+endif
+
+if get_option('WITH_AV')
+  test('Actual AV hardware selection retries an encoder submission on software', avhardwareselectiontest, args: ['encoder-failure'], suite: 'AV')
+endif
+
+if get_option('WITH_AV')
+  test('Actual AV encoder uploads CPU frames before CUDA submission', avencodecalltest, args: ['cpu-upload'], suite: 'AV')
+endif
+
+if get_option('WITH_AV')
+  avencoderrejectiontest = executable('avencoderrejectiontest', ['process_av_encoder_rejection.cpp', input_cpp, output_cpp, io_cpp], header_tgts, dependencies: [libmist_dep, av_libs, av_codec_map_dep])
+  if get_option('AV_HARDWARE_TEST_DEVICE') == 'cuda'
+    test('Real NVIDIA encoder releases a rejected configuration', avencoderrejectiontest,
+         env: {'MIST_TEST_HW_DEVICE': 'cuda'}, suite: 'AV', timeout: 60)
+  endif
+endif
+
+if get_option('WITH_AV')
+  avhardwarelifecycletest = executable('avhardwarelifecycletest', ['process_av_hardware_lifecycle.cpp', input_cpp, output_cpp, io_cpp], header_tgts, dependencies: [libmist_dep, av_libs, av_codec_map_dep])
+  if get_option('AV_HARDWARE_TEST_DEVICE') != 'none'
+    test('Real hardware decoder restarts release pools without losing frames', find_program('python3'),
+         args: [files('process_av_hardware_lifecycle.py'), get_option('AV_HARDWARE_TEST_DEVICE'), meson.project_build_root(), ffmpeg_program],
+         depends: [avhardwarelifecycletest], suite: 'AV', timeout: 500, is_parallel: false)
+  endif
+endif
+
+if get_option('WITH_AV') and host_machine.system() == 'linux' and host_machine.cpu_family() == 'x86_64'
+  test('Packaged Linux FFmpeg retains hardware codecs and filters', avcodecregistrytest, args: ['hardware-linux'], suite: 'AV')
+endif
+
+if host_machine.system() == 'linux'
+  test('Process guard finishes before the Meson timeout kill deadline', find_program('python3'),
+       args: [files('process_guard_deadline_test.py'), files('owned_process_guard.py')], suite: 'Build', timeout: 10)
+  test('Fixture forced Mist input cleanup fails the test', find_program('python3'),
+       args: files('fixture_forced_cleanup_test.py'), suite: 'Build', timeout: 15)
+endif
+
+if get_option('WITH_AV')
+  thumbshardwareselectiontest = executable('thumbshardwareselectiontest', ['process_thumbs_hardware_selection.cpp', '../src/process/thumbnail_artifacts.cpp', input_cpp, output_cpp, io_cpp], header_tgts, dependencies: [libmist_dep, av_libs, av_codec_map_dep])
+  test('Actual thumbnail hardware fallback is scoped to image geometry', thumbshardwareselectiontest, suite: 'AV')
 endif

@@ -1,0 +1,4 @@
+FROM archlinux:base-devel
+RUN pacman -Syu --noconfirm --needed ffmpeg libvpl vpl-gpu-rt intel-media-sdk libvpl-tools intel-media-driver libva-utils meson ninja python git libxml2 pkgconf cmake && \
+    pkg-config --exists libavcodec libavfilter libavformat libavutil libswscale libswresample
+WORKDIR /work/source

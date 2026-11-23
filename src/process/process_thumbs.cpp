@@ -4,6 +4,7 @@
 #include "../input/input.h"
 #include "../output/output.h"
 #include "process.hpp"
+#include "process_av_acceleration.h"
 #include "process_av_rotation.h"
 #include "process_outputs.h"
 #include "thumbnail_artifacts.h"
@@ -295,13 +296,39 @@ namespace Mist {
         ERROR_MSG("%s: `%s` (%i)", message, detail, code);
       }
 
+      std::vector<HardwareCodecCandidate> jpegCandidates;
+      std::map<std::pair<uint32_t, uint32_t>, size_t> jpegChoices;
       bool encodeJpeg(const std::vector<uint8_t> & rgb, uint32_t width, uint32_t height, std::string & encoded) {
-        const AVCodec *codec = avcodec_find_encoder(AV_CODEC_ID_MJPEG);
+        if (jpegCandidates.empty()) {
+          jpegCandidates =
+            videoCodecCandidates(AV_CODEC_ID_MJPEG, true, opt["accel"].asString() != "sw", opt["accel"].asString() != "hw");
+        }
+        size_t & nextJpegCandidate = jpegChoices[std::make_pair(width, height)];
+        while (nextJpegCandidate < jpegCandidates.size()) {
+          const HardwareCodecCandidate & candidate = jpegCandidates[nextJpegCandidate];
+          if (tryJpeg(candidate, rgb, width, height, encoded)) {
+            INFO_MSG("Thumbnail encoder backend=%s",
+                     candidate.device == AV_HWDEVICE_TYPE_NONE ? (candidate.hardware ? "internal" : "software")
+                                                               : av_hwdevice_get_type_name(candidate.device));
+            return true;
+          }
+          ++nextJpegCandidate;
+        }
+        ERROR_MSG("No available thumbnail encoder accepts %ux%u", width, height);
+        return false;
+      }
+
+      bool tryJpeg(const HardwareCodecCandidate & candidate, const std::vector<uint8_t> & rgb, uint32_t width,
+                   uint32_t height, std::string & encoded) {
+        const AVCodec *codec = candidate.codec;
         AVCodecContext *context = codec ? avcodec_alloc_context3(codec) : NULL;
         AVFrame *frame = NULL;
         AVPacket *packet = NULL;
         SwsContext *converter = NULL;
         bool success = false;
+        AVFrame *upload = NULL;
+        AVBufferRef *device = NULL;
+        const AVPixelFormat pixels = hardwarePixelFormat(candidate.format) ? candidate.software : candidate.format;
 
         do {
           if (!context) {
@@ -310,7 +337,7 @@ namespace Mist {
           }
           context->width = width;
           context->height = height;
-          context->pix_fmt = AV_PIX_FMT_YUVJ420P;
+          context->pix_fmt = candidate.format;
           context->time_base = (AVRational){1, 1};
           context->codec_type = AVMEDIA_TYPE_VIDEO;
           if (opt["encode_threads"].asInt() > 0) {
@@ -319,7 +346,23 @@ namespace Mist {
           int quality = 31 - (int)(jpegQuality * 30.0 / 100.0);
           context->qmin = std::max(1, std::min(31, quality));
           context->qmax = context->qmin;
-          int result = avcodec_open2(context, codec, 0);
+          context->color_range = AVCOL_RANGE_JPEG;
+          context->flags |= AV_CODEC_FLAG_QSCALE;
+          context->global_quality = FF_QP2LAMBDA * context->qmin;
+          int result = 0;
+          if (candidate.device != AV_HWDEVICE_TYPE_NONE) {
+            result = createHardwareDevice(&device, candidate.device, candidate.selector);
+            if (result < 0) { break; }
+            context->hw_device_ctx = av_buffer_ref(device);
+            if (!context->hw_device_ctx) { break; }
+            if (hardwarePixelFormat(candidate.format)) {
+              result = configureHardwareUploadPool(context, device, candidate.format, pixels, width, height);
+              if (result < 0) { break; }
+              upload = av_frame_alloc();
+              if (!upload) { break; }
+            }
+          }
+          result = avcodec_open2(context, codec, 0);
           if (result < 0) {
             printEncodeError("Could not open MJPEG encoder", result);
             break;
@@ -332,15 +375,14 @@ namespace Mist {
           }
           frame->width = width;
           frame->height = height;
-          frame->format = AV_PIX_FMT_YUVJ420P;
+          frame->format = pixels;
           result = av_frame_get_buffer(frame, 0);
           if (result < 0) {
             printEncodeError("Could not allocate MJPEG frame data", result);
             break;
           }
 
-          converter = sws_getContext(width, height, AV_PIX_FMT_RGB24, width, height, AV_PIX_FMT_YUVJ420P, SWS_BILINEAR,
-                                     NULL, NULL, NULL);
+          converter = sws_getContext(width, height, AV_PIX_FMT_RGB24, width, height, pixels, SWS_BILINEAR, NULL, NULL, NULL);
           if (!converter) {
             ERROR_MSG("Could not create MJPEG pixel converter");
             break;
@@ -358,12 +400,22 @@ namespace Mist {
             break;
           }
           frame->pts = 0;
-          result = avcodec_send_frame(context, frame);
+          frame->quality = context->global_quality;
+          const AVFrame *prepared = frame;
+          if (upload) {
+            result = prepareHardwareEncodeFrame(frame, context, upload, prepared);
+            if (result < 0) { break; }
+          }
+          result = avcodec_send_frame(context, prepared);
           if (result < 0) {
             printEncodeError("MJPEG encode send failed", result);
             break;
           }
           result = avcodec_receive_packet(context, packet);
+          if (result == AVERROR(EAGAIN)) {
+            result = avcodec_send_frame(context, NULL);
+            if (result >= 0) { result = avcodec_receive_packet(context, packet); }
+          }
           if (result < 0) {
             printEncodeError("MJPEG encode receive failed", result);
             break;
@@ -375,7 +427,9 @@ namespace Mist {
         if (packet) { av_packet_free(&packet); }
         if (converter) { sws_freeContext(converter); }
         if (frame) { av_frame_free(&frame); }
+        av_frame_free(&upload);
         if (context) { avcodec_free_context(&context); }
+        av_buffer_unref(&device);
         return success;
       }
 
@@ -589,6 +643,9 @@ namespace Mist {
       AVFrame *rawFrame;
       std::string codecName;
       bool decoderReady;
+      AVPixelFormat requestedFormat = AV_PIX_FMT_NONE;
+      std::vector<HardwareCodecCandidate> decoderCandidates;
+      size_t nextDecoderCandidate = 0;
 
       void printError(std::string preamble, int code) {
         char err[128];
@@ -605,47 +662,67 @@ namespace Mist {
           return false;
         }
         const AVCodecID id = AVCodecMap::codecID(codecName);
-        decCodec = id == AV_CODEC_ID_NONE ? NULL : avcodec_find_decoder(id);
-
-        if (!decCodec) {
-          ERROR_MSG("Could not find decoder for %s", codecName.c_str());
-          return false;
+        if (decoderCandidates.empty()) {
+          decoderCandidates = videoCodecCandidates(id, false, opt["accel"].asString() != "sw", opt["accel"].asString() != "hw");
         }
-
-        decCtx = avcodec_alloc_context3(decCodec);
-        if (!decCtx) {
-          ERROR_MSG("Could not allocate decode context");
-          return false;
-        }
-
-        std::string init = M.getInit(thisIdx);
-        if (init.size()) {
-          decCtx->extradata = (unsigned char *)av_mallocz(init.size() + AV_INPUT_BUFFER_PADDING_SIZE);
-          if (!decCtx->extradata) {
-            ERROR_MSG("Could not allocate decoder initialization data");
-            avcodec_free_context(&decCtx);
-            return false;
+        while (nextDecoderCandidate < decoderCandidates.size()) {
+          const HardwareCodecCandidate & candidate = decoderCandidates[nextDecoderCandidate++];
+          decCodec = candidate.codec;
+          decCtx = avcodec_alloc_context3(decCodec);
+          if (!decCtx) {
+            ERROR_MSG("Could not allocate decode context");
+            continue;
           }
-          decCtx->extradata_size = init.size();
-          memcpy(decCtx->extradata, init.data(), init.size());
-        }
 
-        decCtx->width = M.getWidth(thisIdx);
-        decCtx->height = M.getHeight(thisIdx);
-        decCtx->pkt_timebase = (AVRational){1, 1000};
-        if (opt["decode_threads"].asInt() > 0) {
-          decCtx->thread_count = std::min<int64_t>(64, opt["decode_threads"].asInt());
-        }
+          std::string init = M.getInit(thisIdx);
+          if (init.size()) {
+            decCtx->extradata = (unsigned char *)av_mallocz(init.size() + AV_INPUT_BUFFER_PADDING_SIZE);
+            if (!decCtx->extradata) {
+              ERROR_MSG("Could not allocate decoder initialization data");
+              avcodec_free_context(&decCtx);
+              continue;
+            }
+            decCtx->extradata_size = init.size();
+            memcpy(decCtx->extradata, init.data(), init.size());
+          }
 
-        int ret = avcodec_open2(decCtx, decCodec, 0);
-        if (ret < 0) {
-          printError("Could not open decoder", ret);
-          avcodec_free_context(&decCtx);
-          decCtx = 0;
-          return false;
-        }
+          decCtx->width = M.getWidth(thisIdx);
+          decCtx->height = M.getHeight(thisIdx);
+          decCtx->pkt_timebase = (AVRational){1, 1000};
+          if (opt["decode_threads"].asInt() > 0) {
+            decCtx->thread_count = std::min<int64_t>(64, opt["decode_threads"].asInt());
+          }
 
-        rawFrame = av_frame_alloc();
+          requestedFormat = candidate.device == AV_HWDEVICE_TYPE_NONE ? AV_PIX_FMT_NONE : candidate.format;
+          decCtx->opaque = this;
+          decCtx->get_format = [](AVCodecContext *ctx, const AVPixelFormat *formats) {
+            const ProcessSource *owner = static_cast<ProcessSource *>(ctx->opaque);
+            for (const AVPixelFormat *p = formats; *p != AV_PIX_FMT_NONE; ++p) {
+              if (owner->requestedFormat == AV_PIX_FMT_NONE ? !hardwarePixelFormat(*p) : owner->requestedFormat == *p) {
+                return *p;
+              }
+            }
+            return AV_PIX_FMT_NONE;
+          };
+          if (candidate.device != AV_HWDEVICE_TYPE_NONE) {
+            int error = createHardwareDevice(&decCtx->hw_device_ctx, candidate.device, candidate.selector);
+            if (error < 0) {
+              avcodec_free_context(&decCtx);
+              continue;
+            }
+          }
+          int ret = avcodec_open2(decCtx, decCodec, 0);
+          if (ret < 0) {
+            printError("Could not open decoder", ret);
+            avcodec_free_context(&decCtx);
+            decCtx = 0;
+            continue;
+          }
+          break;
+        }
+        if (!decCtx) { return false; }
+
+        if (!rawFrame) { rawFrame = av_frame_alloc(); }
         if (!rawFrame) {
           ERROR_MSG("Could not allocate thumbnail decode frame");
           avcodec_free_context(&decCtx);
@@ -698,6 +775,8 @@ namespace Mist {
           return false;
         }
 
+        const AVPixFmtDescriptor *format = av_pix_fmt_desc_get((AVPixelFormat)rawFrame->format);
+        INFO_MSG("Thumbnail decoder backend=%s", format && (format->flags & AV_PIX_FMT_FLAG_HWACCEL) ? format->name : "software");
         uint32_t targetWidth = 0;
         uint32_t targetHeight = 0;
         const uint16_t rotation = M.getRotation(thisIdx);
@@ -777,9 +856,15 @@ namespace Mist {
         auto rgbData = std::make_shared<std::vector<uint8_t>>();
         int64_t presentationTime = (int64_t)thisTime + thisPacket.getInt("offset");
         if (presentationTime < 0) { presentationTime = 0; }
-        if (!decodeAndScale(thisData, thisDataLen, thisTime, (uint64_t)presentationTime, *rgbData)) {
-          thumbLastWorkEnd.store(Util::getMicros(), std::memory_order_relaxed);
-          return;
+        while (!decodeAndScale(thisData, thisDataLen, thisTime, (uint64_t)presentationTime, *rgbData)) {
+          videoTransform.reset();
+          av_frame_unref(rawFrame);
+          avcodec_free_context(&decCtx);
+          decoderReady = false;
+          if (!initDecoder()) {
+            thumbLastWorkEnd.store(Util::getMicros(), std::memory_order_relaxed);
+            return;
+          }
         }
 
         thumbTotalWork.store(thumbTotalWork.load(std::memory_order_relaxed) + Util::getMicros(workStart), std::memory_order_relaxed);
@@ -1179,6 +1264,14 @@ int main(int argc, char *argv[]) {
     capa["optional"]["grid_rows"]["max"] = MAX_GRID_AXIS;
     capa["optional"]["grid_rows"]["sort"] = "bd";
 
+    capa["optional"]["accel"]["name"] = "Hardware acceleration";
+    capa["optional"]["accel"]["help"] = "Try available hardware devices before software; hw requires a hardware codec";
+    capa["optional"]["accel"]["type"] = "select";
+    capa["optional"]["accel"]["select"][0u][0u] = "hw";
+    capa["optional"]["accel"]["select"][0u][1u] = "Hardware required";
+    capa["optional"]["accel"]["select"][1u][0u] = "sw";
+    capa["optional"]["accel"]["select"][1u][1u] = "Software only";
+    capa["optional"]["accel"]["default"] = "Automatic";
     capa["optional"]["jpeg_quality"]["name"] = "JPEG quality";
     capa["optional"]["jpeg_quality"]["help"] = "Quality of the sprite sheet JPEG (1-100)";
     capa["optional"]["jpeg_quality"]["type"] = "uint";

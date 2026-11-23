@@ -1,0 +1,65 @@
+--- a/meson.build
++++ b/meson.build
+@@ -2191,7 +2191,9 @@
+           else
+             req = false
+           endif
+-          dep = cc.find_library(link_with, required : req, static: conf.get('static').is_odd())
++          # VAAPI distributions provide shared driver-interface libraries, not archives.
++          static_component = conf.get('static').is_odd() and not name.startswith('vaapi')
++          dep = cc.find_library(link_with, required : req, static: static_component)
+           found = found and dep.found()
+           extra_deps += dep
+         endforeach
+@@ -2211,6 +2213,9 @@
+         if opts.has_key('versions')
+           foreach version: opts['versions']
+             dep = dependency(pkg_name, required: false, version: version, static: conf.get('static').is_odd())
++            if dep.found()
++              break
++            endif
+           endforeach
+
+           if not dep.found() and req.enabled()
+@@ -2501,7 +2506,19 @@
+   conf.set10('MFX_CODEC_VP9'.to_lower(), cc.has_header_symbol('mfxstructures.h', 'MFX_CODEC_VP9'))
+   warning('libmfx is deprecated. Please run meson setup with -Dlibmfx=disabled to use libvpl instead.')
+ elif conf.get('libvpl') == 1
+-  conf.set10('struct_mfxConfigInterface'.to_lower(), cc.has_header_symbol('vpl/mfxvideo.h', 'struct mfxConfigInterface', prefix: '#include <vpl/mfxdefs.h>'))
++  conf.set10('struct_mfxConfigInterface'.to_lower(), cc.has_type('struct mfxConfigInterface', prefix: '#include <vpl/mfxdefs.h>\n#include <vpl/mfxvideo.h>', dependencies: libvpl_extra_deps))
++  # FFmpeg's component dependencies retain libmfx as the common QSV API name.
++  conf.set10('libmfx', true)
++  libmfx_extra_deps = libvpl_extra_deps
++  conf.set10('mfx_codec_vp9', cc.has_header_symbol('mfxstructures.h', 'MFX_CODEC_VP9', dependencies: libvpl_extra_deps))
++endif
++
++# NVIDIA AV1 support is determined by the installed codec API headers.
++if conf.get('ffnvcodec') == 1
++  conf.set10('nv_enc_pic_params_av1', cc.has_type('NV_ENC_PIC_PARAMS_AV1',
++    prefix: '#include <ffnvcodec/nvEncodeAPI.h>', dependencies: ffnvcodec_extra_deps))
++  conf.set10('cuvidav1picparams', cc.has_type('CUVIDAV1PICPARAMS',
++    prefix: '#include <ffnvcodec/dynlink_cuda.h>\n#include <ffnvcodec/dynlink_cuviddec.h>', dependencies: ffnvcodec_extra_deps))
+ endif
+
+ # Manual check for libx264
+@@ -3728,9 +3745,9 @@
+     cuda_objects = asm_gen.process(cuda_sources)
+     if conf.get('ptx_compression') == 1
+       gz_objs = gzip_gen.process(cuda_objects)
+-      gen_objects = bin2c.process(gz_objs)
++      gen_objects += bin2c.process(gz_objs)
+     else
+-      gen_objects = bin2c_with_extension.process(cuda_objects)
++      gen_objects += bin2c_with_extension.process(cuda_objects)
+     endif
+   endif
+
+@@ -3795,7 +3812,7 @@
+   static_lib = static_library('@0@-static'.format(built_lib[0]), sources + gen_objects + [config_h, config_components_h],
+     objects: special_objects,
+     dependencies: deps,
+-    include_directories: common_incs,
++    include_directories: common_incs + (built_lib[0] == 'avcodec' ? [include_directories('libavcodec')] : []),
+     link_with: link_with,
+     link_language: 'c',
+     c_args: c_args,

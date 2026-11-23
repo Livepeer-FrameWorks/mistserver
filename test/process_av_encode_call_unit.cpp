@@ -13,6 +13,7 @@
 
 namespace {
   int acquires = 0, transfers = 0, sends = 0;
+  bool cpuUpload = false;
 }
 
 extern "C" int testAcquireHardwareFrame(AVBufferRef *pool, AVFrame *frame, int flags) {
@@ -23,6 +24,9 @@ extern "C" int testAcquireHardwareFrame(AVBufferRef *pool, AVFrame *frame, int f
 }
 extern "C" int testTransferHardwareFrame(AVFrame *to, const AVFrame *from, int flags) {
   ++transfers;
+  if (cpuUpload) {
+    return !flags && to->format == AV_PIX_FMT_CUDA && from->format == AV_PIX_FMT_NV12 ? 0 : AVERROR(EINVAL);
+  }
   if (flags || to->format != AV_PIX_FMT_CUDA || from->format != AV_PIX_FMT_CUDA ||
       to->hw_frames_ctx->data == from->hw_frames_ctx->data) {
     return AVERROR(EINVAL);
@@ -31,7 +35,7 @@ extern "C" int testTransferHardwareFrame(AVFrame *to, const AVFrame *from, int f
 }
 extern "C" int testSubmitEncoderFrame(AVCodecContext *, const AVFrame *) {
   ++sends;
-  return AVERROR(EAGAIN);
+  return cpuUpload ? 0 : AVERROR(EAGAIN);
 }
 
 namespace {
@@ -85,33 +89,47 @@ namespace {
 } // namespace
 
 int main(int argc, char **argv) {
-  if (argc == 2) { return checkSourceStop(argv[1]); }
+  if (argc == 2 && std::string(argv[1]) == "cpu-upload") {
+    cpuUpload = true;
+  } else if (argc == 2) {
+    return checkSourceStop(argv[1]);
+  }
   DTSC::trackValidMask = TRACK_VALID_INT_PROCESS;
   Util::Config config("av-encode-call-test");
   JSON::Value capa;
   Mist::ProcessSource::init(&config, capa);
   Socket::Connection connection;
+  packet_out = av_packet_alloc();
   {
     Mist::ProcessSource source(connection, config, capa);
     context_out = avcodec_alloc_context3(0);
     context_out->pix_fmt = AV_PIX_FMT_CUDA;
     context_out->hw_frames_ctx = av_buffer_allocz(sizeof(AVHWFramesContext));
     frameConverted = av_frame_alloc();
-    frameConverted->format = AV_PIX_FMT_CUDA;
-    frameConverted->hw_frames_ctx = av_buffer_allocz(sizeof(AVHWFramesContext));
+    frameConverted->format = cpuUpload ? AV_PIX_FMT_NV12 : AV_PIX_FMT_CUDA;
+    if (!cpuUpload) { frameConverted->hw_frames_ctx = av_buffer_allocz(sizeof(AVHWFramesContext)); }
     frameInHW = av_frame_alloc();
     config.is_active = true;
     source.encodeVideo();
-    if (acquires != 1 || transfers != 1 || sends || config.is_active || !Util::mRExitReason ||
-        std::string(Util::mRExitReason) != ER_PROCESS_SPECIFIC) {
+    if (cpuUpload && (acquires != 1 || transfers != 1 || sends != 1 || !config.is_active)) {
+      fprintf(stderr, "encodeVideo must upload a CPU frame before submitting it: acquire=%d transfer=%d send=%d active=%d\n",
+              acquires, transfers, sends, config.is_active.load());
+      return 1;
+    }
+    if (!cpuUpload &&
+        (acquires != 1 || transfers != 1 || sends || config.is_active || !Util::mRExitReason ||
+         std::string(Util::mRExitReason) != ER_PROCESS_SPECIFIC)) {
       fprintf(stderr, "encodeVideo must stop with a process failure after a hardware transfer error: acquire=%d transfer=%d send=%d active=%d reason=%s\n",
               acquires, transfers, sends, config.is_active.load(), Util::mRExitReason ? Util::mRExitReason : "none");
       return 1;
     }
   }
+  av_packet_free(&packet_out);
   av_frame_free(&frameConverted);
   av_frame_free(&frameInHW);
   avcodec_free_context(&context_out);
-  puts("PASS actual encodeVideo rejects failed hardware upload before encoder submission with an explicit exit reason");
+  puts(cpuUpload ? "PASS actual encodeVideo uploads CPU frames before CUDA submission"
+                 : "PASS actual encodeVideo rejects failed hardware upload before encoder submission with an explicit "
+                   "exit reason");
   return 0;
 }

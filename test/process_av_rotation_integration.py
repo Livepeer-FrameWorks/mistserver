@@ -10,6 +10,7 @@ import socket
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 
 
@@ -50,12 +51,46 @@ def exercise(build, ffmpeg, ffprobe, codec, angle, mirror=False):
     processes = []
     controller = None
     success = False
+    duration = int(os.environ.get("MIST_MEDIA_SECONDS", "4"))
+    memory_stop = threading.Event()
+    memory_thread = None
+    def sample_memory():
+        with (work / "memory.jsonl").open("w") as output:
+            while not memory_stop.wait(1):
+                for path in Path("/proc").glob("[0-9]*/status"):
+                    try:
+                        fields = dict(line.split(":", 1) for line in path.read_text().splitlines() if ":" in line)
+                        if fields.get("Name", "").strip() not in ("MistProcAV", "MistProcThumbs"):
+                            continue
+                        sample = {"time": time.monotonic(), "pid": int(path.parent.name), "name": fields["Name"].strip()}
+                        for key in ("VmRSS", "RssAnon"):
+                            sample[key] = int(fields.get(key, "0").split()[0])
+                        clients = {}
+                        for info in (path.parent / "fdinfo").glob("*"):
+                            try:
+                                drm = dict(line.split(":", 1) for line in info.read_text().splitlines() if ":" in line)
+                                client = drm.get("drm-client-id")
+                                if not client or client in clients:
+                                    continue
+                                clients[client] = {key: int(value.split()[0]) for key, value in drm.items()
+                                                   if key.startswith(("drm-resident-", "drm-total-", "drm-memory-"))}
+                            except (OSError, ValueError):
+                                pass
+                        sample["drm_clients_kib"] = clients
+                        output.write(json.dumps(sample) + "\n")
+                        output.flush()
+                    except (OSError, ValueError):
+                        pass
     try:
         base = work / "base.mp4"
-        assert codec in ("H264", "HEVC", "MPEG2", "MPEG4"), codec
+        assert codec in ("H264", "HEVC", "MPEG2", "MPEG4", "AV1", "VP9"), codec
         encoder = ["-c:v", "libx265", "-preset", "ultrafast", "-x265-params", "log-level=error:pools=1"] if codec == "HEVC" else ["-c:v", "mpeg2video"] if codec == "MPEG2" else ["-c:v", "mpeg4"] if codec == "MPEG4" else ["-c:v", "libx264", "-preset", "ultrafast"]
+        if codec == "AV1":
+            encoder = ["-c:v", "libaom-av1", "-cpu-used", "8", "-threads", "2", "-usage", "realtime"]
+        elif codec == "VP9":
+            encoder = ["-c:v", "libvpx-vp9", "-deadline", "realtime", "-cpu-used", "8", "-threads", "2"]
         bframes = os.environ.get("MIST_ROTATION_BFRAMES", "2" if codec in ("HEVC", "H264") and container not in ("av", "mkv") else "0")
-        run([ffmpeg, "-v", "error", "-y", "-f", "lavfi", "-i", "color=blue:size=320x180:rate=10:duration=4",
+        run([ffmpeg, "-v", "error", "-y", "-f", "lavfi", "-i", f"color=blue:size=320x180:rate=10:duration={duration}",
              "-vf", "drawbox=x=0:y=0:w=80:h=80:color=red:t=fill", *encoder, "-pix_fmt", "yuv420p", "-g", "10", "-bf", bframes, base])
         source = work / "source.mp4"
         if angle or mirror:
@@ -80,7 +115,7 @@ def exercise(build, ffmpeg, ffprobe, codec, angle, mirror=False):
             processes = [{"process": "FFMPEG", "x-LSP-kind": "video", "codec": "H264", "source_track": codec,
                           "preset": "ultrafast", "flags": "-tune zerolatency -g 10 -bf 0", "bitrate": 300000,
                           "source_mask": 4, "target_mask": 3, "restart_type": "fixed"}]
-        processes.append({"process": "Thumbs", "track_select": f"video={codec}", "thumb_width": 80, "thumb_height": 80,
+        processes.append({"process": "Thumbs", "accel": os.environ.get("MIST_THUMBS_ACCEL", "sw" if os.environ.get("MIST_ROTATION_ACCEL", "sw") == "sw" else "auto"), "track_select": f"video={codec}", "thumb_width": 80, "thumb_height": 80,
                           "grid_cols": 2, "grid_rows": 2, "interval": 1000, "target_mask": 3, "restart_type": "fixed"})
         with socket.socket() as port:
             port.bind(("127.0.0.1", 0))
@@ -94,6 +129,9 @@ def exercise(build, ffmpeg, ffprobe, codec, angle, mirror=False):
                                        "realtime_speed": 1, "processes": processes}}}
         (work / "config.json").write_text(json.dumps(config))
         log = work / "controller.log"
+        if duration >= 60 and Path("/proc").exists():
+            memory_thread = threading.Thread(target=sample_memory, daemon=True)
+            memory_thread.start()
         controller = subprocess.Popen([str(build / "MistController"), "-c", str(work / "config.json"), "-C", "r", "-L", str(log)], env=env)
         wait_for(lambda: log.exists() and "Controller started" in log.read_text(errors="replace"))
         with (work / "input.log").open("wb") as input_log:
@@ -101,8 +139,8 @@ def exercise(build, ffmpeg, ffprobe, codec, angle, mirror=False):
             processes[:] = [source_process]
             wait_for(lambda: "Input started" in (work / "input.log").read_text(errors="replace"))
             with (work / "output.log").open("wb") as output_log:
-                run([build / "MistOutEBML", "-s", stream, str(work / "upright.mkv") + f"?video={output_codec}&audio=none&subtitle=none&meta=none&duration=4"],
-                    env=env, stdout=output_log, stderr=subprocess.STDOUT, timeout=50)
+                run([build / "MistOutEBML", "-s", stream, str(work / "upright.mkv") + f"?video={output_codec}&audio=none&subtitle=none&meta=none&duration={duration}"],
+                    env=env, stdout=output_log, stderr=subprocess.STDOUT, timeout=duration + 46)
         probe = json.loads(run([ffprobe, "-v", "error", "-show_streams", "-show_packets", "-of", "json", work / "upright.mkv"], stdout=subprocess.PIPE).stdout)
         videos = [s for s in probe["streams"] if s["codec_type"] == "video"]
         expected = [(90, 160), (180, 320)] if angle % 180 else [(160, 90), (320, 180)]
@@ -111,8 +149,9 @@ def exercise(build, ffmpeg, ffprobe, codec, angle, mirror=False):
         assert sorted((s["width"], s["height"]) for s in videos) == sorted(expected), probe
         for index, video in enumerate(videos):
             packets = [p for p in probe["packets"] if p["stream_index"] == video["index"]]
+            assert len(packets) == duration * 10, ("video frame count", len(packets), duration * 10)
             assert packets and float(packets[0]["pts_time"]) <= 0.15, packets[:1]
-            assert float(packets[-1]["pts_time"]) >= 3.9, packets[-1:]
+            assert float(packets[-1]["pts_time"]) >= duration - 0.1 - 1e-6, packets[-1:]
             assert not any(side.get("rotation", 0) for side in video.get("side_data_list", [])), video
             verify_corner(ffmpeg, work / "upright.mkv", index, video["width"], video["height"], angle, mirror)
         poster = Path("/tmp/mist_thumbs") / stream / "poster.jpg"
@@ -120,18 +159,20 @@ def exercise(build, ffmpeg, ffprobe, codec, angle, mirror=False):
         image = json.loads(run([ffprobe, "-v", "error", "-show_streams", "-of", "json", poster], stdout=subprocess.PIPE).stdout)["streams"][0]
         assert (image["width"], image["height"]) == ((44, 80) if angle % 180 else (80, 44)), image
         verify_corner(ffmpeg, poster, 0, image["width"], image["height"], angle, mirror)
-        if os.environ.get("MIST_ROTATION_ACCEL") == "hw" and sys.platform == "darwin":
+        backend = os.environ.get("MIST_EXPECT_HW_BACKEND", "videotoolbox" if sys.platform == "darwin" else "")
+        if backend and os.environ.get("MIST_ROTATION_ACCEL") in ("hw", "auto"):
             diagnostics = (work / "input.log").read_text(errors="replace")
-            assert "Video decoder backend=videotoolbox" in diagnostics, diagnostics
-            assert "Video encoder backend=videotoolbox" in diagnostics, diagnostics
-            assert "Video transform backend=vt" in diagnostics, diagnostics
-        if os.environ.get("MIST_ROTATION_ACCEL") == "auto" and sys.platform == "darwin":
-            diagnostics = (work / "input.log").read_text(errors="replace")
-            assert "Video encoder backend=software" in diagnostics, diagnostics
-            assert "Video encoder backend=videotoolbox" not in diagnostics, diagnostics
+            for component in ("Video decoder", "Video encoder", "Thumbnail decoder"):
+                assert f"{component} backend={backend}" in diagnostics, diagnostics
+            if os.environ.get("MIST_EXPECT_THUMB_ENCODER"):
+                assert "Thumbnail encoder backend=" + os.environ["MIST_EXPECT_THUMB_ENCODER"] in diagnostics, diagnostics
+            assert f"Video transform backend={'vt' if backend == 'videotoolbox' else backend}" in diagnostics, diagnostics
         success = True
         print(f"PASS {codec} -> {output_codec} rotation={angle} mirror={mirror}: local ladder and thumbnail pixels", flush=True)
     finally:
+        memory_stop.set()
+        if memory_thread:
+            memory_thread.join(timeout=5)
         if controller:
             subprocess.run([str(build / "MistUtilNuke"), stream], env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=10)
         for process in processes:
@@ -149,7 +190,10 @@ def exercise(build, ffmpeg, ffprobe, codec, angle, mirror=False):
             except subprocess.TimeoutExpired:
                 controller.kill()
                 controller.wait()
-        shutil.rmtree(Path("/tmp/mist_thumbs") / stream, ignore_errors=True)
+        poster_dir = Path("/tmp/mist_thumbs") / stream
+        if os.environ.get("MIST_KEEP_TEST_ARTIFACTS") == "1" and poster_dir.exists():
+            shutil.copytree(poster_dir, work / "thumbnails", dirs_exist_ok=True)
+        shutil.rmtree(poster_dir, ignore_errors=True)
         if success and os.environ.get("MIST_KEEP_TEST_ARTIFACTS") != "1":
             shutil.rmtree(Path("/tmp/mist_thumbs") / stream, ignore_errors=True)
             shutil.rmtree(work)

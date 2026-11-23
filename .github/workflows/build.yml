@@ -378,7 +378,9 @@ jobs:
             build-essential git python3 python3-pip ninja-build pkg-config nasm yasm cmake \
             libmbedtls-dev libcjson-dev zlib1g-dev liblzma-dev libxml2-dev libmp3lame-dev \
             libopus-dev libvpx-dev libx265-dev libnuma-dev libaom-dev \
-            libjpeg-dev libpng-dev ffmpeg patchelf lld ccache
+            libjpeg-dev libpng-dev ffmpeg patchelf lld ccache clang llvm \
+            libffmpeg-nvenc-dev libva-dev libdrm-dev
+          if [ "$(dpkg --print-architecture)" = amd64 ]; then sudo apt-get install -y libvpl-dev; fi
           python3 -m pip install --break-system-packages 'meson>=1.6.0' 'cmake>=3.28'
 
       - name: Log in to GHCR
@@ -481,7 +483,7 @@ jobs:
           grep -qE 'Dependency mbedtls for host machine from subproject .* found: YES' build/meson-logs/meson-log.txt || { echo "::error::Pinned MbedTLS was not used"; exit 1; }
           ninja -C build
           ccache --show-stats
-          meson test -C build "Pinned FFmpeg codec registry contract" "AV orientation filter registry" "WebRTC DTLS-SRTP loopback handshake" --print-errorlogs
+          meson test -C build "Pinned FFmpeg codec registry contract" "Packaged Linux FFmpeg retains hardware codecs and filters" "AV orientation filter registry" "WebRTC DTLS-SRTP loopback handshake" --print-errorlogs
           scripts/ONNX/prepare_models.sh --dir "$RUNNER_TEMP/onnx-models" yolo26n
           ffmpeg -hide_banner -loglevel error -y -f lavfi -i testsrc2=size=640x640 -frames:v 1 "$RUNNER_TEMP/onnx-test.jpg"
           scripts/ONNX/verify_release.sh --build-dir build --allow-shared \
@@ -495,6 +497,7 @@ jobs:
           rm -rf /tmp/mistserver-install/include
           find /tmp/mistserver-install/lib -type d -name pkgconfig -prune -exec rm -rf {} +
           cp -a /opt/mist-onnx/lib/*.so* /tmp/mistserver-install/lib/
+          scripts/collect-native-libraries.sh /tmp/mistserver-install
           patchelf --set-rpath '$ORIGIN/../lib:$ORIGIN/../lib/x86_64-linux-gnu' \
             /tmp/mistserver-install/bin/MistProcONNX
           find /tmp/mistserver-install/lib -type f -name '*.so*' -exec \
@@ -635,7 +638,9 @@ jobs:
             build-essential git python3 python3-pip ninja-build pkg-config nasm yasm cmake \
             libmbedtls-dev libcjson-dev zlib1g-dev liblzma-dev libxml2-dev libmp3lame-dev \
             libopus-dev libvpx-dev libx265-dev libnuma-dev libaom-dev \
-            libjpeg-dev libpng-dev ffmpeg patchelf lld ccache
+            libjpeg-dev libpng-dev ffmpeg patchelf lld ccache clang llvm \
+            libffmpeg-nvenc-dev libva-dev libdrm-dev
+          if [ "$(dpkg --print-architecture)" = amd64 ]; then sudo apt-get install -y libvpl-dev; fi
           python3 -m pip install --break-system-packages 'meson>=1.6.0' 'cmake>=3.28'
 
       - name: Log in to GHCR
@@ -752,6 +757,7 @@ jobs:
           rm -rf /tmp/mistserver-install/include
           find /tmp/mistserver-install/lib -type d -name pkgconfig -prune -exec rm -rf {} +
           cp -a /opt/mist-onnx/lib/*.so* /tmp/mistserver-install/lib/
+          scripts/collect-native-libraries.sh /tmp/mistserver-install
           patchelf --set-rpath '$ORIGIN/../lib:$ORIGIN/../lib/aarch64-linux-gnu' \
             /tmp/mistserver-install/bin/MistProcONNX
           find /tmp/mistserver-install/lib -type f -name '*.so*' -exec \

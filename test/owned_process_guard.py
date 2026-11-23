@@ -26,8 +26,8 @@ def reap(exclude=()):
             pass
 
 
-def cleanup(kill_window=5):
-    deadline = time.monotonic() + 0.5
+def cleanup(kill_window=5, settle_window=0.5):
+    deadline = time.monotonic() + settle_window
     while True:
         reap()
         alive = children()
@@ -75,7 +75,7 @@ def main():
         nonlocal stop_signal, stop_deadline
         if not stop_signal:
             stop_signal = signum
-            stop_deadline = time.monotonic() + 1
+            stop_deadline = time.monotonic() + .1
         try:
             os.killpg(child.pid, signum)
             os.killpg(child.pid, signal.SIGCONT)
@@ -95,7 +95,7 @@ def main():
             time.sleep(0.02)
         result = child.wait()
     finally:
-        leaked = cleanup(kill_window=2 if stop_signal else 5)
+        leaked = cleanup(kill_window=.2 if stop_signal else 5, settle_window=0 if stop_signal else .5)
     if stop_signal:
         result = -stop_signal
     if result < 0:

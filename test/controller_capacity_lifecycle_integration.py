@@ -142,7 +142,7 @@ def stop_owned_descendants(owned):
                 table = process_table()
                 if not any(pid in table and not table[pid][2].startswith('Z') and process_birth(pid) == birth
                            for pid, birth in alive.items()):
-                    return
+                    raise AssertionError('fixture-owned descendants required SIGKILL: ' + repr(list(alive)))
                 time.sleep(.02)
             raise AssertionError('fixture-owned descendants survived termination: ' + repr(list(alive)))
         time.sleep(.05)
@@ -206,6 +206,7 @@ class Fixture:
             return json.load(response)
 
     def close(self, failed=False):
+        forced = []
         roots = [child.pid for child in self.children]
         if self.process:
             roots.append(self.process.pid)
@@ -227,6 +228,7 @@ class Fixture:
             with contextlib.suppress(subprocess.TimeoutExpired):
                 child.wait(timeout=2)
             if child.poll() is None:
+                forced.append(child.pid)
                 child.kill()
                 child.wait()
         if self.process:
@@ -252,14 +254,19 @@ class Fixture:
             while processes(group) and time.monotonic() < deadline:
                 time.sleep(0.05)
             if processes(group):
+                forced.extend(processes(group))
                 with contextlib.suppress(ProcessLookupError):
                     os.killpg(group, signal.SIGKILL)
             self.process.wait()
         owned.update(fixture_inputs(self.env))
-        stop_owned_descendants(owned)
-        self.log.close()
-        cleanup_logs(self.root, [self.stream], env=self.env)
-        self.temp.cleanup()
+        try:
+            stop_owned_descendants(owned)
+        finally:
+            self.log.close()
+            cleanup_logs(self.root, [self.stream], env=self.env)
+            self.temp.cleanup()
+        if forced:
+            raise AssertionError('fixture-owned descendants required SIGKILL: ' + repr(forced))
 
 
 def udp_listener_ready(process, port):
