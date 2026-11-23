@@ -72,17 +72,18 @@ def fix(nal):
     bits=''.join(format(x,'08b') for x in rb)[:p]+'0'+'1'
     bits+= '0'*((-len(bits))%8)
     return escape(bytes(int(bits[i:i+8],2) for i in range(0,len(bits),8)))
-d=open(sys.argv[1],'rb').read()
-idx=[]; i=0
-while True:
-    j=d.find(b'\x00\x00\x01',i)
-    if j<0: break
-    idx.append(j+3); i=j+3
-out=bytearray(); n=0
-for k,s in enumerate(idx):
-    e=idx[k+1]-3 if k+1<len(idx) else len(d)
-    nal=d[s:e]
-    while k+1<len(idx) and nal.endswith(b'\x00'): nal=nal[:-1]
-    if nal and (nal[0]&0x1f)==7: nal=fix(nal); n+=1
-    out+=b'\x00\x00\x00\x01'+nal
-open(sys.argv[2],'wb').write(out); print('sps rewritten',n)
+if __name__ == '__main__':
+    d=open(sys.argv[1],'rb').read()
+    idx=[]; i=0
+    while True:
+        j=d.find(b'\x00\x00\x01',i)
+        if j<0: break
+        idx.append(j+3); i=j+3
+    out=bytearray(); n=0
+    for k,s in enumerate(idx):
+        e=idx[k+1]-3 if k+1<len(idx) else len(d)
+        nal=d[s:e]
+        while k+1<len(idx) and nal.endswith(b'\x00'): nal=nal[:-1]
+        if nal and (nal[0]&0x1f)==7: nal=fix(nal); n+=1
+        out+=b'\x00\x00\x00\x01'+nal
+    open(sys.argv[2],'wb').write(out); print('sps rewritten',n)

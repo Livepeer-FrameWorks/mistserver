@@ -1654,7 +1654,7 @@ endif
 if ffmpeg_program.found()
   test('HLS defaults to AAC over EAC-3', find_program('python3'),
        args: [files('hls_audio_preference_integration.py'), meson.project_build_root(), ffmpeg_program],
-       depends: media_test_deps, suite: 'Processing', timeout: 100, is_parallel: false)
+       depends: media_test_deps + [exec_tgts['MistOutHLS']], suite: 'Processing', timeout: 100, is_parallel: false)
 endif
 
 if get_option('WITH_AV') and ffmpeg_program.found() and ffprobe_program.found()
@@ -1715,3 +1715,12 @@ sdpsignedclocktest = executable('sdpsignedclocktest', ['sdp_signed_timestamps_un
 test('SDP sendNext retains negative presentation time in RTP', sdpsignedclocktest, suite: 'SDP')
 
 test('MP4 edits retain presentation after a shorter decode preroll', mp4unreadyaudiotest, args: ['bframe-preroll-duration'], suite: 'MP4')
+
+if ffmpeg_program.found() and ffprobe_program.found()
+  foreach stripped : ['0', '1']
+    test('Progressive MP4 retains B-frame startup cadence strip=' + stripped, find_program('python3'),
+         args: [files('ebml_bframe_timeline_integration.py'), meson.project_build_root(), ffmpeg_program, ffprobe_program],
+         env: {'MIST_TIMELINE_FPS': '30', 'MIST_TIMELINE_DURATION': '40', 'MIST_TIMELINE_STRIP': stripped == '1' ? '1' : ''},
+         depends: media_test_deps, suite: 'Processing', timeout: 180, is_parallel: false)
+  endforeach
+endif

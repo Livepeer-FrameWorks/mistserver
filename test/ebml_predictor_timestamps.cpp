@@ -1,4 +1,5 @@
 #include <mist/ebml_socketglue.h>
+#include <mist/h264.h>
 #include <mist/mp4_generic.h>
 
 #include <cstdio>
@@ -54,7 +55,55 @@ static bool checkHEVCOpenGOP(const std::string & init = "") {
   return drain() && count == sizeof(presentation) / sizeof(*presentation);
 }
 
+static bool checkH264DefaultDepth() {
+  const char raw[] =
+    "\x67\x64\x00\x28\xac\xd9\x40\x78\x02\x27\xe5\xc0\x44\x00\x00\x03\x00\x04\x00\x00\x03\x00\xf0\x3c\x60\xc6\x58";
+  struct Case {
+      uint8_t level;
+      uint64_t width, height;
+      bool frames;
+      size_t expected;
+  };
+  const Case cases[] = {
+    {40, 119, 67, true, 4}, {31, 79, 44, true, 5}, {30, 39, 29, true, 6}, {40, 19, 11, true, 16}, {40, 119, 33, false, 4}};
+  for (const Case & c : cases) {
+    h264::spsUnit sps(raw, sizeof(raw) - 1);
+    sps.vuiParametersPresentFlag = true;
+    sps.vuiParams.bitstreamRestrictionFlag = false;
+    sps.levelIdc = c.level;
+    sps.picWidthInMbsMinus1 = c.width;
+    sps.picHeightInMapUnitsMinus1 = c.height;
+    sps.frameMbsOnlyFlag = c.frames;
+    sps.mbAdaptiveFrameFieldFlag = false;
+    const std::string nal = sps.generate();
+    const std::string annex =
+      std::string("\x00\x00\x00\x01", 4) + nal + std::string("\x00\x00\x00\x01\x68\xeb\xe3\xcb\x22\xc0", 10);
+    DTSC::Meta meta;
+    meta.reInit("", true);
+    const size_t idx = meta.addTrack();
+    meta.setID(idx, 1);
+    meta.setType(idx, "video");
+    meta.setCodec(idx, "H264");
+    meta.setInit(idx, h264::initFromAnnexB(annex.data(), annex.size()));
+    EBML::toDTSC parser;
+    std::string scale;
+    EBML::appendElemUInt(scale, EBML::EID_TIMECODESCALE, 1000000);
+    parser.parseElement(EBML::Element(scale.data()), 0, meta);
+    std::string block;
+    EBML::appendSimpleBlock(block, "frame", 5, 1, 0, true, 0);
+    parser.parseElement(EBML::Element(block.data()), 0, meta);
+    const size_t actual = parser.packBuf[1].maxDelay;
+    if (actual != c.expected) {
+      fprintf(stderr, "H264 default reorder depth: level=%u mbs=%llux%llu frames=%d got=%zu expected=%zu\n", c.level,
+              (unsigned long long)(c.width + 1), (unsigned long long)(c.height + 1), c.frames, actual, c.expected);
+      return false;
+    }
+  }
+  return true;
+}
+
 int main() {
+  if (!checkH264DefaultDepth()) { return 1; }
   // VPS/SPS/PPS from a real x265 open-GOP stream (two declared reorder pictures).
   const char init[] = "\x01\x01\x60\x00\x00\x00\x90\x00\x00\x00\x00\x00\x3c\xf0\x00\xfc\xfd\xf8\xf8\x00"
                       "\x00\x0f\x03\x20\x00\x01\x00\x18\x40\x01\x0c\x01\xff\xff\x01\x60\x00\x00\x03\x00"

@@ -12,12 +12,56 @@
 #include <mist/nal.h>
 #include <mist/stream.h> /* for `Util::codecString()` when streaming mp4 over websockets and playback using media source extensions. */
 
+#include <algorithm>
 #include <inttypes.h>
+#include <vector>
 
 std::set<std::string> supportedAudio;
 std::set<std::string> supportedVideo;
 
 namespace Mist{
+  struct ProgressiveTiming {
+      size_t first = 0;
+      std::vector<uint64_t> durations;
+      std::vector<int64_t> offsets;
+      uint64_t span = 0;
+
+      ProgressiveTiming(const DTSC::Meta & meta, size_t track) {
+        DTSC::Keys keys = meta.getKeys(track);
+        const size_t count = keys.getTotalPartCount();
+        if (meta.getType(track) != "video" || count < 2) { return; }
+        const DTSC::Parts parts(meta.parts(track));
+        first = keys.getFirstPart(keys.getFirstValid());
+        if (parts.getDuration(first) > 1) { return; }
+        std::vector<int64_t> presentation, sorted, decode;
+        uint64_t time = 0;
+        for (size_t part = first; part < first + count; ++part) {
+          decode.push_back(time);
+          presentation.push_back(int64_t(time) + parts.getOffset(part));
+          time += parts.getDuration(part);
+        }
+        sorted = presentation;
+        std::sort(sorted.begin(), sorted.end());
+        if (sorted[1] - sorted[0] <= 1 || std::adjacent_find(sorted.begin(), sorted.end()) != sorted.end()) { return; }
+        int64_t lead = 0;
+        for (size_t i = 0; i < count; ++i) { lead = std::max(lead, sorted[i] - decode[i]); }
+        if (!lead) { return; }
+        // Progressive MP4 can represent decode preroll before presentation through
+        // its edit list. Restore that cadence instead of serializing DTSC's 1 ms run-in.
+        for (size_t i = 0; i < count; ++i) {
+          durations.push_back(i + 1 < count ? sorted[i + 1] - sorted[i] : parts.getDuration(first + i));
+          offsets.push_back(presentation[i] - sorted[i] + lead);
+          span += durations.back();
+        }
+      }
+      uint64_t duration(const DTSC::Parts & parts, size_t part) const {
+        return durations.empty() ? parts.getDuration(part) : durations[part - first];
+      }
+      int64_t offset(const DTSC::Parts & parts, size_t part) const {
+        return offsets.empty() ? parts.getOffset(part) : offsets[part - first];
+      }
+  };
+
   bool OutMP4::trackReadyForOutput(size_t track) const {
     if (sentHeader && !fileHeaderTracks.empty() && !fileHeaderTracks.count(track)) { return false; }
     return M.getCodec(track) != "EAC-3" || AC3::validDEC3(M.getInit(track));
@@ -353,16 +397,17 @@ namespace Mist{
       if (!fragmented){
         // Unfortunately, for our STTS and CTTS boxes, we need to loop through all parts of the
         // track
+        const ProgressiveTiming timing(M, it->first);
         size_t firstPart = keys.getFirstPart(keys.getFirstValid());
         uint64_t sttsCount = 1;
-        uint64_t prevDur = parts.getDuration(firstPart);
-        uint64_t prevOffset = parts.getOffset(firstPart);
+        uint64_t prevDur = timing.duration(parts, firstPart);
+        uint64_t prevOffset = timing.offset(parts, firstPart);
         uint64_t cttsCount = 1;
         fileSize += parts.getSize(firstPart);
         bool isMeta = (tType == "meta");
         for (unsigned int part = 1; part < partCount; ++part){
-          uint64_t partDur = parts.getDuration(firstPart + part);
-          int64_t partOffset = parts.getOffset(firstPart + part);
+          uint64_t partDur = timing.duration(parts, firstPart + part);
+          int64_t partOffset = timing.offset(parts, firstPart + part);
           uint64_t partSize = parts.getSize(firstPart + part)+(isMeta?2:0);
           if (prevDur != partDur){
             prevDur = partDur;
@@ -450,6 +495,12 @@ namespace Mist{
     // Keep track of the current index within the moovBox
     unsigned int moovOffset = 0;
 
+    std::map<size_t, ProgressiveTiming> timings;
+    if (!fragmented) {
+      for (const auto & selected : userSelect) {
+        timings.emplace(selected.first, ProgressiveTiming(M, selected.first));
+      }
+    }
     uint64_t firstms = 0xFFFFFFFFFFFFFFull;
     const auto trackDuration = [&](size_t idx) {
       uint64_t duration = M.getLastms(idx) - M.getFirstms(idx);
@@ -473,13 +524,13 @@ namespace Mist{
       if (!count) { return trackDuration(idx); }
       const DTSC::Parts parts(M.parts(idx));
       const size_t first = keys.getFirstPart(keys.getFirstValid());
-      const int64_t firstOffset = parts.getOffset(first);
+      const int64_t firstOffset = timings.at(idx).offset(parts, first);
       uint64_t decodeTime = 0;
       int64_t presentationEnd = 0;
       for (size_t part = first; part < first + count; ++part) {
-        const uint64_t duration = parts.getDuration(part);
+        const uint64_t duration = timings.at(idx).duration(parts, part);
         presentationEnd =
-          std::max(presentationEnd, int64_t(decodeTime) + parts.getOffset(part) - firstOffset + int64_t(duration));
+          std::max(presentationEnd, int64_t(decodeTime) + timings.at(idx).offset(parts, part) - firstOffset + int64_t(duration));
         decodeTime += duration;
       }
       // Movie/edit duration follows presentation; MDHD still matches the STTS
@@ -513,7 +564,7 @@ namespace Mist{
       // Progressive MP4 starts its decode timeline before presentation when the first GOP is
       // reordered. Skip that decode-only lead-in through the edit list, as the source MP4 does.
       if (!fragmented && partCount) {
-        const int64_t firstOffset = parts.getOffset(keys.getFirstPart(keys.getFirstValid()));
+        const int64_t firstOffset = timings.at(it->first).offset(parts, keys.getFirstPart(keys.getFirstValid()));
         if (firstOffset > 0) { mediaStart = firstOffset; }
       }
       uint64_t tDuration = presentationDuration(it->first);
@@ -558,7 +609,8 @@ namespace Mist{
       size_t mdiaOffset = 0;
 
       // Add the mandatory MDHD and HDLR boxes to the MDIA
-      MP4::MDHD mdhdBox(trackDuration(it->first));
+      MP4::MDHD mdhdBox(!fragmented && !timings.at(it->first).durations.empty() ? timings.at(it->first).span
+                                                                                : trackDuration(it->first));
       if (fragmented){mdhdBox.setDuration(0);}
       mdhdBox.setLanguage(M.getLang(it->first));
       mdiaBox.setContent(mdhdBox, mdiaOffset++);
@@ -638,6 +690,7 @@ namespace Mist{
       MP4::STSZ stszBox(0);
       if (!fragmented){
 
+        const ProgressiveTiming & timing = timings.at(it->first);
         MP4::CTTS cttsBox;
         cttsBox.setVersion(0);
 
@@ -646,7 +699,7 @@ namespace Mist{
         size_t totalEntries = 0;
         MP4::CTTSEntry tmpEntry;
         tmpEntry.sampleCount = 0;
-        tmpEntry.sampleOffset = parts.getOffset(firstPart);
+        tmpEntry.sampleOffset = timing.offset(parts, firstPart);
 
         size_t sttsCounter = 0;
         MP4::STTSEntry sttsEntry;
@@ -657,12 +710,12 @@ namespace Mist{
         //Our MP4 box implementations dynamically reallocate to fit the data you put inside them,
         //Which means setting the last entry first prevents constant reallocs and slowness.
         for (size_t part = 0; part < partCount; ++part){
-          int64_t partOffset = parts.getOffset(firstPart + part);
+          int64_t partOffset = timing.offset(parts, firstPart + part);
           if (partOffset != tmpEntry.sampleOffset){
             ++totalEntries;
             tmpEntry.sampleOffset = partOffset;
           }
-          uint64_t partDur = parts.getDuration(firstPart + part);
+          uint64_t partDur = timing.duration(parts, firstPart + part);
           if (partDur != sttsEntry.sampleDelta){
             ++sttsCounter;
             sttsEntry.sampleDelta = partDur;
@@ -683,14 +736,14 @@ namespace Mist{
         //Reset the values we just used, first.
         totalEntries = 0;
         tmpEntry.sampleCount = 0;
-        tmpEntry.sampleOffset = parts.getOffset(firstPart);
+        tmpEntry.sampleOffset = timing.offset(parts, firstPart);
         sttsCounter = 0;
         sttsEntry.sampleCount = 0;
-        sttsEntry.sampleDelta = parts.getDuration(firstPart);
-        
+        sttsEntry.sampleDelta = timing.duration(parts, firstPart);
+
         bool isMeta = (tType == "meta");
         for (size_t part = 0; part < partCount; ++part){
-          uint64_t partDur = parts.getDuration(firstPart + part);
+          uint64_t partDur = timing.duration(parts, firstPart + part);
           if (sttsEntry.sampleDelta != partDur){
             // If the duration of this and previous part differ, write current values and reset
             sttsBox.setSTTSEntry(sttsEntry, sttsCounter++);
@@ -704,7 +757,7 @@ namespace Mist{
           size += partSize;
           
           if (hasCTTS){
-            int64_t partOffset = parts.getOffset(firstPart + part);
+            int64_t partOffset = timing.offset(parts, firstPart + part);
             if (partOffset != tmpEntry.sampleOffset){
               // If the offset of this and previous part differ, write current values and reset
               cttsBox.setCTTSEntry(tmpEntry, totalEntries++);

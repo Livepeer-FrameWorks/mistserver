@@ -115,12 +115,20 @@ class MP4InitProbe : public Mist::OutMP4 {
       for (size_t i = 0; i < stts.getEntryCount(); ++i) {
         const MP4::STTSEntry entry = stts.getSTTSEntry(i);
         samplesDuration += uint64_t(entry.sampleCount) * entry.sampleDelta;
+        if (preroll && entry.sampleDelta != 40) {
+          fprintf(stderr, "MP4 startup sample duration=%u, expected 40 ms\n", entry.sampleDelta);
+          exit(1);
+        }
       }
       const uint64_t mediaDuration = media.getChild<MP4::MDHD>().getDuration();
-      const uint64_t expectedMedia = preroll ? 200 : 160;
+      const uint64_t expectedMedia = preroll ? 280 : 160;
       const uint64_t expectedPresentation = preroll ? 280 : 160;
       const uint64_t trackDuration = track.getChild<MP4::TKHD>().getDuration();
       MP4::ELST edits = track.getChild<MP4::EDTS>().getChild<MP4::ELST>();
+      if (preroll && edits.getMediaTime(0) != 80) {
+        fprintf(stderr, "MP4 startup decode lead is missing from the edit list\n");
+        exit(1);
+      }
       if (mediaDuration != expectedMedia || samplesDuration != mediaDuration || trackDuration != expectedPresentation ||
           edits.getSegmentDuration(0) != expectedPresentation) {
         fprintf(stderr, "MP4 decode/presentation duration mismatch: media=%llu samples=%llu track=%llu expectedTrack=%llu\n",

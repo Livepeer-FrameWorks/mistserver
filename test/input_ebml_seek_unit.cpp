@@ -30,14 +30,14 @@ namespace {
         return inFile.open(path) && readHeader();
       }
 
-      bool acceptsLegacyClockHeader(bool current = false) {
+      bool acceptsLegacyClockHeader(bool current = false, int legacyVersion = 4) {
         char path[] = "/tmp/mist-ebml-clock-cache-XXXXXX";
         const int fd = mkstemp(path);
         if (fd < 0) { return true; }
         close(fd);
         config->getOption("input", true).append(path);
         config->getOption("realtime", true).append(0u);
-        streamName = "ebmlclockcache" + std::to_string(getpid()) + (current ? "new" : "old");
+        streamName = "ebmlclockcache" + std::to_string(getpid()) + (current ? "new" : "old" + std::to_string(legacyVersion));
         config->getOption("streamname", true).append(streamName);
         meta.reInit("", true);
         meta.setVod(true);
@@ -45,19 +45,19 @@ namespace {
         meta.setID(track, 1);
         meta.setType(track, "video");
         meta.setCodec(track, "H264");
-        meta.update(80, -40, track, 5, 0, true, 40);
-        meta.inputLocalVars["version"] = current ? 5 : 4;
-        if (current) {
+        meta.update(current ? 1000 : 80, legacyVersion < 5 && !current ? -40 : 0, track, 5, 0, true, 40);
+        meta.inputLocalVars["version"] = current ? 6 : legacyVersion;
+        if (current || legacyVersion >= 5) {
           JSON::Value & clock = meta.inputLocalVars["decode_clocks"]["1"];
-          clock["depth"] = 3;
-          clock["delay"] = 120;
-          clock["origin"] = 1000;
+          clock["depth"] = current ? 3 : 16;
+          clock["delay"] = current ? 120 : 533;
+          clock["origin"] = current ? 1000 : 80;
         }
         meta.inputLocalVars["complete"] = 1;
         const std::string header = std::string(path) + ".dtsh";
         M.toFile(header);
         DTSC::Meta cached("", header);
-        if (cached.inputLocalVars["version"].asInt() != (current ? 5 : 4) || cached.getValidTracks().empty()) {
+        if (cached.inputLocalVars["version"].asInt() != (current ? 6 : legacyVersion) || cached.getValidTracks().empty()) {
           fprintf(stderr, "FAIL: legacy clock fixture did not create a valid DTSH file\n");
           ++failures;
         }
@@ -140,6 +140,12 @@ int main(int argc, char **argv) {
     config.is_active = true;
     InputEBMLSeekProbe input(&config);
     check(!input.acceptsLegacyClockHeader(), "cached signed-offset Matroska indexes must be rebuilt for the new decode clock");
+  }
+  {
+    Util::Config config("ebml-clock-cache-dpb-probe");
+    config.is_active = true;
+    InputEBMLSeekProbe input(&config);
+    check(!input.acceptsLegacyClockHeader(false, 5), "cached flat-16 reorder clocks must be rebuilt");
   }
   {
     Util::Config config("ebml-clock-cache-restore-probe");

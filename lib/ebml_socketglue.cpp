@@ -794,6 +794,49 @@ namespace EBML{
     return tmpStr;
   }
 
+  static size_t h264ReorderDepth(const h264::spsUnit & sps) {
+    if (sps.vuiParametersPresentFlag && sps.vuiParams.bitstreamRestrictionFlag) {
+      return sps.vuiParams.numReorderFrames;
+    }
+    // H.264 E.2.1 infers the absent restriction from the level's DPB capacity
+    // (A.3, Table A-1), except profiles constrained to intra-only pictures.
+    if (sps.constraintSet3Flag &&
+        (sps.profileIdc == 44 || sps.profileIdc == 86 || sps.profileIdc == 100 || sps.profileIdc == 110 ||
+         sps.profileIdc == 122 || sps.profileIdc == 244)) {
+      return 0;
+    }
+    uint64_t maxDpbMbs;
+    switch (sps.levelIdc) {
+      case 9:
+      case 10: maxDpbMbs = 396; break;
+      case 11:
+        maxDpbMbs = sps.constraintSet3Flag && (sps.profileIdc == 66 || sps.profileIdc == 77 || sps.profileIdc == 88) ? 396 : 900;
+        break;
+      case 12:
+      case 13:
+      case 20: maxDpbMbs = 2376; break;
+      case 21: maxDpbMbs = 4752; break;
+      case 22:
+      case 30: maxDpbMbs = 8100; break;
+      case 31: maxDpbMbs = 18000; break;
+      case 32: maxDpbMbs = 20480; break;
+      case 40:
+      case 41: maxDpbMbs = 32768; break;
+      case 42: maxDpbMbs = 34816; break;
+      case 50: maxDpbMbs = 110400; break;
+      case 51:
+      case 52: maxDpbMbs = 184320; break;
+      case 60:
+      case 61:
+      case 62: maxDpbMbs = 696320; break;
+      default: return 16;
+    }
+    const uint64_t width = sps.picWidthInMbsMinus1 + 1;
+    const uint64_t height = sps.picHeightInMapUnitsMinus1 + 1;
+    if (!width || !height || width > maxDpbMbs || height > maxDpbMbs) { return 0; }
+    return std::min<uint64_t>(16, maxDpbMbs / (width * height * (sps.frameMbsOnlyFlag ? 1 : 2)));
+  }
+
   void toDTSC::parseBlock(const Block & B, const DTSC::Meta & M, uint64_t duration, int groupKeyframe) {
     // BlockGroup has no SimpleBlock key bit: absence of ReferenceBlock declares a keyframe.
     const bool keyframe = groupKeyframe < 0 ? B.isKeyframe() : groupKeyframe != 0;
@@ -815,9 +858,7 @@ namespace EBML{
       avcc.setPayload(M.getInit(idx));
       if (avcc.getSPSCount() && avcc.getSPSLen()) {
         const h264::spsUnit sps(avcc.getSPS(), avcc.getSPSLen());
-        if (sps.vuiParametersPresentFlag && sps.vuiParams.bitstreamRestrictionFlag) {
-          TP.maxDelay = std::min<uint64_t>(sps.vuiParams.numReorderFrames, PKT_COUNT - 1);
-        }
+        TP.maxDelay = std::min<uint64_t>(h264ReorderDepth(sps), PKT_COUNT - 1);
       }
     }
     if (isVideo && M.getCodec(idx) == "HEVC" && !TP.ctr && !TP.initialized) {
