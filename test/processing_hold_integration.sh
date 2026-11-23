@@ -123,11 +123,12 @@ printf '%s\n' \
   "{\"account\":{\"test\":{\"password\":\"098f6bcd4621d373cade4e832627b4f6\"}},\"auto_push\":null,\"bandwidth\":{\"exceptions\":[\"::1\",\"127.0.0.0/8\"]},\"config\":{\"accesslog\":\"LOG\",\"controller\":{\"interface\":\"127.0.0.1\",\"port\":$port,\"username\":null},\"debug\":4,\"defaultStream\":null,\"prometheus\":\"\",\"protocols\":[],\"serverid\":null,\"sessionInputMode\":15,\"sessionOutputMode\":15,\"sessionStreamInfoMode\":1,\"sessionUnspecifiedMode\":0,\"sessionViewerMode\":14,\"tknMode\":15,\"triggers\":null,\"trustedproxy\":[]},\"extwriters\":null,\"jwks\":null,\"push_settings\":{\"maxspeed\":0,\"wait\":3},\"streamkeys\":null,\"streams\":{\"$stream\":{\"name\":\"$stream\",\"source\":\"$source_media\",\"process_controlled_realtime\":true,\"processes\":[{\"process\":\"Thumbs\",\"track_select\":\"video=H264\",\"inconsequential\":true,\"thumb_width\":80,\"thumb_height\":80,\"grid_cols\":3,\"grid_rows\":2,\"jpeg_quality\":80,\"interval\":2000,\"source_mask\":4,\"target_mask\":3,\"restart_type\":\"$thumbs_restart\"}]}},\"variables\":null}" \
   >"$config"
 
-TMP="$ipc_root" MIST_CONTROL=1 "$controller" -c "$config" -C r -L "$work/controller.log" &
+UDP_API=udp://127.0.0.1:0 TMP="$ipc_root" MIST_CONTROL=1 "$controller" -c "$config" -C r -L "$work/controller.log" &
 controller_pid=$!
 ready=0
 attempt=0
-while [ "$attempt" -lt 100 ]; do
+# Instrumented controller startup can exceed five seconds; keep a bounded 15-second wait.
+while [ "$attempt" -lt 300 ]; do
   if grep -q 'Controller started' "$work/controller.log" 2>/dev/null; then ready=1; break; fi
   if ! kill -0 "$controller_pid" 2>/dev/null; then break; fi
   attempt=$((attempt + 1))
