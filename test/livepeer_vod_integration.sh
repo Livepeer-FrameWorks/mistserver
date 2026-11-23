@@ -533,7 +533,7 @@ if [ "$tail_finalizations" -ne 1 ]; then
   echo "Livepeer finalized its EOF tail $tail_finalizations times; expected exactly once" >&2
   exit 1
 fi
-if ! grep -q 'Stripping target options: audio=none&video=maxbps' "$work/input.log"; then
+if ! grep -qF 'Stripping target options: audio=none&video=source,!jpeg,!png,|maxbps' "$work/input.log"; then
   echo "Livepeer source did not apply its video-only TS selector" >&2
   exit 1
 fi
