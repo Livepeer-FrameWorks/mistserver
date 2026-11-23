@@ -76,3 +76,5 @@ subprojects/
 node_modules/
 
 __pycache__/
+
+/PLAN_*
