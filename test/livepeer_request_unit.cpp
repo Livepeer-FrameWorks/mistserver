@@ -44,6 +44,12 @@ int main() {
   assert(configuration["profiles"][0u]["bitrate"].asInt() == 4500000);
   assert(options["target_profiles"][0u].isMember("track_retain"));
 
+  // The buffer's processing graph decides which renditions are not produced once, and hands the
+  // decision to the process it starts.
+  std::set<std::string> dropped = Mist::livepeerDroppedOutputs("720p,1080p,1080p.audio");
+  assert(dropped == std::set<std::string>({"720p", "1080p", "1080p.audio"}));
+  assert(Mist::livepeerDroppedOutputs("").empty());
+
   // Live carries no configured deadline: every segment's budget is its
   // duration plus one second, sent as an integer deadlineMs.
   JSON::Value live;

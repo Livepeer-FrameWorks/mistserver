@@ -1149,6 +1149,24 @@ namespace Mist{
   /// The processing graph of the given process list (see src/process_graph.h), rebuilt only when
   /// what it is built from changed.
   const ProcessGraph & InputBuffer::resolveProcessGraph(const JSON::Value & procs) {
+    // An original track that lands while the graph is built decides again at once.
+    for (size_t attempt = 0; attempt < 2; ++attempt) {
+      const std::string key = renditionDecisionKey(M);
+      resolveProcessGraphOnce(procs, key);
+      if (renditionDecisionKey(M) == key) { break; }
+    }
+    return processGraph;
+  }
+
+  /// See resolveProcessGraph: builds the graph with the rendition decisions made for the original
+  /// tracks in decisionKey (see RenditionDecision), deciding those not made yet.
+  void InputBuffer::resolveProcessGraphOnce(const JSON::Value & procs, const std::string & decisionKey) {
+    if (decisionKey != renditionDecisionTracks) {
+      renditionDecisions.clear();
+      renditionDecisionTracks = decisionKey;
+      renditionDecisionSince = Util::bootMS();
+    }
+    const bool mayWait = !sourceEndedAtCheck && Util::bootMS() < renditionDecisionSince + RENDITION_DECISION_WAIT_MS;
     std::vector<ProcessGraphNode> nodes;
     const std::set<std::string> tags = Util::streamTags(streamName);
     std::string inputs = procs.toString() + "\n";
@@ -1161,15 +1179,23 @@ namespace Mist{
       node.proc["source"] = streamName;
       node.config = node.proc.toString();
       node.declaration = processDeclaration(node.config, node.proc);
-      node.inhibited = processInhibitReason(node.proc, M, tags, node.declaration, !sourceEndedAtCheck);
+      std::map<std::string, RenditionDecision>::const_iterator decided = renditionDecisions.find(node.config);
+      if (decided != renditionDecisions.end()) {
+        node.decision = decided->second;
+      } else {
+        node.decision = decideRenditions(M, node.proc, node.declaration, mayWait);
+        if (node.decision.decided) { renditionDecisions[node.config] = node.decision; }
+      }
+      node.inhibited = tagInhibitReason(node.proc, tags);
+      if (node.inhibited.empty()) { node.inhibited = node.decision.reason; }
       if (node.proc["sink"].isString() && node.proc["sink"].asStringRef().size()) {
         std::string sink = node.proc["sink"].asStringRef();
         Util::streamVariables(sink, streamName);
         node.producesHere = sink == streamName;
       }
       node.producing = processWillProduce(*it);
-      // The decisions that depend on track geometry and bitrate, which change without changing
-      // the track list: the node's inhibit or retain reason and the outputs it keeps.
+      // The node's inhibit, retain or wait reason and the outputs it keeps, which change without
+      // the track list changing.
       inputs += node.producing ? "1:" : "0:";
       inputs += node.inhibited + ":";
       for (const auto & output : declaredNodeOutputs(node, M)) { inputs += output.first + ","; }
@@ -1187,12 +1213,11 @@ namespace Mist{
         M.getOutputKey(track) + (withData.count(track) ? ":data," : ",");
     }
     DTSC::trackValidMask = oldMask;
-    if (inputs == processGraphInputs) { return processGraph; }
+    if (inputs == processGraphInputs) { return; }
     processGraphInputs = inputs;
     processGraphNodes.clear();
     for (const ProcessGraphNode & node : nodes) { processGraphNodes[node.config] = node; }
     processGraph = buildProcessGraph(M, nodes);
-    return processGraph;
   }
 
   /// Publishes the outputs the processing graph expects for recordings (see src/process_graph.h),
@@ -1663,7 +1688,20 @@ namespace Mist{
       // Only count process as not-running if it's not inconsequential
       if (!args.isMember("inconsequential") || !args["inconsequential"].asBool()) { allProcsRunning = false; }
       if (processControlledRealtime) { reserveProcessOutputs(config, args); }
+      // The process applies the graph's rendition decision instead of deciding again on what
+      // the tracks report when it starts (see RenditionDecision).
+      const std::map<std::string, ProcessGraphNode>::const_iterator decided = processGraphNodes.find(config);
+      if (decided != processGraphNodes.end() && decided->second.decision.decided) {
+        std::string dropped;
+        for (const std::string & output : decided->second.decision.dropped) {
+          dropped += (dropped.size() ? "," : "") + output;
+        }
+        setenv(RENDITION_DROPPED_ENV, dropped.c_str(), 1);
+      } else {
+        unsetenv(RENDITION_DROPPED_ENV);
+      }
       runningProcs[config] = Util::Procs::StartPiped(argarr, 0, 0, &err);
+      unsetenv(RENDITION_DROPPED_ENV);
       processPidsWithUsers.erase(runningProcs[config]);
       INFO_MSG("Started process %zu: %s %s", (size_t)runningProcs[config], argarr[0].c_str(), argarr[1].c_str());
       // Increment per-process boot counter
@@ -1687,14 +1725,26 @@ namespace Mist{
     }
     std::vector<std::string> outputs = processReservableOutputs(args);
     if (args["process"].asString() == "Livepeer" && args["target_profiles"].isArray()) {
-      // The profiles the processing graph keeps: an original that satisfies a profile's
-      // track_retain, or a track_inhibit that selects the Livepeer source, drops it.
+      // The profiles the processing graph's rendition decision keeps (see RenditionDecision).
       std::map<std::string, ProcessGraphNode>::const_iterator node = processGraphNodes.find(config);
-      const JSON::Value declaration = node == processGraphNodes.end() ? JSON::Value() : node->second.declaration;
-      const std::set<size_t> sources = processSourceTracks(M, args, declaration);
+      std::set<std::string> dropped;
+      if (node != processGraphNodes.end() && node->second.decision.decided) {
+        dropped = node->second.decision.dropped;
+      } else {
+        JSON::Value declaration = node == processGraphNodes.end() ? JSON::Value() : node->second.declaration;
+        if (!declaration["outputs"].isArray()) {
+          jsonForEachConst (args["target_profiles"], prof) {
+            JSON::Value output = *prof;
+            output["output"] = (*prof)["name"];
+            output["track_retain_bitrate"] = (*prof)["bitrate"];
+            declaration["outputs"].append(output);
+          }
+        }
+        dropped = decideRenditions(M, args, declaration, false).dropped;
+      }
       jsonForEachConst (args["target_profiles"], prof) {
         if (!prof->isObject() || !(*prof)["name"].isString() || !(*prof)["name"].asStringRef().size()) { continue; }
-        if (renditionSkipReason(M, *prof, (*prof)["bitrate"].asInt(), sources).size()) { continue; }
+        if (dropped.count((*prof)["name"].asStringRef())) { continue; }
         outputs.push_back((*prof)["name"].asStringRef());
       }
     }
@@ -1704,12 +1754,14 @@ namespace Mist{
 
   /// Masks the original tracks the ladder replaces (see replacedOriginals) the way source_mask
   /// masks a process's source, and restores the validity of those no longer replaced: when the
-  /// ladder retires, or the original now retains a rung. Nothing changes while track_retain still
-  /// waits for an original's geometry or bitrate.
+  /// ladder retires, or a new decision has the original retain a rung. Nothing changes while a
+  /// rendition decision is not made yet.
   void InputBuffer::applyReplacedOriginalMasks(const ProcessGraph & graph) {
-    if (!sourceEndedAtCheck && Util::retentionPending(M)) { return; }
     std::vector<ProcessGraphNode> nodes;
-    for (const auto & node : processGraphNodes) { nodes.push_back(node.second); }
+    for (const auto & node : processGraphNodes) {
+      if (!node.second.decision.decided) { return; }
+      nodes.push_back(node.second);
+    }
     const std::map<size_t, uint8_t> replaced = replacedOriginals(M, nodes, graph);
     for (std::map<size_t, uint8_t>::iterator it = replacedOriginalValidity.begin(); it != replacedOriginalValidity.end();) {
       if (replaced.count(it->first)) {

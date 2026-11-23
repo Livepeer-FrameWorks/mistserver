@@ -71,6 +71,7 @@ namespace Mist{
     bool processWillProduce(const JSON::Value & proc) const;
     JSON::Value processDeclaration(const std::string & config, const JSON::Value & args);
     const ProcessGraph & resolveProcessGraph(const JSON::Value & procs);
+    void resolveProcessGraphOnce(const JSON::Value & procs, const std::string & decisionKey);
     void publishProcessGraph(const ProcessGraph & graph);
     void publishFeedPaused();
     uint64_t holdingReaderLeadMs(uint64_t & targetDurationMs) const;
@@ -99,6 +100,11 @@ namespace Mist{
     // Whether the source ended as of the last supervisor check: track_retain then decides on what
     // the original tracks report instead of waiting for their bitrate.
     bool sourceEndedAtCheck = false;
+    // The rendition decision of each configuration (see RenditionDecision), made for the original
+    // tracks in renditionDecisionTracks, which carry data since renditionDecisionSince (boot ms).
+    std::map<std::string, RenditionDecision> renditionDecisions;
+    std::string renditionDecisionTracks;
+    uint64_t renditionDecisionSince = 0;
     // Original tracks masked because the ladder replaces them (see replacedOriginals), with the
     // validity they had before, restored once they are no longer replaced.
     std::map<size_t, uint8_t> replacedOriginalValidity;

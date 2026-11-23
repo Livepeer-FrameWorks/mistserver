@@ -193,6 +193,19 @@ namespace Mist {
     return rate;
   }
 
+  /// The profile names a comma-separated list (MIST_RENDITION_DROPPED) names.
+  inline std::set<std::string> livepeerDroppedOutputs(const std::string & list) {
+    std::set<std::string> names;
+    size_t start = 0;
+    while (start < list.size()) {
+      size_t end = list.find(',', start);
+      if (end == std::string::npos) { end = list.size(); }
+      if (end > start) { names.insert(list.substr(start, end - start)); }
+      start = end + 1;
+    }
+    return names;
+  }
+
   inline JSON::Value buildLivepeerTranscodeConfiguration(const JSON::Value & options, uint64_t deadlineMs) {
     JSON::Value configuration;
     configuration["profiles"] = options["target_profiles"];

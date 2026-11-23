@@ -1608,16 +1608,11 @@ int main(int argc, char *argv[]){
     return procExit.flush(procStatePage);
   }
 
-  // track_retain decides on the geometry and bitrate of the original tracks; the buffer starts
-  // this process once they are known, a standalone run waits for them here.
-  bool retains = false;
-  jsonForEachConst (Mist::opt["target_profiles"], prof) {
-    if ((*prof)["track_retain"].isString() && (*prof)["track_retain"].asStringRef().size()) { retains = true; }
-  }
-  for (size_t waits = 0; retains && waits < 60 && Util::retentionPending(M); ++waits) {
-    Util::sleep(250);
-    M.reloadReplacedPagesIfNeeded();
-  }
+  // The buffer decided once which profiles its renditions or source rule out (see
+  // RenditionDecision in src/process_graph.h); a run it did not start decides here.
+  const char *droppedEnv = getenv("MIST_RENDITION_DROPPED");
+  const bool bufferDecided = droppedEnv != 0;
+  const std::set<std::string> dropped = Mist::livepeerDroppedOutputs(droppedEnv ? droppedEnv : "");
 
   //build transcode request
   JSON::Value pl;
@@ -1663,6 +1658,14 @@ int main(int argc, char *argv[]){
     }
 
     const std::string profileName = prof->isMember("name") ? (*prof)["name"].asString() : prof->toString();
+    if (bufferDecided) {
+      if (dropped.count((*prof)["name"].asString())) {
+        INFO_MSG("Removing profile the processing graph dropped: %s", profileName.c_str());
+        continue;
+      }
+      prof->removeMember("track_retain");
+      prof->removeMember("track_inhibit");
+    }
     if (prof->isMember("track_retain")) {
       // An original track that satisfies the profile already is its rendition.
       const size_t retained = Util::retainedTrack(M, (*prof)["track_retain"].asString(), (*prof)["bitrate"].asInt());

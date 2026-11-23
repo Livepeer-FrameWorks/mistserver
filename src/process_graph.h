@@ -64,24 +64,6 @@ namespace Mist {
     return M.getValidTracks(true);
   }
 
-  /// Why one rendition (a process, or one declared output of it) is not produced: an original
-  /// track satisfies its track_retain (Util::retainedTrack, against its target bitrate), or its
-  /// track_inhibit selects one of the original tracks the process reads (sources). Empty when it
-  /// is produced.
-  inline std::string renditionSkipReason(const DTSC::Meta & M, const JSON::Value & rendition, uint64_t bitrate,
-                                         const std::set<size_t> & sources) {
-    if (rendition["track_retain"].isString() && rendition["track_retain"].asStringRef().size()) {
-      const size_t retained = Util::retainedTrack(M, rendition["track_retain"].asStringRef(), bitrate);
-      if (retained != INVALID_TRACK_ID) {
-        return "track_retain '" + rendition["track_retain"].asString() + "' satisfied by track " + std::to_string(retained);
-      }
-    }
-    if (rendition.isMember("track_inhibit") && Util::inhibitorMatchesSource(M, rendition["track_inhibit"].asStringRef(), sources)) {
-      return "track_inhibit '" + rendition["track_inhibit"].asString() + "' matches source tracks";
-    }
-    return "";
-  }
-
   /// Whether a process, or a rendition it declares, carries a track_retain.
   inline bool carriesTrackRetain(const JSON::Value & proc, const JSON::Value & declaration) {
     if (proc["track_retain"].isString() && proc["track_retain"].asStringRef().size()) { return true; }
@@ -92,48 +74,150 @@ namespace Mist {
     return false;
   }
 
-  /// Why the stream's tags or original tracks keep a configured process (or one declared output,
-  /// for its track_inhibit) from running: a tags_inhibit tag set on the stream, an original track
-  /// that satisfies its track_retain, or a track_inhibit that selects an original (ingest) track it
-  /// reads (see processSourceTracks; declaration is its --describe-outputs answer, null when it
-  /// gave none). Outputs of processes never inhibit. While an original video track does not report
-  /// its geometry and bitrate yet, a process carrying a track_retain waits, unless waitForRetention
-  /// is false (the source ended, so nothing more will be known). Empty when nothing inhibits it.
-  inline std::string processInhibitReason(const JSON::Value & proc, const DTSC::Meta & M, const std::set<std::string> & streamTags,
-                                          const JSON::Value & declaration = JSON::Value(), bool waitForRetention = true) {
-    if (proc.isMember("tags_inhibit")) {
-      auto matchesTag = [&streamTags](const JSON::Value & tag) {
-        if (!tag.isString()) { return false; }
-        const std::string & name = tag.asStringRef();
-        return streamTags.count(name.size() && name[0] == '#' ? name.substr(1) : name) != 0;
-      };
-      const JSON::Value & inhibit = proc["tags_inhibit"];
-      if (inhibit.isString() && matchesTag(inhibit)) { return "inhibited by stream tag '" + inhibit.asString() + "'"; }
-      if (inhibit.isArray()) {
-        jsonForEachConst (inhibit, it) {
-          if (matchesTag(*it)) { return "inhibited by stream tag '" + it->asString() + "'"; }
-        }
-      }
+  /// Whether a process, or a rendition it declares, carries a track_inhibit.
+  inline bool carriesTrackInhibit(const JSON::Value & proc, const JSON::Value & declaration) {
+    if (proc.isMember("track_inhibit")) { return true; }
+    if (!declaration["outputs"].isArray()) { return false; }
+    jsonForEachConst (declaration["outputs"], it) {
+      if (it->isMember("track_inhibit")) { return true; }
     }
-    size_t pending = INVALID_TRACK_ID;
-    if (waitForRetention && carriesTrackRetain(proc, declaration) && Util::retentionPending(M, &pending)) {
-      return "track_retain waits for the geometry and bitrate of original track " + std::to_string(pending);
+    return false;
+  }
+
+  /// How long the processing graph waits for the original tracks to report the geometry and
+  /// bitrate its track_retain and track_inhibit decisions need. After it, what is still unknown
+  /// decides for a transcode: an original without a known geometry or bitrate retains no
+  /// rendition, and a source without a known geometry inhibits none. A redundant encode is
+  /// acceptable, a rung without a rendition is not.
+  static const uint64_t RENDITION_DECISION_WAIT_MS = 5000;
+
+  /// The environment variable the buffer starts a process with: the comma-separated declared
+  /// output names its rendition decision drops. A process that finds it applies that decision.
+  static const char *const RENDITION_DROPPED_ENV = "MIST_RENDITION_DROPPED";
+
+  /// The original tracks carrying data that a rendition decision is made for, as a key: a new
+  /// original track (a restarted publisher's included) decides again.
+  inline std::string renditionDecisionKey(const DTSC::Meta & M) {
+    std::string key;
+    for (const size_t track : M.getValidTracks(true)) {
+      if (M.getSourceTrack(track) != INVALID_TRACK_ID) { continue; }
+      key += std::to_string(track) + ":" + std::to_string(M.getID(track)) + ":" + M.getCodec(track) + ",";
+    }
+    return key;
+  }
+
+  /// A process's rendition decision: whether it runs (reason, empty when it does), which declared
+  /// outputs it does not produce, and which original tracks retain one of its renditions. It is
+  /// made once for the stream's original tracks and kept while they stay (renditionDecisionKey):
+  /// geometry or bitrate changing afterwards neither starts nor stops a rendition.
+  struct RenditionDecision {
+      bool decided = false; ///< false while it waits for the original tracks (reason says why)
+      std::string reason;
+      std::set<std::string> dropped; ///< declared output names it does not produce
+      std::set<size_t> retaining; ///< original tracks that retain a rendition of it
+  };
+
+  /// Decides a process's renditions (see RenditionDecision): an original track that satisfies a
+  /// track_retain (Util::retainedTrack, against the rendition's target bitrate) is that rendition,
+  /// and a track_inhibit that selects one of the original tracks the process reads (see
+  /// processSourceTracks) drops it. A process whose every declared rendition is dropped does not
+  /// run. While mayWait, a decision that needs the geometry or bitrate of an original video track
+  /// that does not report it yet is not made; otherwise unknown values decide for a transcode.
+  inline RenditionDecision
+    decideRenditions(const DTSC::Meta & M, const JSON::Value & proc, const JSON::Value & declaration, bool mayWait) {
+    RenditionDecision decision;
+    const bool retains = carriesTrackRetain(proc, declaration);
+    const bool inhibits = carriesTrackInhibit(proc, declaration);
+    if (!retains && !inhibits) {
+      decision.decided = true;
+      return decision;
     }
     const std::set<size_t> sources = processSourceTracks(M, proc, declaration);
-    if (proc.isMember("track_retain") || proc.isMember("track_inhibit")) {
-      const std::string reason = renditionSkipReason(M, proc, proc["bitrate"].asInt(), sources);
-      if (reason.size()) { return reason; }
+    size_t pending = INVALID_TRACK_ID;
+    if (mayWait && retains && Util::retentionPending(M, &pending)) {
+      decision.reason = "track_retain waits for the geometry and bitrate of original track " + std::to_string(pending);
+      return decision;
     }
-    // A process whose every declared rendition is retained or inhibited has nothing to produce.
-    if (!declaration["outputs"].isArray() || !declaration["outputs"].size()) { return ""; }
+    // A source whose geometry is unknown is never too small.
+    std::set<size_t> sized;
+    for (const size_t track : sources) {
+      if (M.getType(track) == "video" && (!M.getWidth(track) || !M.getHeight(track))) {
+        if (mayWait) {
+          decision.reason = "track_inhibit waits for the geometry of source track " + std::to_string(track);
+          return decision;
+        }
+        continue;
+      }
+      sized.insert(track);
+    }
+    decision.decided = true;
+    // The reason one rendition is not produced, or empty.
+    auto skip = [&](const JSON::Value & rendition, uint64_t bitrate) -> std::string {
+      if (rendition["track_retain"].isString() && rendition["track_retain"].asStringRef().size()) {
+        const size_t retained = Util::retainedTrack(M, rendition["track_retain"].asStringRef(), bitrate);
+        if (retained != INVALID_TRACK_ID) {
+          decision.retaining.insert(retained);
+          return "track_retain '" + rendition["track_retain"].asString() + "' satisfied by track " + std::to_string(retained);
+        }
+      }
+      if (rendition.isMember("track_inhibit") && Util::inhibitorMatchesSource(M, rendition["track_inhibit"].asStringRef(), sized)) {
+        return "track_inhibit '" + rendition["track_inhibit"].asString() + "' matches source tracks";
+      }
+      return "";
+    };
+    if (proc.isMember("track_retain") || proc.isMember("track_inhibit")) {
+      decision.reason = skip(proc, proc["bitrate"].asInt());
+    }
+    if (!declaration["outputs"].isArray() || !declaration["outputs"].size()) { return decision; }
     std::string firstReason;
+    bool everyDropped = true;
     jsonForEachConst (declaration["outputs"], it) {
-      if (!it->isMember("track_retain") && !it->isMember("track_inhibit")) { return ""; }
-      const std::string reason = renditionSkipReason(M, *it, (*it)["track_retain_bitrate"].asInt(), sources);
-      if (reason.empty()) { return ""; }
+      if (!it->isMember("track_retain") && !it->isMember("track_inhibit")) {
+        everyDropped = false;
+        continue;
+      }
+      const std::string reason = skip(*it, (*it)["track_retain_bitrate"].asInt());
+      if (reason.empty()) {
+        everyDropped = false;
+        continue;
+      }
+      decision.dropped.insert((*it)["output"].asString());
       if (firstReason.empty()) { firstReason = (*it)["output"].asString() + ": " + reason; }
     }
-    return "every declared rendition is retained or inhibited (" + firstReason + ")";
+    // A process whose every declared rendition is retained or inhibited has nothing to produce.
+    if (decision.reason.empty() && everyDropped) {
+      decision.reason = "every declared rendition is retained or inhibited (" + firstReason + ")";
+    }
+    return decision;
+  }
+
+  /// Why a tags_inhibit tag set on the stream keeps a process from running; empty when none does.
+  inline std::string tagInhibitReason(const JSON::Value & proc, const std::set<std::string> & streamTags) {
+    if (!proc.isMember("tags_inhibit")) { return ""; }
+    auto matchesTag = [&streamTags](const JSON::Value & tag) {
+      if (!tag.isString()) { return false; }
+      const std::string & name = tag.asStringRef();
+      return streamTags.count(name.size() && name[0] == '#' ? name.substr(1) : name) != 0;
+    };
+    const JSON::Value & inhibit = proc["tags_inhibit"];
+    if (inhibit.isString() && matchesTag(inhibit)) { return "inhibited by stream tag '" + inhibit.asString() + "'"; }
+    if (inhibit.isArray()) {
+      jsonForEachConst (inhibit, it) {
+        if (matchesTag(*it)) { return "inhibited by stream tag '" + it->asString() + "'"; }
+      }
+    }
+    return "";
+  }
+
+  /// Why the stream's tags or original tracks keep a configured process from running: a
+  /// tags_inhibit tag set on the stream, or its rendition decision (decideRenditions;
+  /// declaration is its --describe-outputs answer, null when it gave none). Outputs of processes
+  /// never inhibit. Empty when nothing inhibits it.
+  inline std::string processInhibitReason(const JSON::Value & proc, const DTSC::Meta & M, const std::set<std::string> & streamTags,
+                                          const JSON::Value & declaration = JSON::Value(), bool mayWait = false) {
+    const std::string tagged = tagInhibitReason(proc, streamTags);
+    if (tagged.size()) { return tagged; }
+    return decideRenditions(M, proc, declaration, mayWait).reason;
   }
 
   /// The description of an existing track that track selection looks at, plus its validity mask,
@@ -204,6 +288,7 @@ namespace Mist {
       JSON::Value proc; ///< that configuration, parsed
       JSON::Value declaration; ///< its --describe-outputs answer; null when it gave none
       std::string inhibited; ///< processInhibitReason for it, empty when not inhibited
+      RenditionDecision decision; ///< its rendition decision; not decided when the caller made none
       bool producesHere = true; ///< its outputs go to this stream (its sink is this stream)
       bool producing = true; ///< it will (re)produce its outputs: not retired
   };
@@ -216,24 +301,17 @@ namespace Mist {
       JSON::Value outputs;
   };
 
-  /// The declared outputs of a node that go to this stream and are not dropped by their own
-  /// track_retain or track_inhibit (renditionSkipReason), keyed by output key.
+  /// The declared outputs of a node that go to this stream and are not dropped by its rendition
+  /// decision (decided now when the node carries none), keyed by output key.
   inline std::map<std::string, JSON::Value> declaredNodeOutputs(const ProcessGraphNode & node, const DTSC::Meta & M) {
     std::map<std::string, JSON::Value> outputs;
     if (!node.producesHere || !node.declaration["outputs"].isArray()) { return outputs; }
     const std::string identity = DTSC::processIdentity(node.config);
-    std::set<size_t> sources;
-    bool sourcesKnown = false;
+    std::set<std::string> dropped = node.decision.dropped;
+    if (!node.decision.decided) { dropped = decideRenditions(M, node.proc, node.declaration, false).dropped; }
     jsonForEachConst (node.declaration["outputs"], it) {
       const std::string key = DTSC::outputKey(identity, (*it)["output"].asString());
-      if (key.empty()) { continue; }
-      if (it->isMember("track_retain") || it->isMember("track_inhibit")) {
-        if (!sourcesKnown) {
-          sources = processSourceTracks(M, node.proc, node.declaration);
-          sourcesKnown = true;
-        }
-        if (renditionSkipReason(M, *it, (*it)["track_retain_bitrate"].asInt(), sources).size()) { continue; }
-      }
+      if (key.empty() || dropped.count((*it)["output"].asString())) { continue; }
       JSON::Value desc = *it;
       desc.removeMember("track_inhibit");
       desc.removeMember("track_retain");
@@ -319,7 +397,8 @@ namespace Mist {
         graph.skipReasons.erase(node.config);
         // A source can arrive after the supervisor sampled inhibitors. Judge it from the
         // same candidate snapshot that decides whether this process can read an input.
-        if (node.proc.isMember("track_inhibit") &&
+        // A decided node keeps its decision (see RenditionDecision).
+        if (!node.decision.decided && node.proc.isMember("track_inhibit") &&
             Util::inhibitorMatchesSource(C, node.proc["track_inhibit"].asStringRef(),
                                          processSourceTracks(C, node.proc, node.declaration))) {
           graph.skipReasons[node.config] = "track_inhibit '" + node.proc["track_inhibit"].asString() + "' matches source tracks";
@@ -430,14 +509,9 @@ namespace Mist {
     if (!producing) { return replaced; }
     std::set<size_t> retaining;
     for (const ProcessGraphNode & node : nodes) {
-      if (node.proc["track_retain"].isString()) {
-        retaining.insert(Util::retainedTrack(M, node.proc["track_retain"].asStringRef(), node.proc["bitrate"].asInt()));
-      }
-      if (!node.declaration["outputs"].isArray()) { continue; }
-      jsonForEachConst (node.declaration["outputs"], it) {
-        if (!(*it)["track_retain"].isString()) { continue; }
-        retaining.insert(Util::retainedTrack(M, (*it)["track_retain"].asStringRef(), (*it)["track_retain_bitrate"].asInt()));
-      }
+      const std::set<size_t> & retains =
+        node.decision.decided ? node.decision.retaining : decideRenditions(M, node.proc, node.declaration, false).retaining;
+      retaining.insert(retains.begin(), retains.end());
     }
     for (const size_t track : withData) {
       if (M.getType(track) != "video" || Util::isImageCodec(M.getCodec(track)) || M.getSourceTrack(track) != INVALID_TRACK_ID) {

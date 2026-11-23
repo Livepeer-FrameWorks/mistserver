@@ -516,23 +516,84 @@ namespace {
     }
 
     {
-      // Retention waits until every original video track reports its geometry and bitrate.
+      // The ladder is decided once every original video track reports its geometry and bitrate,
+      // or once the decision window passed: an original whose bitrate is still unknown then
+      // retains nothing, and its rung is transcoded rather than left without a rendition.
       InputBufferProbe input(&config);
       const std::string stream = "retainPending" + suffix;
       input.initMetadata(stream);
       const size_t source = input.addTrack("video", "H264", 1920, 1080);
-      const size_t rung = input.addTrack("video", "H264", 1280, 720);
+      input.addTrack("video", "H264", 1280, 720);
       input.meta.setBps(source, mbit(7.5));
       input.addTrack("audio", "AAC", 0, 0);
       const JSON::Value livepeer = retainLadder(lpName);
       JSON::Value configured;
       configured.append(livepeer);
       const Mist::ProcessGraph *graph = &input.resolveProcessGraph(configured);
-      check(!graph->runs.count(input.key(livepeer)), "the ladder must not start while an original's bitrate is unknown");
-      input.meta.setBps(rung, mbit(4));
+      check(!graph->runs.count(input.key(livepeer)), "the ladder waits briefly for an original's bitrate");
+      Util::sleep(5200);
       graph = &input.resolveProcessGraph(configured);
-      check(graph->runs.count(input.key(livepeer)) && graphOutputNames(*graph) == std::set<std::string>({"360p", "480p"}),
-            "once the bitrate is known the ladder re-evaluates, got " + joined(graphOutputNames(*graph)));
+      check(graph->runs.count(input.key(livepeer)) && graphOutputNames(*graph) == std::set<std::string>({"360p", "480p", "720p"}),
+            "an original without a bitrate must not retain its rung once the window passed, got " +
+              joined(graphOutputNames(*graph)));
+    }
+
+    {
+      // Retention, inhibitors and masks are decided once for the stream's original tracks. Bitrate
+      // and geometry drifting afterwards change nothing; a new original track decides again.
+      InputBufferProbe input(&config);
+      const std::string stream = "retainLatch" + suffix;
+      input.initMetadata(stream);
+      const size_t source = input.addTrack("video", "H264", 1920, 1080);
+      const size_t rung = input.addTrack("video", "H264", 1280, 720);
+      input.meta.setBps(source, mbit(7.5));
+      input.meta.setBps(rung, mbit(4));
+      input.addTrack("audio", "AAC", 0, 0);
+      char statePage[NAME_BUFFER_SIZE];
+      snprintf(statePage, sizeof(statePage), SHM_STREAM_STATE, stream.c_str());
+      IPC::sharedPage state(statePage, STRMSTATE_PAGE_LEN, true, false);
+      if (state) {
+        memset(state.mapped, 0, state.len);
+        state.mapped[0] = STRMSTAT_READY;
+      }
+      const JSON::Value livepeer = retainLadder(lpName);
+      JSON::Value configured;
+      configured.append(livepeer);
+      input.tick(configured);
+      check(graphOutputNames(input.processGraph) == std::set<std::string>({"360p", "480p"}),
+            "latch: decided ladder, got " + joined(graphOutputNames(input.processGraph)));
+      const size_t rendition = input.addTrack("video", "H264", 854, 480, source);
+      input.meta.setOutputKey(rendition, DTSC::outputKey(DTSC::processIdentity(input.key(livepeer)), "480p"));
+      input.tick(configured);
+      check(input.meta.trackValid(rung) == TRACK_VALID_ALL && input.meta.trackValid(source) == TRACK_VALID_ALL,
+            "latch: retaining originals stay visible");
+
+      // The 720p original drifts out of its band, then the source's geometry changes.
+      input.meta.setBps(rung, mbit(15));
+      input.tick(configured);
+      check(input.processGraph.runs.count(input.key(livepeer)) &&
+              graphOutputNames(input.processGraph) == std::set<std::string>({"360p", "480p"}),
+            "latch: a drifting bitrate must not change the decided ladder, got " + joined(graphOutputNames(input.processGraph)));
+      check(input.meta.trackValid(rung) == TRACK_VALID_ALL, "latch: a drifting bitrate must not mask a retaining original");
+      input.meta.setWidth(source, 1280);
+      input.meta.setHeight(source, 720);
+      input.tick(configured);
+      check(graphOutputNames(input.processGraph) == std::set<std::string>({"360p", "480p"}),
+            "latch: a changing geometry must not change the decided ladder, got " + joined(graphOutputNames(input.processGraph)));
+
+      // A new original track decides again, on what the tracks report now.
+      const size_t small = input.addTrack("video", "H264", 640, 360);
+      input.meta.setBps(small, mbit(0.9));
+      input.tick(configured);
+      check(graphOutputNames(input.processGraph) == std::set<std::string>({"480p"}),
+            "latch: a new original track decides again, got " + joined(graphOutputNames(input.processGraph)));
+      check(input.meta.trackValid(rung) == TRACK_VALID_INT_PROCESS,
+            "latch: the 15 Mbps original that now retains nothing is masked by the new decision");
+      input.stopAll();
+      if (state) {
+        state.master = true;
+        state.close();
+      }
     }
 
     unlink(lpPath.c_str());
