@@ -539,6 +539,32 @@ namespace {
     unlink(avPath.c_str());
   }
 
+  void testInhibitSeesNewSourceAtGraphSelection(Util::Config & config) {
+    InputBufferProbe input(&config);
+    input.initMetadata("graph-inhibit-arrival-test");
+    input.addTrack("video", "H264", 1920, 1080);
+    const JSON::Value process = JSON::fromString(
+      R"({"process":"AV","codec":"AAC","track_select":"audio=all&video=none&subtitle=none&meta=none","track_inhibit":"audio=aac"})");
+    const JSON::Value declaration = JSON::fromString(
+      R"({"select":{"codecs":[[["AAC","opus","AC3"]]],"target":{"audio":"all","video":"none","subtitle":"none","meta":"none"}},"outputs":[{"output":"audio","type":"audio","codec":"AAC","rate":48000,"channels":2,"mask":3}]})");
+    Mist::ProcessGraphNode node = graphNode("graph-inhibit-arrival-test", process, declaration);
+    node.inhibited = Mist::processInhibitReason(node.proc, input.M, {}, declaration);
+    check(node.inhibited.empty(), "no audio source has arrived when the supervisor samples the inhibitor");
+    check(!Mist::buildProcessGraph(input.M, {node}).runs.count(node.config), "an audio encoder must wait while no audio input exists");
+    // Source metadata is shared: the first AAC packet can land before candidate selection.
+    input.addTrack("audio", "AAC", 0, 0);
+    const Mist::ProcessGraph graph = Mist::buildProcessGraph(input.M, {node});
+    check(!graph.runs.count(node.config), "AAC arriving during graph construction must inhibit its redundant encoder");
+    check(graph.skipReasons.count(node.config) && graph.skipReasons.at(node.config).find("track_inhibit") != std::string::npos,
+          "the graph must report the newly matched source inhibitor");
+    check(!graph.outputs.size(), "a newly inhibited encoder must declare no recording output");
+    InputBufferProbe ac3(&config);
+    ac3.initMetadata("graph-inhibit-ac3-arrival-test");
+    ac3.addTrack("audio", "AC3", 0, 0);
+    const Mist::ProcessGraph required = Mist::buildProcessGraph(ac3.M, {node});
+    check(required.runs.count(node.config) && required.outputs.size() == 1, "new AC3 audio must still start its required AAC encoder");
+  }
+
   void testInhibitors(Util::Config & config) {
     // 720p source with a source JSON meta track and the derived tracks of an earlier run.
     {
@@ -1090,6 +1116,7 @@ namespace {
 
 int main() {
   Util::Config config("input-buffer-process-unit");
+  testInhibitSeesNewSourceAtGraphSelection(config);
   testInhibitors(config);
   testGraph(config);
   testGraphSupervisor(config);

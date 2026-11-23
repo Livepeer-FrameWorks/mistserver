@@ -316,6 +316,15 @@ namespace Mist {
       std::set<std::string> joined;
       for (const ProcessGraphNode & node : nodes) {
         if (graph.runs.count(node.config) || node.inhibited.size()) { continue; }
+        graph.skipReasons.erase(node.config);
+        // A source can arrive after the supervisor sampled inhibitors. Judge it from the
+        // same candidate snapshot that decides whether this process can read an input.
+        if (node.proc.isMember("track_inhibit") &&
+            Util::inhibitorMatchesSource(C, node.proc["track_inhibit"].asStringRef(),
+                                         processSourceTracks(C, node.proc, node.declaration))) {
+          graph.skipReasons[node.config] = "track_inhibit '" + node.proc["track_inhibit"].asString() + "' matches source tracks";
+          continue;
+        }
         if (nodeSelects(C, producers, node)) { joined.insert(node.config); }
       }
       if (joined.empty()) { break; }
@@ -329,7 +338,7 @@ namespace Mist {
       }
       if (node.inhibited.size()) {
         graph.skipReasons[node.config] = node.inhibited;
-      } else {
+      } else if (!graph.skipReasons.count(node.config)) {
         graph.skipReasons[node.config] = "its track selection matches no source track or declared process output";
       }
     }
