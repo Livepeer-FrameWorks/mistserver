@@ -212,9 +212,8 @@ class Fixture:
         owned = owned_descendants(roots)
         owned.update(fixture_inputs(self.env))
         if self.process and self.group is None:
-            child = (self.process.pid, os.getpgid(self.process.pid))
-            if child:
-                _, self.group = child
+            with contextlib.suppress(ProcessLookupError):
+                self.group = os.getpgid(self.process.pid)
         if failed:
             if self.process:
                 for pid in sorted(processes(self.group)):

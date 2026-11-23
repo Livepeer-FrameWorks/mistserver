@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """A fixture releases only its own child and crash IPC, including on timeout."""
 import os
+import io
 from pathlib import Path
 import subprocess
 import sys
@@ -65,6 +66,38 @@ class FixtureIpcTest(unittest.TestCase):
              mock.patch.object(capacity_fixture.os, 'killpg', side_effect=PermissionError('empty group')), \
              mock.patch.object(capacity_fixture, 'cleanup_logs'):
             fixture.close()
+
+    def test_controller_dying_before_readiness_preserves_original_error(self):
+        fixture = capacity_fixture.Fixture.__new__(capacity_fixture.Fixture)
+        fixture.process = mock.Mock(pid=12345)
+        fixture.process.poll.return_value = 1
+        fixture.group = None
+        fixture.children = []
+        fixture.root = self.root
+        fixture.env = self.env
+        fixture.stream = 'owned'
+        fixture.streams = set()
+        fixture.controller = str(self.root / 'MistController')
+        fixture.log = mock.Mock()
+        fixture.temp = mock.Mock()
+        (self.root / 'controller.log').write_text('original controller startup error')
+        output = io.StringIO()
+        with mock.patch.object(capacity_fixture, 'process_table', return_value={}), \
+             mock.patch.object(capacity_fixture, 'fixture_inputs', return_value={}), \
+             mock.patch.object(capacity_fixture, 'processes', return_value=set()), \
+             mock.patch.object(capacity_fixture.os, 'getpgid', side_effect=ProcessLookupError('controller already died')), \
+             mock.patch.object(capacity_fixture.os, 'killpg') as signal_group, \
+             mock.patch.object(capacity_fixture, 'cleanup_logs'), \
+             mock.patch.object(capacity_fixture.sys, 'stderr', output):
+            with self.assertRaisesRegex(AssertionError, 'original readiness failure'):
+                try:
+                    raise AssertionError('original readiness failure')
+                finally:
+                    fixture.close(failed=True)
+            signal_group.assert_not_called()
+        self.assertIn('original controller startup error', output.getvalue())
+        fixture.log.close.assert_called_once()
+        fixture.temp.cleanup.assert_called_once()
 
     def test_wait_dead_rejects_live_child_and_accepts_its_death(self):
         child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(30)'])
