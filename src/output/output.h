@@ -170,6 +170,7 @@ namespace Mist{
     LookaheadWaitDiagnostics lookaheadWait;
     uint64_t procSourceEndedSinceMs; ///< bootMS when the buffer first reported producer EOF
     ProcessStreamState processStreamState; ///< last complete snapshot, retained after SHM teardown
+    std::set<size_t> vodDrainedTracks; ///< non-live tracks consumed to EOF during the current playback
     std::set<size_t> processingDrainedTracks; ///< tracks fully consumed after their producer ended
     std::set<size_t> skippedLateOriginalTracks; ///< original tracks left out because they got data after the header
     // A recording's exit summary describes the tracks it wrote. Tracks leave

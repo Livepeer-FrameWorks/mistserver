@@ -440,6 +440,7 @@ namespace Mist{
   /// Assumes streamName class member has been set already.
   /// Will start input if not currently active, calls onFail() if this does not succeed.
   void Output::reconnect(){
+    vodDrainedTracks.clear();
     Comms::sessionConfigCache();
     thisPacket.null();
 
@@ -653,6 +654,11 @@ namespace Mist{
       }
     }
     std::set<size_t> newSelects = Util::wouldSelect(M, selectionParams, capa, UA, autoSeek ? seekTarget : 0);
+    // Metadata refresh must not seek a consumed VOD track back to its final packet while
+    // another track still plays. An explicit playback seek starts a new consumption pass.
+    if (!M.getLive()) {
+      for (const size_t track : vodDrainedTracks) { newSelects.erase(track); }
+    }
     for (auto track = newSelects.begin(); track != newSelects.end();) {
       if (!trackReadyForOutput(*track)) {
         newSelects.erase(track++);
@@ -1135,6 +1141,7 @@ namespace Mist{
   /// Prepares all tracks from selectedTracks for seeking to the specified ms position.
   /// If toKey is true, clips the seek to the nearest keyframe if the main track is a video track.
   bool Output::seek(uint64_t pos, bool toKey){
+    vodDrainedTracks.clear();
     if (sought) { totalPlaytime += lastPacketTime - lastSeekPos; }
     if (!isInitialized){initialize();}
     buffer.clear();
@@ -3063,6 +3070,7 @@ namespace Mist{
         thisIdx = nxt.tid;
         thisTime = nxt.time;
         thisPacket.getString("data", thisData, thisDataLen);
+        vodDrainedTracks.insert(nxt.tid);
         dropTrack(nxt.tid, "end of non-live track reached", false);
         return 0;
       }

@@ -55,8 +55,9 @@ f.env['UDP_API'] = 'udp://127.0.0.1:0'
 success = False
 try:
     source, output = f.root / 'bframes.mkv', f.root / 'recording.ts'
+    # Keep audio playing through two track-selection refreshes after video EOF.
     subprocess.run([ffmpeg, '-v', 'error', '-y', '-f', 'lavfi', '-i', 'testsrc2=size=320x180:rate=25:duration=6',
-                    '-f', 'lavfi', '-i', 'sine=frequency=440:sample_rate=48000:duration=6',
+                    '-f', 'lavfi', '-i', 'sine=frequency=440:sample_rate=48000:duration=15',
                     '-c:v', 'libx264', '-threads', '1', '-preset', 'medium', '-bf', '3', '-b_strategy', '0', '-g', '50',
                     '-c:a', 'aac', str(source)], env=f.tool_env, check=True, timeout=30)
     f.start(streams_override={f.stream: {'source': str(source)}}, extra_protocols=[{'connector': 'HTTPTS'}])
