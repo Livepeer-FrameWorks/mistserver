@@ -29,13 +29,14 @@ int main(int argc, char **argv) {
     av_channel_layout_default(&context_out->ch_layout, 2);
     // Inspect available samples before EOF draining or encoding can conceal a backlog.
     conf.is_active = co.is_active = false;
-    int expected = 0;
+    int64_t expected = 0, produced = 0;
     for (int phase = 1; phase < 3 && passed; ++phase) {
       std::ifstream file(argv[phase], std::ios::binary);
       const std::string bytes{std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>()};
       if (bytes.empty()) { return 2; }
       size_t offset = 0;
-      for (int packet = 0; packet < 3; ++packet) {
+      for (int packet = 0; packet < (phase == 1 ? 3 : 1334); ++packet) {
+        if (offset + 6 > bytes.size()) { offset = 0; }
         if (offset + 6 > bytes.size() || (uint8_t)bytes[offset] != 0x0b || (uint8_t)bytes[offset + 1] != 0x77) {
           return 2;
         }
@@ -54,11 +55,17 @@ int main(int argc, char **argv) {
         if (source.receiveDecodedFrame()) { return 2; }
         expected += samples * 48000 / rate;
         const int available = av_audio_fifo_size(audioBuffer);
-        if (expected - available > 128 || available > expected) {
-          fprintf(stderr, "actual ProcAV resampler accumulated a backlog before EOF: phase=%d packet=%d expected=%d available=%d lag=%d samples\n",
-                  phase, packet, expected, available, expected - available);
+        produced += available;
+        av_audio_fifo_drain(audioBuffer, available);
+        if (expected - produced > 128 || produced > expected) {
+          fprintf(stderr, "actual ProcAV resampler accumulated a backlog before EOF: phase=%d packet=%d expected=%lld produced=%lld lag=%lld samples\n",
+                  phase, packet, (long long)expected, (long long)produced, (long long)(expected - produced));
           passed = false;
           break;
+        }
+        if (packet % 100 == 0) {
+          printf("RESAMPLER phase=%d packet=%d expected=%lld produced=%lld lag=%lld samples\n", phase, packet,
+                 (long long)expected, (long long)produced, (long long)(expected - produced));
         }
         offset += size;
       }
@@ -69,6 +76,7 @@ int main(int argc, char **argv) {
   avcodec_free_context(&context_in);
   avcodec_free_context(&context_out);
   if (!passed) { return 1; }
-  puts("PASS actual ProcAV EAC3 decoder/resampler keeps 256@48k ->1536@32k output within128 samples before EOF");
+  puts("PASS actual ProcAV EAC3 decoder/resampler keeps 64 seconds of 256@48k ->1536@32k output within128 samples "
+       "before EOF");
   return 0;
 }
