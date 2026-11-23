@@ -62,6 +62,46 @@ class MP4InitProbe : public Mist::OutMP4 {
         exit(1);
       }
     }
+    void vodSelectionAfterSeek() {
+      streamName = "vodseek" + std::to_string(getpid());
+      DTSC::Meta writer;
+      writer.reInit(streamName, true);
+      writer.setVod(true);
+      size_t video = INVALID_TRACK_ID;
+      for (const std::string & type : {std::string("video"), std::string("audio")}) {
+        const size_t track = writer.addTrack(0, 0, 0, 0, true, 4);
+        writer.setID(track, track + 1);
+        writer.setType(track, type);
+        writer.setCodec(track, type == "video" ? "H264" : "AAC");
+        if (type == "video") { video = track; }
+        writer.storeFrame(track, 0, "data", 4);
+        writer.storeFrame(track, 40, "data", 4);
+        writer.validateTrack(track);
+      }
+      Comms::Users bufferUsers;
+      bufferUsers.reload(streamName, true);
+      meta.reInit(streamName, false);
+      meta.ignorePid(0);
+      isInitialized = true;
+      targetParams["video"] = "all";
+      targetParams["audio"] = "all";
+      targetParams["subtitle"] = "none";
+      targetParams["meta"] = "none";
+      selectDefaultTracks();
+      assert(userSelect.count(video));
+      vodDrainedTracks.insert(video);
+      dropTrack(video, "end of non-live track reached", false);
+      selectDefaultTracks();
+      assert(!userSelect.count(video));
+      seek(uint64_t(0));
+      if (!userSelect.count(video)) {
+        fprintf(stderr, "an explicit VOD seek must immediately restore its consumed video track\n");
+        exit(1);
+      }
+      userSelect.clear();
+      stop();
+      isInitialized = false;
+    }
     void missingSampleOrderFails() {
       recordingProbe = true;
       assert(isRecording());
@@ -195,6 +235,7 @@ int main(int argc, char **argv) {
     probe.bframeDuration();
     return 0;
   }
+  probe.vodSelectionAfterSeek();
   probe.check();
   for (unsigned int scenario = 0; scenario < 3; ++scenario) {
     const bool arrives = scenario == 0;

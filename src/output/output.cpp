@@ -1141,12 +1141,16 @@ namespace Mist{
   /// Prepares all tracks from selectedTracks for seeking to the specified ms position.
   /// If toKey is true, clips the seek to the nearest keyframe if the main track is a video track.
   bool Output::seek(uint64_t pos, bool toKey){
+    const bool restoreDrainedTracks = !vodDrainedTracks.empty();
     vodDrainedTracks.clear();
     if (sought) { totalPlaytime += lastPacketTime - lastSeekPos; }
     if (!isInitialized){initialize();}
     buffer.clear();
     thisPacket.null();
     if (!M){return false;}
+    // A user seek can return to a video whose tail ended before the audio. Reselect with
+    // no buffered seek target so the restored tracks start at this requested position.
+    if (restoreDrainedTracks && !M.getLive()) { selectDefaultTracks(); }
     if (toKey){
       size_t mainTrack = getMainSelectedTrack();
       if (mainTrack == INVALID_TRACK_ID){
