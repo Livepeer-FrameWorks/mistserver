@@ -1405,6 +1405,12 @@ if get_option('WITH_AV') and ffmpeg_program.found() and ffprobe_program.found()
        depends: media_test_deps, suite: 'Processing', timeout: 150, is_parallel: false)
 endif
 
+if exec_tgts.has_key('MistProcLivepeer') and exec_tgts.has_key('MistProcAV')
+  test('Transcoders declare the original source and the renditions it retains', find_program('python3'),
+       args: [files('transcode_source_declaration.py'), exec_tgts.get('MistProcLivepeer'), exec_tgts.get('MistProcAV')],
+       suite: 'Processing', timeout: 30)
+endif
+
 if exec_tgts.has_key('MistProcFFMPEG')
   test('Processor output declarations leave no runtime heartbeat pages', find_program('python3'),
        args: [files('process_declaration_ipc.py'), exec_tgts.get('MistProcFFMPEG')],

@@ -1684,16 +1684,83 @@ std::set<size_t> Util::wouldSelect(const DTSC::Meta &M, const std::string &track
   return wouldSelect(M, parsedVariables, capa, UA);
 }
 
-/// True when the track inhibitor selects at least one original (ingest) track of the stream.
-/// Tracks produced by processes (renditions, previews, meta tracks, outputs of an earlier run)
-/// never inhibit: a rendition or transcode is only skipped because of what the source itself is.
-/// All track types default to none, so the inhibitor only selects what it explicitly names.
-bool Util::inhibitorMatchesSource(const DTSC::Meta & M, const std::string & inhibit) {
+/// True when the track inhibitor selects at least one of the original (ingest) tracks a process
+/// reads (sources). Tracks produced by processes (renditions, previews, meta tracks, outputs of an
+/// earlier run) never inhibit, and neither do originals the process does not read: a rendition is
+/// only too small or redundant because of what its own source is, not because the stream carries
+/// a smaller original next to it. All track types default to none, so the inhibitor only selects
+/// what it explicitly names.
+bool Util::inhibitorMatchesSource(const DTSC::Meta & M, const std::string & inhibit, const std::set<size_t> & sources) {
   std::set<size_t> tracks = wouldSelect(M, "audio=none&video=none&subtitle=none&meta=none&" + inhibit);
   for (std::set<size_t>::const_iterator it = tracks.begin(); it != tracks.end(); ++it) {
-    if (M.getSourceTrack(*it) == INVALID_TRACK_ID) { return true; }
+    if (sources.count(*it) && M.getSourceTrack(*it) == INVALID_TRACK_ID) { return true; }
   }
   return false;
+}
+
+bool Util::inhibitorMatchesSource(const DTSC::Meta & M, const std::string & inhibit, size_t source) {
+  std::set<size_t> sources;
+  if (source != INVALID_TRACK_ID) { sources.insert(source); }
+  return inhibitorMatchesSource(M, inhibit, sources);
+}
+
+/// The selector of the track a ladder transcodes from: the highest-bitrate original
+/// continuous-video track, the lowest index on a tie or while no original reports a bitrate.
+/// Renditions an earlier run made and cover-art or thumbnail images never qualify.
+const char *Util::TRANSCODE_SOURCE_SELECTOR = "source,!jpeg,!png,|maxbps";
+
+/// A transcoder's video source selection: a maxbps selection means the transcode source
+/// (TRANSCODE_SOURCE_SELECTOR); any other selector is kept as configured.
+std::string Util::transcodeSourceSelector(const std::string & videoSelector) {
+  std::string low = videoSelector;
+  Util::stringToLower(low);
+  if (low == "maxbps" || low == "highbps" || low == "bestbps") { return TRANSCODE_SOURCE_SELECTOR; }
+  return videoSelector;
+}
+
+/// Whether a video codec carries still images (cover art, thumbnails, sprites) rather than a
+/// continuous video rendition.
+bool Util::isImageCodec(const std::string & codec) {
+  return codec == "JPEG" || codec == "PNG";
+}
+
+/// Whether an original continuous-video track that carries data does not report its geometry or
+/// bitrate yet: until it does, no track_retain can be decided. The first such track is stored in
+/// pendingTrack when given.
+bool Util::retentionPending(const DTSC::Meta & M, size_t *pendingTrack) {
+  const std::set<size_t> tracks = M.getValidTracks(true);
+  for (const size_t track : tracks) {
+    if (M.getType(track) != "video" || isImageCodec(M.getCodec(track)) || M.getSourceTrack(track) != INVALID_TRACK_ID) {
+      continue;
+    }
+    if (M.getWidth(track) && M.getHeight(track) && M.getBps(track)) { continue; }
+    if (pendingTrack) { *pendingTrack = track; }
+    return true;
+  }
+  return false;
+}
+
+/// The original track that satisfies a rendition's track_retain selector, or INVALID_TRACK_ID.
+/// Of the original continuous-video tracks the selector selects, the one whose bitrate is
+/// closest to the rendition's target bitrate (bits per second) wins, the lowest index on a tie.
+/// FrameWorks (pkg/mist PlanRetention) predicts renditions with the same rule.
+size_t Util::retainedTrack(const DTSC::Meta & M, const std::string & retain, uint64_t bitrate) {
+  if (retain.empty()) { return INVALID_TRACK_ID; }
+  const std::set<size_t> tracks = wouldSelect(M, "audio=none&video=none&subtitle=none&meta=none&" + retain);
+  size_t best = INVALID_TRACK_ID;
+  uint64_t bestDistance = 0;
+  for (const size_t track : tracks) {
+    if (M.getType(track) != "video" || isImageCodec(M.getCodec(track)) || M.getSourceTrack(track) != INVALID_TRACK_ID) {
+      continue;
+    }
+    const uint64_t rate = (uint64_t)M.getBps(track) * 8;
+    const uint64_t distance = rate > bitrate ? rate - bitrate : bitrate - rate;
+    if (best == INVALID_TRACK_ID || distance < bestDistance) {
+      best = track;
+      bestDistance = distance;
+    }
+  }
+  return best;
 }
 
 std::set<size_t> Util::getSupportedTracks(const DTSC::Meta &M, const JSON::Value &capa,

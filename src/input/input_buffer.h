@@ -91,11 +91,18 @@ namespace Mist{
     // configuration never changes what it declares.
     std::map<std::string, JSON::Value> processDeclarations;
     // The graph of the effective process list, the nodes it was built from, and what it was built
-    // from: it is rebuilt only when the process list, the stream's tracks (and which carry data),
-    // tags or a process's retirement change.
+    // from: it is rebuilt only when the process list, the stream's tracks (which carry data, and
+    // their geometry), tags, a process's retirement or the inhibit and retain decisions change.
     ProcessGraph processGraph;
     std::map<std::string, ProcessGraphNode> processGraphNodes;
     std::string processGraphInputs;
+    // Whether the source ended as of the last supervisor check: track_retain then decides on what
+    // the original tracks report instead of waiting for their bitrate.
+    bool sourceEndedAtCheck = false;
+    // Original tracks masked because the ladder replaces them (see replacedOriginals), with the
+    // validity they had before, restored once they are no longer replaced.
+    std::map<size_t, uint8_t> replacedOriginalValidity;
+    void applyReplacedOriginalMasks(const ProcessGraph & graph);
     IPC::sharedPage processGraphPage;
     std::string publishedProcessGraph;
     std::map<std::string, uint32_t> procBoots;

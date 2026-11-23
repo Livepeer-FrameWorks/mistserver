@@ -77,6 +77,21 @@ void addGenericProcessOptions(JSON::Value & capa){
       grp["track_inhibit"]["validate"][0u] = "track_selector";
       grp["track_inhibit"]["default"] = "audio=none&video=none&subtitle=none";
 
+      grp["track_retain"]["name"] = "Track retainer";
+      grp["track_retain"]["help"] =
+        "Video track selector for an original track that already is this process's rendition. If it selects an "
+        "original track, the process does not start; of several, the one whose bitrate is closest to the "
+        "configured bitrate counts. Defaults to none.";
+      grp["track_retain"]["type"] = "string";
+      grp["track_retain"]["validate"][0u] = "track_selector";
+
+      grp["mask_replaced_originals"]["name"] = "Mask replaced originals";
+      grp["mask_replaced_originals"]["help"] =
+        "Once this process produces a rendition, hide every original video track that retains no rendition of the "
+        "stream's processes (the source included) from viewers and pushes, as the source mask does.";
+      grp["mask_replaced_originals"]["type"] = "bool";
+      grp["mask_replaced_originals"]["default"] = false;
+
       grp["tags_inhibit"]["name"] = "Tag inhibitor(s)";
       grp["tags_inhibit"]["help"] =
         "Optional list of tags, if any of them are set on the stream, this process does not start.";

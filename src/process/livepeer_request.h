@@ -196,6 +196,11 @@ namespace Mist {
   inline JSON::Value buildLivepeerTranscodeConfiguration(const JSON::Value & options, uint64_t deadlineMs) {
     JSON::Value configuration;
     configuration["profiles"] = options["target_profiles"];
+    // The gateway decodes profiles strictly; the rendition selectors are Mist's own.
+    jsonForEach (configuration["profiles"], profile) {
+      profile->removeMember("track_inhibit");
+      profile->removeMember("track_retain");
+    }
     if (options.isMember("workload") && options["workload"].isString()) {
       configuration["workload"] = options["workload"];
     }

@@ -1160,14 +1160,19 @@ namespace Mist{
       node.proc["source"] = streamName;
       node.config = node.proc.toString();
       node.declaration = processDeclaration(node.config, node.proc);
-      node.inhibited = processInhibitReason(node.proc, M, tags);
+      node.inhibited = processInhibitReason(node.proc, M, tags, node.declaration, !sourceEndedAtCheck);
       if (node.proc["sink"].isString() && node.proc["sink"].asStringRef().size()) {
         std::string sink = node.proc["sink"].asStringRef();
         Util::streamVariables(sink, streamName);
         node.producesHere = sink == streamName;
       }
       node.producing = processWillProduce(*it);
-      inputs += node.producing ? "1" : "0";
+      // The decisions that depend on track geometry and bitrate, which change without changing
+      // the track list: the node's inhibit or retain reason and the outputs it keeps.
+      inputs += node.producing ? "1:" : "0:";
+      inputs += node.inhibited + ":";
+      for (const auto & output : declaredNodeOutputs(node, M)) { inputs += output.first + ","; }
+      inputs += "\n";
       nodes.push_back(node);
     }
     inputs += "\n";
@@ -1176,6 +1181,7 @@ namespace Mist{
     const std::set<size_t> withData = M.getValidTracks(true);
     for (const size_t track : M.getValidTracks()) {
       inputs += std::to_string(track) + ":" + M.getType(track) + ":" + M.getCodec(track) + ":" +
+        std::to_string(M.getWidth(track)) + "x" + std::to_string(M.getHeight(track)) + ":" +
         std::to_string(M.trackValid(track)) + ":" + std::to_string(M.getSourceTrack(track)) + ":" +
         M.getOutputKey(track) + (withData.count(track) ? ":data," : ",");
     }
@@ -1445,7 +1451,9 @@ namespace Mist{
     // Consulted when stopping a still-running process so the stop log and
     // PROCESS_EXIT trigger name the guard that retired it.
     retryProcessReplacements(procs, now);
+    sourceEndedAtCheck = sourceEof;
     const ProcessGraph & graph = resolveProcessGraph(applyProcessReplacements(procs));
+    applyReplacedOriginalMasks(graph);
     newProcs = graph.runs;
     std::map<std::string, std::string> skipReasons = graph.skipReasons;
     if (sourceEof) {
@@ -1678,16 +1686,50 @@ namespace Mist{
     }
     std::vector<std::string> outputs = processReservableOutputs(args);
     if (args["process"].asString() == "Livepeer" && args["target_profiles"].isArray()) {
+      // The profiles the processing graph keeps: an original that satisfies a profile's
+      // track_retain, or a track_inhibit that selects the Livepeer source, drops it.
+      std::map<std::string, ProcessGraphNode>::const_iterator node = processGraphNodes.find(config);
+      const JSON::Value declaration = node == processGraphNodes.end() ? JSON::Value() : node->second.declaration;
+      const std::set<size_t> sources = processSourceTracks(M, args, declaration);
       jsonForEachConst (args["target_profiles"], prof) {
         if (!prof->isObject() || !(*prof)["name"].isString() || !(*prof)["name"].asStringRef().size()) { continue; }
-        if (prof->isMember("track_inhibit") && Util::inhibitorMatchesSource(M, (*prof)["track_inhibit"].asStringRef())) {
-          continue;
-        }
+        if (renditionSkipReason(M, *prof, (*prof)["bitrate"].asInt(), sources).size()) { continue; }
         outputs.push_back((*prof)["name"].asStringRef());
       }
     }
     const std::string identity = DTSC::processIdentity(config);
     for (const std::string & output : outputs) { meta.reserveOutputTrack(DTSC::outputKey(identity, output)); }
+  }
+
+  /// Masks the original tracks the ladder replaces (see replacedOriginals) the way source_mask
+  /// masks a process's source, and restores the validity of those no longer replaced: when the
+  /// ladder retires, or the original now retains a rung. Nothing changes while track_retain still
+  /// waits for an original's geometry or bitrate.
+  void InputBuffer::applyReplacedOriginalMasks(const ProcessGraph & graph) {
+    if (!sourceEndedAtCheck && Util::retentionPending(M)) { return; }
+    std::vector<ProcessGraphNode> nodes;
+    for (const auto & node : processGraphNodes) { nodes.push_back(node.second); }
+    const std::map<size_t, uint8_t> replaced = replacedOriginals(M, nodes, graph);
+    for (std::map<size_t, uint8_t>::iterator it = replacedOriginalValidity.begin(); it != replacedOriginalValidity.end();) {
+      if (replaced.count(it->first)) {
+        ++it;
+        continue;
+      }
+      if (M.trackValid(it->first)) {
+        INFO_MSG("Unmasking original track %zu: the rendition ladder no longer replaces it", it->first);
+        meta.validateTrack(it->first, it->second);
+      }
+      replacedOriginalValidity.erase(it++);
+    }
+    for (const auto & original : replaced) {
+      if (replacedOriginalValidity.count(original.first)) { continue; }
+      const uint8_t valid = M.trackValid(original.first);
+      replacedOriginalValidity[original.first] = valid;
+      INFO_MSG("Masking original track %zu (%s %" PRIu32 "x%" PRIu32 ") with %u: the rendition ladder replaces it",
+               original.first, M.getCodec(original.first).c_str(), M.getWidth(original.first),
+               M.getHeight(original.first), (unsigned int)original.second);
+      meta.validateTrack(original.first, valid & original.second);
+    }
   }
 
   /// Releases the reservations of processes that will not produce them any more: removed from the

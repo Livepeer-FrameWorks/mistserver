@@ -59,7 +59,13 @@ namespace Util{
                                const JSON::Value &capa = empty, const std::string &UA = "");
   std::set<size_t> wouldSelect(const DTSC::Meta &M, const std::map<std::string, std::string> &targetParams,
                                const JSON::Value &capa = empty, const std::string &UA = "", uint64_t seekTarget = 0);
-  bool inhibitorMatchesSource(const DTSC::Meta & M, const std::string & inhibit);
+  bool inhibitorMatchesSource(const DTSC::Meta & M, const std::string & inhibit, const std::set<size_t> & sources);
+  bool inhibitorMatchesSource(const DTSC::Meta & M, const std::string & inhibit, size_t source);
+  extern const char *TRANSCODE_SOURCE_SELECTOR;
+  std::string transcodeSourceSelector(const std::string & videoSelector);
+  bool isImageCodec(const std::string & codec);
+  bool retentionPending(const DTSC::Meta & M, size_t *pendingTrack = 0);
+  size_t retainedTrack(const DTSC::Meta & M, const std::string & retain, uint64_t bitrate);
 
   enum trackSortOrder {
     TRKSORT_DEFAULT = 0,

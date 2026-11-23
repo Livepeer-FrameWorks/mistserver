@@ -2,6 +2,7 @@
 
 #include <mist/defines.h>
 #include <mist/dtsc.h>
+#include <mist/http_parser.h>
 #include <mist/json.h>
 #include <mist/stream.h>
 
@@ -20,11 +21,86 @@
 /// process) without either of them running. Recorders select from the same candidates with their
 /// own selection, so they know which outputs to wait for before writing a header.
 namespace Mist {
+  /// The tracks a process selects with its declared selection (see process_outputs.h), as it
+  /// would at runtime: through the processing validity mask.
+  inline std::set<size_t> declaredSelectionMatches(const DTSC::Meta & C, const JSON::Value & select) {
+    std::map<std::string, std::string> params;
+    if (select["target"].isObject()) {
+      jsonForEachConst (select["target"], it) { params[it.key()] = it->asString(); }
+    }
+    JSON::Value capa;
+    if (select.isMember("codecs")) { capa["codecs"] = select["codecs"]; }
+    const uint8_t oldMask = DTSC::trackValidMask;
+    DTSC::trackValidMask = TRACK_VALID_INT_PROCESS;
+    std::set<size_t> selected = Util::wouldSelect(C, params, capa);
+    DTSC::trackValidMask = oldMask;
+    return selected;
+  }
+
+  /// The tracks of M a process reads: what its declared selection selects, or, without a
+  /// declaration, one track of each type its track_select names (as MistProcAV narrows its
+  /// selection) or what its source_track selects. A process without any selection reads every
+  /// track. The size inhibitors of a process and its outputs judge only these tracks.
+  inline std::set<size_t> processSourceTracks(const DTSC::Meta & M, const JSON::Value & proc, const JSON::Value & declaration) {
+    if (declaration.isObject()) {
+      if (declaration["select"].isNull()) { return std::set<size_t>(); }
+      return declaredSelectionMatches(M, declaration["select"]);
+    }
+    if (proc["track_select"].isString()) {
+      std::map<std::string, std::string> params;
+      HTTP::parseVars(proc["track_select"].asStringRef(), params);
+      for (const char *type : {"audio", "video", "subtitle", "meta"}) {
+        std::map<std::string, std::string>::iterator param = params.find(type);
+        if (param == params.end() || param->second.empty() || param->second == "none" || param->second == "-1") {
+          continue;
+        }
+        param->second += ",|first";
+      }
+      return Util::wouldSelect(M, params);
+    }
+    if (proc["source_track"].isString()) {
+      return Util::findTracks(M, JSON::Value(), "", proc["source_track"].asStringRef());
+    }
+    return M.getValidTracks(true);
+  }
+
+  /// Why one rendition (a process, or one declared output of it) is not produced: an original
+  /// track satisfies its track_retain (Util::retainedTrack, against its target bitrate), or its
+  /// track_inhibit selects one of the original tracks the process reads (sources). Empty when it
+  /// is produced.
+  inline std::string renditionSkipReason(const DTSC::Meta & M, const JSON::Value & rendition, uint64_t bitrate,
+                                         const std::set<size_t> & sources) {
+    if (rendition["track_retain"].isString() && rendition["track_retain"].asStringRef().size()) {
+      const size_t retained = Util::retainedTrack(M, rendition["track_retain"].asStringRef(), bitrate);
+      if (retained != INVALID_TRACK_ID) {
+        return "track_retain '" + rendition["track_retain"].asString() + "' satisfied by track " + std::to_string(retained);
+      }
+    }
+    if (rendition.isMember("track_inhibit") && Util::inhibitorMatchesSource(M, rendition["track_inhibit"].asStringRef(), sources)) {
+      return "track_inhibit '" + rendition["track_inhibit"].asString() + "' matches source tracks";
+    }
+    return "";
+  }
+
+  /// Whether a process, or a rendition it declares, carries a track_retain.
+  inline bool carriesTrackRetain(const JSON::Value & proc, const JSON::Value & declaration) {
+    if (proc["track_retain"].isString() && proc["track_retain"].asStringRef().size()) { return true; }
+    if (!declaration["outputs"].isArray()) { return false; }
+    jsonForEachConst (declaration["outputs"], it) {
+      if ((*it)["track_retain"].isString() && (*it)["track_retain"].asStringRef().size()) { return true; }
+    }
+    return false;
+  }
+
   /// Why the stream's tags or original tracks keep a configured process (or one declared output,
-  /// for its track_inhibit) from running: a tags_inhibit tag set on the stream, or a track_inhibit
-  /// that selects an original (ingest) track. Outputs of processes never inhibit. Empty when
-  /// nothing inhibits it.
-  inline std::string processInhibitReason(const JSON::Value & proc, const DTSC::Meta & M, const std::set<std::string> & streamTags) {
+  /// for its track_inhibit) from running: a tags_inhibit tag set on the stream, an original track
+  /// that satisfies its track_retain, or a track_inhibit that selects an original (ingest) track it
+  /// reads (see processSourceTracks; declaration is its --describe-outputs answer, null when it
+  /// gave none). Outputs of processes never inhibit. While an original video track does not report
+  /// its geometry and bitrate yet, a process carrying a track_retain waits, unless waitForRetention
+  /// is false (the source ended, so nothing more will be known). Empty when nothing inhibits it.
+  inline std::string processInhibitReason(const JSON::Value & proc, const DTSC::Meta & M, const std::set<std::string> & streamTags,
+                                          const JSON::Value & declaration = JSON::Value(), bool waitForRetention = true) {
     if (proc.isMember("tags_inhibit")) {
       auto matchesTag = [&streamTags](const JSON::Value & tag) {
         if (!tag.isString()) { return false; }
@@ -39,10 +115,25 @@ namespace Mist {
         }
       }
     }
-    if (proc.isMember("track_inhibit") && Util::inhibitorMatchesSource(M, proc["track_inhibit"].asStringRef())) {
-      return "track_inhibit '" + proc["track_inhibit"].asString() + "' matches source tracks";
+    size_t pending = INVALID_TRACK_ID;
+    if (waitForRetention && carriesTrackRetain(proc, declaration) && Util::retentionPending(M, &pending)) {
+      return "track_retain waits for the geometry and bitrate of original track " + std::to_string(pending);
     }
-    return "";
+    const std::set<size_t> sources = processSourceTracks(M, proc, declaration);
+    if (proc.isMember("track_retain") || proc.isMember("track_inhibit")) {
+      const std::string reason = renditionSkipReason(M, proc, proc["bitrate"].asInt(), sources);
+      if (reason.size()) { return reason; }
+    }
+    // A process whose every declared rendition is retained or inhibited has nothing to produce.
+    if (!declaration["outputs"].isArray() || !declaration["outputs"].size()) { return ""; }
+    std::string firstReason;
+    jsonForEachConst (declaration["outputs"], it) {
+      if (!it->isMember("track_retain") && !it->isMember("track_inhibit")) { return ""; }
+      const std::string reason = renditionSkipReason(M, *it, (*it)["track_retain_bitrate"].asInt(), sources);
+      if (reason.empty()) { return ""; }
+      if (firstReason.empty()) { firstReason = (*it)["output"].asString() + ": " + reason; }
+    }
+    return "every declared rendition is retained or inhibited (" + firstReason + ")";
   }
 
   /// The description of an existing track that track selection looks at, plus its validity mask,
@@ -95,22 +186,6 @@ namespace Mist {
     return idx;
   }
 
-  /// The tracks a process selects with its declared selection (see process_outputs.h), as it
-  /// would at runtime: through the processing validity mask.
-  inline std::set<size_t> declaredSelectionMatches(const DTSC::Meta & C, const JSON::Value & select) {
-    std::map<std::string, std::string> params;
-    if (select["target"].isObject()) {
-      jsonForEachConst (select["target"], it) { params[it.key()] = it->asString(); }
-    }
-    JSON::Value capa;
-    if (select.isMember("codecs")) { capa["codecs"] = select["codecs"]; }
-    const uint8_t oldMask = DTSC::trackValidMask;
-    DTSC::trackValidMask = TRACK_VALID_INT_PROCESS;
-    std::set<size_t> selected = Util::wouldSelect(C, params, capa);
-    DTSC::trackValidMask = oldMask;
-    return selected;
-  }
-
   /// Whether a process without a declaration selects a track: by its configured source_track and
   /// track_select, as the supervisor decided before processes declared their selection.
   inline bool undeclaredSelectionMatches(const DTSC::Meta & C, const JSON::Value & proc) {
@@ -142,19 +217,27 @@ namespace Mist {
   };
 
   /// The declared outputs of a node that go to this stream and are not dropped by their own
-  /// track_inhibit, keyed by output key.
+  /// track_retain or track_inhibit (renditionSkipReason), keyed by output key.
   inline std::map<std::string, JSON::Value> declaredNodeOutputs(const ProcessGraphNode & node, const DTSC::Meta & M) {
     std::map<std::string, JSON::Value> outputs;
     if (!node.producesHere || !node.declaration["outputs"].isArray()) { return outputs; }
     const std::string identity = DTSC::processIdentity(node.config);
+    std::set<size_t> sources;
+    bool sourcesKnown = false;
     jsonForEachConst (node.declaration["outputs"], it) {
       const std::string key = DTSC::outputKey(identity, (*it)["output"].asString());
       if (key.empty()) { continue; }
-      if (it->isMember("track_inhibit") && Util::inhibitorMatchesSource(M, (*it)["track_inhibit"].asStringRef())) {
-        continue;
+      if (it->isMember("track_retain") || it->isMember("track_inhibit")) {
+        if (!sourcesKnown) {
+          sources = processSourceTracks(M, node.proc, node.declaration);
+          sourcesKnown = true;
+        }
+        if (renditionSkipReason(M, *it, (*it)["track_retain_bitrate"].asInt(), sources).size()) { continue; }
       }
       JSON::Value desc = *it;
       desc.removeMember("track_inhibit");
+      desc.removeMember("track_retain");
+      desc.removeMember("track_retain_bitrate");
       desc["key"] = key;
       desc["original"] = false;
       desc["data"] = true;
@@ -306,6 +389,54 @@ namespace Mist {
     const std::set<size_t> withData = M.getValidTracks(true);
     DTSC::trackValidMask = mask;
     return withData;
+  }
+
+  /// The original continuous-video tracks a ladder replaces (mask_replaced_originals), with the
+  /// validity mask each gets. Once a running, producing process that sets mask_replaced_originals
+  /// has one of its renditions here carrying data, every original continuous-video track that
+  /// retains no rendition of any configured process (process or declared-output track_retain),
+  /// the transcode source included, is hidden from viewers and pushes and stays readable by
+  /// processes: the process's source_mask, TRACK_VALID_INT_PROCESS without one. A source that
+  /// retains no rendition while none is produced (it is below every rung) keeps playing. Empty
+  /// while no such process produces.
+  inline std::map<size_t, uint8_t>
+    replacedOriginals(const DTSC::Meta & M, const std::vector<ProcessGraphNode> & nodes, const ProcessGraph & graph) {
+    std::map<size_t, uint8_t> replaced;
+    const std::set<size_t> withData = tracksWithDataAnyMask(M);
+    uint8_t mask = TRACK_VALID_ALL;
+    bool producing = false;
+    for (const ProcessGraphNode & node : nodes) {
+      if (!node.proc["mask_replaced_originals"].asBool() || !node.producing || !graph.runs.count(node.config)) {
+        continue;
+      }
+      for (const auto & output : declaredNodeOutputs(node, M)) {
+        if (output.second["type"].asStringRef() != "video") { continue; }
+        const size_t track = M.findOutputKeyTrack(output.first);
+        if (track == INVALID_TRACK_ID || !withData.count(track)) { continue; }
+        producing = true;
+        mask &= node.proc.isMember("source_mask") ? node.proc["source_mask"].asInt() : TRACK_VALID_INT_PROCESS;
+        break;
+      }
+    }
+    if (!producing) { return replaced; }
+    std::set<size_t> retaining;
+    for (const ProcessGraphNode & node : nodes) {
+      if (node.proc["track_retain"].isString()) {
+        retaining.insert(Util::retainedTrack(M, node.proc["track_retain"].asStringRef(), node.proc["bitrate"].asInt()));
+      }
+      if (!node.declaration["outputs"].isArray()) { continue; }
+      jsonForEachConst (node.declaration["outputs"], it) {
+        if (!(*it)["track_retain"].isString()) { continue; }
+        retaining.insert(Util::retainedTrack(M, (*it)["track_retain"].asStringRef(), (*it)["track_retain_bitrate"].asInt()));
+      }
+    }
+    for (const size_t track : withData) {
+      if (M.getType(track) != "video" || Util::isImageCodec(M.getCodec(track)) || M.getSourceTrack(track) != INVALID_TRACK_ID) {
+        continue;
+      }
+      if (!retaining.count(track)) { replaced[track] = mask; }
+    }
+    return replaced;
   }
 
   /// Of the outputs a processing graph expects (ProcessGraph::outputs), those a recording selects

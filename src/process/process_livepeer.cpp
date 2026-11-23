@@ -261,7 +261,8 @@ namespace Mist{
     virtual void initialSeek(bool dryRun = false){
       if (!meta){return;}
       if (!dryRun){
-        if (opt.isMember("source_mask")) {
+        // Under mask_replaced_originals the buffer masks the source only when the ladder replaces it.
+        if (opt.isMember("source_mask") && !opt["mask_replaced_originals"].asBool()) {
           for (std::map<size_t, Comms::Users>::iterator ti = userSelect.begin(); ti != userSelect.end(); ++ti) {
             if (ti->first == INVALID_TRACK_ID) { continue; }
             INFO_MSG("Masking source track %zu with %zu", ti->first, (size_t)opt["source_mask"].asInt());
@@ -654,18 +655,20 @@ std::string audioSelector() {
   return "none";
 }
 
-/// The selector the source reads with: the configured source_track (default maxbps) as video,
-/// plus the passed-through audio.
+/// The selector the source reads with: the configured source_track (default maxbps, which reads
+/// the transcode source, see Util::transcodeSourceSelector) as video, plus the passed-through audio.
 std::string sourceTrackSelector() {
   std::string video_select = "maxbps";
   if (Mist::opt.isMember("source_track") && Mist::opt["source_track"].isString() && Mist::opt["source_track"]) {
     video_select = Mist::opt["source_track"].asStringRef();
   }
+  video_select = Util::transcodeSourceSelector(video_select);
   return "audio=" + audioSelector() + "&video=" + video_select;
 }
 
 /// The input selection and renditions of this configuration (see process_outputs.h): an H264 track
-/// per named profile, which carries the profile's track_inhibit, and its passed-through audio,
+/// per named profile, which carries the profile's track_inhibit, track_retain and target bitrate
+/// (track_retain_bitrate) so the processing graph drops what they rule out, and its passed-through audio,
 /// which no reader sees (see ProcessSink::streamMainLoop).
 JSON::Value processDeclaration() {
   JSON::Value sourceCapa;
@@ -683,6 +686,10 @@ JSON::Value processDeclaration() {
     rendition.output = (*prof)["name"].asStringRef();
     JSON::Value output = Mist::declaredOutput(rendition, Mist::outputTrackMask());
     if (prof->isMember("track_inhibit")) { output["track_inhibit"] = (*prof)["track_inhibit"]; }
+    if (prof->isMember("track_retain")) {
+      output["track_retain"] = (*prof)["track_retain"];
+      output["track_retain_bitrate"] = (*prof)["bitrate"].asInt();
+    }
     declaration["outputs"].append(output);
     if (audioSelector() == "none") { continue; }
     DTSC::TrackMetadata audio;
@@ -691,6 +698,10 @@ JSON::Value processDeclaration() {
     audio.output = rendition.output + ".audio";
     output = Mist::declaredOutput(audio, 0);
     if (prof->isMember("track_inhibit")) { output["track_inhibit"] = (*prof)["track_inhibit"]; }
+    if (prof->isMember("track_retain")) {
+      output["track_retain"] = (*prof)["track_retain"];
+      output["track_retain_bitrate"] = (*prof)["bitrate"].asInt();
+    }
     declaration["outputs"].append(output);
   }
   return declaration;
@@ -1396,6 +1407,14 @@ int main(int argc, char *argv[]){
       grp["track_inhibit"]["type"] = "string";
       grp["track_inhibit"]["validate"][0u] = "track_selector";
       grp["track_inhibit"]["default"] = "audio=none&video=none&subtitle=none";
+
+      grp["track_retain"]["name"] = "Track retainer";
+      grp["track_retain"]["help"] =
+        "Video track selector for an original track that already is this profile's rendition. If it selects an "
+        "original track, the profile is not used; of several, the one whose bitrate is closest to the profile "
+        "bitrate counts. Only verified on initial boot of the process. Defaults to none.";
+      grp["track_retain"]["type"] = "string";
+      grp["track_retain"]["validate"][0u] = "track_selector";
     }
 
     capa["optional"]["leastlive"]["name"] = "Start in the past";
@@ -1531,6 +1550,7 @@ int main(int argc, char *argv[]){
   if (Mist::opt.isMember("source_track") && Mist::opt["source_track"].isString() && Mist::opt["source_track"]){
     targetParams["video"] = Mist::opt["source_track"].asStringRef();
   }
+  targetParams["video"] = Util::transcodeSourceSelector(targetParams["video"]);
   size_t sourceIdx = INVALID_TRACK_ID;
   size_t sleeps = 0;
   while (++sleeps < 60 && (sourceIdx == INVALID_TRACK_ID || !M.getWidth(sourceIdx) || !M.getHeight(sourceIdx))){
@@ -1588,6 +1608,17 @@ int main(int argc, char *argv[]){
     return procExit.flush(procStatePage);
   }
 
+  // track_retain decides on the geometry and bitrate of the original tracks; the buffer starts
+  // this process once they are known, a standalone run waits for them here.
+  bool retains = false;
+  jsonForEachConst (Mist::opt["target_profiles"], prof) {
+    if ((*prof)["track_retain"].isString() && (*prof)["track_retain"].asStringRef().size()) { retains = true; }
+  }
+  for (size_t waits = 0; retains && waits < 60 && Util::retentionPending(M); ++waits) {
+    Util::sleep(250);
+    M.reloadReplacedPagesIfNeeded();
+  }
+
   //build transcode request
   JSON::Value pl;
   pl["name"] = Mist::opt["source"];
@@ -1631,9 +1662,20 @@ int main(int argc, char *argv[]){
       (*prof)["height"] = evenScaledDimension(M.getHeight(sourceIdx), widthSetting, M.getWidth(sourceIdx));
     }
 
+    const std::string profileName = prof->isMember("name") ? (*prof)["name"].asString() : prof->toString();
+    if (prof->isMember("track_retain")) {
+      // An original track that satisfies the profile already is its rendition.
+      const size_t retained = Util::retainedTrack(M, (*prof)["track_retain"].asString(), (*prof)["bitrate"].asInt());
+      if (retained != INVALID_TRACK_ID) {
+        INFO_MSG("Removing profile because original track %zu is its rendition: %s", retained, profileName.c_str());
+        continue;
+      }
+      prof->removeMember("track_retain");
+    }
     if (prof->isMember("track_inhibit")){
-      // Only the source tracks decide: renditions, previews and meta tracks never inhibit a profile.
-      if (Util::inhibitorMatchesSource(M, (*prof)["track_inhibit"].asStringRef())) {
+      // Only the transcode source decides: other originals, renditions, previews and meta tracks
+      // never inhibit a profile.
+      if (Util::inhibitorMatchesSource(M, (*prof)["track_inhibit"].asStringRef(), sourceIdx)) {
         if (prof->isMember("name")){
           INFO_MSG("Removing profile because track inhibitor matches: %s", (*prof)["name"].asStringRef().c_str());
         }else{
@@ -1648,6 +1690,10 @@ int main(int argc, char *argv[]){
   }
   pl["profiles"] = keptProfiles;
   Mist::opt["target_profiles"] = pl["profiles"];
+  if (!keptProfiles.size()) {
+    INFO_MSG("Every profile is retained by an original track or inhibited by the source; nothing to transcode");
+    return 0;
+  }
 
   //Connect to livepeer API
   HTTP::Downloader dl;

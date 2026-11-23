@@ -32,6 +32,18 @@ int main() {
   assert(!configuration.isMember("workload"));
   assert(!configuration.isMember("deadlineMs"));
 
+  // The gateway decodes profiles strictly: Mist's own rendition options never reach it.
+  options["target_profiles"] =
+    JSON::fromString(R"([{"name":"720p","height":720,"bitrate":4500000,"track_inhibit":"video=<0x720",)"
+                     R"("track_retain":"video=h264,hevc,|source,|>0x683,|<0x757,|>2197kbps,|<8790kbps"}])");
+  configuration = Mist::buildLivepeerTranscodeConfiguration(options, 0);
+  assert(configuration["profiles"].size() == 1);
+  assert(!configuration["profiles"][0u].isMember("track_retain"));
+  assert(!configuration["profiles"][0u].isMember("track_inhibit"));
+  assert(configuration["profiles"][0u]["name"].asString() == "720p");
+  assert(configuration["profiles"][0u]["bitrate"].asInt() == 4500000);
+  assert(options["target_profiles"][0u].isMember("track_retain"));
+
   // Live carries no configured deadline: every segment's budget is its
   // duration plus one second, sent as an integer deadlineMs.
   JSON::Value live;

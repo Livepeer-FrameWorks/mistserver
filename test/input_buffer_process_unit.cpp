@@ -228,6 +228,317 @@ namespace {
     return all;
   }
 
+  /// The selector a transcode reads its source with: the highest-bitrate original continuous-video
+  /// track, as MistProcLivepeer and MistProcAV declare it for a maxbps source selection.
+  const char *transcodeSource = "source,!jpeg,!png,|maxbps";
+
+  /// One rung of the FrameWorks ladder: its short side, target bitrate and the track_retain
+  /// selector pkg/mist RetainSelector composes for it.
+  struct LadderRung {
+      const char *name;
+      uint32_t shortSide;
+      uint64_t bitrate;
+      const char *retain;
+  };
+  const LadderRung ladderRungs[] = {
+    {"360p", 360, 900000, "video=h264,hevc,|source,|>0x327,|<0x393,|>439kbps,|<1758kbps"},
+    {"480p", 480, 1600000, "video=h264,hevc,|source,|>0x447,|<0x513,|>781kbps,|<3126kbps"},
+    {"720p", 720, 4500000, "video=h264,hevc,|source,|>0x683,|<0x757,|>2197kbps,|<8790kbps"},
+    {"1080p", 1080, 7800000, "video=h264,hevc,|source,|>0x1025,|<0x1135,|>3808kbps,|<15235kbps"},
+  };
+
+  /// Mist track bps (bytes per second) of a rate in megabits per second.
+  uint64_t mbit(double rate) {
+    return (uint64_t)(rate * 1000000 / 8);
+  }
+
+  /// The Livepeer process FrameWorks composes: every profile carries its short-side inhibitor and
+  /// its retain selector, and the process masks the originals its rungs replace.
+  JSON::Value retainLadder(const std::string & process) {
+    JSON::Value livepeer;
+    livepeer["process"] = process;
+    livepeer["track_inhibit"] = "video=<0x360";
+    livepeer["mask_replaced_originals"] = true;
+    for (const LadderRung & rung : ladderRungs) {
+      JSON::Value profile;
+      profile["name"] = rung.name;
+      profile["height"] = rung.shortSide;
+      profile["bitrate"] = rung.bitrate;
+      profile["track_inhibit"] = "video=<0x" + std::to_string(rung.shortSide);
+      profile["track_retain"] = rung.retain;
+      livepeer["target_profiles"].append(profile);
+    }
+    return livepeer;
+  }
+
+  /// MistProcLivepeer's declaration for retainLadder: it reads the transcode source, and every
+  /// rendition carries its profile's inhibitor, retain selector and target bitrate.
+  JSON::Value retainLadderDeclaration(const JSON::Value & livepeer) {
+    JSON::Value declaration =
+      JSON::fromString(R"({"select":{"codecs":[[["+H264","+HEVC","+MPEG2"],["+AAC"]]],"target":{"audio":"none"}}})");
+    declaration["select"]["target"]["video"] = transcodeSource;
+    jsonForEachConst (livepeer["target_profiles"], prof) {
+      JSON::Value output;
+      output["output"] = (*prof)["name"];
+      output["type"] = "video";
+      output["codec"] = "H264";
+      output["mask"] = 3;
+      output["track_inhibit"] = (*prof)["track_inhibit"];
+      output["track_retain"] = (*prof)["track_retain"];
+      output["track_retain_bitrate"] = (*prof)["bitrate"];
+      declaration["outputs"].append(output);
+    }
+    return declaration;
+  }
+
+  /// One local AV rung of the ladder as pkg/mist ReplaceLivepeerWithLocal writes it.
+  JSON::Value retainAVRung(const std::string & process, const LadderRung & rung) {
+    JSON::Value av;
+    av["process"] = process;
+    av["codec"] = "H264";
+    av["resolution"] = "x" + std::to_string(rung.shortSide);
+    av["bitrate"] = rung.bitrate;
+    av["track_select"] = "video=maxbps&audio=none&subtitle=none&meta=none";
+    av["track_inhibit"] = "video=<0x" + std::to_string(rung.shortSide);
+    av["track_retain"] = rung.retain;
+    av["mask_replaced_originals"] = true;
+    av["x-LSP-name"] = std::string("Local ") + rung.name;
+    return av;
+  }
+
+  /// MistProcAV's declaration for retainAVRung.
+  JSON::Value retainAVDeclaration() {
+    JSON::Value declaration = avDeclaration("H264", transcodeSource, TRACK_VALID_ALL);
+    return declaration;
+  }
+
+  /// A video track of a retention case: codec, geometry, rate in Mbit/s, and whether a process
+  /// produced it (it then has the first track of the case as its source).
+  struct CaseTrack {
+      const char *codec;
+      uint32_t width, height;
+      double rate;
+      bool derived;
+  };
+
+  /// A stream with original (and derived) video tracks the rendition retention rule decides on,
+  /// the Livepeer renditions it must produce and the originals masked once one is produced.
+  struct RetainCase {
+      const char *name;
+      std::vector<CaseTrack> tracks;
+      std::set<std::string> produced;
+      std::set<size_t> masked; ///< positions in tracks
+      std::string skip; ///< why the ladder does not run, when it produces nothing
+  };
+
+  std::vector<RetainCase> retainCases() {
+    return {
+      {"sane 1080/720/360 originals", {{"H264", 1920, 1080, 7.5}, {"H264", 1280, 720, 4}, {"H264", 640, 360, 1}}, {"480p"}, {}},
+      {"720p at 15 Mbps is the source and is replaced", {{"H264", 1920, 1080, 7.5}, {"H264", 1280, 720, 15}}, {"360p", "480p", "720p"}, {1}},
+      {"HEVC 720p in band is retained", {{"H264", 1920, 1080, 7.5}, {"HEVC", 1280, 720, 4}}, {"360p", "480p"}, {}},
+      {"AV1 720p is not retained", {{"H264", 1920, 1080, 7.5}, {"AV1", 1280, 720, 4}}, {"360p", "480p", "720p"}, {1}},
+      {"portrait originals", {{"H264", 1080, 1920, 7.5}, {"H264", 720, 1280, 4}}, {"360p", "480p"}, {}},
+      {"of two 720p candidates the one closest to the rung bitrate retains it",
+       {{"H264", 1920, 1080, 7.5}, {"H264", 1280, 720, 3}, {"H264", 1280, 720, 5}},
+       {"360p", "480p"},
+       {1}},
+      {"a single in-band source fills its own rung and stays visible", {{"H264", 1920, 1080, 6}}, {"360p", "480p", "720p"}, {}},
+      {"a single out-of-band source is transcoded and masked", {{"H264", 1920, 1080, 20}}, {"360p", "480p", "720p", "1080p"}, {0}},
+      {"a source below every rung keeps playing", {{"H264", 426, 240, 5}}, {}, {}, "track_inhibit 'video=<0x360' matches source tracks"},
+      {"an upload carrying every rung starts no ladder",
+       {{"H264", 1920, 1080, 7.5}, {"H264", 1280, 720, 4}, {"H264", 854, 480, 1.6}, {"H264", 640, 360, 0.9}},
+       {},
+       {},
+       std::string("every declared rendition is retained or inhibited (360p: track_retain '") + ladderRungs[0].retain + "' satisfied by track 3)"},
+      {"too small is judged against the source only", {{"H264", 1920, 1080, 1}, {"H264", 1280, 720, 4}}, {"360p", "480p"}, {0}},
+      {"image and derived tracks neither retain nor become the source",
+       {{"H264", 1920, 1080, 7.5}, {"JPEG", 640, 360, 50}, {"H264", 1280, 720, 40, true}},
+       {"360p", "480p", "720p"},
+       {}},
+    };
+  }
+
+  /// A probe stream holding the tracks of a retention case plus an AAC source, with bitrates.
+  std::vector<size_t> addCaseTracks(InputBufferProbe & input, const RetainCase & rc) {
+    std::vector<size_t> tracks;
+    for (const CaseTrack & t : rc.tracks) {
+      const size_t idx = input.addTrack("video", t.codec, t.width, t.height, t.derived ? tracks.at(0) : INVALID_TRACK_ID);
+      input.meta.setBps(idx, mbit(t.rate));
+      tracks.push_back(idx);
+    }
+    input.addTrack("audio", "AAC", 0, 0);
+    return tracks;
+  }
+
+  std::set<std::string> graphOutputNames(const Mist::ProcessGraph & graph) {
+    std::set<std::string> names;
+    jsonForEachConst (graph.outputs, it) { names.insert((*it)["output"].asString()); }
+    return names;
+  }
+
+  std::string joinedTracks(const std::set<size_t> & tracks) {
+    std::string all;
+    for (const size_t track : tracks) { all += std::to_string(track) + " "; }
+    return all;
+  }
+
+  /// Rendition retention: a rung that an original track already satisfies starts no process, the
+  /// size inhibitors judge only the transcode source, and once a rung is transcoded the originals
+  /// that retain no rung (the source included) are masked from viewers and pushes. The supervisor
+  /// asks MistProc<name> --describe-outputs for the declarations MistProcLivepeer and MistProcAV
+  /// give for these configurations.
+  void testRetention(Util::Config & config) {
+    const std::string suffix = std::to_string(getpid());
+    const std::string lpName = "RetainLP" + suffix;
+    const std::string avName = "RetainAV" + suffix;
+    const std::string lpPath = Util::getMyPath() + "MistProc" + lpName;
+    const std::string avPath = Util::getMyPath() + "MistProc" + avName;
+    auto fixture = [](const JSON::Value & declaration) {
+      return "[ \"$1\" = --describe-outputs ] && { echo '" + declaration.toString() + "'; exit 0; }\nexec sleep 30";
+    };
+    if (!writeFixture(lpPath, fixture(retainLadderDeclaration(retainLadder(lpName)))) ||
+        !writeFixture(avPath, fixture(retainAVDeclaration()))) {
+      check(false, "could not write retention fixtures next to the test binary");
+      return;
+    }
+    config.is_active = true;
+
+    size_t caseNo = 0;
+    for (const RetainCase & rc : retainCases()) {
+      const std::string stream = "retain" + std::to_string(++caseNo) + "x" + suffix;
+      InputBufferProbe input(&config);
+      input.initMetadata(stream);
+      const std::vector<size_t> tracks = addCaseTracks(input, rc);
+      char statePage[NAME_BUFFER_SIZE];
+      snprintf(statePage, sizeof(statePage), SHM_STREAM_STATE, stream.c_str());
+      IPC::sharedPage state(statePage, STRMSTATE_PAGE_LEN, true, false);
+      if (state) {
+        memset(state.mapped, 0, state.len);
+        state.mapped[0] = STRMSTAT_READY;
+      }
+
+      const JSON::Value livepeer = retainLadder(lpName);
+      JSON::Value configured;
+      configured.append(livepeer);
+      input.tick(configured);
+      const std::string name = std::string(rc.name) + ": ";
+      check(graphOutputNames(input.processGraph) == rc.produced,
+            name + "Livepeer renditions, got " + joined(graphOutputNames(input.processGraph)));
+      if (rc.produced.empty()) {
+        check(input.processGraph.skipReasons[input.key(livepeer)] == rc.skip,
+              name + "the ladder must not run, got '" + input.processGraph.skipReasons[input.key(livepeer)] + "'");
+      }
+      for (const size_t track : tracks) {
+        check(input.meta.trackValid(track) == TRACK_VALID_ALL, name + "no original is masked before a rendition exists");
+      }
+
+      if (rc.produced.size()) {
+        // The first rendition carries data: the ladder now replaces the originals it does not retain.
+        const size_t rendition = input.addTrack("video", "H264", 854, 480, tracks.at(0));
+        input.meta.setOutputKey(rendition, DTSC::outputKey(DTSC::processIdentity(input.key(livepeer)), *rc.produced.begin()));
+        input.tick(configured);
+        std::set<size_t> masked;
+        for (size_t i = 0; i < tracks.size(); ++i) {
+          const uint8_t valid = input.meta.trackValid(tracks[i]);
+          if (valid != TRACK_VALID_ALL) {
+            masked.insert(i);
+            check(valid == TRACK_VALID_INT_PROCESS, name + "a replaced original stays readable by processes only");
+          }
+        }
+        check(masked == rc.masked, name + "masked originals, got " + joinedTracks(masked));
+        check(input.meta.trackValid(rendition) == TRACK_VALID_ALL, name + "the rendition must stay visible");
+      }
+      input.stopAll();
+      if (state) {
+        state.master = true;
+        state.close();
+      }
+    }
+
+    {
+      // The local AV ladder: one process per rung, each retained by its own original.
+      const RetainCase rc = retainCases().at(5); // two 720p candidates
+      const std::string stream = "retainAV" + suffix;
+      InputBufferProbe input(&config);
+      input.initMetadata(stream);
+      const std::vector<size_t> tracks = addCaseTracks(input, rc);
+      char statePage[NAME_BUFFER_SIZE];
+      snprintf(statePage, sizeof(statePage), SHM_STREAM_STATE, stream.c_str());
+      IPC::sharedPage state(statePage, STRMSTATE_PAGE_LEN, true, false);
+      if (state) {
+        memset(state.mapped, 0, state.len);
+        state.mapped[0] = STRMSTAT_READY;
+      }
+      JSON::Value configured;
+      for (const LadderRung & rung : ladderRungs) { configured.append(retainAVRung(avName, rung)); }
+      input.tick(configured);
+      const Mist::ProcessGraph & graph = input.processGraph;
+      check(graph.runs.size() == 2 && graph.runs.count(input.key(configured[0u])) && graph.runs.count(input.key(configured[1u])),
+            "local AV ladder: only the 360p and 480p rungs run, got " + std::to_string(graph.runs.size()));
+      check(graph.skipReasons.count(input.key(configured[2u])) &&
+              graph.skipReasons.at(input.key(configured[2u])) ==
+                std::string("track_retain '") + ladderRungs[2].retain + "' satisfied by track " + std::to_string(tracks[2]),
+            "local AV ladder: the 720p rung is satisfied by the 5 Mbps original, got '" +
+              (graph.skipReasons.count(input.key(configured[2u])) ? graph.skipReasons.at(input.key(configured[2u])) : "") + "'");
+      check(graph.skipReasons.count(input.key(configured[3u])) &&
+              graph.skipReasons.at(input.key(configured[3u])) ==
+                std::string("track_retain '") + ladderRungs[3].retain + "' satisfied by track " + std::to_string(tracks[0]),
+            "local AV ladder: the 1080p rung is satisfied by the source");
+      check(graph.outputs.size() == 2, "local AV ladder: retained rungs add no expected outputs");
+
+      // The 480p rung produces: the 3 Mbps 720p original is replaced, the retaining originals are not.
+      const size_t rendition = input.addTrack("video", "H264", 854, 480, tracks.at(0));
+      input.meta.setOutputKey(rendition, DTSC::outputKey(DTSC::processIdentity(input.key(configured[1u])), "video"));
+      input.tick(configured);
+      check(input.meta.trackValid(tracks[0]) == TRACK_VALID_ALL && input.meta.trackValid(tracks[2]) == TRACK_VALID_ALL,
+            "local AV ladder: originals that retain another process's rung stay visible");
+      check(input.meta.trackValid(tracks[1]) == TRACK_VALID_INT_PROCESS, "local AV ladder: the unretained original is masked");
+      input.stopAll();
+      if (state) {
+        state.master = true;
+        state.close();
+      }
+    }
+
+    {
+      // A processing stream reserves only the Livepeer renditions that are produced.
+      const RetainCase rc = retainCases().at(0);
+      InputBufferProbe input(&config);
+      input.initMetadata("retainReserve" + suffix);
+      addCaseTracks(input, rc);
+      JSON::Value livepeer = retainLadder("Livepeer");
+      input.processGraphNodes[input.key(livepeer)] = graphNode(input.streamName, livepeer, retainLadderDeclaration(livepeer));
+      input.reserveProcessOutputs(input.key(livepeer), livepeer);
+      std::set<std::string> reserved;
+      for (const size_t track : input.M.getReservedTracks()) { reserved.insert(input.M.getOutputKey(track)); }
+      const std::set<std::string> want = {DTSC::outputKey(DTSC::processIdentity(input.key(livepeer)), "480p")};
+      check(reserved == want, "reservations of the sane multi-rendition upload, got " + joined(reserved));
+    }
+
+    {
+      // Retention waits until every original video track reports its geometry and bitrate.
+      InputBufferProbe input(&config);
+      const std::string stream = "retainPending" + suffix;
+      input.initMetadata(stream);
+      const size_t source = input.addTrack("video", "H264", 1920, 1080);
+      const size_t rung = input.addTrack("video", "H264", 1280, 720);
+      input.meta.setBps(source, mbit(7.5));
+      input.addTrack("audio", "AAC", 0, 0);
+      const JSON::Value livepeer = retainLadder(lpName);
+      JSON::Value configured;
+      configured.append(livepeer);
+      const Mist::ProcessGraph *graph = &input.resolveProcessGraph(configured);
+      check(!graph->runs.count(input.key(livepeer)), "the ladder must not start while an original's bitrate is unknown");
+      input.meta.setBps(rung, mbit(4));
+      graph = &input.resolveProcessGraph(configured);
+      check(graph->runs.count(input.key(livepeer)) && graphOutputNames(*graph) == std::set<std::string>({"360p", "480p"}),
+            "once the bitrate is known the ladder re-evaluates, got " + joined(graphOutputNames(*graph)));
+    }
+
+    unlink(lpPath.c_str());
+    unlink(avPath.c_str());
+  }
+
   void testInhibitors(Util::Config & config) {
     // 720p source with a source JSON meta track and the derived tracks of an earlier run.
     {
@@ -239,13 +550,15 @@ namespace {
       const size_t derived = addDerivedClutter(input, video, audio);
       const DTSC::Meta & M = input.meta;
 
-      check(!Util::inhibitorMatchesSource(M, inhibit360), "720p source must keep the 360p rendition");
-      check(!Util::inhibitorMatchesSource(M, inhibit480), "720p source must keep the 480p rendition");
-      check(!Util::inhibitorMatchesSource(M, inhibit720), "720p source must keep the 720p rendition");
-      check(Util::inhibitorMatchesSource(M, inhibit1080), "720p source must drop the 1080p rendition");
-      check(!Util::inhibitorMatchesSource(M, "audio=opus"), "opus produced by another process must not inhibit");
-      check(Util::inhibitorMatchesSource(M, "audio=aac"), "an AAC source must inhibit the AAC transcode");
-      check(!Util::inhibitorMatchesSource(M, "subtitle=all"), "no subtitle source means no subtitle inhibit");
+      const std::set<size_t> all = M.getValidTracks(true);
+      check(!Util::inhibitorMatchesSource(M, inhibit360, video), "720p source must keep the 360p rendition");
+      check(!Util::inhibitorMatchesSource(M, inhibit480, all), "720p source must keep the 480p rendition");
+      check(!Util::inhibitorMatchesSource(M, inhibit720, video), "720p source must keep the 720p rendition");
+      check(Util::inhibitorMatchesSource(M, inhibit1080, video), "720p source must drop the 1080p rendition");
+      check(!Util::inhibitorMatchesSource(M, "audio=opus", all), "opus produced by another process must not inhibit");
+      check(Util::inhibitorMatchesSource(M, "audio=aac", audio), "an AAC source must inhibit the AAC transcode");
+      check(!Util::inhibitorMatchesSource(M, "audio=aac", video), "an inhibitor judges only the tracks the process reads");
+      check(!Util::inhibitorMatchesSource(M, "subtitle=all", all), "no subtitle source means no subtitle inhibit");
       // The plain selector still sees the previous-run 640x360 rendition; only the source filter ignores it.
       check(Util::wouldSelect(M, std::string("audio=none&video=none&subtitle=none&meta=none&") + inhibit480).size() != 0,
             "fixture sanity: the previous-run rendition must be selectable by the 480p inhibitor");
@@ -271,8 +584,8 @@ namespace {
       const size_t audio = input.addTrack("audio", "AAC", 0, 0);
       const size_t derived = addDerivedClutter(input, video, audio);
       const DTSC::Meta & M = input.meta;
-      check(!Util::inhibitorMatchesSource(M, inhibit360) && !Util::inhibitorMatchesSource(M, inhibit480) &&
-              !Util::inhibitorMatchesSource(M, inhibit720) && !Util::inhibitorMatchesSource(M, inhibit1080),
+      check(!Util::inhibitorMatchesSource(M, inhibit360, video) && !Util::inhibitorMatchesSource(M, inhibit480, video) &&
+              !Util::inhibitorMatchesSource(M, inhibit720, video) && !Util::inhibitorMatchesSource(M, inhibit1080, video),
             "1080p source must keep all four renditions");
       std::vector<Mist::ProcessGraphNode> nodes;
       nodes.push_back(graphNode("inhibit-1080-test", livepeerWithLadder(), livepeerDeclaration(livepeerWithLadder())));
@@ -285,7 +598,8 @@ namespace {
       input.initMetadata("inhibit-opus-source-test");
       input.addTrack("video", "H264", 1280, 720);
       input.addTrack("audio", "opus", 0, 0);
-      check(Util::inhibitorMatchesSource(input.meta, "audio=opus"), "an opus source must inhibit the opus transcode");
+      check(Util::inhibitorMatchesSource(input.meta, "audio=opus", input.meta.getValidTracks(true)),
+            "an opus source must inhibit the opus transcode");
       JSON::Value opusTranscode;
       opusTranscode["process"] = "AV";
       opusTranscode["codec"] = "opus";
@@ -779,6 +1093,7 @@ int main() {
   testInhibitors(config);
   testGraph(config);
   testGraphSupervisor(config);
+  testRetention(config);
   testUnconstrainedRamp(config);
   testSupervisor(config);
   testDisconnectKeepsReplacementClaim(config);

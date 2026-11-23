@@ -599,11 +599,13 @@ namespace Mist{
     }
 
     /// Narrows the configured track selection to the one track of the configured kind this process
-    /// transcodes.
+    /// transcodes. A maxbps video selection reads the transcode source (Util::transcodeSourceSelector).
     static void restrictSourceSelection(std::map<std::string, std::string> & params) {
       if (isVideo) {
         params["audio"] = "none";
-        if (params.count("video") && params["video"].size()) { params["video"] += ",|first"; }
+        if (params.count("video") && params["video"].size()) {
+          params["video"] = Util::transcodeSourceSelector(params["video"]) + ",|first";
+        }
       } else {
         params["video"] = "none";
         if (params.count("audio") && params["audio"].size()) { params["audio"] += ",|first"; }
@@ -667,7 +669,8 @@ namespace Mist{
     }
 
     void sendHeader(){
-      if (opt.isMember("source_mask")) {
+      // Under mask_replaced_originals the buffer masks the source only when the ladder replaces it.
+      if (opt.isMember("source_mask") && !opt["mask_replaced_originals"].asBool()) {
         for (std::map<size_t, Comms::Users>::iterator ti = userSelect.begin(); ti != userSelect.end(); ++ti){
           if (ti->first == INVALID_TRACK_ID){continue;}
           INFO_MSG("Masking source track %zu with %zu", ti->first, (size_t)opt["source_mask"].asInt());

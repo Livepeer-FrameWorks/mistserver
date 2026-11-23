@@ -184,9 +184,70 @@ int main() {
   if (Util::pickTracks(sizes, sizeTracks, "JPEG", "<0x360") != std::set<size_t>{image}) {
     return fail("explicit image short-side selectors must still work");
   }
+  // The 720p rung's track_retain as pkg/mist RetainSelector composes it, at every band edge. Mist
+  // compares strictly, short sides in pixels and bitrates as kbps*1024/8 bytes per second.
+  const std::string retain720 =
+    "audio=none&subtitle=none&meta=none&video=h264,hevc,|source,|>0x683,|<0x757,|>2197kbps,|<8790kbps";
+  struct RetainProbe {
+      const char *what;
+      const char *codec;
+      uint32_t width, height;
+      uint64_t bps;
+      bool original, retains;
+  };
+  const uint64_t inBand = 4500000 / 8;
+  const RetainProbe retainProbes[] = {
+    {"at the lower bitrate bound", "H264", 1280, 720, 2197 * 128, true, false},
+    {"just above the lower bitrate bound", "H264", 1280, 720, 2197 * 128 + 1, true, true},
+    {"just below the upper bitrate bound", "H264", 1280, 720, 8790 * 128 - 1, true, true},
+    {"at the upper bitrate bound", "H264", 1280, 720, 8790 * 128, true, false},
+    {"at the lower short-side bound", "H264", 1214, 683, inBand, true, false},
+    {"just above the lower short-side bound", "H264", 1216, 684, inBand, true, true},
+    {"just below the upper short-side bound", "H264", 1344, 756, inBand, true, true},
+    {"at the upper short-side bound", "H264", 1346, 757, inBand, true, false},
+    {"in portrait", "H264", 720, 1280, inBand, true, true},
+    {"as HEVC", "HEVC", 1280, 720, inBand, true, true},
+    {"as AV1", "AV1", 1280, 720, inBand, true, false},
+    {"as a process output", "H264", 1280, 720, inBand, false, false},
+    {"as a JPEG image", "JPEG", 1280, 720, inBand, true, false},
+  };
+  for (const RetainProbe & probe : retainProbes) {
+    DTSC::Meta one;
+    one.reInit("", true);
+    const size_t track = addVideoTrack(one, 60, probe.codec, probe.width, probe.height, probe.bps);
+    if (!probe.original) { one.setSourceTrack(track, track); }
+    if (!Util::wouldSelect(one, retain720).empty() != probe.retains) {
+      fprintf(stderr, "720p track_retain %s: selected %d, want %d\n", probe.what, (int)!probe.retains, (int)probe.retains);
+      return 1;
+    }
+  }
+
+  // The transcode source: the highest-bitrate original continuous-video track, the lowest index
+  // on a tie or while no original reports a bitrate. Process outputs and images never qualify.
+  DTSC::Meta ladder;
+  ladder.reInit("", true);
+  const size_t full = addVideoTrack(ladder, 70, "H264", 1920, 1080, 5000000 / 8);
+  const size_t whack = addVideoTrack(ladder, 71, "H264", 1280, 720, 15000000 / 8);
+  const size_t derived = addVideoTrack(ladder, 72, "H264", 3840, 2160, 40000000 / 8);
+  ladder.setSourceTrack(derived, full);
+  const size_t cover = addVideoTrack(ladder, 73, "JPEG", 640, 360, 50000000 / 8);
+  const size_t sheet = addVideoTrack(ladder, 74, "PNG", 640, 360, 60000000 / 8);
+  const std::set<size_t> ladderTracks = {full, whack, derived, cover, sheet};
+  if (Util::pickTracks(ladder, ladderTracks, "video", "source,!jpeg,!png,|maxbps") != std::set<size_t>{whack}) {
+    return fail("the transcode source must be the highest-bitrate original continuous-video track");
+  }
+  DTSC::Meta unratedLadder;
+  unratedLadder.reInit("", true);
+  const size_t firstUnrated = addVideoTrack(unratedLadder, 80, "H264", 1280, 720, 0);
+  const size_t secondUnrated = addVideoTrack(unratedLadder, 81, "H264", 1920, 1080, 0);
+  if (Util::pickTracks(unratedLadder, {firstUnrated, secondUnrated}, "video", "source,!jpeg,!png,|maxbps") !=
+      std::set<size_t>{firstUnrated}) {
+    return fail("without known bitrates the transcode source must be the lowest-index original");
+  }
+
   sizes.setSourceTrack(ultrawide, landscape);
   sizes.setSourceTrack(square, landscape);
-  if (!Util::inhibitorMatchesSource(sizes, "video=<0x480")) {
+  if (!Util::inhibitorMatchesSource(sizes, "video=<0x480", sizeTracks)) {
     return fail("source-only short-side inhibition must ignore larger processed tracks");
   }
   return 0;
