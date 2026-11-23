@@ -191,7 +191,7 @@ namespace EBML{
     if (doctype == "matroska" || orientation) {
       sendElemUInt(C, EID_DOCTYPEVERSION, 4);
       sendElemUInt(C, EID_DOCTYPEREADVERSION, 1);
-    } else {
+    }else{
       sendElemUInt(C, EID_DOCTYPEVERSION, 1);
       sendElemUInt(C, EID_DOCTYPEREADVERSION, 1);
     }

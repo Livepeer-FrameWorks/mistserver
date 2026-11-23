@@ -1097,11 +1097,11 @@ namespace MP4{
   std::string DCDescriptor::getCodec(){
     if (!getDataSize()) { return "UNKNOWN"; }
     switch ((unsigned char)getData()[0]) {
-      case 0x20: return "MPEG4";
-      case 0x40: return "AAC"; break;
-      case 0x69:
-      case 0x6B: return "MP3"; break;
-      default: return "UNKNOWN";
+    case 0x20: return "MPEG4";
+    case 0x40: return "AAC"; break;
+    case 0x69:
+    case 0x6B: return "MP3"; break;
+    default: return "UNKNOWN";
     }
   }
 
@@ -1933,7 +1933,7 @@ namespace MP4{
     return orientation;
   }
 
-  uint16_t MVHD::getRotation() {
+  uint16_t MVHD::getRotation(){
     return getOrientation().rotation;
   }
 
@@ -2327,7 +2327,7 @@ namespace MP4{
     return orientation;
   }
 
-  uint16_t TKHD::getRotation() {
+  uint16_t TKHD::getRotation(){
     return getOrientation().rotation;
   }
 

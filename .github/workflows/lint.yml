@@ -183,16 +183,5 @@ jobs:
             BASE=HEAD~1
           fi
 
-          OUTPUT=$(git clang-format --diff "$BASE" HEAD --extensions cpp,h,hpp -- \
-            ':!lsp/' ':!embed/' ':!subprojects/' ':!lib/ndi/' 2>&1) || true
-
-          if [ "$OUTPUT" = "no modified files to format" ] || \
-             [ "$OUTPUT" = "clang-format did not modify any files" ] || \
-             [ -z "$OUTPUT" ]; then
-            echo "All formatting checks passed!"
-          else
-            echo "$OUTPUT"
-            echo ""
-            echo "::error::Formatting issues in changed lines"
-            exit 1
-          fi
+          python3 test/changed_line_format_integration.py scripts/format-changed-lines.py /usr/bin/clang-format-21
+          python3 scripts/format-changed-lines.py --binary /usr/bin/clang-format-21 "$BASE" HEAD

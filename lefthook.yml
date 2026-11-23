@@ -28,17 +28,15 @@ pre-commit:
         - "subprojects/**"
         - "**/*.js.h"
         - "**/*.css.h"
-      # git clang-format (no <commit> arg) formats only the lines in the
-      # staged diff against HEAD, not whole files. The pre-push hook below is
-      # the CI-equivalent guard over the full pushed commit range.
+      # Keep clang-format replacements inside semantic staged lines; its range
+      # expansion must not reflow neighboring code. Pre-push uses the same rule.
       run: |
         binary="$(scripts/clang-format-21.sh)" || exit 1
-        git clang-format --binary "$binary" --force --extensions cpp,h,hpp -- {staged_files}
+        python3 scripts/format-changed-lines.py --binary "$binary" --staged --apply
       # lefthook re-stages any files the command modified.
       stage_fixed: true
       fail_text: |
-        clang-format reformatted staged lines. Review with `git diff --cached`
-        and re-commit. To skip (not recommended): LEFTHOOK=0 git commit ...
+        clang-format could not safely format the staged semantic lines. Review the error above.
 
 pre-push:
   parallel: true
@@ -58,16 +56,4 @@ pre-push:
           fi
         fi
 
-        output="$(git clang-format --binary "$binary" --diff "$base" HEAD --extensions cpp,h,hpp -- \
-          ':!lsp/' ':!embed/' ':!subprojects/' ':!lib/ndi/' 2>&1 || true)"
-
-        if [ "$output" = "no modified files to format" ] || \
-           [ "$output" = "clang-format did not modify any files" ] || \
-           [ -z "$output" ]; then
-          exit 0
-        fi
-
-        printf '%s\n\n' "$output"
-        printf '%s\n' "clang-format found formatting issues in changed lines."
-        printf '%s\n' "Fix with: git clang-format --binary $binary --force $base --extensions cpp,h,hpp -- ':!lsp/' ':!embed/' ':!subprojects/' ':!lib/ndi/'"
-        exit 1
+        python3 scripts/format-changed-lines.py --binary "$binary" "$base" HEAD

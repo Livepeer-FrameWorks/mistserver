@@ -1807,14 +1807,17 @@ if get_option('WITH_AV') and ffmpeg_program.found() and ffprobe_program.found()
        depends: media_test_deps, suite: 'Processing', timeout: 120, is_parallel: false)
 endif
 
-if get_option('WITH_AV') and ffmpeg_program.found() and ffprobe_program.found()
-  test('Bounded recording never replays a stopped audio rendition tail', find_program('python3'),
-       args: [files('stopped_audio_recording_integration.py'), meson.project_build_root(), ffmpeg_program, ffprobe_program],
-       depends: media_test_deps, suite: 'Processing', timeout: 90, is_parallel: false)
-endif
-
 if get_option('WITH_AV')
   avaudiowriteerrortest = executable('avaudiowriteerrortest', ['process_av_audio_error_unit.cpp', input_cpp, output_cpp, io_cpp], header_tgts,
                                     dependencies: [libmist_dep, av_codec_map_dep])
   test('Actual AV audio FIFO failure reports its own error', avaudiowriteerrortest, suite: 'AV')
+endif
+
+test('Changed-line formatting preserves untouched boundaries and UTF8', find_program('python3'),
+     args: [files('changed_line_format_unit.py'), files('../scripts/format-changed-lines.py')], suite: 'Build')
+
+if get_option('WITH_AV') and ffmpeg_program.found() and ffprobe_program.found()
+  test('Bounded recording never replays a stopped audio rendition tail', find_program('python3'),
+       args: [files('stopped_audio_recording_integration.py'), meson.project_build_root(), ffmpeg_program, ffprobe_program],
+       depends: media_test_deps, suite: 'Processing', timeout: 90, is_parallel: false)
 endif
