@@ -1,4 +1,5 @@
 #include "input_buffer.h"
+#include "process_replacement_request.h"
 
 #include "../process_supervisor.h"
 #include "../processing_lifecycle.h"
@@ -1853,12 +1854,7 @@ namespace Mist{
   }
 
   bool InputBuffer::requestProcessReplacement(const std::string & payload, std::string & response) {
-    if (!Triggers::shouldTrigger("PROCESS_REPLACE", streamName)) { return false; }
-    Triggers::Result result;
-    Triggers::doTrigger("PROCESS_REPLACE", payload, streamName, false, result);
-    if (result.handlerFailed || result.action != Triggers::ACT_VALUE || !result.response.size()) { return false; }
-    response = result.response;
-    return true;
+    return runProcessReplacementRequest(streamName, payload, response, Util::getMyPath() + "MistUtilTrigger");
   }
   /*LTS-END*/
 

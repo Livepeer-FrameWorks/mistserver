@@ -374,6 +374,7 @@ if ffmpeg_program.found() and ffprobe_program.found()
                 exec_tgts.get('MistUtilNuke'), livepeerstub, timeout_program,
                 livepeerprocstateprobe],
          env: ['LIVEPEER_TEST_SLOW_REPLACE=1'],
+         depends: [exec_tgts.get('MistUtilTrigger')],
          suite: 'Processing', timeout: 150, is_parallel: false)
     test('A processing recording starts every video track, a late rendition included, with a keyframe', livepeervodtest,
          args: [ffmpeg_program, ffprobe_program, exec_tgts.get('MistController'),
@@ -1248,7 +1249,7 @@ endif
 ebmlrotationtest = executable('ebmlrotationtest', 'ebml_rotation_unit.cpp', header_tgts, dependencies: libmist_dep)
 test('Matroska projection rotation preserves exact element lengths', ebmlrotationtest, suite: 'EBML')
 media_test_deps = upload_metadata_probes
-foreach media_target : ['MistProcAV', 'MistProcThumbs', 'MistProcLivepeer', 'MistOutEBML', 'MistOutJPG', 'MistOutCMAF', 'MistOutMP4', 'MistOutHTTP', 'MistInMP4', 'MistInEBML', 'MistInAV', 'MistInBuffer', 'MistInTS', 'MistController', 'MistSession', 'MistUtilNuke']
+foreach media_target : ['MistProcAV', 'MistProcThumbs', 'MistProcLivepeer', 'MistOutEBML', 'MistOutJPG', 'MistOutCMAF', 'MistOutMP4', 'MistOutHTTP', 'MistInMP4', 'MistInEBML', 'MistInAV', 'MistInBuffer', 'MistInTS', 'MistController', 'MistSession', 'MistUtilNuke', 'MistUtilTrigger']
   if exec_tgts.has_key(media_target)
     media_test_deps += [exec_tgts[media_target]]
   endif
@@ -1820,4 +1821,10 @@ if get_option('WITH_AV') and ffmpeg_program.found() and ffprobe_program.found()
   test('Bounded recording never replays a stopped audio rendition tail', find_program('python3'),
        args: [files('stopped_audio_recording_integration.py'), meson.project_build_root(), ffmpeg_program, ffprobe_program],
        depends: media_test_deps, suite: 'Processing', timeout: 90, is_parallel: false)
+endif
+
+if host_machine.system() != 'windows'
+  procreplacedeadlinetest = executable('procreplacedeadlinetest', 'process_replacement_deadline_unit.cpp', header_tgts, dependencies: libmist_dep)
+  test('PROCESS_REPLACE bounds all handlers and blocked EXEC input together', procreplacedeadlinetest,
+       args: [exec_tgts.get('MistUtilTrigger')], suite: 'Processing', timeout: 15, is_parallel: false)
 endif

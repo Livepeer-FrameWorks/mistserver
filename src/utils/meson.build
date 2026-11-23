@@ -9,6 +9,7 @@ utils = [
     {'name': 'Log',     'file': 'log'},
     {'name': 'Writer',    'file': 'writer'},
     {'name': 'Health',    'file': 'health'},
+    {'name': 'Trigger',   'file': 'trigger'},
     {'name': 'Foghorn',   'file': 'foghorn'},
 ]
 
