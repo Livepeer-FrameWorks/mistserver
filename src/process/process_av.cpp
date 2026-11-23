@@ -1633,8 +1633,9 @@ namespace Mist{
       }
 
       // Copy local buffer over to audio sample buffer
-      if (av_audio_fifo_write(audioBuffer, (void **)frameConverted->extended_data, samplesConverted) < samplesConverted) {
-        printError("Could not write data to audio sample buffer", ret);
+      const int written = av_audio_fifo_write(audioBuffer, (void **)frameConverted->extended_data, samplesConverted);
+      if (written < samplesConverted) {
+        printError("Could not write data to audio sample buffer", written < 0 ? written : AVERROR(EIO));
         return false;
       }
       return true;
