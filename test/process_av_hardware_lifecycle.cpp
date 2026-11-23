@@ -160,10 +160,13 @@ int main(int argc, char **argv) {
       fflush(stdout);
     }
     for (const auto & series : {resident, activeGPU, releasedGPU}) {
-      const auto bounds = std::minmax_element(series.end() - 20, series.end());
-      if (*bounds.second - *bounds.first > 1024) {
-        fprintf(stderr, "%s memory did not plateau over the final 20 restarts: %ld..%ld KiB\n", candidate.codec->name,
-                *bounds.first, *bounds.second);
+      // Allocator reuse can alternate between two stable resident sizes. Compare
+      // both edges of the settled band instead of treating that variation as growth.
+      const auto middle = std::minmax_element(series.begin() + 40, series.begin() + 60);
+      const auto final = std::minmax_element(series.end() - 20, series.end());
+      if (*final.first > *middle.first + 1024 || *final.second > *middle.second + 1024) {
+        fprintf(stderr, "%s memory grew after settling: middle %ld..%ld, final %ld..%ld KiB\n", candidate.codec->name,
+                *middle.first, *middle.second, *final.first, *final.second);
         return 1;
       }
     }
