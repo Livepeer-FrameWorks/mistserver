@@ -1218,6 +1218,26 @@ namespace {
 
 int main() {
   Util::Config config("input-buffer-process-unit");
+  {
+    InputBufferProbe input(&config);
+    const std::string page = "/mist_probe_admission_" + std::to_string(getpid());
+    input.streamStatus.init(page, STRMSTATE_PAGE_LEN, true, false);
+    check(bool(input.streamStatus), "admission fixture owns its status page");
+    if (input.streamStatus) {
+      memset(input.streamStatus.mapped, 0, input.streamStatus.len);
+      input.processControlledRealtime = true;
+      input.processOverrideResolved = false;
+      input.publishFeedPaused();
+      check(input.streamStatus.mapped[STRMSTATE_PROCESS_FEED_PAUSED_OFFSET], "source feed must pause before the first admission response");
+      input.processOverrideResolved = true;
+      input.publishFeedPaused();
+      check(!input.streamStatus.mapped[STRMSTATE_PROCESS_FEED_PAUSED_OFFSET], "resolved admission without a probe releases the feed");
+      input.processOverrideResolved = false;
+      input.processControlledRealtime = false;
+      input.publishFeedPaused();
+      check(!input.streamStatus.mapped[STRMSTATE_PROCESS_FEED_PAUSED_OFFSET], "ordinary streams do not wait for processing admission");
+    }
+  }
   testInhibitSeesNewSourceAtGraphSelection(config);
   testInhibitors(config);
   testGraph(config);

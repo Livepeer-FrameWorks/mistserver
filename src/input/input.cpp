@@ -1392,17 +1392,7 @@ namespace Mist{
         size_t newIdx = liveMeta.addTrack();
         realTimeTrackMap[thisIdx] = newIdx;
         liveMeta.setID(newIdx, newID);
-        liveMeta.setType(newIdx, M.getType(thisIdx));
-        liveMeta.setCodec(newIdx, M.getCodec(thisIdx));
-        liveMeta.setFpks(newIdx, M.getFpks(thisIdx));
-        liveMeta.setInit(newIdx, M.getInit(thisIdx));
-        liveMeta.setLang(newIdx, M.getLang(thisIdx));
-        liveMeta.setRate(newIdx, M.getRate(thisIdx));
-        liveMeta.setSize(newIdx, M.getSize(thisIdx));
-        liveMeta.setWidth(newIdx, M.getWidth(thisIdx));
-        liveMeta.setRotation(newIdx, M.getRotation(thisIdx));
-        liveMeta.setMirror(newIdx, M.getMirror(thisIdx));
-        liveMeta.setHeight(newIdx, M.getHeight(thisIdx));
+        describeRealtimeTrack(liveMeta, newIdx, M, thisIdx);
         INFO_MSG("Mapped late realtime track %zu to live track %zu", thisIdx, newIdx);
         idx = newIdx;
       }

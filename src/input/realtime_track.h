@@ -13,6 +13,7 @@ namespace Mist {
     live.setInit(target, M.getInit(source));
     live.setLang(target, M.getLang(source));
     live.setRate(target, M.getRate(source));
+    live.setChannels(target, M.getChannels(source));
     live.setSize(target, M.getSize(source));
     live.setWidth(target, M.getWidth(source));
     live.setRotation(target, M.getRotation(source));

@@ -68,6 +68,21 @@ int main() {
     check(live.getBps(target) == 500000,
           "an open fragment must not replace a known bitrate, got " + std::to_string(live.getBps(target)));
   }
+  {
+    DTSC::Meta vod;
+    vod.reInit("", true);
+    const size_t source = vod.addTrack(8, 8, 256, 2, true);
+    vod.setType(source, "audio");
+    vod.setCodec(source, "AAC");
+    vod.setRate(source, 48000);
+    vod.setChannels(source, 6);
+    DTSC::Meta live;
+    live.reInit("", true);
+    const size_t target = live.addTrack(8, 8, 256, 2, true);
+    Mist::describeRealtimeTrack(live, target, vod, source);
+    check(live.getChannels(target) == 6 && live.getRate(target) == 48000,
+          "paused source metadata must describe its six audio channels before any packet arrives");
+  }
   if (failures) {
     std::cerr << failures << " failure(s)" << std::endl;
     return 1;

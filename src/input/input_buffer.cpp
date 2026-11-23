@@ -1257,7 +1257,8 @@ namespace Mist{
   void InputBuffer::publishFeedPaused() {
     if (!streamStatus || streamStatus.len < 16) { return; }
     streamStatus.mapped[STRMSTATE_PROCESS_FEED_PAUSED_OFFSET] =
-      processControlledRealtime && (consumerLag.held() || processingAdmissionPending(processOverride));
+      processControlledRealtime &&
+      (!processOverrideResolved || consumerLag.held() || processingAdmissionPending(processOverride));
   }
 
   /// How far the source leads the slowest HOLDBUFFER recorder (see holdingReadersLeadMs).
@@ -1366,6 +1367,10 @@ namespace Mist{
     snprintf(tmpBuf, NAME_BUFFER_SIZE, SHM_STREAM_CONF, strName.c_str());
     Util::DTSCShmReader rStrmConf(tmpBuf);
     DTSC::Scan streamCfg = rStrmConf.getScan();
+    // The source can attach as soon as serve marks this buffer ready, before its first user scan.
+    // Publish the unresolved admission hold now, while header-only tracks remain inspectable.
+    processControlledRealtime = streamCfg.getMember("process_controlled_realtime").asBool();
+    publishFeedPaused();
 
     //Check if bufferTime setting is correct
     uint64_t tmpNum = getSettingUInt64(streamCfg, "DVR", "bufferTime");
