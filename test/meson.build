@@ -1798,3 +1798,10 @@ if get_option('WITH_AV')
   thumbshardwareselectiontest = executable('thumbshardwareselectiontest', ['process_thumbs_hardware_selection.cpp', '../src/process/thumbnail_artifacts.cpp', input_cpp, output_cpp, io_cpp], header_tgts, dependencies: [libmist_dep, av_libs, av_codec_map_dep])
   test('Actual thumbnail hardware fallback is scoped to image geometry', thumbshardwareselectiontest, suite: 'AV')
 endif
+
+if get_option('WITH_AV') and ffmpeg_program.found() and ffprobe_program.found()
+  test('AV demux MPEG2 retains presentation after negative startup DTS', find_program('python3'),
+       args: [files('process_av_rotation_integration.py'), meson.project_build_root(), ffmpeg_program, ffprobe_program],
+       env: {'MIST_ROTATION_CASE': 'MPEG2:0', 'MIST_ROTATION_CONTAINER': 'av', 'MIST_ROTATION_ACCEL': 'sw'},
+       depends: media_test_deps, suite: 'Processing', timeout: 120, is_parallel: false)
+endif

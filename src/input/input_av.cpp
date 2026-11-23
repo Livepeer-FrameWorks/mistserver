@@ -182,7 +182,8 @@ namespace Mist{
         isKey = true;
       }
       if (packet.pts != AV_NOPTS_VALUE && packet.pts != packet.dts){
-        packOffset = ((packet.pts - packet.dts) * 1000 * strm->time_base.num / strm->time_base.den);
+        const long long presentationTime = packet.pts * 1000 * strm->time_base.num / strm->time_base.den;
+        packOffset = (presentationTime < 0 ? 0 : presentationTime) - packTime;
       }
       if (M.getCodec(idx) == "EAC-3" && !AC3::validDEC3(M.getInit(idx))) {
         const AC3::Header header = AC3::parse(packet.data, packet.size);
@@ -214,7 +215,8 @@ namespace Mist{
         isKey = true;
       }
       if (packet.pts != AV_NOPTS_VALUE && packet.pts != packet.dts){
-        packOffset = ((packet.pts - packet.dts) * 1000 * strm->time_base.num / strm->time_base.den);
+        const long long presentationTime = packet.pts * 1000 * strm->time_base.num / strm->time_base.den;
+        packOffset = (presentationTime < 0 ? 0 : presentationTime) - packTime;
       }
       thisTime = packTime;
       thisIdx = idx;
