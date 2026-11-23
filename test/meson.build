@@ -539,8 +539,9 @@ if ffmpeg_program.found() and ffprobe_program.found()
       test('Processing buffers stay up while a slow recorder drains after source EOF', processingdraintest,
            args: processingdrainargs, env: {'MIST_DRAIN_MODE': 'slow-sink'},
            suite: 'Processing', timeout: 420, is_parallel: false)
-      test('Processing recordings stuck past the stale window report a lost buffer', processingdraintest,
-           args: processingdrainargs, env: {'MIST_DRAIN_MODE': 'stuck-sink'},
+      test('Processing recordings stuck past the stale window report a lost buffer', find_program('python3'),
+           args: [files('processing_drain_isolation.py'), processingdraintest] + processingdrainargs,
+           env: {'MIST_DRAIN_MODE': 'stuck-sink'},
            suite: 'Processing', timeout: 420, is_parallel: false)
       test('Processing recordings whose buffer stops mid-drain report a lost buffer', processingdraintest,
            args: processingdrainargs, env: {'MIST_DRAIN_MODE': 'buffer-killed'},

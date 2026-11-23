@@ -80,6 +80,7 @@ export MIST_TEST_TRIGGER_OUTPUT="$trigger_base"
 controller_pid=
 input_pid=
 sink_pid=
+reader_pid=
 
 cleanup() {
   status=$?
@@ -96,6 +97,10 @@ cleanup() {
     done
   fi
   if [ -n "$sink_pid" ]; then kill -KILL "$sink_pid" >/dev/null 2>&1 || true; fi
+  if [ -n "$reader_pid" ]; then
+    if kill -0 "$reader_pid" 2>/dev/null; then kill -KILL "$reader_pid" || status=1; fi
+    wait "$reader_pid" >/dev/null 2>&1 || true
+  fi
   if [ -n "$controller_pid" ]; then
     TMP="$ipc_root" MIST_CONTROL=1 "$util_nuke" "$stream" >/dev/null 2>&1 || true
   fi
@@ -256,13 +261,26 @@ case "$mode" in
     ;;
   stuck-sink)
     # The pipe is held open and never read, so the recorder blocks on its first full write.
-    ( "$timeout_program" 400 env TMP="$ipc_root" MIST_CONTROL=1 "$output_ebml" -s "$stream" - 2>"$work/output.log" | \
-      sleep 400 ) &
+    mkfifo "$work/stuck-sink.fifo"
+    sleep 400 <"$work/stuck-sink.fifo" &
+    reader_pid=$!
+    "$timeout_program" 400 env TMP="$ipc_root" MIST_CONTROL=1 "$output_ebml" -s "$stream" - \
+      >"$work/stuck-sink.fifo" 2>"$work/output.log" &
     sink_pid=$!
     wait_for 300 "the buffer to give up on the stuck recorder" logged "$work/input.log" 'no activity for'
     gave_up=$(($(date +%s) - start_time))
     # Unblock the recorder's write so it can exit and report.
-    pkill -KILL -f "sleep 400" || true
+    kill -0 "$reader_pid"
+    kill -KILL "$reader_pid"
+    if wait "$reader_pid"; then
+      echo "the stuck reader unexpectedly exited successfully" >&2
+      exit 1
+    fi
+    if kill -0 "$reader_pid" 2>/dev/null; then
+      echo "the owned stuck reader survived SIGKILL" >&2
+      exit 1
+    fi
+    reader_pid=
     wait_for 60 "the stuck recorder to exit" exited "$sink_pid"
     sink_pid=
     if [ "$gave_up" -lt 60 ]; then
