@@ -427,6 +427,7 @@ namespace Mist{
     bool isSingular(){return false;}
   private:
     std::map<std::string, readySegment>::iterator segIt;
+    std::map<size_t, uint64_t> decodedUntil; ///< monotonic rendition decode clock across segments
     std::map<size_t, uint64_t> resumedUntil; ///< last packet time of each rendition this run resumed
     bool needHeader(){return false;}
     /// The loop also ends when the process is told to stop (a signal another thread handled, or
@@ -495,24 +496,26 @@ namespace Mist{
                 droppedProduced = true;
               } else {
                 if (!S.offsetCalcd) {
-                  S.timeOffset = int64_t(S.time) - int64_t(thisPacket.getTime());
-                  // Align both decode and presentation anchors: a returned encoder may
-                  // add its own composition lead to the source's TS transport delay.
-                  S.compositionAdjustment = S.sourceOffset - int64_t(thisPacket.getInt("offset"));
+                  // Each encoder owns its decode lead. Align presentation anchors
+                  // without imposing the source encoder's reorder depth on it.
+                  S.timeOffset =
+                    int64_t(S.time) + S.sourceOffset - int64_t(thisPacket.getTime()) - int64_t(thisPacket.getInt("offset"));
                   S.offsetCalcd = true;
                 }
-                timeOffset = S.timeOffset;
-                if (S.compositionAdjustment) {
-                  char *payload = 0;
-                  size_t bytes = 0;
-                  thisPacket.getString("data", payload, bytes);
-                  DTSC::Packet adjusted;
-                  adjusted.genericFill(thisPacket.getTime(), int64_t(thisPacket.getInt("offset")) + S.compositionAdjustment,
-                                       thisPacket.getTrackId(), payload, bytes, thisPacket.getInt("bpos"),
-                                       thisPacket.getFlag("keyframe"), thisPacket.getInt("duration"));
-                  thisPacket = adjusted;
-                }
-                S.lastPacket = thisPacket.getTime() + timeOffset;
+                const int64_t decode = int64_t(thisPacket.getTime()) + S.timeOffset;
+                const int64_t presentation = decode + int64_t(thisPacket.getInt("offset"));
+                uint64_t aligned = std::max<int64_t>(decode, 0);
+                const auto previous = decodedUntil.find(thisIdx);
+                if (previous != decodedUntil.end() && aligned <= previous->second) { aligned = previous->second + 1; }
+                char *payload = 0;
+                size_t bytes = 0;
+                thisPacket.getString("data", payload, bytes);
+                DTSC::Packet adjusted;
+                adjusted.genericFill(aligned, presentation - int64_t(aligned), thisPacket.getTrackId(), payload, bytes,
+                                     thisPacket.getInt("bpos"), thisPacket.getFlag("keyframe"), thisPacket.getInt("duration"));
+                thisPacket = adjusted;
+                decodedUntil[thisIdx] = aligned;
+                S.lastPacket = aligned;
                 uint64_t sinkMs = statSinkMs.load(std::memory_order_relaxed);
                 while (S.lastPacket >= sinkMs &&
                        !statSinkMs.compare_exchange_weak(sinkMs, S.lastPacket, std::memory_order_relaxed)) {}

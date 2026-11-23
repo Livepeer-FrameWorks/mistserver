@@ -45,14 +45,14 @@ def main():
         subprocess.run([ffmpeg, '-v', 'error', '-y', '-f', 'lavfi', '-i', 'testsrc2=size=320x180:rate=25:duration=20',
                         '-f', 'lavfi', '-i', 'sine=sample_rate=48000:duration=20', '-c:v', *encoder, '-threads', '1',
                         '-preset', 'medium', '-bf', '3', '-g', '20', '-keyint_min', '1', '-sc_threshold', '0',
-                        '-force_key_frames', 'expr:if(lt(t,4.2),eq(mod(n,3),0),if(lt(t,8),eq(mod(n,20),0),eq(mod(n,3),0)))',
+                        '-force_key_frames', 'expr:if(lt(t,4.2),1,if(lt(t,8),eq(mod(n,20),0),1))',
                         '-c:a', 'aac', str(source)], env=f.tool_env, check=True, timeout=30)
         original = json.loads(subprocess.check_output([ffprobe, '-v', 'error', '-select_streams', 'v:0',
                               '-show_entries', 'packet=pts_time', '-of', 'json', str(source)], env=f.tool_env))['packets']
         pts = [round(float(p['pts_time']) * 1000) for p in original]
         offsets = [a - b for a, b in zip(pts, sorted(pts))]
         if codec == 'H264':
-            assert min(offsets[:100]) == -40 and min(offsets[125:275]) == -80 and min(offsets[325:425]) == -40, ('fixture did not vary B-frame depth', offsets)
+            assert min(offsets[:100]) == 0 and min(offsets[125:200]) == -80 and min(offsets[325:425]) == 0, ('fixture did not vary B-frame depth', offsets)
         else:
             assert min(offsets) == -80 and -40 in offsets, ('HEVC fixture did not reorder frames', offsets)
         # Keep the source window after publisher EOF so the reader can verify its

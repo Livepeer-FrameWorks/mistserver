@@ -33,6 +33,7 @@ static bool checkHEVCOpenGOP(const std::string & init = "") {
     uint64_t time;
     while (parser.fillPacket(meta, idx, time, packet)) {
       if (count >= sizeof(presentation) / sizeof(*presentation) || (count && time <= previous) ||
+          int64_t(packet.getInt("offset")) < 0 ||
           int64_t(time) + int64_t(packet.getInt("offset")) != int64_t(presentation[count])) {
         fprintf(stderr, "HEVC open GOP lost decode/presentation order: frame=%zu DTS=%llu previous=%llu\n", count,
                 (unsigned long long)time, (unsigned long long)previous);
@@ -69,7 +70,8 @@ int main() {
   uint64_t previous = 0;
   for (size_t i = 0; i < 7; ++i) {
     const EBML::packetData & packet = predictor.getPacketData(true);
-    if ((i && packet.time <= previous) || int64_t(packet.time) + int64_t(packet.offset) != int64_t(presentation[i])) {
+    if ((i && packet.time <= previous) || packet.offset < 0 ||
+        int64_t(packet.time) + int64_t(packet.offset) != int64_t(presentation[i])) {
       fprintf(stderr, "B-frame decode timestamps clamped or presentation shifted: frame=%zu DTS=%llu offset=%lld PTS=%llu\n",
               i, (unsigned long long)packet.time, (long long)packet.offset, (unsigned long long)presentation[i]);
       return 1;

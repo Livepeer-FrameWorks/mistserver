@@ -239,13 +239,22 @@ namespace Mist{
 
   bool InputEBML::readExistingHeader(){
     if (!Input::readExistingHeader()) { return false; }
-    if (!M.inputLocalVars.isMember("version") || M.inputLocalVars["version"].asInt() < 4) {
+    if (!M.inputLocalVars.isMember("version") || M.inputLocalVars["version"].asInt() < 5) {
       INFO_MSG("Header needs update, regenerating");
       return false;
     }
     if (!needsLock() && indexesWholeFile() && !M.inputLocalVars.isMember("complete")) {
       INFO_MSG("Header does not index the whole file, regenerating");
       return false;
+    }
+    for (const size_t track : M.getValidTracks()) {
+      const JSON::Value & clock = M.inputLocalVars["decode_clocks"][std::to_string(M.getID(track))];
+      if (!clock.isMember("depth")) { continue; }
+      EBML::trackPredictor & predictor = parser.packBuf[M.getID(track)];
+      predictor.maxDelay = clock["depth"].asInt();
+      predictor.decodeDelay = clock["delay"].asInt();
+      predictor.decodeOrigin = clock["origin"].asInt();
+      predictor.initialized = true;
     }
     return true;
   }
@@ -298,7 +307,15 @@ namespace Mist{
     parser.flush();
     parser.enableData(true);
 
-    meta.inputLocalVars["version"] = 4;
+    // Cached keys and subsequently loaded packets must share one decode clock.
+    for (const auto & track : parser.packBuf) {
+      if (!track.second.initialized) { continue; }
+      JSON::Value & clock = meta.inputLocalVars["decode_clocks"][std::to_string(track.first)];
+      clock["depth"] = uint64_t(track.second.maxDelay);
+      clock["delay"] = track.second.decodeDelay;
+      clock["origin"] = track.second.decodeOrigin;
+    }
+    meta.inputLocalVars["version"] = 5;
     if (wholeFile) { meta.inputLocalVars["complete"] = 1; }
     return true;
   }

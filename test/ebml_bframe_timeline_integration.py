@@ -12,10 +12,10 @@ f = Fixture(build / 'MistController', ffmpeg)
 f.env['UDP_API'] = 'udp://127.0.0.1:0'
 success = False
 try:
-    source, output = f.root / 'bframes.mkv', f.root / 'recording.mp4'
+    source, output = f.root / ('bframes.' + os.environ.get('MIST_TIMELINE_CONTAINER', 'mkv')), f.root / 'recording.mp4'
     subprocess.run([ffmpeg, '-v', 'error', '-y', '-f', 'lavfi', '-i', 'testsrc2=size=320x180:rate=10:duration=8',
                     '-f', 'lavfi', '-i', 'sine=frequency=440:sample_rate=48000:duration=8',
-                    '-c:v', 'libx264', '-threads', '1', '-preset', 'fast', '-bf', '2', '-g', '10', '-c:a', 'aac', str(source)],
+                    '-c:v', 'libx264', '-threads', '1', '-preset', 'fast', '-bf', '2', '-g', '10', '-c:a', 'aac', *(['-output_ts_offset', os.environ['MIST_TIMELINE_ORIGIN']] if 'MIST_TIMELINE_ORIGIN' in os.environ else []), str(source)],
                    check=True, timeout=30)
     f.start(streams_override={f.stream: {'source': str(source)}})
     with (f.root / 'recording.log').open('wb') as log:

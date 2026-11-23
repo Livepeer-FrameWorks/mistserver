@@ -84,7 +84,7 @@ class MP4InitProbe : public Mist::OutMP4 {
         exit(1);
       }
     }
-    void bframeDuration() {
+    void bframeDuration(bool preroll = false) {
       meta.reInit("", true);
       meta.setVod(true);
       const size_t video = meta.addTrack();
@@ -93,7 +93,15 @@ class MP4InitProbe : public Mist::OutMP4 {
       meta.setCodec(video, "H264");
       meta.setWidth(video, 320);
       meta.setHeight(video, 180);
-      for (int part = 0; part < 4; ++part) { meta.update(part * 40, 80, video, 4, part * 4, !part, 40); }
+      if (preroll) {
+        const uint64_t decode[] = {0, 1, 2, 40, 80, 120, 160};
+        const uint64_t presentation[] = {0, 120, 40, 80, 240, 160, 200};
+        for (size_t part = 0; part < 7; ++part) {
+          meta.update(decode[part], presentation[part] - decode[part], video, 4, part * 4, !part, 40);
+        }
+      } else {
+        for (int part = 0; part < 4; ++part) { meta.update(part * 40, 80, video, 4, part * 4, !part, 40); }
+      }
       userSelect[video];
       Util::ResizeablePointer head;
       uint64_t size = 0;
@@ -109,9 +117,15 @@ class MP4InitProbe : public Mist::OutMP4 {
         samplesDuration += uint64_t(entry.sampleCount) * entry.sampleDelta;
       }
       const uint64_t mediaDuration = media.getChild<MP4::MDHD>().getDuration();
-      if (mediaDuration != 160 || samplesDuration != mediaDuration || track.getChild<MP4::TKHD>().getDuration() != 160) {
-        fprintf(stderr, "B-frame offset inflated MP4 duration: media=%llu samples=%llu\n",
-                (unsigned long long)mediaDuration, (unsigned long long)samplesDuration);
+      const uint64_t expectedMedia = preroll ? 200 : 160;
+      const uint64_t expectedPresentation = preroll ? 280 : 160;
+      const uint64_t trackDuration = track.getChild<MP4::TKHD>().getDuration();
+      MP4::ELST edits = track.getChild<MP4::EDTS>().getChild<MP4::ELST>();
+      if (mediaDuration != expectedMedia || samplesDuration != mediaDuration || trackDuration != expectedPresentation ||
+          edits.getSegmentDuration(0) != expectedPresentation) {
+        fprintf(stderr, "MP4 decode/presentation duration mismatch: media=%llu samples=%llu track=%llu expectedTrack=%llu\n",
+                (unsigned long long)mediaDuration, (unsigned long long)samplesDuration,
+                (unsigned long long)trackDuration, (unsigned long long)expectedPresentation);
         exit(1);
       }
     }
@@ -163,6 +177,10 @@ int main(int argc, char **argv) {
   MP4InitProbe probe(conn, cfg, capa);
   if (argc > 1 && std::string(argv[1]) == "missing-order") {
     probe.missingSampleOrderFails();
+    return 0;
+  }
+  if (argc > 1 && std::string(argv[1]) == "bframe-preroll-duration") {
+    probe.bframeDuration(true);
     return 0;
   }
   if (argc > 1 && std::string(argv[1]) == "bframe-duration") {

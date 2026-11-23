@@ -2,6 +2,7 @@
 
 #include "ac3.h"
 #include "bitfields.h"
+#include "h264.h"
 #include "h265.h"
 
 #include <cmath>
@@ -623,11 +624,12 @@ namespace EBML{
     finished = ctr;
   }
 
-  /// Clears all internal values, for reuse as-new.
+  /// Clears buffered packets and the decode position, retaining learned reorder bounds.
   void trackPredictor::flush() {
     ctr = 0;
     rem = 0;
     finished = INVALID_TRACK_ID;
+    haveDecode = false;
   }
 
   packetData & trackPredictor::getPacketData(bool mustCalcOffsets) {
@@ -637,13 +639,22 @@ namespace EBML{
       initialized = true;
       return p;
     }
-    initialized = true;
+    if (!initialized) {
+      const size_t depth = std::min<uint64_t>(maxDelay, ctr - rem - 1);
+      decodeDelay = times[depth] - times[0];
+      decodeOrigin = times[0];
+      initialized = true;
+    }
     const uint64_t presentation = p.time;
-    // Sorted presentation times provide a monotonic decode clock. Signed composition
-    // offsets retain the source presentation timeline without shifting audio or clamping DTS.
-    p.time = times[0];
+    // The fixed buffered reorder span belongs to this input's decode clock,
+    // so every output can use the original presentation time without adding delay.
+    p.time = times[0] >= decodeOrigin + decodeDelay ? times[0] - decodeDelay : decodeOrigin;
+    // Keep the initial decode preroll inside the source timeline so its first
+    // timestamp still aligns with other tracks. Presentation never moves.
+    if (haveDecode && p.time <= lastDecode) { p.time = lastDecode + 1; }
+    lastDecode = p.time;
+    haveDecode = true;
     p.offset = int64_t(presentation) - int64_t(p.time);
-    if (p.offset > -3 && p.offset < 3) { p.offset = 0; }
     DONTEVEN_MSG("Outputting%s %" PRIu64 "+%" PRId64 " (#%" PRIu64 "), display at %" PRIu64, p.key ? " KEY" : "",
                  p.time, p.offset, rem, p.time + p.offset);
     return p;
@@ -796,8 +807,20 @@ namespace EBML{
     const bool isWebVTT = isSubtitle && M.getInit(idx).compare(0, 6, "WEBVTT") == 0;
     bool isASS = (isSubtitle && !isWebVTT && M.getInit(idx).size());
     // Closed-GOP codecs can drain buffered pictures before the next keyframe.
-    if (isVideo && keyframe && M.getCodec(idx) != "HEVC") { TP.finish(); }
-    if (isVideo && M.getCodec(idx) == "HEVC" && !TP.ctr) {
+    if (isVideo && keyframe && TP.initialized && M.getCodec(idx) != "HEVC") { TP.finish(); }
+    if (isVideo && M.getCodec(idx) == "H264" && !TP.ctr && !TP.initialized) {
+      // An initially unreordered GOP does not bound later adaptive B-frames.
+      TP.maxDelay = 16;
+      MP4::AVCC avcc;
+      avcc.setPayload(M.getInit(idx));
+      if (avcc.getSPSCount() && avcc.getSPSLen()) {
+        const h264::spsUnit sps(avcc.getSPS(), avcc.getSPSLen());
+        if (sps.vuiParametersPresentFlag && sps.vuiParams.bitstreamRestrictionFlag) {
+          TP.maxDelay = std::min<uint64_t>(sps.vuiParams.numReorderFrames, PKT_COUNT - 1);
+        }
+      }
+    }
+    if (isVideo && M.getCodec(idx) == "HEVC" && !TP.ctr && !TP.initialized) {
       // CRA keyframes may precede leading pictures in decode order. Keep the
       // declared reorder window across GOP boundaries instead of draining there.
       TP.maxDelay = 16;

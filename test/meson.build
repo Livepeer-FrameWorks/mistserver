@@ -1519,6 +1519,13 @@ endif
 ebmlpredictortest = executable('ebmlpredictortest', 'ebml_predictor_timestamps.cpp', header_tgts, dependencies: libmist_dep)
 test('Matroska B-frames retain monotonic DTS and unchanged presentation', ebmlpredictortest, suite: 'EBML')
 if ffmpeg_program.found() and ffprobe_program.found()
+  foreach rate : ['10', '30']
+    foreach source_mode : ['bf3', 'no-restriction']
+      test('RTMP TS preserves source offsets ' + rate + 'fps ' + source_mode, find_program('python3'),
+           args: [files('rtmp_ts_offsets_integration.py'), meson.project_build_root(), ffmpeg_program, ffprobe_program, rate, source_mode],
+           depends: media_test_deps + [exec_tgts['MistOutRTMP'], exec_tgts['MistOutHTTPTS']], suite: 'Processing', timeout: 60, is_parallel: false)
+    endforeach
+  endforeach
   test('B-frame Matroska SDP output preserves RTP presentation time', find_program('python3'),
        args: [files('ebml_sdp_timestamps_integration.py'), meson.project_build_root(), ffmpeg_program, ffprobe_program],
        depends: media_test_deps + [exec_tgts['MistOutSDP']], suite: 'Processing', timeout: 60, is_parallel: false)
@@ -1537,6 +1544,12 @@ if ffmpeg_program.found() and ffprobe_program.found()
   test('Matroska B-frame TS output keeps DTS before presentation', find_program('python3'),
        args: [files('ebml_bframe_ts_integration.py'), meson.project_build_root(), ffmpeg_program, ffprobe_program],
        depends: media_test_deps + [exec_tgts['MistOutHTTPTS'], exec_tgts['MistOutHLS']], suite: 'Processing', timeout: 100, is_parallel: false)
+  test('Nonzero-origin Matroska MP4 recordings preserve A/V alignment', find_program('python3'),
+       args: [files('ebml_bframe_timeline_integration.py'), meson.project_build_root(), ffmpeg_program, ffprobe_program],
+       env: {'MIST_TIMELINE_ORIGIN': '1'}, depends: media_test_deps, suite: 'Processing', timeout: 100, is_parallel: false)
+  test('MP4 input B-frame remux preserves pixels and A/V alignment', find_program('python3'),
+       args: [files('ebml_bframe_timeline_integration.py'), meson.project_build_root(), ffmpeg_program, ffprobe_program],
+       env: {'MIST_TIMELINE_CONTAINER': 'mp4'}, depends: media_test_deps, suite: 'Processing', timeout: 100, is_parallel: false)
   test('Matroska B-frame MP4 recordings preserve pixels and A/V alignment', find_program('python3'),
        args: [files('ebml_bframe_timeline_integration.py'), meson.project_build_root(), ffmpeg_program, ffprobe_program],
        depends: media_test_deps, suite: 'Processing', timeout: 100, is_parallel: false)
@@ -1700,3 +1713,5 @@ endif
 
 sdpsignedclocktest = executable('sdpsignedclocktest', ['sdp_signed_timestamps_unit.cpp', '../src/output/output_sdp.cpp', output_http_cpp, output_cpp, io_cpp], header_tgts, dependencies: libmist_dep)
 test('SDP sendNext retains negative presentation time in RTP', sdpsignedclocktest, suite: 'SDP')
+
+test('MP4 edits retain presentation after a shorter decode preroll', mp4unreadyaudiotest, args: ['bframe-preroll-duration'], suite: 'MP4')

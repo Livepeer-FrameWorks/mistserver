@@ -2,7 +2,9 @@
 #include "../src/input/input_ebml.h"
 
 #include <cstdio>
+#include <cstdlib>
 #include <string>
+#include <unistd.h>
 
 namespace {
 
@@ -26,6 +28,48 @@ namespace {
       bool load(const char *path) {
         standAlone = true;
         return inFile.open(path) && readHeader();
+      }
+
+      bool acceptsLegacyClockHeader(bool current = false) {
+        char path[] = "/tmp/mist-ebml-clock-cache-XXXXXX";
+        const int fd = mkstemp(path);
+        if (fd < 0) { return true; }
+        close(fd);
+        config->getOption("input", true).append(path);
+        config->getOption("realtime", true).append(0u);
+        streamName = "ebmlclockcache" + std::to_string(getpid()) + (current ? "new" : "old");
+        config->getOption("streamname", true).append(streamName);
+        meta.reInit("", true);
+        meta.setVod(true);
+        const size_t track = meta.addTrack();
+        meta.setID(track, 1);
+        meta.setType(track, "video");
+        meta.setCodec(track, "H264");
+        meta.update(80, -40, track, 5, 0, true, 40);
+        meta.inputLocalVars["version"] = current ? 5 : 4;
+        if (current) {
+          JSON::Value & clock = meta.inputLocalVars["decode_clocks"]["1"];
+          clock["depth"] = 3;
+          clock["delay"] = 120;
+          clock["origin"] = 1000;
+        }
+        meta.inputLocalVars["complete"] = 1;
+        const std::string header = std::string(path) + ".dtsh";
+        M.toFile(header);
+        DTSC::Meta cached("", header);
+        if (cached.inputLocalVars["version"].asInt() != (current ? 5 : 4) || cached.getValidTracks().empty()) {
+          fprintf(stderr, "FAIL: legacy clock fixture did not create a valid DTSH file\n");
+          ++failures;
+        }
+        const bool accepted = readExistingHeader();
+        unlink(header.c_str());
+        unlink(path);
+        if (current) {
+          const auto clock = parser.packBuf.find(1);
+          return accepted && clock != parser.packBuf.end() && clock->second.initialized &&
+            clock->second.maxDelay == 3 && clock->second.decodeDelay == 120 && clock->second.decodeOrigin == 1000;
+        }
+        return accepted;
       }
 
       size_t trackOfType(const std::string & type) {
@@ -91,6 +135,18 @@ namespace {
 
 int main(int argc, char **argv) {
   policyCases();
+  {
+    Util::Config config("ebml-clock-cache-probe");
+    config.is_active = true;
+    InputEBMLSeekProbe input(&config);
+    check(!input.acceptsLegacyClockHeader(), "cached signed-offset Matroska indexes must be rebuilt for the new decode clock");
+  }
+  {
+    Util::Config config("ebml-clock-cache-restore-probe");
+    config.is_active = true;
+    InputEBMLSeekProbe input(&config);
+    check(input.acceptsLegacyClockHeader(true), "cached Matroska indexes must restore the original decode clock");
+  }
   if (argc > 1) { fileCase(argv[1]); }
   if (failures) { return 1; }
   fprintf(stderr, "EBML seek: OK\n");

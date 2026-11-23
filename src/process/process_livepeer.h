@@ -24,7 +24,6 @@ namespace Mist{
       uint64_t lastPacket;
       int64_t timeOffset;
       int64_t sourceOffset = 0;
-      int64_t compositionAdjustment = 0;
       uint64_t byteOffset;
       bool offsetCalcd;
       size_t ID;
@@ -45,7 +44,6 @@ namespace Mist{
       void set(uint64_t t, void *ptr, size_t len, int64_t offset = 0) {
         time = t;
         sourceOffset = offset;
-        compositionAdjustment = 0;
         data.assign(ptr, len);
         fullyRead = false;
         offsetCalcd = false;

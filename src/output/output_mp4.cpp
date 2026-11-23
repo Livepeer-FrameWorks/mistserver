@@ -466,6 +466,26 @@ namespace Mist{
       }
       return duration;
     };
+    const auto presentationDuration = [&](size_t idx) {
+      if (fragmented || targetParams.count("stop") || targetParams.count("recstop")) { return trackDuration(idx); }
+      DTSC::Keys keys = M.getKeys(idx);
+      const size_t count = keys.getTotalPartCount();
+      if (!count) { return trackDuration(idx); }
+      const DTSC::Parts parts(M.parts(idx));
+      const size_t first = keys.getFirstPart(keys.getFirstValid());
+      const int64_t firstOffset = parts.getOffset(first);
+      uint64_t decodeTime = 0;
+      int64_t presentationEnd = 0;
+      for (size_t part = first; part < first + count; ++part) {
+        const uint64_t duration = parts.getDuration(part);
+        presentationEnd =
+          std::max(presentationEnd, int64_t(decodeTime) + parts.getOffset(part) - firstOffset + int64_t(duration));
+        decodeTime += duration;
+      }
+      // Movie/edit duration follows presentation; MDHD still matches the STTS
+      // decode span even when the decode clock starts before reordered pictures.
+      return uint64_t(std::max<int64_t>(presentationEnd, 0));
+    };
     // Construct with duration of -1, as this is the default for fragmented
     MP4::MVHD mvhdBox(0);
     // Then override it when we are not sending a VoD asset
@@ -475,7 +495,7 @@ namespace Mist{
       for (std::map<size_t, Comms::Users>::const_iterator it = userSelect.begin();
            it != userSelect.end(); it++){
         if (prevVidTrack != INVALID_TRACK_ID && it->first == prevVidTrack){continue;}
-        lastms = std::max(lastms, M.getFirstms(it->first) + trackDuration(it->first));
+        lastms = std::max(lastms, M.getFirstms(it->first) + presentationDuration(it->first));
         firstms = std::min(firstms, M.getFirstms(it->first));
       }
       mvhdBox.setDuration(lastms - firstms);
@@ -496,7 +516,7 @@ namespace Mist{
         const int64_t firstOffset = parts.getOffset(keys.getFirstPart(keys.getFirstValid()));
         if (firstOffset > 0) { mediaStart = firstOffset; }
       }
-      uint64_t tDuration = trackDuration(it->first);
+      uint64_t tDuration = presentationDuration(it->first);
       std::string tType = M.getType(it->first);
 
       MP4::TRAK trakBox;
@@ -538,7 +558,7 @@ namespace Mist{
       size_t mdiaOffset = 0;
 
       // Add the mandatory MDHD and HDLR boxes to the MDIA
-      MP4::MDHD mdhdBox(tDuration);
+      MP4::MDHD mdhdBox(trackDuration(it->first));
       if (fragmented){mdhdBox.setDuration(0);}
       mdhdBox.setLanguage(M.getLang(it->first));
       mdiaBox.setContent(mdhdBox, mdiaOffset++);

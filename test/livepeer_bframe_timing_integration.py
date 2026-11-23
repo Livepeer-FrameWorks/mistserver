@@ -77,8 +77,9 @@ def main():
         source_times, returned_times = timelines
         shift = returned_times[0] - source_times[0]
         assert abs(shift) <= 2, ('Livepeer rendition presentation differs from source', bframes, shift, source_times[:5], returned_times[:5])
-        common = min(len(source_times), len(returned_times))
-        assert all(abs(a - b) <= 2 for a, b in zip(source_times[:common], returned_times[:common])), ('Livepeer round trip changed its presentation clock across segments', bframes)
+        assert len(returned_times) == len(source_times), ('Livepeer round trip lost frames', bframes, len(source_times), len(returned_times))
+        common = len(source_times)
+        assert all(abs(a - b) <= 2 for a, b in zip(source_times[:common], returned_times[:common])), ('Livepeer round trip changed its presentation clock across segments', bframes, len(source_times), len(returned_times), [(i, a, b) for i, (a, b) in enumerate(zip(source_times, returned_times)) if abs(a - b) > 2][:12])
         success = True
         print('PASS Livepeer real FFmpeg round trip: return bf=%d, source/rendition PTS agree across %d segments (%d frames)' % (bframes, len(uploads), common), flush=True)
     finally:

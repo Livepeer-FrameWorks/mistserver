@@ -82,6 +82,10 @@ namespace EBML{
       uint64_t rem{0}; /// removed frame count
       uint64_t finished{INVALID_TRACK_ID};
       bool initialized{false};
+      uint64_t decodeDelay{0};
+      uint64_t decodeOrigin{0};
+      uint64_t lastDecode{0};
+      bool haveDecode{false};
       bool hasPackets();
       void finish();
       void flush();

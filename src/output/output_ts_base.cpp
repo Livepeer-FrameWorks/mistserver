@@ -1,10 +1,6 @@
 #include "output_ts_base.h"
 
 #include <mist/bitfields.h>
-#include <mist/h264.h>
-#include <mist/h265.h>
-
-#include <cmath>
 
 namespace Mist{
   TSOutput::TSOutput(Socket::Connection & conn, Util::Config & _cfg, JSON::Value & _capa)
@@ -81,60 +77,6 @@ namespace Mist{
     return f->second;
   }
 
-  void TSOutput::updatePresentationDelay() {
-    if (presentationClockInitialized) { return; }
-    // Each live connection and HLS segment derives the same fixed clock from
-    // codec parameters, independent of the packets still in the DVR window.
-    for (const size_t track : M.getValidTracks()) {
-      if (!M.trackLoaded(track) || M.getType(track) != "video" || M.hasEmbeddedFrames(track)) { continue; }
-      if (!M.getSourceLive()) {
-        const DTSC::Parts parts(M.parts(track));
-        for (size_t part = parts.getFirstValid(); part < parts.getEndValid(); ++part) {
-          const int64_t offset = parts.getOffset(part);
-          if (offset < 0 && (uint64_t)-offset > presentationDelay) { presentationDelay = -offset; }
-        }
-        continue;
-      }
-      const std::string codec = M.getCodec(track);
-      uint64_t reorderFrames = codec == "H264" || codec == "HEVC" ? 16 : 1;
-      double fps = M.getFpks(track) / 1000.0;
-      if (codec == "H264") {
-        MP4::AVCC avcc;
-        avcc.setPayload(M.getInit(track));
-        if (avcc.getSPSCount() && avcc.getSPSLen()) {
-          h264::spsUnit sps(avcc.getSPS(), avcc.getSPSLen());
-          if (sps.vuiParametersPresentFlag) {
-            if (sps.vuiParams.bitstreamRestrictionFlag) { reorderFrames = sps.vuiParams.numReorderFrames; }
-            if (sps.vuiParams.timingInfoPresentFlag && sps.vuiParams.derived_fps > 0) {
-              fps = sps.vuiParams.derived_fps;
-            }
-          }
-        }
-      } else if (codec == "HEVC") {
-        h265::initData init(M.getInit(track));
-        if (init.haveRequired()) {
-          const h265::metaInfo info = init.getMeta();
-          reorderFrames = info.maxReorderFrames;
-          if (info.fps > 0) { fps = info.fps; }
-        }
-      }
-      if (fps <= 0) {
-        const DTSC::Parts parts(M.parts(track));
-        for (size_t part = parts.getFirstValid(); part < parts.getEndValid(); ++part) {
-          if (parts.getDuration(part)) {
-            fps = 1000.0 / parts.getDuration(part);
-            break;
-          }
-        }
-      }
-      if (fps > 0) {
-        const uint64_t delay = std::ceil(1000.0 * reorderFrames / fps);
-        if (delay > presentationDelay) { presentationDelay = delay; }
-      }
-    }
-    presentationClockInitialized = true;
-  }
-
   void TSOutput::sendNext(){
     static uint64_t lastMeta = 0;
     if (Util::epoch() > lastMeta + 5){
@@ -166,9 +108,7 @@ namespace Mist{
       return;
     }
 
-    updatePresentationDelay();
     packTime *= 90;
-    if (!video && type != "audio") { packTime += presentationDelay * 90; }
     std::string bs;
     // prepare bufferstring
     if (video){
@@ -214,7 +154,7 @@ namespace Mist{
         const uint32_t MAX_PES_SIZE = 65490 - 13;
         uint32_t ThisNaluSize = 0;
         uint32_t i = 0;
-        int64_t offset = ((int64_t)thisPacket.getInt("offset") + (int64_t)presentationDelay) * 90;
+        int64_t offset = (int64_t)thisPacket.getInt("offset") * 90;
 
         bs.clear();
         TS::Packet::getPESVideoLeadIn(bs,
@@ -266,7 +206,7 @@ namespace Mist{
           i += ThisNaluSize + lenSize;
         }
       }else{
-        int64_t offset = ((int64_t)thisPacket.getInt("offset") + (int64_t)presentationDelay) * 90;
+        int64_t offset = (int64_t)thisPacket.getInt("offset") * 90;
         bs.clear();
         TS::Packet::getPESVideoLeadIn(bs, 0, packTime, offset, true, M.getBps(thisIdx));
         fillPacket(bs.data(), bs.size(), firstPack, video, keyframe, pkgPid, contPkg);
@@ -288,7 +228,6 @@ namespace Mist{
           packTime = aacSamples * 90000 / freq;
         }
       }
-      packTime += presentationDelay * 90;
       if (codec == "opus"){
         tempLen += 3 + (dataLen/255);
         bs = TS::Packet::getPESPS1LeadIn(tempLen, packTime, M.getBps(thisIdx));

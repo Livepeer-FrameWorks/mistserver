@@ -3426,10 +3426,7 @@ namespace DTSC{
     setSharedInt(&Meta::stream, &Meta::streamLiveField, 0, live ? 1 : 0);
   }
   bool Meta::getLive() const{
-    return (!isLimited || limitMax == 0xFFFFFFFFFFFFFFFFull) && getSourceLive();
-  }
-  bool Meta::getSourceLive() const {
-    return stream.getInt(streamLiveField);
+    return (!isLimited || limitMax == 0xFFFFFFFFFFFFFFFFull) && stream.getInt(streamLiveField);
   }
 
   bool Meta::hasBFrames(size_t idx) const{
