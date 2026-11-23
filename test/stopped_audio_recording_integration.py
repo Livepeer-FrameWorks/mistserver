@@ -23,7 +23,7 @@ try:
     f.start(streams_override={f.stream: {'source': str(source), 'process_controlled_realtime': True,
                                        'realtime_speed': 1, 'processes': policy}})
     input_log = (f.root / 'input.log').open('wb')
-    source_process = subprocess.Popen([str(build / 'MistInEBML'), '-r', '-s', f.stream, str(source)],
+    source_process = subprocess.Popen([str(build / 'MistInEBML'), '-g', '4', '-r', '-s', f.stream, str(source)],
                                       env=f.env, stdout=input_log, stderr=subprocess.STDOUT)
     f.children.append(source_process)
     until(lambda: 'VoD metadata has' in (f.root / 'input.log').read_text(errors='replace'),
