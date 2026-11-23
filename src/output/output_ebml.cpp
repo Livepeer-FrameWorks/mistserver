@@ -309,6 +309,10 @@ namespace Mist{
   }
 
   bool OutEBML::onFinish() {
+    if (pushing) {
+      parser.finish();
+      bufferParsedPackets();
+    }
     flushLiveFileCluster();
     return false;
   }
@@ -488,6 +492,24 @@ namespace Mist{
     return "E_UNKNOWN";
   }
 
+  void OutEBML::bufferParsedPackets() {
+    while (parser.fillPacket(M, thisIdx, thisTime, thisPacket)) {
+      if (thisIdx == INVALID_TRACK_ID) { continue; }
+      if (!userSelect.count(thisIdx)) {
+        userSelect[thisIdx].reload(streamName, thisIdx, COMM_STATUS_SOURCE | COMM_STATUS_DONOTTRACK);
+      }
+      if (!seenTime) {
+        if (!M.getBootMsOffset()) {
+          meta.setBootMsOffset(Util::bootMS() - thisTime);
+        } else {
+          timeOffset = (Util::bootMS() - thisTime) - M.getBootMsOffset();
+        }
+        seenTime = true;
+      }
+      bufferLivePacket(DTSC::RetimedPacket(thisTime + timeOffset, thisPacket));
+    }
+  }
+
   void OutEBML::dataCallback(const char *ptr, size_t size) {
     if (!pushing) { return; }
     readBuffer.append(ptr, size);
@@ -505,21 +527,7 @@ namespace Mist{
 
       EBML::Element E(readBuffer);
       parser.parseElement(E, 0, meta);
-      while (parser.fillPacket(M, thisIdx, thisTime, thisPacket)) {
-        if (thisIdx == INVALID_TRACK_ID) { continue; }
-        if (!userSelect.count(thisIdx)) {
-          userSelect[thisIdx].reload(streamName, thisIdx, COMM_STATUS_SOURCE | COMM_STATUS_DONOTTRACK);
-        }
-        if (!seenTime) {
-          if (!M.getBootMsOffset()) {
-            meta.setBootMsOffset(Util::bootMS() - thisTime);
-          } else {
-            timeOffset = (Util::bootMS() - thisTime) - M.getBootMsOffset();
-          }
-          seenTime = true;
-        }
-        bufferLivePacket(DTSC::RetimedPacket(thisTime + timeOffset, thisPacket));
-      }
+      bufferParsedPackets();
       readBuffer.shift(needed);
 
       readingMinimal = true;
@@ -533,6 +541,8 @@ namespace Mist{
       HTTPOutput::preHTTP();
       return;
     }
+    // Completion of this request must not accept the same publisher again.
+    if (pushing) { return; }
 
     char *rawStream = getenv("stream_raw");
     if (rawStream) { streamName = rawStream; }
@@ -795,18 +805,26 @@ namespace Mist{
     // End of file. This probably won't work right, but who cares, it's the end of the file.
   }
 
-  void OutEBML::respondHTTP(const HTTP::Parser & req, bool headersOnly){
+  void OutEBML::respondHTTP(const HTTP::Parser & req, bool headersOnly) {
     myConn.setSendLimit(UINT64_MAX);
-    //Set global defaults, first
+    // Set global defaults, first
     HTTPOutput::respondHTTP(req, headersOnly);
+    if (pushing && (req.method == "PUT" || req.method == "POST")) {
+      parser.finish();
+      bufferParsedPackets();
+      H.SetBody("");
+      H.SendResponse("200", "OK", myConn);
+      myConn.close();
+      return;
+    }
 
-    //If non-live, we accept range requests
+    // If non-live, we accept range requests
     if (!liveEBMLMode()) { H.SetHeader("Accept-Ranges", "bytes, parsec"); }
 
-    //We change the header's document type based on file extension
-    if (req.url.find(".webm") != std::string::npos){
+    // We change the header's document type based on file extension
+    if (req.url.find(".webm") != std::string::npos) {
       doctype = "webm";
-    }else{
+    } else {
       doctype = "matroska";
     }
 

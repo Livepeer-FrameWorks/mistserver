@@ -30,6 +30,7 @@ namespace Mist{
 
   private:
     // For PUT input
+    void bufferParsedPackets();
     EBML::toDTSC parser;
     Util::ResizeablePointer readBuffer;
     size_t readPos;

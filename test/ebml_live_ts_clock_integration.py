@@ -55,7 +55,9 @@ def main():
             assert min(offsets[:100]) == -40 and min(offsets[125:275]) == -80 and min(offsets[325:425]) == -40, ('fixture did not vary B-frame depth', offsets)
         else:
             assert min(offsets) == -80 and -40 in offsets, ('HEVC fixture did not reorder frames', offsets)
-        f.start(streams_override={f.stream: {'source': 'push://', 'DVR': 4000, 'segmentsize': 200}}, extra_protocols=[{'connector': 'HTTPTS'}])
+        # Keep the source window after publisher EOF so the reader can verify its
+        # complete tail without non-resumable stream shutdown removing the tracks.
+        f.start(streams_override={f.stream: {'source': 'push://', 'DVR': 4000, 'segmentsize': 200, 'resume': 1}}, extra_protocols=[{'connector': 'HTTPTS'}])
         publisher = subprocess.Popen([ffmpeg, '-v', 'error', '-re', '-i', str(source), '-map', '0', '-c', 'copy',
                                       '-f', 'matroska', '-live', '1', '-cluster_time_limit', '250', '-method', 'PUT',
                                       'http://127.0.0.1:%d/%s.mkv' % (f.http, f.stream)], env=f.tool_env,
@@ -72,18 +74,16 @@ def main():
         first_video = min(t['firstms'] for t in initial_meta['tracks'].values() if t.get('type') == 'video')
         def connection():
             chunks = []
-            with urllib.request.urlopen('http://127.0.0.1:%d/%s.ts?start=0&duration=19' % (f.http, f.stream), timeout=30) as response:
-                first = None
+            with urllib.request.urlopen('http://127.0.0.1:%d/%s.ts?start=0' % (f.http, f.stream), timeout=3) as response:
                 while True:
-                    chunk = response.read(188)
+                    try:
+                        chunk = response.read(188)
+                    except TimeoutError:
+                        assert publisher.poll() == 0, 'live read stalled before the publisher completed'
+                        break
                     if not chunk:
                         break
                     chunks.append(chunk)
-                    video = timestamps(chunk)['video']
-                    if video:
-                        first = video[0][1] if first is None else first
-                        if video[0][1] - first >= 18 * 90000:
-                            break
             return timestamps(b''.join(chunks))
         seen = {}
         segments = []
@@ -122,7 +122,13 @@ def main():
         last_first = min(t['firstms'] for t in last_meta['tracks'].values() if t.get('type') == 'video')
         assert last_first - first_video > 8000, ('live window retained the earlier deep-B-frame interval', first_video, last_first)
         video = actual['video']
-        assert len(video) > 300, ('continuous TS connection returned too few frames', len(video))
+        ingested = json.loads(subprocess.check_output([sys.argv[5], f.stream], env=f.env, timeout=5))
+        ingest_video = [track for track in ingested.values() if track['type'] == 'video']
+        assert len(ingest_video) == 1 and ingest_video[0]['parts_end'] == len(original), ('publisher EOF lost buffered source frames', ingested, len(original))
+        # An ordinary resumable live reader holds its final packet until the next
+        # arrives. Check that prefix separately from the complete source counter.
+        assert len(original) - 1 <= len(video) <= len(original), ('live TS lost more than its held final packet', len(video), len(original))
+        print('publisher EOF: complete source metadata=%s; continuous TS frames=%d/%d' % (json.dumps(ingest_video), len(video), len(original)), flush=True)
         assert all(b[1] > a[1] for a, b in zip(video, video[1:])), 'live MKV DTS moved backwards'
         assert all(pts >= dts for pts, dts in video), 'live MKV PTS precedes DTS'
         sorted_pts = sorted(pts for pts, _ in video)

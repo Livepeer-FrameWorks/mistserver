@@ -1527,12 +1527,13 @@ if ffmpeg_program.found() and ffprobe_program.found()
          args: [files('livepeer_bframe_timing_integration.py'), meson.project_build_root(), ffmpeg_program, ffprobe_program, return_bframes],
          depends: media_test_deps, suite: 'Processing', timeout: 100, is_parallel: false)
   endforeach
+  liveingestprobe = executable('liveingestprobe', 'live_ingest_probe.cpp', header_tgts, dependencies: libmist_dep)
   test('Live HEVC Matroska uses its declared TS reorder bound', find_program('python3'),
-       args: [files('ebml_live_ts_clock_integration.py'), meson.project_build_root(), ffmpeg_program, ffprobe_program, 'HEVC'],
-       depends: media_test_deps + [exec_tgts['MistOutHTTPTS'], exec_tgts['MistOutHLS']], suite: 'Processing', timeout: 90, is_parallel: false)
+       args: [files('ebml_live_ts_clock_integration.py'), meson.project_build_root(), ffmpeg_program, ffprobe_program, 'HEVC', liveingestprobe],
+       depends: media_test_deps + [liveingestprobe, exec_tgts['MistOutHTTPTS'], exec_tgts['MistOutHLS']], suite: 'Processing', timeout: 90, is_parallel: false)
   test('Adaptive live Matroska keeps one TS and HLS presentation clock', find_program('python3'),
-       args: [files('ebml_live_ts_clock_integration.py'), meson.project_build_root(), ffmpeg_program, ffprobe_program],
-       depends: media_test_deps + [exec_tgts['MistOutHTTPTS'], exec_tgts['MistOutHLS']], suite: 'Processing', timeout: 90, is_parallel: false)
+       args: [files('ebml_live_ts_clock_integration.py'), meson.project_build_root(), ffmpeg_program, ffprobe_program, 'H264', liveingestprobe],
+       depends: media_test_deps + [liveingestprobe, exec_tgts['MistOutHTTPTS'], exec_tgts['MistOutHLS']], suite: 'Processing', timeout: 90, is_parallel: false)
   test('Matroska B-frame TS output keeps DTS before presentation', find_program('python3'),
        args: [files('ebml_bframe_ts_integration.py'), meson.project_build_root(), ffmpeg_program, ffprobe_program],
        depends: media_test_deps + [exec_tgts['MistOutHTTPTS'], exec_tgts['MistOutHLS']], suite: 'Processing', timeout: 100, is_parallel: false)
