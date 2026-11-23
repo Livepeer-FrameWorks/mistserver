@@ -1,0 +1,17 @@
+--- a/libavcodec/qsv.c
++++ b/libavcodec/qsv.c
+@@ -1133,13 +1133,12 @@
+         return ret;
+ 
+     if (!opaque) {
++        ff_refstruct_unref(&qsv_frames_ctx->mids);
+         qsv_frames_ctx->logctx = avctx;
+-        qsv_frames_ctx->mids = NULL;
+         qsv_frames_ctx->nb_mids = 0;
+ 
+         /* allocate the memory ids for the external frames */
+         if (frames_hwctx->nb_surfaces) {
+-            ff_refstruct_unref(&qsv_frames_ctx->mids);
+             qsv_frames_ctx->mids = qsv_create_mids(qsv_frames_ctx->hw_frames_ctx);
+             if (!qsv_frames_ctx->mids)
+                 return AVERROR(ENOMEM);

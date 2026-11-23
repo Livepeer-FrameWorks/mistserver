@@ -1,0 +1,10 @@
+--- a/libavutil/hwcontext_vaapi.c
++++ b/libavutil/hwcontext_vaapi.c
+@@ -1808,6 +1808,7 @@
+                 } else if (vendor_id) {
+                     drmDevicePtr device;
+                     char drm_vendor[8];
++                    drmFreeVersion(info);
+                     if (drmGetDevice(priv->drm_fd, &device)) {
+                         av_log(ctx, AV_LOG_VERBOSE,
+                                "Failed to get DRM device info for device %d.\n", n);

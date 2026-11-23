@@ -4,7 +4,7 @@ url=https://gitlab.freedesktop.org/gstreamer/meson-ports/ffmpeg.git
 push-url=git@gitlab.freedesktop.org:gstreamer/meson-ports/ffmpeg.git
 revision=meson-7.1
 depth=1
-diff_files = ffmpeg_static_component_libraries.diff, ffmpeg_hardware_dependencies.diff
+diff_files = ffmpeg_static_component_libraries.diff, ffmpeg_hardware_dependencies.diff, ffmpeg_qsv_frame_pool_lifetime.diff, ffmpeg_vaapi_drm_version_lifetime.diff
 
 [provide]
 libavcodec = libavcodec_dep
