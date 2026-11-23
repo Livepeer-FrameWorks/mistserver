@@ -107,7 +107,7 @@ int main(int argc, char **argv) {
     if (candidate.device != device || !candidate.selector.empty()) { continue; }
     tested = true;
     std::vector<long> resident, activeGPU, releasedGPU;
-    for (int round = 0; round < 100; ++round) {
+    for (int round = 0; round < 200; ++round) {
       config.is_active = true;
       if (!source.tryDecoder(candidate.codec->name, candidate.device, candidate.format, candidate.software)) {
         return 1;
@@ -160,9 +160,10 @@ int main(int argc, char **argv) {
       fflush(stdout);
     }
     for (const auto & series : {resident, activeGPU, releasedGPU}) {
-      // Allocator reuse can alternate between two stable resident sizes. Compare
-      // both edges of the settled band instead of treating that variation as growth.
-      const auto middle = std::minmax_element(series.begin() + 40, series.begin() + 60);
+      // Warm up 100 real lifetimes before measuring another 100: driver caches
+      // and allocator arenas can grow late in startup. Compare both edges of
+      // the settled band so bounded allocator variation is not counted as growth.
+      const auto middle = std::minmax_element(series.begin() + 100, series.begin() + 120);
       const auto final = std::minmax_element(series.end() - 20, series.end());
       if (*final.first > *middle.first + 1024 || *final.second > *middle.second + 1024) {
         fprintf(stderr, "%s memory grew after settling: middle %ld..%ld, final %ld..%ld KiB\n", candidate.codec->name,
