@@ -66,7 +66,8 @@ for command_name in awk cmake git pkg-config; do
     exit 1
   }
 done
-if [ "$runtime_distribution" != source ]; then
+# --verify-only reads the prefix stamp only, so it runs in images without the fetch tools.
+if [ "$runtime_distribution" != source ] && [ "$verify_only" -eq 0 ]; then
   soname_tool=readelf
   if [ "$(uname -s)" = Darwin ]; then soname_tool=otool; fi
   for command_name in curl unzip "$soname_tool"; do
