@@ -16,7 +16,7 @@ inputs:
     required: false
     default: '4'
   runtime-distribution:
-    description: Locked binary ONNX Runtime distribution, or source
+    description: Locked ONNX Runtime NuGet distribution, or source
     required: false
     default: source
   nvcc-threads:
@@ -32,7 +32,7 @@ runs:
       uses: actions/cache@v4
       with:
         path: ${{ inputs.prefix }}
-        key: onnx-deps-${{ runner.os }}-${{ runner.arch }}-${{ inputs.profile }}-${{ inputs.runtime-distribution }}-${{ hashFiles('scripts/ONNX/dependencies.lock.tsv', 'scripts/ONNX/build_dependencies.sh') }}
+        key: onnx-deps-nuget-${{ runner.os }}-${{ runner.arch }}-${{ inputs.profile }}-${{ inputs.runtime-distribution }}-${{ hashFiles('scripts/ONNX/dependencies.lock.tsv', 'scripts/ONNX/build_dependencies.sh') }}
 
     - name: Build locked ONNX dependency profile
       if: steps.cache.outputs.cache-hit != 'true'

@@ -39,6 +39,16 @@ meson compile -C "$build_dir" MistProcONNX test/onnxmodelprobe \
   test/onnxfbanktest test/onnxwindowertest
 meson test -C "$build_dir" --suite ONNX --print-errorlogs
 
+# The runtime the loader resolves must be the locked one, not a stale prefix or system copy.
+lock_file="$(dirname "$0")/dependencies.lock.tsv"
+locked_runtime=$(awk -F '\t' '$1 == "onnxruntime" { print $2; exit }' "$lock_file")
+[ -n "$locked_runtime" ] || { echo "No onnxruntime entry in $lock_file" >&2; exit 1; }
+loaded_runtime=$("$probe" --runtime-version)
+[ "$loaded_runtime" = "$locked_runtime" ] || {
+  echo "Loaded ONNX Runtime $loaded_runtime differs from locked $locked_runtime" >&2
+  exit 1
+}
+
 # Mist process binaries conventionally return -1 after printing their capability JSON.
 capability=$("$proc" -j 2>/dev/null || true)
 for required in \

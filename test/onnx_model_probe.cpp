@@ -8,6 +8,7 @@
 // models; without it the model goes through shape auto-detection. inputSize 0 (or
 // omitted) uses the model's preprocessor sidecar size, like MistProcONNX does.
 // An optional image file replaces the synthetic noise frame (for numeric comparisons).
+// --runtime-version prints the version of the ONNX Runtime library the loader resolved.
 #include "../lib/onnx.h"
 
 #include <cstdlib>
@@ -20,9 +21,16 @@ int main(int argc, char **argv) {
     std::cerr << "Usage: " << argv[0]
               << " <model.onnx> [inputSize] [classification|detection|embedding] [image]\n"
               << "       " << argv[0] << " --ocr <det.onnx> <rec.onnx> <dict.txt> [image]\n"
-              << "       " << argv[0] << " --tensor <model.onnx>"
+              << "       " << argv[0] << " --tensor <model.onnx>\n"
+              << "       " << argv[0] << " --runtime-version"
               << std::endl;
     return 1;
+  }
+  if (!strcmp(argv[1], "--runtime-version")) {
+    const OrtApiBase *base = OrtGetApiBase();
+    if (!base) return 1;
+    std::cout << base->GetVersionString() << std::endl;
+    return 0;
   }
   const char *providerEnv = std::getenv("MIST_ONNX_TEST_PROVIDER");
   const std::string provider = providerEnv && *providerEnv ? providerEnv : "cpu";

@@ -40,19 +40,25 @@ if [ -n "$dependencies" ]; then
     /^#/ || NF == 0 { next }
     {
       rows++
-      if (NF != 5) { print "dependency lock line " NR ": expected 5 fields" > "/dev/stderr"; ok = 0; next }
+      if (NF != 6) { print "dependency lock line " NR ": expected 6 fields" > "/dev/stderr"; ok = 0; next }
       if ($1 !~ /^[a-z0-9][a-z0-9._-]*$/ || seen[$1]++) { print "dependency lock line " NR ": invalid/duplicate name" > "/dev/stderr"; ok = 0 }
       if ($2 !~ /^[0-9]+\.[0-9]+\.[0-9]+$/) { print "dependency lock line " NR ": invalid version" > "/dev/stderr"; ok = 0 }
       if ($1 == "onnxruntime" || $1 == "opencv") {
         if ($3 !~ /^[0-9a-f]{40}$/) { print "dependency lock line " NR ": invalid source commit" > "/dev/stderr"; ok = 0 }
+        if ($5 !~ /^https:\/\/github\.com\// || $6 != "-") { print "dependency lock line " NR ": invalid source repository" > "/dev/stderr"; ok = 0 }
       } else {
         if ($3 !~ /^[0-9a-f]{64}$/) { print "dependency lock line " NR ": invalid archive SHA-256" > "/dev/stderr"; ok = 0 }
-        if ($5 !~ /^https:\/\/github\.com\/microsoft\/onnxruntime\/releases\/download\/v[0-9]+\.[0-9]+\.[0-9]+\//) {
-          print "dependency lock line " NR ": runtime archive is not an official versioned release" > "/dev/stderr"
+        if ($2 != version["onnxruntime"]) { print "dependency lock line " NR ": runtime version differs from the onnxruntime source" > "/dev/stderr"; ok = 0 }
+        # Official Microsoft NuGet packages: nuget.org, or the PublicPackages CUDA-major feeds.
+        nupkg = "microsoft\\.ml\\.onnxruntime(\\.gpu\\.linux)?\\/" $2 "\\/microsoft\\.ml\\.onnxruntime(\\.gpu\\.linux)?\\." $2 "\\.nupkg$"
+        if ($5 !~ ("^https:\\/\\/(api\\.nuget\\.org\\/v3-flatcontainer|aiinfra\\.pkgs\\.visualstudio\\.com\\/PublicPackages\\/_packaging\\/onnxruntime-cuda-1[0-9]\\/nuget\\/v3\\/flat2)\\/" nupkg)) {
+          print "dependency lock line " NR ": runtime package is not an official Microsoft NuGet package" > "/dev/stderr"
           ok = 0
         }
+        if ($6 !~ /^runtimes\/(linux-x64|linux-arm64|osx-arm64)\/native$/) { print "dependency lock line " NR ": invalid package native directory" > "/dev/stderr"; ok = 0 }
       }
-      if ($4 == "" || $5 !~ /^https:\/\/github\.com\//) { print "dependency lock line " NR ": missing license/source" > "/dev/stderr"; ok = 0 }
+      version[$1] = $2
+      if ($4 == "") { print "dependency lock line " NR ": missing license" > "/dev/stderr"; ok = 0 }
     }
     END {
       required["onnxruntime"] = 1

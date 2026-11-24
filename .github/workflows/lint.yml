@@ -95,6 +95,7 @@ jobs:
           profile: cpu
           prefix: ${{ github.workspace }}/.deps/onnx/cpu
           work-dir: ${{ runner.temp }}/onnx-build/cpu
+          runtime-distribution: onnxruntime-linux-x64
 
       - name: Generate compile_commands.json
         if: steps.changed.outputs.files != ''
@@ -105,7 +106,7 @@ jobs:
         run: |
           ONNX_ARGS=(-DONNX=disabled)
           if [ "$LINT_ONNX" = "true" ]; then
-            ONNX_ARGS=(-DONNX=enabled -DONNX_STATIC=true -DONNX_PROFILE=cpu)
+            ONNX_ARGS=(-DONNX=enabled -DONNX_STATIC=false -DONNX_PROFILE=cpu)
           fi
           meson setup builddir \
             --wrap-mode=default \

@@ -1,7 +1,7 @@
 # ONNX release checklist
 
-The portable release target is the CPU profile on Linux: static on amd64 and a bundled,
-checksum-pinned shared closure on arm64. macOS arm64 is a
+The portable release target is the CPU profile on Linux: a bundled, checksum-pinned shared
+ONNX Runtime closure on amd64 and arm64. macOS arm64 is a
 first-class native CoreML package with CPU fallback, deployment contract, signing, and
 notarization. Linux amd64 CUDA, TensorRT, and OpenVINO builds emit both container images and native
 shared-provider artifacts because their runtime and driver requirements differ. Windows remains
@@ -13,14 +13,16 @@ outside the first release gate.
   authoritative mapping from release/profile/platform to digest-pinned images and checksum-pinned
   native bundles; downstream release tooling must not select deployable artifacts by filename order.
 
-- Build the dependency revisions in `dependencies.lock.tsv` with
+- Build the dependency revisions and Microsoft NuGet packages in `dependencies.lock.tsv` with
   `build_dependencies.sh`. Only the OpenCV `core`, `imgproc`, `imgcodecs`, `video`, and
   `geometry` modules are required; do not bundle video I/O, DNN, GUI, Python, Java,
   examples, or tests.
-- Linux amd64 CPU packages must provide the generated complete static `libonnxruntime`
-  pkg-config closure. Linux arm64 CPU packages use Microsoft's checksum-pinned official
-  AArch64 archive and bundle its shared runtime plus the exact shared OpenCV closure.
-  CoreML packages use the checksum-pinned official macOS arm64 ONNX Runtime archive and include
+- Linux amd64 and arm64 CPU packages use the checksum-pinned official
+  `Microsoft.ML.OnnxRuntime` NuGet package (`runtimes/linux-x64` / `runtimes/linux-arm64`) and
+  bundle its shared runtime plus the exact shared OpenCV closure. CUDA uses the CUDA 12
+  `Microsoft.ML.OnnxRuntime.Gpu.Linux` package from Microsoft's `onnxruntime-cuda-12` feed;
+  TensorRT uses the CUDA 13 `Microsoft.ML.OnnxRuntime.Gpu.Linux` package from nuget.org.
+  CoreML packages use the checksum-pinned `runtimes/osx-arm64` runtime of the same package and include
   the exact shared ONNX Runtime/OpenCV dylib closure with an executable-relative rpath. CUDA,
   TensorRT, and OpenVINO packages use shared ONNX Runtime/OpenCV and expose only their declared
   accelerator set plus CPU fallback (TensorRT also includes its CUDA fallback). CUDA/TensorRT
@@ -44,9 +46,9 @@ outside the first release gate.
   `deployment-contract.json`. Bare-metal installers must verify the declared OS/architecture,
   system packages, provider runtime, devices, and loader paths before installation.
 - Run `verify_release.sh --build-dir <dir> --model <yolo26n.onnx> --image <image>`.
-  Pass `--expected-profile` and `--provider`. Use `--allow-shared` only for Linux arm64 CPU,
-  the bundled CoreML closure, and SDK-bound Linux accelerator bundles. The verifier checks the advertised
-  profile, explicitly loads the requested provider, and exercises the unit tests, curated
+  Pass `--expected-profile` and `--provider`. Use `--allow-shared` only for the bundled Linux
+  CPU and CoreML closures and SDK-bound Linux accelerator bundles. The verifier checks the
+  advertised profile and the loaded ONNX Runtime version against the lock, explicitly loads the requested provider, and exercises the unit tests, curated
   adapter, raw tensor path, metadata-only default, annotation opt-in, and 64-bit timestamps.
 - Archive the complete MistServer binary/library set, `MistProcONNX`, `prepare_models.sh`,
   `models.manifest.tsv`, `dependencies.lock.tsv`, this checklist, and the applicable
@@ -57,7 +59,7 @@ outside the first release gate.
 | Gate | Linux CPU | macOS CoreML + CPU fallback | CUDA/TensorRT | OpenVINO |
 |---|---:|---:|---:|---:|
 | Compile and ONNX unit tests | required | required | required | required |
-| Dependency/linkage audit | static amd64 / bundled arm64 | bundled dylib closure | shared SDK closure | shared SDK closure |
+| Dependency/linkage audit | bundled amd64 / arm64 | bundled dylib closure | shared SDK closure | shared SDK closure |
 | Explicit provider load + YOLO26n image | CPU | CoreML | requested EP | OpenVINO |
 | Raw ONNXTENSOR round trip | required | required | required | required |
 | Parakeet INT8 real audio | required | optional | required | required |

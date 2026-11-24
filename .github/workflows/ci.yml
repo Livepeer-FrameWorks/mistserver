@@ -34,6 +34,7 @@ jobs:
           profile: cpu
           prefix: ${{ github.workspace }}/.deps/onnx/cpu
           work-dir: ${{ runner.temp }}/onnx-build/cpu
+          runtime-distribution: onnxruntime-linux-x64
 
   test:
     name: Test & Coverage
@@ -87,6 +88,7 @@ jobs:
           profile: cpu
           prefix: ${{ github.workspace }}/.deps/onnx/cpu
           work-dir: ${{ runner.temp }}/onnx-build/cpu
+          runtime-distribution: onnxruntime-linux-x64
 
       - name: Build with coverage
         env:
@@ -97,7 +99,7 @@ jobs:
             -Db_coverage=true \
             -DWITH_AV=true \
             -DONNX=enabled \
-            -DONNX_STATIC=true \
+            -DONNX_STATIC=false \
             -DONNX_PROFILE=cpu \
             -DDEBUG=4
           # Assert NDI/ONVIF support was actually compiled in (libs are present in this env).
@@ -191,6 +193,7 @@ jobs:
           profile: cpu
           prefix: ${{ github.workspace }}/.deps/onnx/cpu
           work-dir: ${{ runner.temp }}/onnx-build/cpu
+          runtime-distribution: onnxruntime-linux-x64
 
       - name: Build with ASan
         env:
@@ -202,7 +205,7 @@ jobs:
             -Db_lundef=false \
             -DWITH_AV=true \
             -DONNX=enabled \
-            -DONNX_STATIC=true \
+            -DONNX_STATIC=false \
             -DONNX_PROFILE=cpu
           grep -qE 'NDI:[[:space:]]+COMPILED' build-asan/meson-logs/meson-log.txt || { echo "::error::NDI support was not compiled"; exit 1; }
           grep -qE 'ONVIF camera discovery:[[:space:]]+YES' build-asan/meson-logs/meson-log.txt || { echo "::error::ONVIF support was not built"; exit 1; }

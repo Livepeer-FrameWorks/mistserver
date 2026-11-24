@@ -1,8 +1,8 @@
-# dependency	version	revision-or-sha256	license	source
-onnxruntime	1.29.0	2e2543fbe9fae542f921d47a72d21d5a4ef0b710	MIT	https://github.com/microsoft/onnxruntime
-onnxruntime-linux-x64-gpu-cuda12	1.29.0	4ca594a0da83927befbd73fe020d7f569be151d70bb4fe9741ad405f4882e2ad	MIT	https://github.com/microsoft/onnxruntime/releases/download/v1.29.0/onnxruntime-linux-x64-gpu_cuda12-1.29.0.tgz
-onnxruntime-linux-x64-gpu-cuda13	1.29.0	844c64acfc43ab9423215c26493055ea229268e28283146cc644ecef0bdae048	MIT	https://github.com/microsoft/onnxruntime/releases/download/v1.29.0/onnxruntime-linux-x64-gpu_cuda13-1.29.0.tgz
-onnxruntime-linux-x64	1.29.0	c3fddc4f139a045b0c4902c57410f0694f1c2fdf9b6939fbe38b1aeae7cd14ba	MIT	https://github.com/microsoft/onnxruntime/releases/download/v1.29.0/onnxruntime-linux-x64-1.29.0.tgz
-onnxruntime-linux-aarch64	1.29.0	e1799098ebc054b370f6176a450f158720f297818c613e5dc99b92e2ec82346f	MIT	https://github.com/microsoft/onnxruntime/releases/download/v1.29.0/onnxruntime-linux-aarch64-1.29.0.tgz
-onnxruntime-osx-arm64	1.29.0	d0706fc34f315d8c88639d0a8c81f2e09e815f282cabed3493c06a054352cf92	MIT	https://github.com/microsoft/onnxruntime/releases/download/v1.29.0/onnxruntime-osx-arm64-1.29.0.tgz
-opencv	5.0.0	40738fb16ceddb5fb3fea747585f7ce6abb0605b	Apache-2.0	https://github.com/opencv/opencv
+# dependency	version	revision-or-sha256	license	source	package-native-dir
+onnxruntime	1.32.0	fab30a46491a40f5e4c968b80e8a59acbbb91b53	MIT	https://github.com/microsoft/onnxruntime	-
+onnxruntime-linux-x64-gpu-cuda12	1.32.0	aa4220de9938f974657d9c29fec5f87f3897c4b57eaa7419efa3cfb810e56c43	MIT	https://aiinfra.pkgs.visualstudio.com/PublicPackages/_packaging/onnxruntime-cuda-12/nuget/v3/flat2/microsoft.ml.onnxruntime.gpu.linux/1.32.0/microsoft.ml.onnxruntime.gpu.linux.1.32.0.nupkg	runtimes/linux-x64/native
+onnxruntime-linux-x64-gpu-cuda13	1.32.0	3d01949bc846d41961b37988d1e63d782a6effcb93b650a6e0577fef982d38b5	MIT	https://api.nuget.org/v3-flatcontainer/microsoft.ml.onnxruntime.gpu.linux/1.32.0/microsoft.ml.onnxruntime.gpu.linux.1.32.0.nupkg	runtimes/linux-x64/native
+onnxruntime-linux-x64	1.32.0	a9150bc2992cbbb6722070da9910e1ffa989a8bfc67bdd5bb8e745ca755641db	MIT	https://api.nuget.org/v3-flatcontainer/microsoft.ml.onnxruntime/1.32.0/microsoft.ml.onnxruntime.1.32.0.nupkg	runtimes/linux-x64/native
+onnxruntime-linux-aarch64	1.32.0	a9150bc2992cbbb6722070da9910e1ffa989a8bfc67bdd5bb8e745ca755641db	MIT	https://api.nuget.org/v3-flatcontainer/microsoft.ml.onnxruntime/1.32.0/microsoft.ml.onnxruntime.1.32.0.nupkg	runtimes/linux-arm64/native
+onnxruntime-osx-arm64	1.32.0	a9150bc2992cbbb6722070da9910e1ffa989a8bfc67bdd5bb8e745ca755641db	MIT	https://api.nuget.org/v3-flatcontainer/microsoft.ml.onnxruntime/1.32.0/microsoft.ml.onnxruntime.1.32.0.nupkg	runtimes/osx-arm64/native
+opencv	5.0.0	40738fb16ceddb5fb3fea747585f7ce6abb0605b	Apache-2.0	https://github.com/opencv/opencv	-

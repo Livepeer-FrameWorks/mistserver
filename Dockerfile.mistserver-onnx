@@ -46,8 +46,9 @@ ARG RELEASE=Docker_${TARGETPLATFORM}
 # CUDA/TensorRT profiles require CUDA_HOME/CUDNN_HOME/TENSORRT_HOME in BUILD_BASE or
 # as build arguments. OpenVINO requires OpenVINO_DIR in an SDK-equipped BUILD_BASE.
 # Those profiles use shared ONNX/OpenCV dependencies, must set ONNX_STATIC=false, and
-# require a matching SDK-equipped RUNTIME_BASE. CPU is static on Linux amd64; Linux arm64
-# uses Microsoft's checksum-pinned shared CPU runtime to avoid rebuilding ORT from source.
+# require a matching SDK-equipped RUNTIME_BASE. Release CPU images use Microsoft's
+# checksum-pinned shared NuGet runtime (ONNX_STATIC=false); the static CPU default builds
+# ONNX Runtime from its locked source commit.
 # The prefix comes prebuilt from ONNX_DEPS_IMAGE; --verify-only refuses one whose stamp is
 # not this platform, profile, lock and runtime distribution instead of rebuilding it.
 COPY --from=onnx_deps /opt/mist-onnx/ /opt/mist-onnx/

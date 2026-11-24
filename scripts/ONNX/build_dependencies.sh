@@ -13,7 +13,7 @@ Options:
   --jobs COUNT        Parallel build jobs (default: detected CPU count)
   --lock FILE         Dependency lock file (default: dependencies.lock.tsv)
   --runtime-distribution NAME
-                      Locked ONNX Runtime binary distribution, or source (default)
+                      Locked ONNX Runtime NuGet distribution, or source (default)
   --nvcc-threads COUNT
                       Threads used internally by each NVCC compilation (default: 1)
   --verify-only       Only check that the prefix already holds this exact locked build
@@ -67,7 +67,9 @@ for command_name in awk cmake git pkg-config; do
   }
 done
 if [ "$runtime_distribution" != source ]; then
-  for command_name in curl tar; do
+  soname_tool=readelf
+  if [ "$(uname -s)" = Darwin ]; then soname_tool=otool; fi
+  for command_name in curl unzip "$soname_tool"; do
     command -v "$command_name" >/dev/null 2>&1 || {
       echo "Required command not found: $command_name" >&2
       exit 1
@@ -116,6 +118,7 @@ if [ "$runtime_distribution" != source ]; then
   runtime_version=$(locked_field "$runtime_distribution" 2)
   runtime_sha256=$(locked_field "$runtime_distribution" 3)
   runtime_source=$(locked_field "$runtime_distribution" 5)
+  runtime_native_dir=$(locked_field "$runtime_distribution" 6)
   [ "$runtime_version" = "$ort_version" ] || {
     echo "ONNX Runtime distribution version mismatch: $runtime_version != $ort_version" >&2
     exit 1
@@ -187,6 +190,8 @@ checkout_locked_source() {
   destination=$4
 
   fresh_checkout=0
+  # A missing or private upstream must fail instead of waiting for credentials.
+  export GIT_TERMINAL_PROMPT=0
   if [ ! -d "$destination/.git" ]; then
     git clone --filter=blob:none --no-checkout "$source_url" "$destination"
     fresh_checkout=1
@@ -263,7 +268,7 @@ cmake --build "$opencv_build" --parallel "$jobs"
 cmake --install "$opencv_build"
 
 if [ "$runtime_distribution" != source ]; then
-  runtime_archive="$work_dir/$runtime_distribution-$runtime_version.tgz"
+  runtime_archive="$work_dir/$runtime_distribution-$runtime_version.nupkg"
   curl -fL --retry 3 --output "$runtime_archive" "$runtime_source"
   if command -v sha256sum >/dev/null 2>&1; then
     actual_runtime_sha256=$(sha256sum "$runtime_archive" | awk '{print $1}')
@@ -277,29 +282,66 @@ if [ "$runtime_distribution" != source ]; then
     exit 1
   }
 
+  # Microsoft publishes the native runtimes as NuGet packages: a zip holding the package
+  # .nuspec, LICENSE and ThirdPartyNotices.txt at the root, the C/C++ headers under
+  # build/native/include (CPU) or buildTransitive/native/include (GPU), and one
+  # runtimes/<rid>/native directory per platform. Repackage that into the prefix layout.
   runtime_unpack="$work_dir/$runtime_distribution-unpack"
+  rm -rf "$runtime_unpack"
   mkdir -p "$runtime_unpack"
-  tar -xzf "$runtime_archive" -C "$runtime_unpack"
-  runtime_root=$(find "$runtime_unpack" -mindepth 1 -maxdepth 3 -type f \
-    -name VERSION_NUMBER -exec dirname {} \; -quit)
-  [ -n "$runtime_root" ] && [ -d "$runtime_root/include" ] && [ -d "$runtime_root/lib" ] || {
-    echo "Invalid ONNX Runtime distribution layout: $runtime_distribution" >&2
+  unzip -q "$runtime_archive" -d "$runtime_unpack"
+  runtime_nuspec=$(find "$runtime_unpack" -mindepth 1 -maxdepth 1 -type f -name '*.nuspec' -print -quit)
+  [ -n "$runtime_nuspec" ] || {
+    echo "ONNX Runtime distribution has no .nuspec: $runtime_distribution" >&2
     exit 1
   }
-  [ "$(cat "$runtime_root/VERSION_NUMBER")" = "$runtime_version" ] || {
-    echo "ONNX Runtime distribution VERSION_NUMBER mismatch" >&2
+  package_version=$(sed -n 's|.*<version>\([^<]*\)</version>.*|\1|p' "$runtime_nuspec" | head -n 1)
+  [ "$package_version" = "$runtime_version" ] || {
+    echo "ONNX Runtime package version mismatch: $package_version != $runtime_version" >&2
+    exit 1
+  }
+  runtime_include=
+  for include_dir in build/native/include buildTransitive/native/include; do
+    if [ -f "$runtime_unpack/$include_dir/onnxruntime_c_api.h" ]; then
+      runtime_include="$runtime_unpack/$include_dir"
+      break
+    fi
+  done
+  runtime_libs="$runtime_unpack/$runtime_native_dir"
+  [ -n "$runtime_include" ] && [ -d "$runtime_libs" ] &&
+    [ -f "$runtime_unpack/LICENSE" ] && [ -f "$runtime_unpack/ThirdPartyNotices.txt" ] || {
+    echo "Invalid ONNX Runtime package layout: $runtime_distribution ($runtime_native_dir)" >&2
     exit 1
   }
 
   mkdir -p "$prefix/include/onnxruntime" "$prefix/lib/pkgconfig" \
     "$prefix/share/licenses/onnxruntime"
-  cp -a "$runtime_root/include/." "$prefix/include/onnxruntime/"
-  for runtime_lib in \
-    "$runtime_root"/lib/libonnxruntime*.so \
-    "$runtime_root"/lib/libonnxruntime*.so.* \
-    "$runtime_root"/lib/libonnxruntime*.dylib; do
-    if [ -f "$runtime_lib" ] || [ -L "$runtime_lib" ]; then
-      cp -a "$runtime_lib" "$prefix/lib/"
+  cp -R "$runtime_include/." "$prefix/include/onnxruntime/"
+  # The package ships each runtime under its unversioned linker name. Install it under the
+  # SONAME / install name the linker records in consumers, and point the linker name at it.
+  if [ "$platform" = Darwin ]; then
+    runtime_main="$runtime_libs/libonnxruntime.dylib"
+    [ -f "$runtime_main" ] || { echo "Missing $runtime_main" >&2; exit 1; }
+    runtime_soname=$(otool -D "$runtime_main" | sed -n '2p')
+    runtime_soname=${runtime_soname##*/}
+    linker_name=libonnxruntime.dylib
+  else
+    runtime_main="$runtime_libs/libonnxruntime.so"
+    [ -f "$runtime_main" ] || { echo "Missing $runtime_main" >&2; exit 1; }
+    runtime_soname=$(readelf -d "$runtime_main" | sed -n 's/.*Library soname: \[\(.*\)\].*/\1/p')
+    linker_name=libonnxruntime.so
+  fi
+  case "$runtime_soname" in
+    libonnxruntime.*) ;;
+    *) echo "Unexpected ONNX Runtime SONAME: '$runtime_soname'" >&2; exit 1 ;;
+  esac
+  cp "$runtime_main" "$prefix/lib/$runtime_soname"
+  if [ "$runtime_soname" != "$linker_name" ]; then
+    ln -sf "$runtime_soname" "$prefix/lib/$linker_name"
+  fi
+  for runtime_lib in "$runtime_libs"/libonnxruntime_providers_*; do
+    if [ -f "$runtime_lib" ]; then
+      cp "$runtime_lib" "$prefix/lib/"
     fi
   done
   if [ "$profile" = cuda ]; then
@@ -316,8 +358,8 @@ Version: $runtime_version
 Libs: -L\${libdir} -lonnxruntime
 Cflags: -I\${includedir}
 EOF
-  cp "$runtime_root/LICENSE" "$prefix/share/licenses/onnxruntime/LICENSE"
-  cp "$runtime_root/ThirdPartyNotices.txt" \
+  cp "$runtime_unpack/LICENSE" "$prefix/share/licenses/onnxruntime/LICENSE"
+  cp "$runtime_unpack/ThirdPartyNotices.txt" \
     "$prefix/share/licenses/onnxruntime/ThirdPartyNotices.txt"
 else
   ort_args=(

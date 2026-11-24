@@ -288,23 +288,48 @@ when a consumer falls behind the oldest packet is dropped and counted in process
 
 ONNX support is a strict Meson feature when explicitly enabled. Release artifacts use
 one `ONNX_PROFILE` (`cpu`, `coreml`, `cuda`, `tensorrt`, or `openvino`); the profile
-constrains which execution provider may be selected at runtime. Linux amd64 CPU packages a
-static ONNX Runtime/OpenCV closure. Linux arm64 CPU uses Microsoft's checksum-pinned AArch64
-runtime plus a bundled shared OpenCV closure. CoreML uses Microsoft's checksum-pinned macOS arm64 runtime plus the
-exact shared OpenCV libraries in the signed native bundle. CUDA, TensorRT, and OpenVINO use
-shared provider builds because their target SDK and driver runtimes are part of the deployment
-environment.
+constrains which execution provider may be selected at runtime.
 
-Build the exact dependency commits and then make ONNX mandatory:
+ONNX Runtime comes from Microsoft's official NuGet packages, checksum-pinned in
+`dependencies.lock.tsv`. `build_dependencies.sh --runtime-distribution NAME` downloads the
+locked `.nupkg`, checks its SHA-256 and `.nuspec` version, and repackages it into the prefix
+layout the build and the CI checks expect: headers in `include/onnxruntime`, the runtime under
+its SONAME/install name plus the linker name in `lib/`, `lib/pkgconfig/libonnxruntime.pc`, and
+`share/licenses/onnxruntime/{LICENSE,ThirdPartyNotices.txt}`.
+
+| Distribution | Package | Native directory |
+|---|---|---|
+| `onnxruntime-linux-x64` | `Microsoft.ML.OnnxRuntime` (nuget.org) | `runtimes/linux-x64/native` |
+| `onnxruntime-linux-aarch64` | `Microsoft.ML.OnnxRuntime` (nuget.org) | `runtimes/linux-arm64/native` |
+| `onnxruntime-osx-arm64` | `Microsoft.ML.OnnxRuntime` (nuget.org), CoreML included | `runtimes/osx-arm64/native` |
+| `onnxruntime-linux-x64-gpu-cuda13` | `Microsoft.ML.OnnxRuntime.Gpu.Linux` (nuget.org, CUDA 13) | `runtimes/linux-x64/native` |
+| `onnxruntime-linux-x64-gpu-cuda12` | `Microsoft.ML.OnnxRuntime.Gpu.Linux` from Microsoft's `onnxruntime-cuda-12` PublicPackages feed | `runtimes/linux-x64/native` |
+
+Since ONNX Runtime 1.30 the nuget.org GPU package targets CUDA 13; Microsoft publishes the
+CUDA 12 build of the same version on its `aiinfra.pkgs.visualstudio.com/PublicPackages`
+`onnxruntime-cuda-12` feed. The `cuda` profile uses the CUDA 12 package without its TensorRT
+provider; the `tensorrt` profile uses the CUDA 13 package with both providers.
+
+The `onnxruntime` lock row pins the upstream source commit the nuget.org packages were built
+from. Only `--runtime-distribution source` (the default) clones it: the static CPU/CoreML
+build (`ONNX_STATIC=true`) and the `openvino` profile. Those need the
+`github.com/microsoft/onnxruntime` repository to be reachable.
+
+Linux CPU uses the shared runtime plus a bundled shared OpenCV closure on both amd64 and arm64.
+CoreML uses the macOS arm64 runtime plus the exact shared OpenCV libraries in the signed native
+bundle. CUDA, TensorRT, and OpenVINO use shared provider builds because their target SDK and
+driver runtimes are part of the deployment environment.
+
+Build the locked dependencies and then make ONNX mandatory:
 
 ```sh
 scripts/ONNX/build_dependencies.sh \
   --prefix "$PWD/.deps/onnx/cpu" \
   --work-dir "$PWD/.build-deps/onnx/cpu" \
-  --profile cpu
+  --profile cpu --runtime-distribution onnxruntime-linux-x64
 export PKG_CONFIG_PATH="$PWD/.deps/onnx/cpu/lib/pkgconfig:${PKG_CONFIG_PATH:-}"
 export CMAKE_PREFIX_PATH="$PWD/.deps/onnx/cpu:${CMAKE_PREFIX_PATH:-}"
-meson setup build -DONNX=enabled -DONNX_STATIC=true -DONNX_PROFILE=cpu
+meson setup build -DONNX=enabled -DONNX_STATIC=false -DONNX_PROFILE=cpu
 ```
 
 Use `coreml` on macOS arm64 with `ONNX_STATIC=false` and the locked
@@ -320,7 +345,7 @@ Linux CPU release builds use `ONNX_STATIC=false` with the locked `onnxruntime-li
 runtime closure with executable-relative rpaths. The release workflow builds Linux amd64 CUDA,
 TensorRT, and OpenVINO images on
 ordinary GitHub-hosted CPU runners. Linux arm64 GPU-provider artifacts are intentionally outside
-the first release matrix because upstream publishes no equivalent generic ARM64 GPU archive.
+the first release matrix because Microsoft publishes no generic Linux ARM64 GPU package.
 `accelerator-images.json` pins the vendor build and runtime image digests, SDK paths,
 and dependency strategy. Each Linux dependency prefix (`/opt/mist-onnx`) is built once by
 `Dockerfile.onnx-deps` and published as
@@ -371,6 +396,7 @@ and device. The loader path is registered through `/etc/ld.so.conf.d/mist-onnx.c
 discarding vendor paths inherited from the runtime image.
 
 All production ONNX containers are built from `Dockerfile.mistserver-onnx`; a build fails if
-`MistProcONNX` or the advertised profile is missing. The exact source revisions are recorded in
-`dependencies.lock.tsv`, and accelerator base images in `accelerator-images.json`. See
-`RELEASE_CHECKLIST.md` and run `verify_release.sh` against every candidate artifact.
+`MistProcONNX` or the advertised profile is missing. The exact source revisions and package
+checksums are recorded in `dependencies.lock.tsv`, and accelerator base images in
+`accelerator-images.json`. See `RELEASE_CHECKLIST.md` and run `verify_release.sh` against every
+candidate artifact; it also checks that the loaded ONNX Runtime reports the locked version.
