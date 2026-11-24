@@ -15,7 +15,11 @@ namespace Mist{
     uint32_t mainTrack = M.mainTrack();
     if (mainTrack == INVALID_TRACK_ID){return false;}
     DTSC::Fragments fragments(M.fragments(mainTrack));
-    return fragments.getValidCount() > 4;
+    if (fragments.getValidCount() > 4) { return true; }
+    // A cold stream's first viewer does not wait for a full playlist window: after the wait the
+    // generic readiness allows (maxwaittrackms, 5 s by default) a playlist of what exists plays.
+    const uint64_t maxWait = targetParams.count("maxwaittrackms") ? JSON::Value(targetParams["maxwaittrackms"]).asInt() : 5000;
+    return fragments.getValidCount() && outputAgeMs() > maxWait;
   }
 
   ///\brief Builds an index file for HTTP Live streaming.

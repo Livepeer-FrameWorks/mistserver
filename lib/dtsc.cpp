@@ -4643,17 +4643,25 @@ namespace DTSC{
   /// Returns the current highest track index (zero-based).
   size_t Meta::trackCount() const{return trackList.getPresent();}
 
-  /// Returns the index the first video track, or the first track.
-  /// Will print a WARN-level message if there are no tracks.
+  /// Returns the index of the first continuous video track, else the first audio track, else the
+  /// first image track (JPEG/PNG thumbnails and sprites), else the first track. An image track
+  /// carries a frame every few seconds, so it never paces a stream with a video or audio track.
   size_t Meta::mainTrack() const{
     if (!trackList.getPresent()){return INVALID_TRACK_ID;}
     std::set<size_t> validTracks = getValidTracks();
-    size_t currentTrack = INVALID_TRACK_ID;
+    if (validTracks.empty()) { return INVALID_TRACK_ID; }
+    size_t audioTrack = INVALID_TRACK_ID;
+    size_t imageTrack = INVALID_TRACK_ID;
     for (std::set<size_t>::iterator it = validTracks.begin(); it != validTracks.end(); it++){
-      if (getType(*it) == "video"){return *it;}
-      if (currentTrack == INVALID_TRACK_ID && getType(*it) == "audio"){currentTrack = *it;}
+      if (getType(*it) == "video") {
+        const std::string codec = getCodec(*it);
+        if (codec != "JPEG" && codec != "PNG") { return *it; }
+        if (imageTrack == INVALID_TRACK_ID) { imageTrack = *it; }
+      }
+      if (audioTrack == INVALID_TRACK_ID && getType(*it) == "audio") { audioTrack = *it; }
     }
-    if (currentTrack != INVALID_TRACK_ID) return currentTrack;
+    if (audioTrack != INVALID_TRACK_ID) { return audioTrack; }
+    if (imageTrack != INVALID_TRACK_ID) { return imageTrack; }
     return *validTracks.begin();
   }
 

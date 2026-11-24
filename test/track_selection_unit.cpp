@@ -245,6 +245,27 @@ int main() {
     return fail("without known bitrates the transcode source must be the lowest-index original");
   }
 
+  // The main track paces a stream (HLS readiness, seeking, fragment timing): a thumbnail sprite at
+  // index 0 (a replica that does not carry the masked original) must not be it.
+  DTSC::Meta sprites;
+  sprites.reInit("", true);
+  const size_t sprite = addVideoTrack(sprites, 90, "JPEG", 160, 90, 1000);
+  const size_t rendition = addVideoTrack(sprites, 91, "H264", 640, 360, 100000);
+  if (sprites.mainTrack() != rendition || sprite == rendition) {
+    return fail("the main track must be the continuous video track, not an image track at a lower index");
+  }
+  DTSC::Meta spriteAudio;
+  spriteAudio.reInit("", true);
+  addVideoTrack(spriteAudio, 92, "PNG", 160, 90, 1000);
+  const size_t sound = addAudioTrack(spriteAudio, 93, "AAC");
+  if (spriteAudio.mainTrack() != sound) {
+    return fail("audio paces a stream whose only video track is an image track");
+  }
+  DTSC::Meta onlySprite;
+  onlySprite.reInit("", true);
+  const size_t lone = addVideoTrack(onlySprite, 94, "JPEG", 160, 90, 1000);
+  if (onlySprite.mainTrack() != lone) { return fail("an image-only stream keeps its image track as main track"); }
+
   sizes.setSourceTrack(ultrawide, landscape);
   sizes.setSourceTrack(square, landscape);
   if (!Util::inhibitorMatchesSource(sizes, "video=<0x480", sizeTracks)) {

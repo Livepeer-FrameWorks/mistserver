@@ -147,6 +147,8 @@ namespace Mist{
     bool lastReadAttemptWasAtLivePoint;
 
   protected:              // these are to be messed with by child classes
+    /// Milliseconds since this output started (unrelated to media time).
+    uint64_t outputAgeMs() const { return Util::bootMS() - outputStartMs; }
     virtual bool recordingHeaderContainsTrack(size_t) const { return false; }
     PlayRewriteOutcome applyPlayRewrite(const char *requestType);
     std::string currentTarget;

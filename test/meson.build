@@ -1672,6 +1672,10 @@ if ffmpeg_program.found()
   test('HLS defaults to AAC over EAC-3', find_program('python3'),
        args: [files('hls_audio_preference_integration.py'), meson.project_build_root(), ffmpeg_program],
        depends: media_test_deps + [exec_tgts['MistOutHLS']], suite: 'Processing', timeout: 100, is_parallel: false)
+  test('The first HLS viewer of a cold pulled replica gets a playlist', find_program('python3'),
+       args: [files('hls_cold_replica_integration.py'), meson.project_build_root(), ffmpeg_program],
+       depends: media_test_deps + [exec_tgts['MistOutHLS'], exec_tgts['MistInDTSC'], exec_tgts['MistOutDTSC']],
+       suite: 'Processing', timeout: 120, is_parallel: false)
 endif
 
 if get_option('WITH_AV') and ffmpeg_program.found() and ffprobe_program.found()

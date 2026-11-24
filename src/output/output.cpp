@@ -593,7 +593,12 @@ namespace Mist{
     //live streams that are no push outputs (recordings), wait for stream to be ready
     if ((M && M.getLive() && !isReadyForPlay()) || bufferStillBooting()) {
       uint64_t waitUntil = Util::bootSecs() + 45;
+      // Until it selects tracks a waiting viewer is no user of the stream, so a cold buffer (a
+      // replica pulled for this viewer) would reach its input timeout underneath it. Register as
+      // a connection-lifetime reader, which requests no media page, while waiting.
+      Comms::Users waitingViewer;
       while ((M && M.getLive() && !isReadyForPlay()) || bufferStillBooting()) {
+        if (!waitingViewer) { waitingViewer.reload(streamName, (size_t)INVALID_TRACK_ID); }
         if (Util::bootSecs() > waitUntil){
           INFO_MSG("Giving up waiting for playable tracks. IP: %s", getConnectedHost().c_str());
           break;
