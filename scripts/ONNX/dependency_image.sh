@@ -6,9 +6,8 @@
 # prefix (/opt/mist-onnx: ONNX Runtime and OpenCV) for a profile/architecture.
 # The tag is a hash of everything that decides the prefix contents:
 # Dockerfile.onnx-deps, build_dependencies.sh, the dependency lock, and the
-# target's platform, digest-pinned build base, runtime distribution and SDK
-# settings from accelerator-images.json. Build parallelism (jobs, NVCC threads,
-# swap, runner) is left out because it does not change the output, so the same
+# target's platform, digest-pinned build base and runtime distribution from
+# accelerator-images.json. Build parallelism (jobs, runner) is left out because it does not change the output, so the same
 # inputs always resolve to the same tag no matter which MistServer revision or
 # release asks for it.
 #
@@ -57,8 +56,7 @@ manifest() {
     printf 'file %s %s\n' "$file" "$(sha256 "$root/$file")"
   done
   printf 'target %s\n' "$(jq -cS '
-    {platform, profile, build_base, runtime_distribution, cuda_architectures,
-     cuda_home, cudnn_home, tensorrt_home, openvino_dir}
+    {platform, profile, build_base, runtime_distribution}
     | map_values(. // "" | tostring)
   ' <<<"$entry")"
 }

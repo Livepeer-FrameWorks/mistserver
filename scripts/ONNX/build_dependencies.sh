@@ -3,27 +3,21 @@ set -euo pipefail
 
 usage() {
   cat >&2 <<'EOF'
-Usage: build_dependencies.sh --prefix DIR --work-dir DIR [options]
+Usage: build_dependencies.sh --prefix DIR --work-dir DIR --runtime-distribution NAME [options]
 
-Builds the locked ONNX Runtime and minimal OpenCV dependency set used by
-MistProcONNX.
+Installs the locked ONNX Runtime NuGet distribution and builds the minimal shared
+OpenCV dependency set used by MistProcONNX.
 
 Options:
   --profile PROFILE   cpu, coreml, cuda, tensorrt, or openvino (default: cpu)
+  --runtime-distribution NAME
+                      Locked ONNX Runtime NuGet distribution (required)
   --jobs COUNT        Parallel build jobs (default: detected CPU count)
   --lock FILE         Dependency lock file (default: dependencies.lock.tsv)
-  --runtime-distribution NAME
-                      Locked ONNX Runtime NuGet distribution, or source (default)
-  --nvcc-threads COUNT
-                      Threads used internally by each NVCC compilation (default: 1)
   --verify-only       Only check that the prefix already holds this exact locked build
 
-Provider SDK environment:
-  CUDA_HOME, CUDNN_HOME                       cuda and tensorrt
-  TENSORRT_HOME                               tensorrt
-  ONNX_CUDA_ARCHITECTURES                    explicit CMake SM list for headless builds
-  OpenVINO_DIR                                openvino (directory containing OpenVINOConfig.cmake)
-  ONNX_OPENVINO_DEVICE                       openvino (default: AUTO:GPU,CPU)
+The openvino profile also installs the locked Intel OpenVINO plugin execution
+provider next to the runtime.
 EOF
   exit 2
 }
@@ -34,8 +28,7 @@ prefix=
 work_dir=
 profile=cpu
 jobs=
-runtime_distribution=source
-nvcc_threads=1
+runtime_distribution=
 verify_only=0
 
 while [ "$#" -gt 0 ]; do
@@ -46,7 +39,6 @@ while [ "$#" -gt 0 ]; do
     --jobs) [ "$#" -ge 2 ] || usage; jobs=$2; shift 2 ;;
     --lock) [ "$#" -ge 2 ] || usage; lock_file=$2; shift 2 ;;
     --runtime-distribution) [ "$#" -ge 2 ] || usage; runtime_distribution=$2; shift 2 ;;
-    --nvcc-threads) [ "$#" -ge 2 ] || usage; nvcc_threads=$2; shift 2 ;;
     --verify-only) verify_only=1; shift ;;
     -h|--help) usage ;;
     *) usage ;;
@@ -55,11 +47,14 @@ done
 
 [ -n "$prefix" ] || usage
 [ -n "$work_dir" ] || usage
+[ -n "$runtime_distribution" ] || usage
 case "$profile" in
   cpu|coreml|cuda|tensorrt|openvino) ;;
   *) echo "Unsupported ONNX profile: $profile" >&2; exit 2 ;;
 esac
 
+platform=$(uname -s)
+architecture=$(uname -m)
 for command_name in awk cmake git pkg-config; do
   command -v "$command_name" >/dev/null 2>&1 || {
     echo "Required command not found: $command_name" >&2
@@ -67,9 +62,9 @@ for command_name in awk cmake git pkg-config; do
   }
 done
 # --verify-only reads the prefix stamp only, so it runs in images without the fetch tools.
-if [ "$runtime_distribution" != source ] && [ "$verify_only" -eq 0 ]; then
+if [ "$verify_only" -eq 0 ]; then
   soname_tool=readelf
-  if [ "$(uname -s)" = Darwin ]; then soname_tool=otool; fi
+  if [ "$platform" = Darwin ]; then soname_tool=otool; fi
   for command_name in curl unzip "$soname_tool"; do
     command -v "$command_name" >/dev/null 2>&1 || {
       echo "Required command not found: $command_name" >&2
@@ -77,7 +72,7 @@ if [ "$runtime_distribution" != source ] && [ "$verify_only" -eq 0 ]; then
     }
   done
   if ! command -v sha256sum >/dev/null 2>&1 && ! command -v shasum >/dev/null 2>&1; then
-    echo "sha256sum or shasum is required for a binary runtime distribution" >&2
+    echo "sha256sum or shasum is required" >&2
     exit 1
   fi
 fi
@@ -89,10 +84,6 @@ case "$jobs" in
   ''|*[!0-9]*) echo "Invalid job count: $jobs" >&2; exit 2 ;;
 esac
 [ "$jobs" -gt 0 ] || { echo "Job count must be positive" >&2; exit 2; }
-case "$nvcc_threads" in
-  ''|*[!0-9]*) echo "Invalid NVCC thread count: $nvcc_threads" >&2; exit 2 ;;
-esac
-[ "$nvcc_threads" -gt 0 ] || { echo "NVCC thread count must be positive" >&2; exit 2; }
 
 locked_field() {
   dependency=$1
@@ -101,74 +92,48 @@ locked_field() {
     '$1 == dependency { print $field; found = 1; exit } END { if (!found) exit 1 }' "$lock_file"
 }
 
+# The onnxruntime row records the upstream release and the commit Microsoft built the
+# NuGet packages from; the distributions are what gets installed.
 ort_version=$(locked_field onnxruntime 2)
 ort_commit=$(locked_field onnxruntime 3)
-ort_source=$(locked_field onnxruntime 5)
 opencv_version=$(locked_field opencv 2)
 opencv_commit=$(locked_field opencv 3)
 opencv_source=$(locked_field opencv 5)
 
-platform=$(uname -s)
-architecture=$(uname -m)
-static_runtime=0
-case "$profile" in
-  cpu|coreml) static_runtime=1 ;;
-esac
-
-if [ "$runtime_distribution" != source ]; then
-  runtime_version=$(locked_field "$runtime_distribution" 2)
-  runtime_sha256=$(locked_field "$runtime_distribution" 3)
-  runtime_source=$(locked_field "$runtime_distribution" 5)
-  runtime_native_dir=$(locked_field "$runtime_distribution" 6)
-  [ "$runtime_version" = "$ort_version" ] || {
-    echo "ONNX Runtime distribution version mismatch: $runtime_version != $ort_version" >&2
-    exit 1
-  }
-  case "$platform/$architecture/$profile/$runtime_distribution" in
-    Linux/x86_64/cpu/onnxruntime-linux-x64|\
-    Linux/aarch64/cpu/onnxruntime-linux-aarch64|\
-    Linux/x86_64/cuda/onnxruntime-linux-x64-gpu-cuda12|\
-    Linux/x86_64/tensorrt/onnxruntime-linux-x64-gpu-cuda13|\
-    Darwin/arm64/coreml/onnxruntime-osx-arm64) ;;
-    *)
-      echo "Invalid ONNX Runtime distribution for target: $platform/$architecture/$profile/$runtime_distribution" >&2
-      exit 1
-      ;;
-  esac
-  static_runtime=0
-fi
-if [ "$profile" = coreml ] && [ "$platform" != Darwin ]; then
-  echo "The CoreML profile can only be built on Darwin" >&2
+runtime_version=$(locked_field "$runtime_distribution" 2) || {
+  echo "Unknown ONNX Runtime distribution: $runtime_distribution" >&2
+  exit 2
+}
+runtime_sha256=$(locked_field "$runtime_distribution" 3)
+[ "$runtime_version" = "$ort_version" ] || {
+  echo "ONNX Runtime distribution version mismatch: $runtime_version != $ort_version" >&2
   exit 1
-fi
-if [ "$profile" = cuda ] || [ "$profile" = tensorrt ]; then
-  : "${CUDA_HOME:?CUDA_HOME is required for the $profile profile}"
-  : "${CUDNN_HOME:?CUDNN_HOME is required for the $profile profile}"
-  : "${ONNX_CUDA_ARCHITECTURES:?ONNX_CUDA_ARCHITECTURES is required for headless $profile builds}"
-  [ -d "$CUDA_HOME" ] || { echo "CUDA_HOME is not a directory: $CUDA_HOME" >&2; exit 1; }
-  [ -d "$CUDNN_HOME" ] || { echo "CUDNN_HOME is not a directory: $CUDNN_HOME" >&2; exit 1; }
-fi
-if [ "$profile" = tensorrt ]; then
-  : "${TENSORRT_HOME:?TENSORRT_HOME is required for the tensorrt profile}"
-  [ -d "$TENSORRT_HOME" ] || {
-    echo "TENSORRT_HOME is not a directory: $TENSORRT_HOME" >&2
+}
+case "$platform/$architecture/$profile/$runtime_distribution" in
+  Linux/x86_64/cpu/onnxruntime-linux-x64|\
+  Linux/aarch64/cpu/onnxruntime-linux-aarch64|\
+  Linux/x86_64/cuda/onnxruntime-linux-x64-gpu-cuda12|\
+  Linux/x86_64/tensorrt/onnxruntime-linux-x64-gpu-cuda13|\
+  Linux/x86_64/openvino/onnxruntime-linux-x64|\
+  Darwin/arm64/coreml/onnxruntime-osx-arm64) ;;
+  *)
+    echo "Invalid ONNX Runtime distribution for target: $platform/$architecture/$profile/$runtime_distribution" >&2
     exit 1
-  }
-fi
+    ;;
+esac
+plugin_distribution=
 if [ "$profile" = openvino ]; then
-  : "${OpenVINO_DIR:?OpenVINO_DIR is required for the openvino profile}"
-  [ -f "$OpenVINO_DIR/OpenVINOConfig.cmake" ] || {
-    echo "OpenVINOConfig.cmake not found in OpenVINO_DIR: $OpenVINO_DIR" >&2
-    exit 1
-  }
+  plugin_distribution=onnxruntime-openvino-ep-linux-x64
+  plugin_sha256=$(locked_field "$plugin_distribution" 3)
 fi
 
 mkdir -p "$prefix" "$work_dir"
 prefix=$(CDPATH='' cd -- "$prefix" && pwd)
 work_dir=$(CDPATH='' cd -- "$work_dir" && pwd)
 stamp="$platform/$architecture/$profile/onnxruntime-$ort_version-$ort_commit/opencv-$opencv_version-$opencv_commit"
-if [ "$runtime_distribution" != source ]; then
-  stamp="$stamp/distribution-$runtime_distribution-$runtime_sha256"
+stamp="$stamp/distribution-$runtime_distribution-$runtime_sha256"
+if [ -n "$plugin_distribution" ]; then
+  stamp="$stamp/plugin-$plugin_distribution-$plugin_sha256"
 fi
 if [ -f "$prefix/.mist-onnx-dependencies" ]; then
   if [ "$(cat "$prefix/.mist-onnx-dependencies")" = "$stamp" ]; then
@@ -214,18 +179,67 @@ checkout_locked_source() {
   }
 }
 
+# Downloads one locked NuGet package, checks its SHA-256 and .nuspec version, and unpacks
+# it into $work_dir/<name>-unpack. A .nupkg is a zip holding the .nuspec, LICENSE and any
+# notices at the root, headers under build/native/include (CPU) or
+# buildTransitive/native/include (GPU), and one runtimes/<rid>/native directory per platform.
+fetch_locked_package() {
+  name=$1
+  package_version=$(locked_field "$name" 2)
+  package_sha256=$(locked_field "$name" 3)
+  package_source=$(locked_field "$name" 5)
+  package_archive="$work_dir/$name-$package_version.nupkg"
+  curl -fL --retry 3 --silent --show-error --output "$package_archive" "$package_source"
+  if command -v sha256sum >/dev/null 2>&1; then
+    actual_sha256=$(sha256sum "$package_archive" | awk '{print $1}')
+  else
+    actual_sha256=$(shasum -a 256 "$package_archive" | awk '{print $1}')
+  fi
+  [ "$actual_sha256" = "$package_sha256" ] || {
+    echo "$name checksum mismatch" >&2
+    echo "Expected: $package_sha256" >&2
+    echo "Actual:   $actual_sha256" >&2
+    exit 1
+  }
+  package_unpack="$work_dir/$name-unpack"
+  rm -rf "$package_unpack"
+  mkdir -p "$package_unpack"
+  unzip -q "$package_archive" -d "$package_unpack"
+  nuspec=$(find "$package_unpack" -mindepth 1 -maxdepth 1 -type f -name '*.nuspec' -print -quit)
+  [ -n "$nuspec" ] || { echo "$name has no .nuspec" >&2; exit 1; }
+  nuspec_version=$(sed -n 's|.*<version>\([^<]*\)</version>.*|\1|p' "$nuspec" | head -n 1)
+  [ "$nuspec_version" = "$package_version" ] || {
+    echo "$name package version mismatch: $nuspec_version != $package_version" >&2
+    exit 1
+  }
+  package_native="$package_unpack/$(locked_field "$name" 6)"
+  [ -d "$package_native" ] || { echo "$name lacks $(locked_field "$name" 6)" >&2; exit 1; }
+}
+
+# Installs a library the package ships under its unversioned linker name as the SONAME /
+# install name the linker records in consumers, and points the linker name at it.
+install_by_soname() {
+  library=$1
+  linker_name=$2
+  if [ "$platform" = Darwin ]; then
+    soname=$(otool -D "$library" | sed -n '2p')
+    soname=${soname##*/}
+  else
+    soname=$(readelf -d "$library" | sed -n 's/.*Library soname: \[\(.*\)\].*/\1/p')
+  fi
+  case "$soname" in
+    "${linker_name%%.*}".*) ;;
+    *) echo "Unexpected SONAME for $library: '$soname'" >&2; exit 1 ;;
+  esac
+  cp "$library" "$prefix/lib/$soname"
+  if [ "$soname" != "$linker_name" ]; then
+    ln -sf "$soname" "$prefix/lib/$linker_name"
+  fi
+}
+
 opencv_src="$work_dir/opencv-src"
 opencv_build="$work_dir/opencv-build"
-ort_src="$work_dir/onnxruntime-src"
-ort_build="$work_dir/onnxruntime-build"
-
 checkout_locked_source OpenCV "$opencv_source" "$opencv_commit" "$opencv_src"
-if [ "$runtime_distribution" = source ]; then
-  checkout_locked_source "ONNX Runtime" "$ort_source" "$ort_commit" "$ort_src"
-fi
-
-opencv_shared=ON
-if [ "$static_runtime" -eq 1 ]; then opencv_shared=OFF; fi
 
 cmake -S "$opencv_src" -B "$opencv_build" -G Ninja \
   -DCMAKE_BUILD_TYPE=Release \
@@ -233,7 +247,7 @@ cmake -S "$opencv_src" -B "$opencv_build" -G Ninja \
   -DCMAKE_INSTALL_LIBDIR=lib \
   -DCMAKE_INSTALL_NAME_DIR=@rpath \
   -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
-  -DBUILD_SHARED_LIBS="$opencv_shared" \
+  -DBUILD_SHARED_LIBS=ON \
   -DOPENCV_FORCE_3RDPARTY_BUILD=ON \
   -DBUILD_LIST=core,imgproc,imgcodecs,video,geometry \
   -DBUILD_TESTS=OFF \
@@ -268,87 +282,62 @@ cmake -S "$opencv_src" -B "$opencv_build" -G Ninja \
 cmake --build "$opencv_build" --parallel "$jobs"
 cmake --install "$opencv_build"
 
-if [ "$runtime_distribution" != source ]; then
-  runtime_archive="$work_dir/$runtime_distribution-$runtime_version.nupkg"
-  curl -fL --retry 3 --output "$runtime_archive" "$runtime_source"
-  if command -v sha256sum >/dev/null 2>&1; then
-    actual_runtime_sha256=$(sha256sum "$runtime_archive" | awk '{print $1}')
-  else
-    actual_runtime_sha256=$(shasum -a 256 "$runtime_archive" | awk '{print $1}')
+fetch_locked_package "$runtime_distribution"
+runtime_unpack=$package_unpack
+runtime_libs=$package_native
+runtime_include=
+for include_dir in build/native/include buildTransitive/native/include; do
+  if [ -f "$runtime_unpack/$include_dir/onnxruntime_c_api.h" ]; then
+    runtime_include="$runtime_unpack/$include_dir"
+    break
   fi
-  [ "$actual_runtime_sha256" = "$runtime_sha256" ] || {
-    echo "ONNX Runtime distribution checksum mismatch" >&2
-    echo "Expected: $runtime_sha256" >&2
-    echo "Actual:   $actual_runtime_sha256" >&2
-    exit 1
-  }
+done
+[ -n "$runtime_include" ] &&
+  [ -f "$runtime_unpack/LICENSE" ] && [ -f "$runtime_unpack/ThirdPartyNotices.txt" ] || {
+  echo "Invalid ONNX Runtime package layout: $runtime_distribution" >&2
+  exit 1
+}
 
-  # Microsoft publishes the native runtimes as NuGet packages: a zip holding the package
-  # .nuspec, LICENSE and ThirdPartyNotices.txt at the root, the C/C++ headers under
-  # build/native/include (CPU) or buildTransitive/native/include (GPU), and one
-  # runtimes/<rid>/native directory per platform. Repackage that into the prefix layout.
-  runtime_unpack="$work_dir/$runtime_distribution-unpack"
-  rm -rf "$runtime_unpack"
-  mkdir -p "$runtime_unpack"
-  unzip -q "$runtime_archive" -d "$runtime_unpack"
-  runtime_nuspec=$(find "$runtime_unpack" -mindepth 1 -maxdepth 1 -type f -name '*.nuspec' -print -quit)
-  [ -n "$runtime_nuspec" ] || {
-    echo "ONNX Runtime distribution has no .nuspec: $runtime_distribution" >&2
-    exit 1
-  }
-  package_version=$(sed -n 's|.*<version>\([^<]*\)</version>.*|\1|p' "$runtime_nuspec" | head -n 1)
-  [ "$package_version" = "$runtime_version" ] || {
-    echo "ONNX Runtime package version mismatch: $package_version != $runtime_version" >&2
-    exit 1
-  }
-  runtime_include=
-  for include_dir in build/native/include buildTransitive/native/include; do
-    if [ -f "$runtime_unpack/$include_dir/onnxruntime_c_api.h" ]; then
-      runtime_include="$runtime_unpack/$include_dir"
-      break
-    fi
-  done
-  runtime_libs="$runtime_unpack/$runtime_native_dir"
-  [ -n "$runtime_include" ] && [ -d "$runtime_libs" ] &&
-    [ -f "$runtime_unpack/LICENSE" ] && [ -f "$runtime_unpack/ThirdPartyNotices.txt" ] || {
-    echo "Invalid ONNX Runtime package layout: $runtime_distribution ($runtime_native_dir)" >&2
-    exit 1
-  }
+mkdir -p "$prefix/include/onnxruntime" "$prefix/lib/pkgconfig" \
+  "$prefix/share/licenses/onnxruntime"
+cp -R "$runtime_include/." "$prefix/include/onnxruntime/"
+if [ "$platform" = Darwin ]; then
+  install_by_soname "$runtime_libs/libonnxruntime.dylib" libonnxruntime.dylib
+else
+  install_by_soname "$runtime_libs/libonnxruntime.so" libonnxruntime.so
+fi
+for runtime_lib in "$runtime_libs"/libonnxruntime_providers_*; do
+  if [ -f "$runtime_lib" ]; then
+    cp "$runtime_lib" "$prefix/lib/"
+  fi
+done
+if [ "$profile" = cuda ]; then
+  rm -f "$prefix/lib/libonnxruntime_providers_tensorrt.so"
+fi
+cp "$runtime_unpack/LICENSE" "$prefix/share/licenses/onnxruntime/LICENSE"
+cp "$runtime_unpack/ThirdPartyNotices.txt" \
+  "$prefix/share/licenses/onnxruntime/ThirdPartyNotices.txt"
 
-  mkdir -p "$prefix/include/onnxruntime" "$prefix/lib/pkgconfig" \
-    "$prefix/share/licenses/onnxruntime"
-  cp -R "$runtime_include/." "$prefix/include/onnxruntime/"
-  # The package ships each runtime under its unversioned linker name. Install it under the
-  # SONAME / install name the linker records in consumers, and point the linker name at it.
-  if [ "$platform" = Darwin ]; then
-    runtime_main="$runtime_libs/libonnxruntime.dylib"
-    [ -f "$runtime_main" ] || { echo "Missing $runtime_main" >&2; exit 1; }
-    runtime_soname=$(otool -D "$runtime_main" | sed -n '2p')
-    runtime_soname=${runtime_soname##*/}
-    linker_name=libonnxruntime.dylib
-  else
-    runtime_main="$runtime_libs/libonnxruntime.so"
-    [ -f "$runtime_main" ] || { echo "Missing $runtime_main" >&2; exit 1; }
-    runtime_soname=$(readelf -d "$runtime_main" | sed -n 's/.*Library soname: \[\(.*\)\].*/\1/p')
-    linker_name=libonnxruntime.so
-  fi
-  case "$runtime_soname" in
-    libonnxruntime.*) ;;
-    *) echo "Unexpected ONNX Runtime SONAME: '$runtime_soname'" >&2; exit 1 ;;
-  esac
-  cp "$runtime_main" "$prefix/lib/$runtime_soname"
-  if [ "$runtime_soname" != "$linker_name" ]; then
-    ln -sf "$runtime_soname" "$prefix/lib/$linker_name"
-  fi
-  for runtime_lib in "$runtime_libs"/libonnxruntime_providers_*; do
-    if [ -f "$runtime_lib" ]; then
-      cp "$runtime_lib" "$prefix/lib/"
-    fi
+if [ -n "$plugin_distribution" ]; then
+  # Intel's plugin bundles its own OpenVINO runtime (libopenvino, device plugins, TBB,
+  # hwloc and the GPU kernel cache.json); its RUNPATH is $ORIGIN, so it all stays together.
+  fetch_locked_package "$plugin_distribution"
+  plugin_libs=$package_native
+  plugin_name=libonnxruntime_providers_openvino_plugin.so
+  [ -f "$plugin_libs/$plugin_name" ] || { echo "Missing $plugin_libs/$plugin_name" >&2; exit 1; }
+  install_by_soname "$plugin_libs/$plugin_name" "$plugin_name"
+  for plugin_file in "$plugin_libs"/*; do
+    case "${plugin_file##*/}" in
+      "$plugin_name"*|third-party-programs.txt) ;;
+      *) cp "$plugin_file" "$prefix/lib/" ;;
+    esac
   done
-  if [ "$profile" = cuda ]; then
-    rm -f "$prefix/lib/libonnxruntime_providers_tensorrt.so"
-  fi
-  cat > "$prefix/lib/pkgconfig/libonnxruntime.pc" <<EOF
+  mkdir -p "$prefix/share/licenses/onnxruntime-openvino-ep"
+  cp "$plugin_libs/third-party-programs.txt" \
+    "$prefix/share/licenses/onnxruntime-openvino-ep/third-party-programs.txt"
+fi
+
+cat > "$prefix/lib/pkgconfig/libonnxruntime.pc" <<EOF
 prefix=$prefix
 libdir=\${prefix}/lib
 includedir=\${prefix}/include/onnxruntime
@@ -359,126 +348,19 @@ Version: $runtime_version
 Libs: -L\${libdir} -lonnxruntime
 Cflags: -I\${includedir}
 EOF
-  cp "$runtime_unpack/LICENSE" "$prefix/share/licenses/onnxruntime/LICENSE"
-  cp "$runtime_unpack/ThirdPartyNotices.txt" \
-    "$prefix/share/licenses/onnxruntime/ThirdPartyNotices.txt"
-else
-  ort_args=(
-  --config Release
-  --update
-  --build
-  --parallel "$jobs"
-  --skip_tests
-  --compile_no_warning_as_error
-  --no_telemetry
-  --build_dir "$ort_build"
-  --cmake_extra_defines
-  "CMAKE_INSTALL_PREFIX=$prefix"
-  CMAKE_INSTALL_LIBDIR=lib
-  CMAKE_POSITION_INDEPENDENT_CODE=ON
-  CMAKE_POLICY_VERSION_MINIMUM=3.5
-  FETCHCONTENT_TRY_FIND_PACKAGE_MODE=NEVER
-  onnxruntime_BUILD_UNIT_TESTS=OFF
-  onnxruntime_ENABLE_PYTHON=OFF
-  "onnxruntime_BUILD_SHARED_LIB=$([ "$static_runtime" -eq 1 ] && echo OFF || echo ON)"
-  )
-  if [ "$(id -u)" -eq 0 ]; then
-    ort_args+=(--allow_running_as_root)
-  fi
-  case "$profile" in
-    coreml) ort_args+=(--use_coreml) ;;
-    cuda)
-      ort_args+=(--use_cuda --cuda_home "$CUDA_HOME" --cudnn_home "$CUDNN_HOME"
-        --cmake_extra_defines "CMAKE_CUDA_ARCHITECTURES=$ONNX_CUDA_ARCHITECTURES"
-        "onnxruntime_NVCC_THREADS=$nvcc_threads" "onnxruntime_FLASH_NVCC_THREADS=$nvcc_threads")
-      ;;
-    tensorrt)
-      ort_args+=(--use_cuda --cuda_home "$CUDA_HOME" --cudnn_home "$CUDNN_HOME"
-        --use_tensorrt --tensorrt_home "$TENSORRT_HOME"
-        --cmake_extra_defines "CMAKE_CUDA_ARCHITECTURES=$ONNX_CUDA_ARCHITECTURES"
-        "onnxruntime_NVCC_THREADS=$nvcc_threads" "onnxruntime_FLASH_NVCC_THREADS=$nvcc_threads")
-      ;;
-    openvino)
-      ort_args+=(--use_openvino "${ONNX_OPENVINO_DEVICE:-AUTO:GPU,CPU}"
-        --cmake_extra_defines "OpenVINO_DIR=$OpenVINO_DIR")
-      ;;
-  esac
 
-  if [ "$static_runtime" -eq 0 ]; then
-    ort_args+=(--build_shared_lib)
-  fi
-
-  (cd "$ort_src" && ./build.sh "${ort_args[@]}")
-  cmake --install "$ort_build/Release"
-fi
-
-# The upstream static install exports an interface target but its pkg-config file still
-# names a non-existent monolithic archive, while many third-party archives in that target's
-# link closure are not installed. Build that closure explicitly into one relocatable archive
-# and replace the unusable pkg-config metadata. Accelerator profiles intentionally remain
-# shared: CUDA, TensorRT and OpenVINO have their own driver/SDK runtime closure.
-if [ "$static_runtime" -eq 1 ]; then
-  cmake --build "$ort_build/Release" --target re2 --parallel "$jobs"
-  archive_list="$work_dir/onnxruntime-static-archives.txt"
-  find "$ort_build/Release" -type f -name '*.a' | LC_ALL=C sort > "$archive_list"
-  # ORT is built with its default lite protobuf runtime for every static profile.
-  # Keep libprotobuf-lite in the aggregate and discard the unused full/compiler archives.
-  grep -v '/libprotobuf\.a$' "$archive_list" | grep -v '/libprotoc\.a$' > "$archive_list.filtered"
-  mv "$archive_list.filtered" "$archive_list"
-  [ -s "$archive_list" ] || { echo "ONNX Runtime produced no static archives" >&2; exit 1; }
-
-  aggregate="$prefix/lib/libonnxruntime.a"
-  rm -f "$aggregate"
-  if [ "$platform" = Darwin ]; then
-    command -v libtool >/dev/null 2>&1 || { echo "Apple libtool is required" >&2; exit 1; }
-    archives=()
-    while IFS= read -r archive; do archives+=("$archive"); done < "$archive_list"
-    libtool -static -o "$aggregate" "${archives[@]}"
-  else
-    command -v ar >/dev/null 2>&1 || { echo "ar is required" >&2; exit 1; }
-    mri_script="$work_dir/onnxruntime-static.mri"
-    {
-      printf 'create %s\n' "$aggregate"
-      sed 's/^/addlib /' "$archive_list"
-      printf 'save\nend\n'
-    } > "$mri_script"
-    ar -M < "$mri_script"
-  fi
-
-  # Keep the aggregate and OpenCV archives only. The component archives and the provider
-  # bridge shared object are implementation debris from the upstream static install.
-  find "$prefix/lib" -maxdepth 1 -type f -name '*.a' \
-    ! -name 'libonnxruntime.a' ! -name 'libopencv*.a' -delete
-  rm -f "$prefix/lib/libonnxruntime_providers_shared.so" \
-        "$prefix/lib/libonnxruntime_providers_shared.dylib"
-  rm -rf "$prefix/lib/cmake/onnxruntime"
-
-  mkdir -p "$prefix/lib/pkgconfig"
-  private_libs='-ldl -lrt -lpthread'
-  if [ "$profile" = coreml ]; then
-    private_libs='-framework Foundation -framework CoreML -liconv'
-  fi
-  cat > "$prefix/lib/pkgconfig/libonnxruntime.pc" <<EOF
-prefix=$prefix
-libdir=\${prefix}/lib
-includedir=\${prefix}/include/onnxruntime
-
-Name: onnxruntime
-Description: ONNX Runtime static $profile profile for MistServer
-Version: $ort_version
-Libs: -L\${libdir} -lonnxruntime
-Libs.private: $private_libs
-Cflags: -I\${includedir}
-EOF
-fi
-
-# Exercise the installed consumer interface. This catches the broken upstream static
-# pkg-config metadata and missing aggregate members before the prefix reaches CI caches.
+# Exercise the installed consumer interface: link through pkg-config, list the compiled
+# providers and, for the openvino profile, register the plugin library.
 smoke_source="$work_dir/onnxruntime-link-smoke.cpp"
 cat > "$smoke_source" <<'EOF'
 #include <onnxruntime_c_api.h>
 #include <cstdio>
-int main() {
+static int fail(const OrtApi *api, OrtStatus *status) {
+  std::fprintf(stderr, "%s\n", api->GetErrorMessage(status));
+  api->ReleaseStatus(status);
+  return 1;
+}
+int main(int argc, char **argv) {
   const OrtApiBase *base = OrtGetApiBase();
   if (!base) return 1;
   const OrtApi *api = base->GetApi(ORT_API_VERSION);
@@ -486,17 +368,17 @@ int main() {
   char **providers = nullptr;
   int provider_count = 0;
   OrtStatus *status = api->GetAvailableProviders(&providers, &provider_count);
-  if (status) {
-    std::fprintf(stderr, "%s\n", api->GetErrorMessage(status));
-    api->ReleaseStatus(status);
-    return 1;
-  }
+  if (status) return fail(api, status);
   for (int i = 0; i < provider_count; ++i) std::puts(providers[i]);
   status = api->ReleaseAvailableProviders(providers, provider_count);
-  if (status) {
-    std::fprintf(stderr, "%s\n", api->GetErrorMessage(status));
-    api->ReleaseStatus(status);
-    return 1;
+  if (status) return fail(api, status);
+  if (argc > 1) {
+    OrtEnv *env = nullptr;
+    status = api->CreateEnv(ORT_LOGGING_LEVEL_WARNING, "smoke", &env);
+    if (status) return fail(api, status);
+    status = api->RegisterExecutionProviderLibrary(env, "plugin", argv[1]);
+    if (status) return fail(api, status);
+    std::puts("PluginRegistered");
   }
   return 0;
 }
@@ -504,36 +386,33 @@ EOF
 pkg_config_path="$prefix/lib/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}"
 # shellcheck disable=SC2046
 PKG_CONFIG_PATH="$pkg_config_path" "${CXX:-c++}" -std=c++17 "$smoke_source" \
-  $(PKG_CONFIG_PATH="$pkg_config_path" pkg-config --cflags --libs --static libonnxruntime) \
+  $(PKG_CONFIG_PATH="$pkg_config_path" pkg-config --cflags --libs libonnxruntime) \
   -o "$work_dir/onnxruntime-link-smoke"
-if [ "$static_runtime" -eq 1 ]; then
-  available_providers=$("$work_dir/onnxruntime-link-smoke")
-elif [ "$platform" = Darwin ]; then
+smoke_args=()
+if [ -n "$plugin_distribution" ]; then
+  smoke_args=("$prefix/lib/libonnxruntime_providers_openvino_plugin.so")
+fi
+if [ "$platform" = Darwin ]; then
   available_providers=$(DYLD_LIBRARY_PATH="$prefix/lib${DYLD_LIBRARY_PATH:+:$DYLD_LIBRARY_PATH}" \
-    "$work_dir/onnxruntime-link-smoke")
+    "$work_dir/onnxruntime-link-smoke" ${smoke_args[@]+"${smoke_args[@]}"})
 else
   available_providers=$(LD_LIBRARY_PATH="$prefix/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
-    "$work_dir/onnxruntime-link-smoke")
+    "$work_dir/onnxruntime-link-smoke" ${smoke_args[@]+"${smoke_args[@]}"})
 fi
 expected_provider=CPUExecutionProvider
 case "$profile" in
   coreml) expected_provider=CoreMLExecutionProvider ;;
   cuda) expected_provider=CUDAExecutionProvider ;;
   tensorrt) expected_provider=TensorrtExecutionProvider ;;
-  openvino) expected_provider=OpenVINOExecutionProvider ;;
+  openvino) expected_provider=PluginRegistered ;;
 esac
 printf '%s\n' "$available_providers" | grep -Fx "$expected_provider" >/dev/null || {
   printf '%s\n' "$available_providers" >&2
-  echo "ONNX Runtime did not compile the expected provider: $expected_provider" >&2
+  echo "ONNX Runtime does not provide the expected provider: $expected_provider" >&2
   exit 1
 }
 
-mkdir -p "$prefix/share/licenses/onnxruntime" "$prefix/share/licenses/opencv"
-if [ "$runtime_distribution" = source ]; then
-  cp "$ort_src/LICENSE" "$prefix/share/licenses/onnxruntime/LICENSE"
-  cp "$ort_src/ThirdPartyNotices.txt" \
-    "$prefix/share/licenses/onnxruntime/ThirdPartyNotices.txt"
-fi
+mkdir -p "$prefix/share/licenses/opencv"
 cp "$opencv_src/LICENSE" "$prefix/share/licenses/opencv/LICENSE"
 printf '%s\n' "$stamp" > "$prefix/.mist-onnx-dependencies"
 

@@ -116,17 +116,6 @@ jobs:
           sudo rm -rf /usr/share/dotnet
           sudo rm -rf /opt/ghc
 
-      - name: Provision swap for source-built NVIDIA runtime
-        if: steps.existing.outputs.published != 'true' && matrix.swap_gb > 0
-        shell: bash
-        run: |
-          swap_file="$RUNNER_TEMP/onnx-provider.swap"
-          sudo fallocate -l '${{ matrix.swap_gb }}G' "$swap_file"
-          sudo chmod 600 "$swap_file"
-          sudo mkswap "$swap_file"
-          sudo swapon "$swap_file"
-          free -h
-
       - name: Build and publish dependency image
         if: steps.existing.outputs.published != 'true'
         uses: docker/build-push-action@v7
@@ -142,12 +131,6 @@ jobs:
             ONNX_PROFILE=${{ matrix.profile }}
             ONNX_DEP_JOBS=${{ matrix.dependency_jobs }}
             ONNX_RUNTIME_DISTRIBUTION=${{ matrix.runtime_distribution }}
-            ONNX_NVCC_THREADS=${{ matrix.nvcc_threads }}
-            ONNX_CUDA_ARCHITECTURES=${{ matrix.cuda_architectures }}
-            CUDA_HOME=${{ matrix.cuda_home }}
-            CUDNN_HOME=${{ matrix.cudnn_home }}
-            TENSORRT_HOME=${{ matrix.tensorrt_home }}
-            OpenVINO_DIR=${{ matrix.openvino_dir }}
           labels: |
             org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
             org.opencontainers.image.revision=${{ github.sha }}

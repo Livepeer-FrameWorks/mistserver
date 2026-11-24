@@ -24,16 +24,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 ARG ONNX_PROFILE=cpu
-ARG ONNX_STATIC=true
 ARG ONNX_DEP_JOBS=4
-ARG ONNX_RUNTIME_DISTRIBUTION=source
-ARG ONNX_NVCC_THREADS=1
-ARG CUDA_HOME
-ARG CUDNN_HOME
-ARG TENSORRT_HOME
-ARG ONNX_CUDA_ARCHITECTURES
-ARG OpenVINO_DIR
-ARG ONNX_OPENVINO_DEVICE=AUTO:GPU,CPU
+# The locked NuGet distribution for this profile and platform (accelerator-images.json).
+ARG ONNX_RUNTIME_DISTRIBUTION
 ARG ONNX_RUN_PROVIDER_TEST=true
 ARG ONNX_INSTALL_TEST_PROBE=false
 ARG MIST_OPTS
@@ -43,12 +36,8 @@ ARG VERSION=Unknown
 ARG TARGETPLATFORM
 ARG RELEASE=Docker_${TARGETPLATFORM}
 
-# CUDA/TensorRT profiles require CUDA_HOME/CUDNN_HOME/TENSORRT_HOME in BUILD_BASE or
-# as build arguments. OpenVINO requires OpenVINO_DIR in an SDK-equipped BUILD_BASE.
-# Those profiles use shared ONNX/OpenCV dependencies, must set ONNX_STATIC=false, and
-# require a matching SDK-equipped RUNTIME_BASE. Release CPU images use Microsoft's
-# checksum-pinned shared NuGet runtime (ONNX_STATIC=false); the static CPU default builds
-# ONNX Runtime from its locked source commit.
+# Every profile links the shared ONNX Runtime and OpenCV from /opt/mist-onnx. CUDA,
+# TensorRT and OpenVINO also need a RUNTIME_BASE that carries their vendor userspace.
 # The prefix comes prebuilt from ONNX_DEPS_IMAGE; --verify-only refuses one whose stamp is
 # not this platform, profile, lock and runtime distribution instead of rebuilding it.
 COPY --from=onnx_deps /opt/mist-onnx/ /opt/mist-onnx/
@@ -58,8 +47,7 @@ RUN /src/scripts/ONNX/build_dependencies.sh --verify-only \
       --work-dir /tmp/onnx-deps-verify \
       --profile ${ONNX_PROFILE} \
       --jobs ${ONNX_DEP_JOBS} \
-      --runtime-distribution ${ONNX_RUNTIME_DISTRIBUTION} \
-      --nvcc-threads ${ONNX_NVCC_THREADS} \
+      --runtime-distribution "${ONNX_RUNTIME_DISTRIBUTION}" \
     && rm -rf /tmp/onnx-deps-verify
 
 COPY . /src
@@ -84,7 +72,6 @@ RUN export LD_LIBRARY_PATH="/opt/mist-onnx/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PA
       -DRELEASE=${RELEASE} \
       -DWITH_AV=true \
       -DONNX=enabled \
-      -DONNX_STATIC=${ONNX_STATIC} \
       -DONNX_PROFILE=${ONNX_PROFILE} \
       -Dstrip=true \
       ${MIST_OPTS} \
@@ -97,17 +84,11 @@ RUN export LD_LIBRARY_PATH="/opt/mist-onnx/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PA
          /src/scripts/ONNX/prepare_models.sh --dir /tmp/onnx-models yolo26n; \
          ffmpeg -hide_banner -loglevel error -y -f lavfi \
            -i testsrc2=size=640x640 -frames:v 1 /tmp/onnx-test.jpg; \
-         if [ "${ONNX_STATIC}" = true ]; then \
-           /src/scripts/ONNX/verify_release.sh --build-dir /build \
-             --expected-profile ${ONNX_PROFILE} --provider ${ONNX_PROFILE} \
-             --model /tmp/onnx-models/yolo26n.onnx --image /tmp/onnx-test.jpg; \
-         else \
-           /src/scripts/ONNX/verify_release.sh --build-dir /build --allow-shared \
-             --expected-profile ${ONNX_PROFILE} --provider ${ONNX_PROFILE} \
-             --model /tmp/onnx-models/yolo26n.onnx --image /tmp/onnx-test.jpg; \
-         fi; \
+         /src/scripts/ONNX/verify_release.sh --build-dir /build \
+           --expected-profile ${ONNX_PROFILE} --provider ${ONNX_PROFILE} \
+           --model /tmp/onnx-models/yolo26n.onnx --image /tmp/onnx-test.jpg; \
        else \
-         /src/scripts/ONNX/verify_release.sh --build-dir /build --allow-shared \
+         /src/scripts/ONNX/verify_release.sh --build-dir /build \
            --expected-profile ${ONNX_PROFILE} --provider ${ONNX_PROFILE}; \
        fi \
     && if [ "${ONNX_INSTALL_TEST_PROBE}" = true ]; then \
@@ -128,13 +109,8 @@ RUN if [ -n "${OUTPUT_DBG+x}" ]; then \
       tar cf - /build /src /opt/mist-onnx | gzip -6 | curl --upload-file - "${OUTPUT_DBG}"; \
     fi
 
-# A static profile has already absorbed ONNX Runtime and OpenCV into libmistonnx. Keep only
-# their notices in the runtime layer; shared accelerator profiles retain the provider libs.
-# Headers are build inputs only.
-RUN rm -rf /opt/mist-onnx/include \
-    && if [ "${ONNX_STATIC}" = true ]; then \
-      rm -rf /opt/mist-onnx/lib; \
-    fi
+# Headers are build inputs only; the runtime layer keeps the shared libraries and notices.
+RUN rm -rf /opt/mist-onnx/include
 
 # Only MistServer's own installed files reach the runtime layer. The build base's
 # /usr/local also holds its toolchain (the devel CUDA toolkit, pip build tools).

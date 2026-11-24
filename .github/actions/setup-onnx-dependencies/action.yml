@@ -16,13 +16,8 @@ inputs:
     required: false
     default: '4'
   runtime-distribution:
-    description: Locked ONNX Runtime NuGet distribution, or source
-    required: false
-    default: source
-  nvcc-threads:
-    description: Threads used internally by each NVCC compilation
-    required: false
-    default: '1'
+    description: Locked ONNX Runtime NuGet distribution
+    required: true
 
 runs:
   using: composite
@@ -44,7 +39,6 @@ runs:
         --profile '${{ inputs.profile }}'
         --jobs '${{ inputs.jobs }}'
         --runtime-distribution '${{ inputs.runtime-distribution }}'
-        --nvcc-threads '${{ inputs.nvcc-threads }}'
 
     - name: Verify dependency profile
       shell: bash

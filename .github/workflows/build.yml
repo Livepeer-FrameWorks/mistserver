@@ -125,7 +125,6 @@ jobs:
             ONNX_DEPS_IMAGE=${{ steps.deps.outputs.image }}
             BUILD_BASE=${{ steps.deps.outputs.build_base }}
             ONNX_PROFILE=cpu
-            ONNX_STATIC=false
             ONNX_RUNTIME_DISTRIBUTION=onnxruntime-linux-x64
           tags: |
             ${{ env.REGISTRY_GHCR }}/mistserver:${{ steps.version.outputs.tag }}-amd64
@@ -228,7 +227,6 @@ jobs:
             ONNX_DEPS_IMAGE=${{ steps.deps.outputs.image }}
             BUILD_BASE=${{ steps.deps.outputs.build_base }}
             ONNX_PROFILE=cpu
-            ONNX_STATIC=false
             ONNX_RUNTIME_DISTRIBUTION=onnxruntime-linux-aarch64
           tags: |
             ${{ env.REGISTRY_GHCR }}/mistserver:${{ steps.version.outputs.tag }}-arm64
@@ -470,7 +468,6 @@ jobs:
             --force-fallback-for=mbedtls,usrsctp,libavcodec,libavfilter,libavformat,libavutil,libswscale,libswresample,x264 \
             -DWITH_AV=true \
             -DONNX=enabled \
-            -DONNX_STATIC=false \
             -DONNX_PROFILE=cpu \
             -DDEBUG=3 \
             -DNORIST=true \
@@ -486,7 +483,7 @@ jobs:
           meson test -C build "Pinned FFmpeg codec registry contract" "Packaged Linux FFmpeg retains hardware codecs and filters" "AV orientation filter registry" "WebRTC DTLS-SRTP loopback handshake" --print-errorlogs
           scripts/ONNX/prepare_models.sh --dir "$RUNNER_TEMP/onnx-models" yolo26n
           ffmpeg -hide_banner -loglevel error -y -f lavfi -i testsrc2=size=640x640 -frames:v 1 "$RUNNER_TEMP/onnx-test.jpg"
-          scripts/ONNX/verify_release.sh --build-dir build --allow-shared \
+          scripts/ONNX/verify_release.sh --build-dir build \
             --expected-profile cpu --provider cpu \
             --model "$RUNNER_TEMP/onnx-models/yolo26n.onnx" \
             --image "$RUNNER_TEMP/onnx-test.jpg"
@@ -554,6 +551,10 @@ jobs:
               fi
             done
             /opt/mist/bin/MistController -v
+            # The host has no ONNX Runtime: MistProcONNX must load the packaged one.
+            ldd /opt/mist/bin/MistProcONNX | grep -E "libonnxruntime[.]so[.]1 => /opt/mist/(bin/[.][.]/)?lib/"
+            capability=$(/opt/mist/bin/MistProcONNX -j 2>/dev/null || true)
+            printf "%s" "$capability" | grep -E "This binary packages the .cpu. profile"
             exit $failed
           '
 
@@ -730,7 +731,6 @@ jobs:
             --force-fallback-for=mbedtls,usrsctp,libavcodec,libavfilter,libavformat,libavutil,libswscale,libswresample,x264 \
             -DWITH_AV=true \
             -DONNX=enabled \
-            -DONNX_STATIC=false \
             -DONNX_PROFILE=cpu \
             -DDEBUG=3 \
             -DNORIST=true \
@@ -746,7 +746,7 @@ jobs:
           meson test -C build "Pinned FFmpeg codec registry contract" "AV orientation filter registry" "WebRTC DTLS-SRTP loopback handshake" --print-errorlogs
           scripts/ONNX/prepare_models.sh --dir "$RUNNER_TEMP/onnx-models" yolo26n
           ffmpeg -hide_banner -loglevel error -y -f lavfi -i testsrc2=size=640x640 -frames:v 1 "$RUNNER_TEMP/onnx-test.jpg"
-          scripts/ONNX/verify_release.sh --build-dir build --allow-shared \
+          scripts/ONNX/verify_release.sh --build-dir build \
             --expected-profile cpu --provider cpu \
             --model "$RUNNER_TEMP/onnx-models/yolo26n.onnx" \
             --image "$RUNNER_TEMP/onnx-test.jpg"
@@ -814,6 +814,10 @@ jobs:
               fi
             done
             /opt/mist/bin/MistController -v
+            # The host has no ONNX Runtime: MistProcONNX must load the packaged one.
+            ldd /opt/mist/bin/MistProcONNX | grep -E "libonnxruntime[.]so[.]1 => /opt/mist/(bin/[.][.]/)?lib/"
+            capability=$(/opt/mist/bin/MistProcONNX -j 2>/dev/null || true)
+            printf "%s" "$capability" | grep -E "This binary packages the .cpu. profile"
             exit $failed
           '
 
@@ -915,7 +919,6 @@ jobs:
             --force-fallback-for=mbedtls,usrsctp \
             -DWITH_AV=true \
             -DONNX=enabled \
-            -DONNX_STATIC=false \
             -DONNX_PROFILE=coreml \
             -DDEBUG=3 \
             -DNORIST=true \
@@ -928,7 +931,7 @@ jobs:
           ninja -C build-darwin-arm64 install
           scripts/ONNX/prepare_models.sh --dir "$RUNNER_TEMP/onnx-models" yolo26n
           ffmpeg -hide_banner -loglevel error -y -f lavfi -i testsrc2=size=640x640 -frames:v 1 "$RUNNER_TEMP/onnx-test.jpg"
-          scripts/ONNX/verify_release.sh --build-dir build-darwin-arm64 --allow-shared \
+          scripts/ONNX/verify_release.sh --build-dir build-darwin-arm64 \
             --expected-profile coreml --provider coreml \
             --model "$RUNNER_TEMP/onnx-models/yolo26n.onnx" \
             --image "$RUNNER_TEMP/onnx-test.jpg"
@@ -945,6 +948,9 @@ jobs:
           capability=$("$RUNNER_TEMP/darwin-arm64/mistserver-install/bin/MistProcONNX" \
             -j 2>/dev/null || true)
           printf '%s' "$capability" | grep -F "This binary packages the 'coreml' profile"
+          # dyld must resolve the runtime from the package, not from any Homebrew copy.
+          DYLD_PRINT_LIBRARIES=1 "$RUNNER_TEMP/darwin-arm64/mistserver-install/bin/MistProcONNX" -j \
+            2>&1 >/dev/null | grep -E "darwin-arm64/mistserver-install/(bin/[.][.]/)?lib/libonnxruntime[.]1[.]dylib"
 
       - name: Package darwin/arm64
         run: |

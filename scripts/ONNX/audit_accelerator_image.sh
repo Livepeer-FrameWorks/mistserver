@@ -58,18 +58,20 @@ docker run --rm -e PROFILE="$PROFILE" \
       ffmpeg -hide_banner -decoders 2>/dev/null | grep -F av1_cuvid
       ;;
     openvino)
-      test -f /opt/mist-onnx/lib/libonnxruntime_providers_openvino.so
+      test -f /opt/mist-onnx/lib/libonnxruntime_providers_openvino_plugin.so.1
+      test -L /opt/mist-onnx/lib/libonnxruntime_providers_openvino_plugin.so
+      ls /opt/mist-onnx/lib/libopenvino.so.* >/dev/null
+      test -f /opt/mist-onnx/lib/libopenvino_intel_cpu_plugin.so
+      test -f /opt/mist-onnx/lib/libopenvino_intel_gpu_plugin.so
+      test -f /opt/mist-onnx/lib/libopenvino_intel_npu_plugin.so
+      test -f /opt/mist-onnx/share/licenses/onnxruntime-openvino-ep/third-party-programs.txt
+      grep -F "/plugin-onnxruntime-openvino-ep-linux-x64-" /opt/mist-onnx/.mist-onnx-dependencies
       ;;
   esac
   test -f /opt/mist-onnx/share/licenses/onnxruntime/ThirdPartyNotices.txt
   test -d /opt/mist-onnx/share/licenses/opencv5
   grep -F "/$PROFILE/onnxruntime-" /opt/mist-onnx/.mist-onnx-dependencies
-  if [ "$RUNTIME_DISTRIBUTION" = source ]; then
-    ! grep -F "/distribution-" /opt/mist-onnx/.mist-onnx-dependencies
-  else
-    grep -F "/distribution-$RUNTIME_DISTRIBUTION-" \
-      /opt/mist-onnx/.mist-onnx-dependencies
-  fi
+  grep -F "/distribution-$RUNTIME_DISTRIBUTION-" /opt/mist-onnx/.mist-onnx-dependencies
   test -f /opt/mist-onnx/share/mistserver/onnx/dependencies.lock.tsv
   test -f /opt/mist-onnx/share/mistserver/onnx/models.manifest.tsv
   # The runtime layer carries only what MistServer installed, not the build toolchain.

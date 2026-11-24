@@ -7,9 +7,9 @@ build_dir=${MIST_GATE_BUILD_DIR:-build}
 case "$mode" in
   build)
     if [ -f "$build_dir/meson-info/intro-buildoptions.json" ]; then
-      meson setup --reconfigure "$build_dir" -DWITH_AV=true -DONNX=enabled -DONNX_STATIC=true -DONNX_PROFILE=cpu -DDEBUG=4 -Db_coverage=true
+      meson setup --reconfigure "$build_dir" -DWITH_AV=true -DONNX=enabled -DONNX_PROFILE=cpu -DDEBUG=4 -Db_coverage=true
     else
-      meson setup "$build_dir" -DWITH_AV=true -DONNX=enabled -DONNX_STATIC=true -DONNX_PROFILE=cpu -DDEBUG=4 -Db_coverage=true
+      meson setup "$build_dir" -DWITH_AV=true -DONNX=enabled -DONNX_PROFILE=cpu -DDEBUG=4 -Db_coverage=true
     fi
     ninja -C "$build_dir" -j "${MIST_GATE_JOBS:-6}"
     ;;
@@ -40,8 +40,6 @@ case "$mode" in
     matrix=scripts/ONNX/accelerator-images.json
     entry=$(jq -ce '.dependency_images.cpu[] | select(.arch=="amd64")' "$matrix")
     runtime_distribution=${MIST_GATE_RUNTIME_DISTRIBUTION:-$(jq -r .runtime_distribution <<<"$entry")}
-    static_runtime=false
-    if [ "$runtime_distribution" = source ]; then static_runtime=true; fi
     dependency_image=${MIST_GATE_DEPENDENCY_IMAGE:-"frameworks-mist-ingest-deps:$(scripts/ONNX/dependency_image.sh tag cpu amd64)-$runtime_distribution"}
     if [ -n "${MIST_GATE_DEPENDENCY_IMAGE:-}" ]; then
       docker image inspect "$dependency_image" >/dev/null
@@ -59,7 +57,7 @@ case "$mode" in
         --build-arg ONNX_DEPS_IMAGE="$dependency_image" \
         --build-arg BUILD_BASE="$(jq -r .build_base <<<"$entry")" \
         --build-arg RUNTIME_BASE="$(jq -r .build_base <<<"$entry")" \
-        --build-arg ONNX_PROFILE=cpu --build-arg ONNX_STATIC="$static_runtime" \
+        --build-arg ONNX_PROFILE=cpu \
         --build-arg MIST_BUILD_JOBS="${MIST_GATE_JOBS:-4}" \
         --build-arg DEBUG=4 \
         --build-arg ONNX_RUNTIME_DISTRIBUTION="$runtime_distribution" \

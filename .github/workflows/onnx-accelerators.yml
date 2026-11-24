@@ -93,9 +93,7 @@ jobs:
                 (.dependency_jobs | type == "number" and . > 0)
                 and (.runtime_distribution | type == "string" and length > 0)
                 and (.runtime_packages | type == "string")
-                and (.nvidia_driver_capabilities | type == "string")
-                and (.nvcc_threads | type == "number" and . > 0)
-                and (.swap_gb | type == "number" and . >= 0))
+                and (.nvidia_driver_capabilities | type == "string"))
               and any($deployment.targets[];
                 .profile == "coreml" and .platform == "darwin/arm64")
               and all(.include[];
@@ -232,17 +230,10 @@ jobs:
             RUNTIME_PACKAGES=${{ matrix.runtime_packages }}
             NVIDIA_DRIVER_CAPABILITIES=${{ matrix.nvidia_driver_capabilities }}
             ONNX_PROFILE=${{ matrix.profile }}
-            ONNX_STATIC=false
             ONNX_RUN_PROVIDER_TEST=false
             ONNX_INSTALL_TEST_PROBE=true
             ONNX_DEP_JOBS=${{ matrix.dependency_jobs }}
             ONNX_RUNTIME_DISTRIBUTION=${{ matrix.runtime_distribution }}
-            ONNX_NVCC_THREADS=${{ matrix.nvcc_threads }}
-            ONNX_CUDA_ARCHITECTURES=${{ matrix.cuda_architectures }}
-            CUDA_HOME=${{ matrix.cuda_home }}
-            CUDNN_HOME=${{ matrix.cudnn_home }}
-            TENSORRT_HOME=${{ matrix.tensorrt_home }}
-            OpenVINO_DIR=${{ matrix.openvino_dir }}
             VERSION=${{ steps.version.outputs.tag }}
             RELEASE=${{ matrix.platform }}_${{ matrix.profile }}
           tags: |

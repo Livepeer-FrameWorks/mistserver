@@ -38,12 +38,6 @@ else
     --build-arg ONNX_PROFILE="$profile" \
     --build-arg ONNX_DEP_JOBS="$(field dependency_jobs)" \
     --build-arg ONNX_RUNTIME_DISTRIBUTION="$(field runtime_distribution)" \
-    --build-arg ONNX_NVCC_THREADS="$(field nvcc_threads)" \
-    --build-arg ONNX_CUDA_ARCHITECTURES="$(field cuda_architectures)" \
-    --build-arg CUDA_HOME="$(field cuda_home)" \
-    --build-arg CUDNN_HOME="$(field cudnn_home)" \
-    --build-arg TENSORRT_HOME="$(field tensorrt_home)" \
-    --build-arg OpenVINO_DIR="$(field openvino_dir)" \
     "$root"
 fi
 
@@ -57,17 +51,10 @@ docker buildx build --load \
   --build-arg RUNTIME_PACKAGES="$(field runtime_packages)" \
   --build-arg NVIDIA_DRIVER_CAPABILITIES="$(field nvidia_driver_capabilities)" \
   --build-arg ONNX_PROFILE="$profile" \
-  --build-arg ONNX_STATIC=false \
   --build-arg ONNX_RUN_PROVIDER_TEST=false \
   --build-arg ONNX_INSTALL_TEST_PROBE=true \
   --build-arg ONNX_DEP_JOBS="$(field dependency_jobs)" \
   --build-arg ONNX_RUNTIME_DISTRIBUTION="$(field runtime_distribution)" \
-  --build-arg ONNX_NVCC_THREADS="$(field nvcc_threads)" \
-  --build-arg ONNX_CUDA_ARCHITECTURES="$(field cuda_architectures)" \
-  --build-arg CUDA_HOME="$(field cuda_home)" \
-  --build-arg CUDNN_HOME="$(field cudnn_home)" \
-  --build-arg TENSORRT_HOME="$(field tensorrt_home)" \
-  --build-arg OpenVINO_DIR="$(field openvino_dir)" \
   --build-arg VERSION="$version" \
   --build-arg RELEASE="$(field platform)_$profile" \
   "$root"

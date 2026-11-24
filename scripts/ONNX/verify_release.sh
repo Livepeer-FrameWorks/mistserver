@@ -2,14 +2,13 @@
 set -eu
 
 usage() {
-  echo "Usage: $0 --build-dir DIR [--expected-profile PROFILE] [--provider PROVIDER] [--model MODEL.onnx] [--image IMAGE] [--allow-shared]" >&2
+  echo "Usage: $0 --build-dir DIR [--expected-profile PROFILE] [--provider PROVIDER] [--model MODEL.onnx] [--image IMAGE]" >&2
   exit 2
 }
 
 build_dir=
 model=
 image=
-allow_shared=0
 expected_profile=
 provider=cpu
 while [ "$#" -gt 0 ]; do
@@ -19,7 +18,6 @@ while [ "$#" -gt 0 ]; do
     --image) [ "$#" -ge 2 ] || usage; image=$2; shift 2 ;;
     --expected-profile) [ "$#" -ge 2 ] || usage; expected_profile=$2; shift 2 ;;
     --provider) [ "$#" -ge 2 ] || usage; provider=$2; shift 2 ;;
-    --allow-shared) allow_shared=1; shift ;;
     *) usage ;;
   esac
 done
@@ -72,24 +70,30 @@ if [ -n "$expected_profile" ]; then
   }
 fi
 
-if [ "$allow_shared" -eq 0 ]; then
-  linkage=
+# ONNX Runtime and OpenCV are shared libraries; every one the ONNX binaries need must resolve.
+for binary in "$proc" "$probe"; do
   if command -v otool >/dev/null 2>&1; then
-    linkage=$(find "$build_dir" -maxdepth 3 -type f \( -name 'MistProcONNX' -o -name 'libmistonnx.dylib' -o -name 'libmistonnx.so' \) \
-      -exec otool -L {} \;)
-  elif command -v ldd >/dev/null 2>&1; then
-    linkage=$(find "$build_dir" -maxdepth 3 -type f \( -name 'MistProcONNX' -o -name 'libmistonnx.dylib' -o -name 'libmistonnx.so' \) \
-      -exec ldd {} \; 2>/dev/null || true)
+    # otool lists direct dependencies only; a shared libmistonnx carries the runtime link.
+    linkage=$(otool -L "$binary"
+      find "$build_dir" -maxdepth 3 -name 'libmistonnx*.dylib' -exec otool -L {} \;)
+    printf '%s\n' "$linkage" | grep -F libonnxruntime >/dev/null || {
+      printf '%s\n' "$linkage" >&2
+      echo "$binary does not link the shared ONNX Runtime" >&2
+      exit 1
+    }
   else
-    echo "Neither otool nor ldd is available for the static-link audit" >&2
-    exit 1
+    linkage=$(ldd "$binary")
+    if printf '%s\n' "$linkage" | grep -E 'onnxruntime|opencv_' | grep -F 'not found' >&2; then
+      echo "$binary has unresolved ONNX Runtime/OpenCV libraries" >&2
+      exit 1
+    fi
+    printf '%s\n' "$linkage" | grep -F 'libonnxruntime.so' >/dev/null || {
+      printf '%s\n' "$linkage" >&2
+      echo "$binary does not link the shared ONNX Runtime" >&2
+      exit 1
+    }
   fi
-  if printf '%s\n' "$linkage" | grep -E 'onnxruntime|opencv_(core|imgproc|imgcodecs|video|geometry)' >/dev/null; then
-    printf '%s\n' "$linkage" >&2
-    echo "Release artifact still has dynamic ONNX Runtime/OpenCV dependencies" >&2
-    exit 1
-  fi
-fi
+done
 
 if [ -n "$model" ]; then
   [ -f "$model" ] || { echo "Missing model: $model" >&2; exit 1; }

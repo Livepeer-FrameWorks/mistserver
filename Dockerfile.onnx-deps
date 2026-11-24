@@ -19,14 +19,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 ARG ONNX_PROFILE=cpu
 ARG ONNX_DEP_JOBS=4
-ARG ONNX_RUNTIME_DISTRIBUTION=source
-ARG ONNX_NVCC_THREADS=1
-ARG CUDA_HOME
-ARG CUDNN_HOME
-ARG TENSORRT_HOME
-ARG ONNX_CUDA_ARCHITECTURES
-ARG OpenVINO_DIR
-ARG ONNX_OPENVINO_DEVICE=AUTO:GPU,CPU
+ARG ONNX_RUNTIME_DISTRIBUTION
 
 COPY scripts/ONNX/build_dependencies.sh scripts/ONNX/dependencies.lock.tsv /src/scripts/ONNX/
 RUN /src/scripts/ONNX/build_dependencies.sh \
@@ -34,8 +27,7 @@ RUN /src/scripts/ONNX/build_dependencies.sh \
       --work-dir /deps/onnx/${ONNX_PROFILE} \
       --profile ${ONNX_PROFILE} \
       --jobs ${ONNX_DEP_JOBS} \
-      --runtime-distribution ${ONNX_RUNTIME_DISTRIBUTION} \
-      --nvcc-threads ${ONNX_NVCC_THREADS} \
+      --runtime-distribution "${ONNX_RUNTIME_DISTRIBUTION}" \
     && rm -rf /deps
 
 FROM scratch

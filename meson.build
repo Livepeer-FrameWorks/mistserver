@@ -378,103 +378,27 @@ endif
 onnx_libs = []
 onnx_defines = []
 onnx_opt = get_option('ONNX')
-onnx_static = get_option('ONNX_STATIC')
 onnx_profile = get_option('ONNX_PROFILE')
 onnx_required = onnx_opt.enabled()
 
-onnxruntime_dep = dependency('libonnxruntime', 'onnxruntime',
-                             required: onnx_required, static: onnx_static)
+# ONNX Runtime and OpenCV are always linked shared: release packages ship the locked
+# runtime libraries next to Mist with an executable-relative rpath.
+onnxruntime_dep = dependency('libonnxruntime', 'onnxruntime', required: onnx_required)
 onnxruntime_usable = onnxruntime_dep.found()
-if onnxruntime_dep.found() and onnx_static
-  onnxruntime_libdir = onnxruntime_dep.get_variable(pkgconfig: 'libdir', default_value: '')
-  if onnxruntime_libdir == '' or not fs.is_file(onnxruntime_libdir / 'libonnxruntime.a')
-    onnxruntime_usable = false
-    if onnx_required
-      error('ONNX_STATIC=true requires a real libonnxruntime.a archive')
-    endif
-    warning('No static ONNX Runtime archive was found; disabling ONNX')
-  endif
-  onnxruntime_static_probe = '''
-    #include <onnxruntime_c_api.h>
-    int main() {
-      const OrtApiBase *base = OrtGetApiBase();
-      return base && base->GetApi(ORT_API_VERSION) ? 0 : 1;
-    }
-  '''
-  if onnxruntime_usable and not ccpp.links(onnxruntime_static_probe,
-                    dependencies: onnxruntime_dep, args: '-std=c++17',
-                    name: 'ONNX Runtime static dependency closure')
-    onnxruntime_usable = false
-    if onnx_required
-      error('Static ONNX Runtime dependency metadata has an incomplete link closure')
-    endif
-    warning('Static ONNX Runtime dependency metadata has an incomplete link closure; disabling ONNX')
-  endif
-endif
 # OpenCV 5 renamed its pkg-config file while retaining the component libraries. Probe
 # both names and request exactly the modules used by libmistonnx. In particular,
 # videoio was never used; imgcodecs, video and geometry are.
 opencv_modules = ['core', 'imgproc', 'imgcodecs', 'video', 'geometry']
-opencv_dep = dependency('opencv4', modules: opencv_modules,
-                        required: false, static: onnx_static)
+opencv_dep = dependency('opencv4', modules: opencv_modules, required: false)
 if not opencv_dep.found()
-  opencv_dep = dependency('opencv5', modules: opencv_modules,
-                          required: onnx_required, static: onnx_static)
-endif
-
-# Some packages (notably Homebrew OpenCV 5) install static archives but omit their
-# TIFF/WebP/PNG/LAPACK closure from pkg-config's Libs.private. Detect that packaging
-# failure at configure time and fall back to the complete shared dependency rather
-# than accepting ONNX support that can compile but never link.
-opencv_static_usable = onnx_static
-if opencv_dep.found() and onnx_static
-  opencv_libdir = opencv_dep.get_variable(pkgconfig: 'libdir', default_value: '')
-  foreach module: opencv_modules
-    if opencv_libdir == '' or not fs.is_file(opencv_libdir / ('libopencv_' + module + '.a'))
-      opencv_static_usable = false
-    endif
-  endforeach
-  if not opencv_static_usable and onnx_required
-    error('ONNX_STATIC=true requires real static archives for every requested OpenCV module')
-  endif
-  opencv_static_probe = '''
-    #include <opencv2/core.hpp>
-    #include <opencv2/imgcodecs.hpp>
-    #include <opencv2/video/tracking.hpp>
-    #include <vector>
-    int main() {
-      cv::Mat image(2, 2, CV_8UC3);
-      std::vector<unsigned char> encoded;
-      cv::imencode(".png", image, encoded);
-      cv::KalmanFilter filter(2, 1);
-      return encoded.empty() || filter.statePre.empty();
-    }
-  '''
-  if not opencv_static_usable or not ccpp.links(opencv_static_probe, dependencies: opencv_dep,
-                    name: 'OpenCV static dependency closure')
-    if onnx_required
-      error('Static OpenCV dependency metadata has an incomplete link closure')
-    endif
-    warning('Static OpenCV dependency metadata is incomplete; using shared OpenCV for ONNX')
-    opencv_dep = dependency('opencv4', modules: opencv_modules,
-                            required: false, static: false)
-    if not opencv_dep.found()
-      opencv_dep = dependency('opencv5', modules: opencv_modules,
-                              required: onnx_required, static: false)
-    endif
-    opencv_static_usable = false
-  endif
+  opencv_dep = dependency('opencv5', modules: opencv_modules, required: onnx_required)
 endif
 
 have_onnx = not onnx_opt.disabled() and onnxruntime_usable and opencv_dep.found()
 if have_onnx
   onnx_libs += [onnxruntime_dep, opencv_dep]
   onnx_defines += '-DMIST_ONNX_PROFILE="@0@"'.format(onnx_profile)
-  if onnx_static
-    onnx_defines += '-DMIST_ONNX_STATIC=1'
-  endif
-  message('ONNX support enabled (profile=@0@, static requested=@1@, OpenCV static=@2@)'.format(
-          onnx_profile, onnx_static, opencv_static_usable))
+  message('ONNX support enabled (profile=@0@)'.format(onnx_profile))
 else
   missing = []
   if not onnxruntime_usable

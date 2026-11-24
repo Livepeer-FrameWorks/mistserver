@@ -25,18 +25,16 @@ outside the first release gate.
   CoreML packages use the checksum-pinned `runtimes/osx-arm64` runtime of the same package and include
   the exact shared ONNX Runtime/OpenCV dylib closure with an executable-relative rpath. CUDA,
   TensorRT, and OpenVINO packages use shared ONNX Runtime/OpenCV and expose only their declared
-  accelerator set plus CPU fallback (TensorRT also includes its CUDA fallback). CUDA/TensorRT
-  builds require `CUDA_HOME`, `CUDNN_HOME`, and (for TensorRT)
-  `TENSORRT_HOME`; headless CUDA builds also require an explicit
-  `ONNX_CUDA_ARCHITECTURES` list. OpenVINO requires `OpenVINO_DIR` pointing at the directory
-  containing `OpenVINOConfig.cmake`. Release CI takes these values from the digest-pinned
-  `accelerator-images.json` matrix.
-- Configure MistServer with `-DONNX=enabled`, the exact `ONNX_PROFILE`, and
-  `ONNX_STATIC=false` for Linux CPU, CoreML, and Linux accelerator release profiles. Linux CPU
-  bundles use the matching checksum-pinned x64 or aarch64 runtime distribution and must package
-  its audited shared-library closure.
-  An explicitly enabled build must fail configuration when either dependency or its static
-  closure is missing.
+  accelerator set plus CPU fallback (TensorRT also includes its CUDA fallback). OpenVINO uses the
+  Linux x64 CPU runtime plus the checksum-pinned Intel `Intel.ML.OnnxRuntime.EP.OpenVINO` plugin
+  package, which bundles the OpenVINO runtime and its CPU, GPU and NPU device plugins. Release CI
+  takes the runtime distribution and base images from the digest-pinned `accelerator-images.json`
+  matrix.
+- Configure MistServer with `-DONNX=enabled` and the exact `ONNX_PROFILE`. ONNX Runtime and
+  OpenCV are always shared; every package must ship its audited shared-library closure with an
+  executable-relative rpath and run from its extracted directory on a host without a system
+  ONNX Runtime. An explicitly enabled build must fail configuration when either dependency is
+  missing.
 - Accelerator images must remain complete MistServer distributions. Package the complete Meson
   install tree; changing the ONNX provider must not replace it with a reduced ONNX appliance.
   NVIDIA images must also expose the H.264/AV1 NVENC encoders and CUVID decoders that
@@ -46,9 +44,9 @@ outside the first release gate.
   `deployment-contract.json`. Bare-metal installers must verify the declared OS/architecture,
   system packages, provider runtime, devices, and loader paths before installation.
 - Run `verify_release.sh --build-dir <dir> --model <yolo26n.onnx> --image <image>`.
-  Pass `--expected-profile` and `--provider`. Use `--allow-shared` only for the bundled Linux
-  CPU and CoreML closures and SDK-bound Linux accelerator bundles. The verifier checks the
-  advertised profile and the loaded ONNX Runtime version against the lock, explicitly loads the requested provider, and exercises the unit tests, curated
+  Pass `--expected-profile` and `--provider`. The verifier checks the shared runtime linkage,
+  the advertised profile and the loaded ONNX Runtime version against the lock, explicitly loads
+  the requested provider, and exercises the unit tests, curated
   adapter, raw tensor path, metadata-only default, annotation opt-in, and 64-bit timestamps.
 - Archive the complete MistServer binary/library set, `MistProcONNX`, `prepare_models.sh`,
   `models.manifest.tsv`, `dependencies.lock.tsv`, this checklist, and the applicable
@@ -115,7 +113,7 @@ and add provider-load, YOLO26n, and raw-tensor evidence without changing what wa
   and package gates pass. Complete the provider-load/model/soak gates on labelled CUDA, TensorRT,
   and OpenVINO hardware before marking a digest as hardware-qualified or recommending it for a
   production device class; source configuration alone is not hardware evidence.
-- Run the Parakeet real-audio gate on each static release artifact and run the ten-minute
+- Run the Parakeet real-audio gate on each release artifact and run the ten-minute
   mixed-media soak gate.
 - Add an “ONNX vision” UI preset that creates the MistProcAV NV12 + MistProcONNX graph, or
   explicitly accept the documented two-stage process as the first-release UX. Do not add a

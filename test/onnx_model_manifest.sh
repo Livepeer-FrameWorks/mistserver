@@ -46,6 +46,11 @@ if [ -n "$dependencies" ]; then
       if ($1 == "onnxruntime" || $1 == "opencv") {
         if ($3 !~ /^[0-9a-f]{40}$/) { print "dependency lock line " NR ": invalid source commit" > "/dev/stderr"; ok = 0 }
         if ($5 !~ /^https:\/\/github\.com\// || $6 != "-") { print "dependency lock line " NR ": invalid source repository" > "/dev/stderr"; ok = 0 }
+      } else if ($1 == "onnxruntime-openvino-ep-linux-x64") {
+        if ($3 !~ /^[0-9a-f]{64}$/) { print "dependency lock line " NR ": invalid archive SHA-256" > "/dev/stderr"; ok = 0 }
+        plugin = "^https:\\/\\/api\\.nuget\\.org\\/v3-flatcontainer\\/intel\\.ml\\.onnxruntime\\.ep\\.openvino\\/" $2 "\\/intel\\.ml\\.onnxruntime\\.ep\\.openvino\\." $2 "\\.nupkg$"
+        if ($5 !~ plugin) { print "dependency lock line " NR ": OpenVINO plugin is not the official Intel NuGet package" > "/dev/stderr"; ok = 0 }
+        if ($6 != "runtimes/linux-x64/native") { print "dependency lock line " NR ": invalid package native directory" > "/dev/stderr"; ok = 0 }
       } else {
         if ($3 !~ /^[0-9a-f]{64}$/) { print "dependency lock line " NR ": invalid archive SHA-256" > "/dev/stderr"; ok = 0 }
         if ($2 != version["onnxruntime"]) { print "dependency lock line " NR ": runtime version differs from the onnxruntime source" > "/dev/stderr"; ok = 0 }
@@ -68,13 +73,14 @@ if [ -n "$dependencies" ]; then
       required["onnxruntime-linux-x64"] = 1
       required["onnxruntime-linux-aarch64"] = 1
       required["onnxruntime-osx-arm64"] = 1
+      required["onnxruntime-openvino-ep-linux-x64"] = 1
       for (dependency in required) {
         if (!seen[dependency]) {
           print "dependency lock missing required entry: " dependency > "/dev/stderr"
           ok = 0
         }
       }
-      if (rows != 7) {
+      if (rows != 8) {
         print "dependency lock contains unexpected entries" > "/dev/stderr"
         ok = 0
       }

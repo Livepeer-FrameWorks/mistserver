@@ -310,15 +310,28 @@ CUDA 12 build of the same version on its `aiinfra.pkgs.visualstudio.com/PublicPa
 `onnxruntime-cuda-12` feed. The `cuda` profile uses the CUDA 12 package without its TensorRT
 provider; the `tensorrt` profile uses the CUDA 13 package with both providers.
 
-The `onnxruntime` lock row pins the upstream source commit the nuget.org packages were built
-from. Only `--runtime-distribution source` (the default) clones it: the static CPU/CoreML
-build (`ONNX_STATIC=true`) and the `openvino` profile. Those need the
-`github.com/microsoft/onnxruntime` repository to be reachable.
+The `openvino` profile installs the CPU runtime plus Intel's official OpenVINO plugin
+execution provider (`Intel.ML.OnnxRuntime.EP.OpenVINO` on nuget.org, lock row
+`onnxruntime-openvino-ep-linux-x64`). The plugin bundles its own OpenVINO runtime with the CPU,
+GPU and NPU device plugins; `build_dependencies.sh` installs it into the same `lib/`
+directory. At session creation MistProcONNX registers the plugin with
+`RegisterExecutionProviderLibrary` and appends its `OpenVINOExecutionProvider.AUTO` devices with
+`SessionOptionsAppendExecutionProvider_V2`, so OpenVINO places the model on the best device it
+finds. The NPU compiler needs static input shapes, so the NPU joins that device set only for
+models whose inputs are fully static; others run on the GPU and CPU. The plugin only offers
+Intel hardware: on other CPUs it reports no device, an explicit
+`openvino` request fails, and the profile default falls back to the CPU provider. Intel GPUs
+need the OpenCL/Level Zero userspace (`intel-opencl-icd`, `libze-intel-gpu1`) and NPUs the
+Intel NPU driver; the runtime image is Intel's `openvino/ubuntu24_runtime` of the plugin's
+OpenVINO release, which carries both.
 
-Linux CPU uses the shared runtime plus a bundled shared OpenCV closure on both amd64 and arm64.
-CoreML uses the macOS arm64 runtime plus the exact shared OpenCV libraries in the signed native
-bundle. CUDA, TensorRT, and OpenVINO use shared provider builds because their target SDK and
-driver runtimes are part of the deployment environment.
+The `onnxruntime` lock row records the upstream release and the source commit Microsoft built
+the nuget.org packages from; nothing is built from it.
+
+Every profile links ONNX Runtime and OpenCV as shared libraries. Native packages ship them in
+their `lib/` directory with an executable-relative rpath (`$ORIGIN/../lib` on Linux,
+`@executable_path/../lib` on macOS), so an extracted package needs no system ONNX Runtime. CUDA
+and TensorRT images add their vendor userspace from the runtime base image.
 
 Build the locked dependencies and then make ONNX mandatory:
 
@@ -329,29 +342,24 @@ scripts/ONNX/build_dependencies.sh \
   --profile cpu --runtime-distribution onnxruntime-linux-x64
 export PKG_CONFIG_PATH="$PWD/.deps/onnx/cpu/lib/pkgconfig:${PKG_CONFIG_PATH:-}"
 export CMAKE_PREFIX_PATH="$PWD/.deps/onnx/cpu:${CMAKE_PREFIX_PATH:-}"
-meson setup build -DONNX=enabled -DONNX_STATIC=false -DONNX_PROFILE=cpu
+meson setup build -DONNX=enabled -DONNX_PROFILE=cpu
 ```
 
-Use `coreml` on macOS arm64 with `ONNX_STATIC=false` and the locked
-`onnxruntime-osx-arm64` distribution. For `cuda`, `tensorrt`, or `openvino`, start in the
-matching SDK environment and configure Meson with `ONNX_STATIC=false`. CUDA/TensorRT use
-`CUDA_HOME`, `CUDNN_HOME`, `ONNX_CUDA_ARCHITECTURES`, and (for TensorRT)
-`TENSORRT_HOME`; OpenVINO uses the `OpenVINO_DIR` containing `OpenVINOConfig.cmake`. Explicit
-CUDA architectures are mandatory so a headless CI builder never tries to discover a local GPU.
-The builder fails before configuration when a required SDK location is absent.
+Use `coreml` on macOS arm64 with the locked `onnxruntime-osx-arm64` distribution, and the
+distribution named in `accelerator-images.json` for `cuda`, `tensorrt` and `openvino`.
 
-Linux CPU release builds use `ONNX_STATIC=false` with the locked `onnxruntime-linux-x64` or
+Linux CPU release builds use the locked `onnxruntime-linux-x64` or
 `onnxruntime-linux-aarch64` distribution. Their native bundles package and audit the shared
 runtime closure with executable-relative rpaths. The release workflow builds Linux amd64 CUDA,
 TensorRT, and OpenVINO images on
 ordinary GitHub-hosted CPU runners. Linux arm64 GPU-provider artifacts are intentionally outside
 the first release matrix because Microsoft publishes no generic Linux ARM64 GPU package.
-`accelerator-images.json` pins the vendor build and runtime image digests, SDK paths,
-and dependency strategy. Each Linux dependency prefix (`/opt/mist-onnx`) is built once by
+`accelerator-images.json` pins the vendor build and runtime image digests, runtime packages,
+and runtime distribution. Each Linux dependency prefix (`/opt/mist-onnx`) is built once by
 `Dockerfile.onnx-deps` and published as
 `ghcr.io/livepeer-frameworks/mist-onnx-deps:<profile>-<arch>-<hash>`, where
 `dependency_image.sh` hashes that Dockerfile, `build_dependencies.sh`, the lock file and the
-target's build base, runtime distribution and SDK settings. Accelerator images, the CPU
+target's build base and runtime distribution. Accelerator images, the CPU
 images and the native Linux builds consume it by digest and run
 `build_dependencies.sh --verify-only` against it; a release rebuilds it only when one of
 those inputs changed. `build_accelerator_local.sh` builds the same image into the local

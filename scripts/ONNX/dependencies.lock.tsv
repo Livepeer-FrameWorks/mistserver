@@ -5,4 +5,5 @@ onnxruntime-linux-x64-gpu-cuda13	1.32.0	3d01949bc846d41961b37988d1e63d782a6effcb
 onnxruntime-linux-x64	1.32.0	a9150bc2992cbbb6722070da9910e1ffa989a8bfc67bdd5bb8e745ca755641db	MIT	https://api.nuget.org/v3-flatcontainer/microsoft.ml.onnxruntime/1.32.0/microsoft.ml.onnxruntime.1.32.0.nupkg	runtimes/linux-x64/native
 onnxruntime-linux-aarch64	1.32.0	a9150bc2992cbbb6722070da9910e1ffa989a8bfc67bdd5bb8e745ca755641db	MIT	https://api.nuget.org/v3-flatcontainer/microsoft.ml.onnxruntime/1.32.0/microsoft.ml.onnxruntime.1.32.0.nupkg	runtimes/linux-arm64/native
 onnxruntime-osx-arm64	1.32.0	a9150bc2992cbbb6722070da9910e1ffa989a8bfc67bdd5bb8e745ca755641db	MIT	https://api.nuget.org/v3-flatcontainer/microsoft.ml.onnxruntime/1.32.0/microsoft.ml.onnxruntime.1.32.0.nupkg	runtimes/osx-arm64/native
+onnxruntime-openvino-ep-linux-x64	1.8.1	3393c78d385e51490a7264fd272731a2fa7ff45b84c33e37e6104fdeb2a12224	MIT	https://api.nuget.org/v3-flatcontainer/intel.ml.onnxruntime.ep.openvino/1.8.1/intel.ml.onnxruntime.ep.openvino.1.8.1.nupkg	runtimes/linux-x64/native
 opencv	5.0.0	40738fb16ceddb5fb3fea747585f7ce6abb0605b	Apache-2.0	https://github.com/opencv/opencv	-
