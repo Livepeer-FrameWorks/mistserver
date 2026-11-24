@@ -117,7 +117,7 @@ wait_for 20 "the stream to become active" logged "$work/controller.log" "Stream 
 sleep 3
 
 recording="$work/recording.mkv"
-"$timeout_program" 90 env TMP="$ipc_root" MIST_CONTROL=1 "$output_ebml" -s "$stream" \
+"$timeout_program" 90 env TMP="$ipc_root" MIST_CONTROL=1 "$output_ebml" --debug 4 -s "$stream" \
   "$recording?duration=24&video=all&audio=all" >"$work/recording.log" 2>&1 &
 recording_pid=$!
 sleep 6

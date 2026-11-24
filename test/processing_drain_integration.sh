@@ -210,7 +210,7 @@ TMP="$ipc_root" MIST_CONTROL=1 "$controller" -c "$config" -C r -L "$work/control
 controller_pid=$!
 wait_for 30 "the test controller" logged "$work/controller.log" 'Controller started'
 
-TMP="$ipc_root" MIST_CONTROL=1 "$input_program" -r -s "$stream" "$source_media" >"$work/input.log" 2>&1 &
+TMP="$ipc_root" MIST_CONTROL=1 "$input_program" --debug 4 -r -s "$stream" "$source_media" >"$work/input.log" 2>&1 &
 input_pid=$!
 wait_for 30 "the processing input" logged "$work/input.log" 'Input started'
 
@@ -239,17 +239,17 @@ case "$mode" in
     if [ "$mode" = "after-drain" ]; then
       wait_for 60 "the processing buffer to signal drain" logged "$work/input.log" 'signalling output drain'
     fi
-    "$timeout_program" 90 env TMP="$ipc_root" MIST_CONTROL=1 "$output_ebml" -s "$stream" "$recording" \
+    "$timeout_program" 90 env TMP="$ipc_root" MIST_CONTROL=1 "$output_ebml" --debug 4 -s "$stream" "$recording" \
       >"$work/output.log" 2>&1 || true
     ;;
   slow-sink)
     sink_rate=$((source_bytes / source_duration / 2))
-    "$timeout_program" 400 env TMP="$ipc_root" MIST_CONTROL=1 "$output_ebml" -s "$stream" - 2>"$work/output.log" | \
+    "$timeout_program" 400 env TMP="$ipc_root" MIST_CONTROL=1 "$output_ebml" --debug 4 -s "$stream" - 2>"$work/output.log" | \
       "$python" "$throttle" "$recording" "$sink_rate" || true
     ;;
   buffer-killed)
     sink_rate=$((source_bytes / source_duration / 2))
-    ( "$timeout_program" 300 env TMP="$ipc_root" MIST_CONTROL=1 "$output_ebml" -s "$stream" - 2>"$work/output.log" | \
+    ( "$timeout_program" 300 env TMP="$ipc_root" MIST_CONTROL=1 "$output_ebml" --debug 4 -s "$stream" - 2>"$work/output.log" | \
       "$python" "$throttle" "$recording" "$sink_rate" ) &
     sink_pid=$!
     wait_for 120 "the processing source to reach EOF" exited "$input_pid"
@@ -264,7 +264,7 @@ case "$mode" in
     mkfifo "$work/stuck-sink.fifo"
     sleep 400 <"$work/stuck-sink.fifo" &
     reader_pid=$!
-    "$timeout_program" 400 env TMP="$ipc_root" MIST_CONTROL=1 "$output_ebml" -s "$stream" - \
+    "$timeout_program" 400 env TMP="$ipc_root" MIST_CONTROL=1 "$output_ebml" --debug 4 -s "$stream" - \
       >"$work/stuck-sink.fifo" 2>"$work/output.log" &
     sink_pid=$!
     wait_for 300 "the buffer to give up on the stuck recorder" logged "$work/input.log" 'no activity for'

@@ -293,8 +293,10 @@ namespace Mist{
     }
     // Status requests arrive before generic Output initialization. The shared
     // gate ensures the later playback initialization does not run this twice.
-    if (applyPlayRewrite("status") == PLAY_REWRITE_DENIED) {
-      json_resp["error"] = "Playback rejected by PLAY_REWRITE trigger";
+    const PlayRewriteOutcome outcome = applyPlayRewrite("status");
+    if (outcome == PLAY_REWRITE_DENIED || outcome == PLAY_REWRITE_UNAVAILABLE) {
+      json_resp["error"] = outcome == PLAY_REWRITE_UNAVAILABLE ? "Playback temporarily unavailable"
+                                                               : "Playback rejected by PLAY_REWRITE trigger";
       return json_resp;
     }
     // Make note of any defaultStream-based redirection
@@ -936,8 +938,19 @@ namespace Mist{
         response = json_resp.toString();
       }
       H.SetBody(response);
-      H.SendResponse("200", "OK", myConn);
+      if (playRewriteUnavailable()) {
+        H.SetHeader("Retry-After", "1");
+        H.SetHeader("Connection", "close");
+        H.SetHeader("Cache-Control", "no-store");
+        H.SendResponse("503", "Service Unavailable", myConn);
+      } else {
+        H.SendResponse("200", "OK", myConn);
+      }
       responded = true;
+      if (playRewriteUnavailable()) {
+        wantRequest = false;
+        myConn.close();
+      }
       H.Clean();
       return;
     }// embed code generator

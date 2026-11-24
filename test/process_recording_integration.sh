@@ -126,7 +126,7 @@ fi
 
 # Own the input explicitly so the recorder and processor cannot race each other
 # into booting separate connector chains for the same stream.
-TMP="$ipc_root" MIST_CONTROL=1 "$input_mp4" -r -s "$stream" "$source_media" >"$work/input.log" 2>&1 &
+TMP="$ipc_root" MIST_CONTROL=1 "$input_mp4" --debug 4 -r -s "$stream" "$source_media" >"$work/input.log" 2>&1 &
 input_pid=$!
 
 started=0
@@ -190,11 +190,11 @@ fi
 
 recording="$work/recording.mkv"
 if [ "${MIST_PROCESS_EXPECT_EOF:-}" = "1" ]; then
-  "$timeout_program" 60 env TMP="$ipc_root" MIST_CONTROL=1 "$output_ebml" -s "$stream" "$recording" \
+  "$timeout_program" 60 env TMP="$ipc_root" MIST_CONTROL=1 "$output_ebml" --debug 4 -s "$stream" "$recording" \
     >"$work/output.log" 2>&1
   expected_span="$source_duration"
 else
-  TMP="$ipc_root" MIST_CONTROL=1 "$output_ebml" -s "$stream" "$recording?duration=4" >"$work/output.log" 2>&1
+  TMP="$ipc_root" MIST_CONTROL=1 "$output_ebml" --debug 4 -s "$stream" "$recording?duration=4" >"$work/output.log" 2>&1
   expected_span=4
 fi
 

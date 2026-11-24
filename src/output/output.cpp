@@ -303,13 +303,15 @@ namespace Mist{
   void Output::initialize(){
     MEDIUM_MSG("initialize");
     if (isInitialized){return;}
-    if (!isPushing() && DTSC::trackValidMask == TRACK_VALID_EXT_HUMAN && applyPlayRewrite("playback") == PLAY_REWRITE_DENIED) {
-      Util::logExitReason(ER_TRIGGER, "playback rejected by PLAY_REWRITE trigger");
-      // Route the denial through onFail so protocol outputs complete their refusal
-      // (HTTP outputs send a full 404 body) and the connection closes, instead of
-      // leaving a client waiting on a response that never finishes.
-      onFail("Playback rejected by PLAY_REWRITE trigger", true);
-      return;
+    if (!isPushing() && DTSC::trackValidMask == TRACK_VALID_EXT_HUMAN) {
+      const PlayRewriteOutcome outcome = applyPlayRewrite("playback");
+      if (outcome == PLAY_REWRITE_DENIED || outcome == PLAY_REWRITE_UNAVAILABLE) {
+        const bool unavailable = outcome == PLAY_REWRITE_UNAVAILABLE;
+        Util::logExitReason(ER_TRIGGER, unavailable ? "playback decision temporarily unavailable" : "playback rejected by PLAY_REWRITE trigger");
+        // HTTP outputs distinguish an unavailable decision from an authoritative refusal.
+        onFail(unavailable ? "Playback temporarily unavailable" : "Playback rejected by PLAY_REWRITE trigger", true);
+        return;
+      }
     }
     if (streamName.size() < 1){
       return; // abort - no stream to initialize...
@@ -332,12 +334,17 @@ namespace Mist{
   }
 
   PlayRewriteOutcome Output::applyPlayRewrite(const char *requestType) {
+    if (playRewriteGate.unavailable()) { return PLAY_REWRITE_UNAVAILABLE; }
     if (!playRewriteGate.begin(Triggers::shouldTrigger("PLAY_REWRITE", streamName))) { return PLAY_REWRITE_UNCHANGED; }
     const std::string oldStreamName = streamName;
     const std::string payload = oldStreamName + "\n" + getConnectedHost() + "\n" + capa["name"].asStringRef() + "\n" + reqUrl;
     Triggers::Result triggerResult;
     triggerResult.response = oldStreamName;
     Triggers::doTrigger("PLAY_REWRITE", payload, oldStreamName, false, triggerResult);
+    if (triggerResult.handlerFailed && triggerResult.action == Triggers::ACT_DENY) {
+      playRewriteGate.markUnavailable();
+      return PLAY_REWRITE_UNAVAILABLE;
+    }
     streamName = playRewriteTarget(oldStreamName, triggerResult);
     Util::sanitizeName(streamName);
     Util::setStreamName(streamName);
@@ -3915,7 +3922,10 @@ namespace Mist{
     const std::set<size_t> & validTracksWithData = withData.first;
     size_t expectedOutputTracks = 0;
     size_t readyOutputTracks = 0;
-    recordingExpectedOutputs(M, withData.second, graph["outputs"], targetParams, capa, UA, expectedOutputTracks, readyOutputTracks);
+    std::set<std::string> acknowledged;
+    jsonForEachConst (graph["ready_outputs"], it) { acknowledged.insert(it->asString()); }
+    recordingExpectedOutputs(M, withData.second, graph["outputs"], targetParams, capa, UA, expectedOutputTracks,
+                             readyOutputTracks, &acknowledged);
 
     // Every original video and audio track must have data, selected or not: a
     // processing stream's media originals all come from its one input, and a
@@ -3927,11 +3937,10 @@ namespace Mist{
     // data are exactly the ones the header needs.
     size_t selectedOriginalTracks = 0;
     size_t readyOriginalTracks = 0;
-    for (const size_t track : M.getValidTracks()) {
-      if (M.getSourceTrack(track) != INVALID_TRACK_ID) { continue; }
+    for (const size_t track : processGraphOriginalTracks(M, false)) {
       const std::string type = M.getType(track);
       if (!processingOriginalNeededForHeader(type, userSelect.count(track), processStreamState.sourceEof,
-                                             validTracksWithData.count(track))) {
+                                             withData.second.count(track))) {
         continue;
       }
       // A graph resolved before this original arrived does not expect its outputs yet.
@@ -3942,7 +3951,7 @@ namespace Mist{
         return false;
       }
       ++selectedOriginalTracks;
-      if (validTracksWithData.count(track)) { ++readyOriginalTracks; }
+      if (withData.second.count(track)) { ++readyOriginalTracks; }
     }
     size_t readySelectedOutputTracks = 0;
     size_t selectedOutputTracks = 0;

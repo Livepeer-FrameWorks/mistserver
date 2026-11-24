@@ -90,14 +90,21 @@ with http.server.ThreadingHTTPServer(('127.0.0.1',0), Trigger) as server:
         assert data['lastms']==0, 'probe advanced before memory admission'
         assert any(isinstance(t,dict) and t.get('codec')=='AAC' and t.get('channels')==6 and t.get('rate')==48000 for t in data['health'].values()), 'paused source lost its 5.1 audio metadata: %s'%data
         assert any(isinstance(t,dict) and t.get('codec')=='H264' and t.get('width')==320 and t.get('height')==180 for t in data['health'].values()), data
+        def snapshot():
+            active=f.request({'active_streams':{'longform':True,'fields':['health','sourcepids']}}).get('active_streams') or {}
+            return active.get(f.stream,{})
+        original=until(lambda:snapshot().get('sourcepids'),10,'paused source has no owner')
+        assert len(original)==1,('probe has more than one source input',original)
         admitted.set()
+        observed={}
         def started():
-            text=(f.root/'mist.log').read_text(errors='replace')
-            return any('Started process' in line and 'MistProcAV' in line for line in text.splitlines())
-        until(started,10,'admitted ladder never started on the existing probe input')
-        text=(f.root/'mist.log').read_text(errors='replace')
-        sources=[line for line in text.splitlines() if 'MistInMP4' in line and 'Input started' in line]
-        assert len(sources)==1, ('source reopened after admission',sources,text[-6000:])
+            observed.clear();observed.update(snapshot())
+            return any(isinstance(track,dict) and track.get('codec')=='H264' and track.get('width')==160
+                       and track.get('height')==90 and track.get('buffer',0)>0
+                       for track in (observed.get('health') or {}).values())
+        until(started,10,'admitted ladder never produced video on the existing probe input')
+        assert set(original).issubset(observed.get('sourcepids') or []) and len(observed['sourcepids'])==2, (
+            'admission replaced or duplicated the source input instead of adding its one encoder',original,observed)
         assert any(calls) and not all(calls),calls
         def rendition_available():
             active=f.request({'active_streams':{'longform':True,'fields':['health','lastms']}}).get('active_streams') or {}

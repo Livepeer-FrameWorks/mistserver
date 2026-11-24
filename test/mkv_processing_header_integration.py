@@ -8,6 +8,11 @@ resolved for every original track it records: a rendition that appears after the
 the recording (PROCESS_TRACKS_CHANGED, "was not declared in the recording header").
 """
 import json
+import http.server
+import functools
+import threading
+import urllib.request
+import urllib.parse
 import os
 from pathlib import Path
 import shutil
@@ -40,7 +45,7 @@ def retain_selector(short, bitrate):
             f"|>{(low_bytes - 1) // 128}kbps,|<{high_bytes // 128 + 1}kbps")
 
 
-def exercise(build, ffmpeg, ffprobe):
+def exercise(build, ffmpeg, ffprobe, source_mode):
     work = Path(tempfile.mkdtemp(prefix="mist-mkv-header-"))
     env = dict(os.environ, TMP=str(work / "ipc"), MIST_CONTROL="1", PATH=str(build) + os.pathsep + os.environ["PATH"],
                UDP_API="udp://127.0.0.1:0")
@@ -48,6 +53,7 @@ def exercise(build, ffmpeg, ffprobe):
     stream = "mkvheader" + str(os.getpid())
     processes = []
     controller = None
+    http_server = None
     success = False
     try:
         cue = work / "cue.srt"
@@ -59,6 +65,12 @@ def exercise(build, ffmpeg, ffprobe):
              "-map", "0:v", "-map", "1:a", "-map", "2:s", "-c:a", "aac", "-b:a", "384k", "-c:s", "mov_text", mp4])
         source = work / "surround.mkv"
         run([ffmpeg, "-v", "error", "-y", "-i", mp4, "-c", "copy", "-c:s", "srt", source])
+        source_url = str(source)
+        if source_mode == "http":
+            handler = functools.partial(http.server.SimpleHTTPRequestHandler, directory=str(work))
+            http_server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), handler)
+            threading.Thread(target=http_server.serve_forever, daemon=True).start()
+            source_url = "http://127.0.0.1:" + str(http_server.server_address[1]) + "/" + source.name
         # The local ladder FrameWorks composes for an upload: H264 rungs that an in-band original
         # could retain, an AAC encode for the surround audio and thumbnails.
         ladder = []
@@ -81,7 +93,7 @@ def exercise(build, ffmpeg, ffprobe):
                              "controller": {"interface": "127.0.0.1", "port": api_port, "username": None},
                              "sessionInputMode": 15, "sessionOutputMode": 15, "sessionStreamInfoMode": 1,
                              "sessionUnspecifiedMode": 0, "sessionViewerMode": 14, "tknMode": 15, "triggers": {}},
-                  "streams": {stream: {"name": stream, "source": str(source), "process_controlled_realtime": True,
+                  "streams": {stream: {"name": stream, "source": source_url, "process_controlled_realtime": True,
                                        "realtime_speed": 1, "processes": ladder}}}
         (work / "config.json").write_text(json.dumps(config))
         log = work / "controller.log"
@@ -89,12 +101,19 @@ def exercise(build, ffmpeg, ffprobe):
                                       env=env)
         wait_for(lambda: log.exists() and "Controller started" in log.read_text(errors="replace"))
         with (work / "input.log").open("wb") as input_log:
-            source_process = subprocess.Popen([str(build / "MistInEBML"), "-r", "-s", stream, str(source)], env=env,
+            source_process = subprocess.Popen([str(build / "MistInEBML"), "--debug", "4", "-r", "-s", stream, source_url], env=env,
                                               stdout=input_log, stderr=subprocess.STDOUT)
             processes.append(source_process)
-            wait_for(lambda: "Input started" in (work / "input.log").read_text(errors="replace"))
+            def source_active():
+                query = urllib.parse.urlencode({"command": json.dumps({"active_streams": {"longform": True}})})
+                try:
+                    with urllib.request.urlopen(f"http://127.0.0.1:{api_port}/api2?" + query, timeout=2) as response:
+                        return stream in (json.load(response).get("active_streams") or {})
+                except (OSError, ValueError):
+                    return False
+            wait_for(source_active)
             with (work / "output.log").open("wb") as output_log:
-                run([build / "MistOutEBML", "-s", stream,
+                run([build / "MistOutEBML", "--debug", "4", "-s", stream,
                      str(work / "recording.mkv") + "?video=all&audio=all&subtitle=all&meta=none&duration=6"],
                     env=env, stdout=output_log, stderr=subprocess.STDOUT, timeout=90)
         output = (work / "output.log").read_text(errors="replace")
@@ -104,9 +123,19 @@ def exercise(build, ffmpeg, ffprobe):
         heights = sorted(s["height"] for s in probe["streams"] if s["codec_type"] == "video" and s["codec_name"] == "h264")
         assert heights == [360, 480], probe
         assert any(s["codec_type"] == "audio" for s in probe["streams"]), probe
+        packets = json.loads(run([ffprobe, "-v", "error", "-show_packets", "-of", "json", work / "recording.mkv"],
+                                 stdout=subprocess.PIPE).stdout)["packets"]
+        for track in probe["streams"]:
+            if track["codec_type"] not in ("audio", "video") or track["codec_name"] == "mjpeg":
+                continue
+            times = [float(packet["pts_time"]) for packet in packets
+                     if packet["stream_index"] == track["index"] and "pts_time" in packet]
+            assert len(times) >= 50 and max(times) - min(times) >= 5.0, (source_mode, track, times)
         success = True
-        print("PASS Matroska upload recording declares the ladder renditions in its header", flush=True)
+        print(f"PASS {source_mode} Matroska recording declares complete ladder tracks in its header", flush=True)
     finally:
+        if http_server:
+            http_server.shutdown()
         if controller:
             subprocess.run([str(build / "MistUtilNuke"), stream], env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                            timeout=10)
@@ -138,7 +167,8 @@ def main():
         return 77
     build, ffmpeg, ffprobe = Path(sys.argv[1]).resolve(), sys.argv[2], sys.argv[3]
     for _ in range(int(os.environ.get("MIST_MEDIA_REPEAT", "1"))):
-        exercise(build, ffmpeg, ffprobe)
+        for source_mode in ("local", "http"):
+            exercise(build, ffmpeg, ffprobe, source_mode)
     return 0
 
 

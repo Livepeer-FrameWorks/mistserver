@@ -62,7 +62,7 @@ def main():
         controller = subprocess.Popen([str(build / "MistController"), "-c", str(work / "config.json"), "-C", "r", "-L", str(log)], env=env)
         wait_for(lambda: log.exists() and "Controller started" in log.read_text(errors="replace"))
         with (work / "input.log").open("wb") as input_log:
-            source_process = subprocess.Popen([str(build / ("MistInMP4" if container == "mp4" else "MistInEBML")), "-r", "-s", stream, str(source)], env=env, stdout=input_log, stderr=subprocess.STDOUT)
+            source_process = subprocess.Popen([str(build / ("MistInMP4" if container == "mp4" else "MistInEBML")), "--debug", "4", "-r", "-s", stream, str(source)], env=env, stdout=input_log, stderr=subprocess.STDOUT)
             wait_for(lambda: "Input started" in (work / "input.log").read_text(errors="replace"))
             recordings = []
             for extension in extensions:

@@ -946,7 +946,12 @@ namespace Mist{
         // Published after checkProcesses so retired processes (hard-failed or restart-disabled) drop
         // out on the same tick, and replacements it scheduled are expected before they start.
         if (processControlledRealtime) {
-          publishProcessGraph(resolveProcessGraph(applyProcessReplacements(configuredProcesses)));
+          const ProcessGraph & publishedGraph = resolveProcessGraph(applyProcessReplacements(configuredProcesses));
+          // A recorder may count only output data seen before the corresponding source masks
+          // are applied. A packet arriving during publication belongs to the next snapshot.
+          const std::set<size_t> readyTracks = tracksWithDataAnyMask(M);
+          applyReplacedOriginalMasks(publishedGraph);
+          publishProcessGraph(publishedGraph, readyTracks);
         }
       }else{
         processControlledRealtime = false;
@@ -1161,6 +1166,9 @@ namespace Mist{
   /// See resolveProcessGraph: builds the graph with the rendition decisions made for the original
   /// tracks in decisionKey (see RenditionDecision), deciding those not made yet.
   void InputBuffer::resolveProcessGraphOnce(const JSON::Value & procs, const std::string & decisionKey) {
+    // Coverage names the originals present before this graph is built. A first packet landing
+    // during declarations or selection belongs to the next snapshot, never this one.
+    const std::set<size_t> originalSnapshot = processGraphOriginalTracks(M, true);
     if (decisionKey != renditionDecisionTracks) {
       renditionDecisions.clear();
       renditionDecisionTracks = decisionKey;
@@ -1170,6 +1178,8 @@ namespace Mist{
     std::vector<ProcessGraphNode> nodes;
     const std::set<std::string> tags = Util::streamTags(streamName);
     std::string inputs = procs.toString() + "\n";
+    for (const size_t track : originalSnapshot) { inputs += std::to_string(track) + ","; }
+    inputs += "\n";
     for (const std::string & tag : tags) { inputs += tag + ","; }
     inputs += "\n";
     jsonForEachConst (procs, it) {
@@ -1221,17 +1231,12 @@ namespace Mist{
     for (const ProcessGraphNode & node : nodes) {
       if (!node.decision.decided) { processGraph.waiting = true; }
     }
-    oldMask = DTSC::trackValidMask;
-    DTSC::trackValidMask = TRACK_VALID_ALL;
-    for (const size_t track : M.getValidTracks()) {
-      if (M.getSourceTrack(track) == INVALID_TRACK_ID) { processGraph.originals.insert(track); }
-    }
-    DTSC::trackValidMask = oldMask;
+    processGraph.originals = originalSnapshot;
   }
 
   /// Publishes the outputs the processing graph expects for recordings (see src/process_graph.h),
   /// resolved once the stream has its source tracks.
-  void InputBuffer::publishProcessGraph(const ProcessGraph & graph) {
+  void InputBuffer::publishProcessGraph(const ProcessGraph & graph, const std::set<size_t> & readyTracks) {
     if (!processGraphPage) {
       char pageName[NAME_BUFFER_SIZE];
       snprintf(pageName, sizeof(pageName), SHM_STREAM_PGRAPH, streamName.c_str());
@@ -1241,6 +1246,11 @@ namespace Mist{
     JSON::Value published;
     published["resolved"] = M.getValidTracks().size() != 0 && !processingAdmissionPending(processOverride) && !graph.waiting;
     published["outputs"] = graph.outputs;
+    published["ready_outputs"].append(JSON::Value());
+    published["ready_outputs"].shrink(0);
+    for (const size_t track : readyTracks) {
+      if (!M.getOutputKey(track).empty()) { published["ready_outputs"].append(M.getOutputKey(track)); }
+    }
     published["originals"].append(JSON::Value());
     published["originals"].shrink(0);
     for (const size_t track : graph.originals) { published["originals"].append(track); }

@@ -38,7 +38,7 @@ try:
     wait_for(lambda:log.exists() and 'Controller started' in log.read_text(errors='replace'))
     started = time.monotonic()
     with (work/'input.log').open('wb') as input_log, (work/'output.log').open('wb') as output_log:
-        source_process = subprocess.Popen([str(build/'MistInMP4'),'-r','-s',stream,str(source)],env=env,stdout=input_log,stderr=subprocess.STDOUT)
+        source_process = subprocess.Popen([str(build/'MistInMP4'),'--debug','4','-r','-s',stream,str(source)],env=env,stdout=input_log,stderr=subprocess.STDOUT)
         wait_for(lambda:'Input started' in (work/'input.log').read_text(errors='replace'))
         output = work/'output.mkv'
         run([build/'MistOutEBML','-s',stream,str(output)+'?video=H264&audio=none&subtitle=none&meta=none'],env=env,stdout=output_log,stderr=subprocess.STDOUT,timeout=90)

@@ -34,6 +34,7 @@ namespace {
       void reset(bool processControlled, bool resume, bool hadPush, bool pushing, size_t consumers) {
         config->is_active = true;
         processControlledRealtime = processControlled;
+        processOverrideResolved = true;
         resumeMode = resume;
         everHadPush = hadPush;
         hasPush = pushing;
@@ -88,6 +89,8 @@ namespace {
         return started;
       }
 
+      void admissionResolved(bool resolved) { processOverrideResolved = resolved; }
+
       void publishFirstKey() {
         meta.pages(0).setInt("keycount", 1, 0);
         meta.pages(0).setInt("avail", 1, 0);
@@ -118,7 +121,10 @@ namespace {
       /// (in withDataBeforeSelection when given, the data the recording saw before it selected).
       bool recorderExpects(const JSON::Value & processes, size_t & selected, size_t & ready,
                            const std::set<size_t> *withDataBeforeSelection = 0) {
-        publishProcessGraph(resolveProcessGraph(processes));
+        const Mist::ProcessGraph & resolved = resolveProcessGraph(processes);
+        const std::set<size_t> acknowledgedTracks = Mist::tracksWithDataAnyMask(meta);
+        applyReplacedOriginalMasks(resolved);
+        publishProcessGraph(resolved, acknowledgedTracks);
         JSON::Value graph;
         if (!Mist::readProcessGraphPage(processGraphPage, graph) || !graph["resolved"].asBool()) { return false; }
         std::map<std::string, std::string> everything;
@@ -130,7 +136,9 @@ namespace {
         const uint8_t oldMask = DTSC::trackValidMask;
         DTSC::trackValidMask = TRACK_VALID_EXT_PUSH;
         const std::set<size_t> withData = withDataBeforeSelection ? *withDataBeforeSelection : Mist::tracksWithDataAnyMask(meta);
-        Mist::recordingExpectedOutputs(meta, withData, graph["outputs"], everything, capa, "", selected, ready);
+        std::set<std::string> acknowledged;
+        jsonForEachConst (graph["ready_outputs"], it) { acknowledged.insert(it->asString()); }
+        Mist::recordingExpectedOutputs(meta, withData, graph["outputs"], everything, capa, "", selected, ready, &acknowledged);
         DTSC::trackValidMask = oldMask;
         return true;
       }
@@ -368,6 +376,10 @@ int main() {
   if (!input.recorderExpects(processingChain, selected, ready) || selected != 1 || ready != 0) {
     return fail("a downstream ONNX output must be expected before its AV intermediate exists");
   }
+  input.admissionResolved(false);
+  input.publishFeedPaused();
+  if (!input.feedPaused()) { return fail("an unresolved admission must hold the processing feed"); }
+  input.admissionResolved(true);
   input.publishFeedPaused();
   if (input.feedPaused()) {
     return fail("the feed must not pause before any process output exists: only a lagging recorder holds it");

@@ -890,7 +890,7 @@ void Controller::statSession::finish(){
       }
     }
   }
-  tags.clear();
+  // Historical client samples retain this session classification until their session is purged.
   // Insert null datapoint
   curData.log[curData.log.rbegin()->first + 1] = emptyLogEntry;
 }

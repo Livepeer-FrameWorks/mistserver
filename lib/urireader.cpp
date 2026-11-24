@@ -374,7 +374,8 @@ namespace HTTP{
     // Files read from the memory-mapped file
     if (stateType == HTTP::File){
       // Simple bounds check, don't read beyond the end of the file
-      uint64_t dataLen = ((wantedLen + curPos) > totalSize) ? totalSize - curPos : wantedLen;
+      const uint64_t available = totalSize - curPos;
+      const uint64_t dataLen = wantedLen < available ? wantedLen : available;
       cb.dataCallback(mapped + curPos, dataLen);
       curPos += dataLen;
       return dataLen;
@@ -431,11 +432,12 @@ namespace HTTP{
       bufPos = 0;
     }
     // Read more data if needed
-    while (allData.size() < wantedLen + bufPos && *this && !downer.completed()){
+    // Only HTTP sources have a download whose completion bounds this read.
+    while (allData.size() - bufPos < wantedLen && *this && (stateType != HTTP::HTTP || !downer.completed())) {
       readSome(wantedLen - (allData.size() - bufPos), *this);
     }
     // Return wantedLen bytes if we have them
-    if (allData.size() >= wantedLen + bufPos){
+    if (allData.size() - bufPos >= wantedLen) {
       dataPtr = allData + bufPos;
       dataLen = wantedLen;
       bufPos += wantedLen;

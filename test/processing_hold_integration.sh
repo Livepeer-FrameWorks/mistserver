@@ -139,7 +139,7 @@ if [ "$ready" -ne 1 ]; then
   exit 1
 fi
 
-TMP="$ipc_root" MIST_CONTROL=1 "$input_mp4" -r -s "$stream" "$source_media" >"$work/input.log" 2>&1 &
+TMP="$ipc_root" MIST_CONTROL=1 "$input_mp4" --debug 4 -r -s "$stream" "$source_media" >"$work/input.log" 2>&1 &
 input_pid=$!
 started=0
 attempt=0

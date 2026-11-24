@@ -43,14 +43,21 @@ with http.server.ThreadingHTTPServer(('127.0.0.1',0), Trigger) as server:
         with urllib.request.urlopen('http://127.0.0.1:%d/json_%s.js'%(f.http,f.stream),timeout=20) as response:
             response.read()
         until(lambda:calls,10,'metadata probe never resolved its process policy')
+        def snapshot():
+            active=f.request({'active_streams':{'longform':True,'fields':['health','sourcepids']}}).get('active_streams') or {}
+            return active.get(f.stream,{})
+        original=until(lambda:snapshot().get('sourcepids'),10,'paused source has no owner')
+        assert len(original)==1,('probe has more than one source input',original)
         admitted.set()
+        observed={}
         def started():
-            text=(f.root/'mist.log').read_text(errors='replace')
-            return any('Started process' in line and 'MistProcAV' in line for line in text.splitlines())
-        until(started,10,'admitted ladder never started on the existing probe input')
-        text=(f.root/'mist.log').read_text(errors='replace')
-        sources=[line for line in text.splitlines() if 'MistInEBML' in line and 'Input started' in line]
-        assert len(sources)==1, ('source reopened after admission',sources,text[-6000:])
+            observed.clear();observed.update(snapshot())
+            return any(isinstance(track,dict) and track.get('codec')=='H264' and track.get('width')==160
+                       and track.get('height')==90 and track.get('buffer',0)>0
+                       for track in (observed.get('health') or {}).values())
+        until(started,10,'admitted ladder never produced video on the existing probe input')
+        assert set(original).issubset(observed.get('sourcepids') or []) and len(observed['sourcepids'])==2, (
+            'admission replaced or duplicated the source input instead of adding its one encoder',original,observed)
         assert any(calls) and not all(calls),calls
         success=True
         print('PASS metadata probe -> admitted AV ladder with one source input and no restart',flush=True)

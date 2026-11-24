@@ -16,6 +16,8 @@ try:
         if time.monotonic() >= deadline:
             raise AssertionError('session-stop fixture did not finish')
         time.sleep(.02)
+    if child.returncode == 77:
+        sys.exit(77)
     assert child.returncode == 0, ('session-stop fixture failed', child.returncode)
     assert observed, 'fixture never created its thumbnail directory; cleanup was not exercised'
     assert not owned.exists(), 'session-stop fixture leaked thumbnail directory ' + str(owned)

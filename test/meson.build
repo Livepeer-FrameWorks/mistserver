@@ -1841,3 +1841,41 @@ if host_machine.system() != 'windows'
   test('PROCESS_REPLACE bounds all handlers and blocked EXEC input together', procreplacedeadlinetest,
        args: [exec_tgts.get('MistUtilTrigger')], suite: 'Processing', timeout: 15, is_parallel: false)
 endif
+
+if host_machine.system() != 'windows' and ffmpeg_program.found()
+  test('Historical processing sessions retain their audience classification after disconnect', find_program('python3'),
+       args: [files('controller_capacity_lifecycle_integration.py'), 'session-tag-history', exec_tgts['MistController'], ffmpeg_program],
+       depends: [exec_tgts['MistController'], exec_tgts['MistOutHTTP'], exec_tgts['MistOutRTMP'], exec_tgts['MistInBuffer'],
+                 exec_tgts['MistOutEBML'], exec_tgts['MistSession'], exec_tgts['MistUtilNuke']],
+       suite: 'Controller', timeout: 90, is_parallel: false)
+endif
+
+if exec_tgts.has_key('MistOutHLS')
+  hlsreadinessobjects = exec_tgts['MistOutHLS'].extract_objects(
+    output_cpp, io_cpp, output_http_cpp, output_ts_base_cpp, output_hls_cpp)
+  hlsreadinesstest = executable('hlsreadinesstest', 'segmented_output_readiness_unit.cpp', header_tgts,
+    objects: hlsreadinessobjects, dependencies: libmist_dep, cpp_args: ['-DTS_BASECLASS=HTTPOutput'])
+  test('HLS readiness follows selected codec tracks', hlsreadinesstest, suite: 'Processing')
+endif
+if exec_tgts.has_key('MistOutCMAF')
+  cmafreadinessobjects = exec_tgts['MistOutCMAF'].extract_objects(
+    output_cpp, io_cpp, output_http_cpp, output_cmaf_cpp)
+  cmafreadinesstest = executable('cmafreadinesstest', 'segmented_output_readiness_unit.cpp', header_tgts,
+    objects: cmafreadinessobjects, dependencies: libmist_dep, cpp_args: ['-DMIST_READINESS_CMAF'])
+  test('CMAF readiness follows selected codec tracks', cmafreadinesstest, suite: 'Processing')
+endif
+
+if exec_tgts.has_key('MistOutHLS')
+  playbackunavailabletest = executable('playbackunavailabletest', 'playback_unavailable_http_unit.cpp', header_tgts,
+    objects: hlsreadinessobjects, dependencies: libmist_dep, cpp_args: ['-DTS_BASECLASS=HTTPOutput'],
+    include_directories: include_directories('../src/output'))
+  test('Unavailable playback decisions return retryable HTTP 503', playbackunavailabletest, suite: 'HTTP', timeout: 15, is_parallel: false)
+  test('Authoritative playback denials remain final HTTP refusals', playbackunavailabletest, args: ['deny'], suite: 'HTTP', timeout: 15, is_parallel: false)
+endif
+
+bufferreadyobjects = inputbufferlifecycletest.extract_objects(
+  files('../src/input/input.cpp', '../src/input/input_buffer.cpp', '../src/io.cpp'))
+bufferreadytest = executable('bufferreadytest', 'input_buffer_serve_readiness_unit.cpp', header_tgts,
+  objects: bufferreadyobjects, dependencies: libmist_dep,
+  include_directories: include_directories('../src/input'))
+test('Buffer publishes live metadata before accepting readers', bufferreadytest, suite: 'Processing')

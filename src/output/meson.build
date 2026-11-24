@@ -60,6 +60,8 @@ output_ebml_cpp = files('output_ebml.cpp')
 output_http_cpp = files('output_http.cpp')
 output_ts_base_cpp = files('output_ts_base.cpp')
 output_cpp = files('output.cpp')
+output_hls_cpp = files('output_hls.cpp')
+output_cmaf_cpp = files('output_cmaf.cpp')
 
 outputs_tgts = []
 

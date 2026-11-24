@@ -21,6 +21,20 @@
 /// process) without either of them running. Recorders select from the same candidates with their
 /// own selection, so they know which outputs to wait for before writing a header.
 namespace Mist {
+  /// Original source tracks at this instant, including ones hidden from viewers. A reserved
+  /// process output is not an original even before its source-track field is populated.
+  inline std::set<size_t> processGraphOriginalTracks(const DTSC::Meta & M, bool withDataOnly) {
+    const uint8_t mask = DTSC::trackValidMask;
+    DTSC::trackValidMask = TRACK_VALID_ALL;
+    const std::set<size_t> valid = M.getValidTracks(withDataOnly);
+    DTSC::trackValidMask = mask;
+    std::set<size_t> originals;
+    for (const size_t track : valid) {
+      if (M.getSourceTrack(track) == INVALID_TRACK_ID && M.getOutputKey(track).empty()) { originals.insert(track); }
+    }
+    return originals;
+  }
+
   /// The tracks a process selects with its declared selection (see process_outputs.h), as it
   /// would at runtime: through the processing validity mask.
   inline std::set<size_t> declaredSelectionMatches(const DTSC::Meta & C, const JSON::Value & select) {
@@ -99,8 +113,7 @@ namespace Mist {
   /// original track (a restarted publisher's included) decides again.
   inline std::string renditionDecisionKey(const DTSC::Meta & M) {
     std::string key;
-    for (const size_t track : M.getValidTracks(true)) {
-      if (M.getSourceTrack(track) != INVALID_TRACK_ID) { continue; }
+    for (const size_t track : processGraphOriginalTracks(M, true)) {
       key += std::to_string(track) + ":" + std::to_string(M.getID(track)) + ":" + M.getCodec(track) + ",";
     }
     return key;
@@ -238,7 +251,7 @@ namespace Mist {
     desc["fpks"] = M.getFpks(idx);
     desc["mask"] = M.trackValid(idx);
     desc["key"] = M.getOutputKey(idx);
-    desc["original"] = M.getSourceTrack(idx) == INVALID_TRACK_ID;
+    desc["original"] = M.getSourceTrack(idx) == INVALID_TRACK_ID && M.getOutputKey(idx).empty();
     desc["data"] = hasData;
     return desc;
   }
@@ -526,7 +539,8 @@ namespace Mist {
       retaining.insert(retains.begin(), retains.end());
     }
     for (const size_t track : withData) {
-      if (M.getType(track) != "video" || Util::isImageCodec(M.getCodec(track)) || M.getSourceTrack(track) != INVALID_TRACK_ID) {
+      if (M.getType(track) != "video" || Util::isImageCodec(M.getCodec(track)) ||
+          M.getSourceTrack(track) != INVALID_TRACK_ID || !M.getOutputKey(track).empty()) {
         continue;
       }
       if (!retaining.count(track)) { replaced[track] = mask; }
@@ -543,7 +557,8 @@ namespace Mist {
   /// not count as ready either, or the header would be written without it.
   inline void recordingExpectedOutputs(const DTSC::Meta & M, const std::set<size_t> & withData, const JSON::Value & expected,
                                        const std::map<std::string, std::string> & targetParams, const JSON::Value & capa,
-                                       const std::string & UA, size_t & selected, size_t & ready) {
+                                       const std::string & UA, size_t & selected,
+                                       size_t & ready, const std::set<std::string> *acknowledged = nullptr) {
     selected = 0;
     ready = 0;
     std::map<std::string, const JSON::Value *> outputs;
@@ -563,7 +578,7 @@ namespace Mist {
       const size_t candidate = addCandidateTrack(C, describeExistingTrack(M, idx, withData.count(idx) || isExpected));
       if (!isExpected) { continue; }
       existingKeys.insert(key);
-      expectedCandidates[candidate] = withData.count(idx);
+      expectedCandidates[candidate] = withData.count(idx) && (!acknowledged || acknowledged->count(key));
     }
     for (const auto & output : outputs) {
       if (existingKeys.count(output.first)) { continue; }

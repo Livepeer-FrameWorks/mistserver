@@ -1,4 +1,5 @@
 #include "output_hls.h"
+#include "output_track_readiness.h"
 
 #include <mist/langcodes.h>
 #include <mist/stream.h>
@@ -12,7 +13,7 @@ namespace Mist{
     if (!isInitialized){return false;}
     meta.reloadReplacedPagesIfNeeded();
     if (!M.getValidTracks().size()){return false;}
-    uint32_t mainTrack = M.mainTrack();
+    uint32_t mainTrack = outputSelectionTimingTrack(M, targetParams, capa, UA);
     if (mainTrack == INVALID_TRACK_ID){return false;}
     DTSC::Fragments fragments(M.fragments(mainTrack));
     if (fragments.getValidCount() > 4) { return true; }
@@ -97,7 +98,7 @@ namespace Mist{
   std::string OutHLS::liveIndex(size_t tid, const std::string &tknStr, const std::string &urlPrefix){
     //Timing track is current track, unless non-video, then time by video track
     size_t timingTid = tid;
-    if (M.getType(timingTid) != "video"){timingTid = M.mainTrack();}
+    if (M.getType(timingTid) != "video") { timingTid = outputSelectionTimingTrack(M, targetParams, capa, UA); }
     if (timingTid == INVALID_TRACK_ID){timingTid = tid;}
 
     uint64_t systemBoot = 0;
@@ -395,7 +396,7 @@ namespace Mist{
       if (isTS && !(!(Comms::tknMode & 0x04) || config->getOption("chunkpath"))){
         uint64_t dura = 120000;
         if (M && M.getValidTracks().size()){
-          size_t mTrk = M.mainTrack();
+          size_t mTrk = outputSelectionTimingTrack(M, targetParams, capa, UA);
           if (mTrk != INVALID_TRACK_ID){dura = M.getDuration(mTrk);}
         }
         H.SetHeader("Cache-Control",
@@ -576,8 +577,8 @@ namespace Mist{
   void OutHLS::sendTS(const char *tsData, size_t len){H.Chunkify(tsData, len, myConn);}
 
   void OutHLS::onFail(const std::string &msg, bool critical){
-    // A trigger denial is a refusal, not a transient stream failure: answer with
-    // the plain HTTP 404 so clients fail over instead of parsing an error playlist.
+    // Trigger refusals use an HTTP status instead of an error playlist: a
+    // handler outage remains retryable while an authoritative denial stays final.
     if (HTTP::URL(reqUrl).getExt().substr(0, 3) != "m3u" || !strncmp(Util::mRExitReason, ER_TRIGGER, 7)) {
       HTTPOutput::onFail(msg, critical);
       return;

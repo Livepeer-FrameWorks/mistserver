@@ -54,7 +54,7 @@ def main():
                 'target_profiles': [{'name': 'audit', 'bitrate': 500000, 'width': 320, 'height': 180, 'fps': 25, 'gop': '1.0'}],
                 'source_mask': 7, 'target_mask': 3, 'workload': 'vod', 'deadline_ms': 20000, 'restart_type': 'disabled'}]}})
         input_log = (f.root / 'input.log').open('wb')
-        canonical = subprocess.Popen([str(build / 'MistInEBML'), '-r', '-s', f.stream, str(source)],
+        canonical = subprocess.Popen([str(build / 'MistInEBML'), '--debug', '4', '-r', '-s', f.stream, str(source)],
                                      env=f.env, stdout=input_log, stderr=subprocess.STDOUT)
         f.children.append(canonical)
         until(lambda: (f.root / 'input.log').exists() and 'Input started' in (f.root / 'input.log').read_text(errors='replace'),

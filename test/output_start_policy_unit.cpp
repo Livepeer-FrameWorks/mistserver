@@ -18,6 +18,11 @@ int main() {
   if (!gate.begin(true)) { return fail("an enabled PLAY_REWRITE must run once"); }
   if (gate.begin(true)) { return fail("PLAY_REWRITE must not run twice for status plus initialize"); }
 
+  Mist::PlayRewriteGate unavailableGate;
+  if (unavailableGate.unavailable()) { return fail("a fresh gate is available"); }
+  unavailableGate.markUnavailable();
+  if (!unavailableGate.unavailable()) { return fail("temporary unavailability must survive repeated initialization"); }
+
   Triggers::Result result;
   result.action = Triggers::ACT_VALUE;
   result.response = "rewritten";

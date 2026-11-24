@@ -155,7 +155,8 @@ class Fixture:
         (self.root / 'ipc').mkdir()
         self.api, self.http, self.udp = free_port(), free_port(), free_port(socket.SOCK_DGRAM)
         self.stream = 'capacity' + str(os.getpid())
-        self.env = dict(os.environ, TMP=str(self.root / 'ipc'), MIST_CONTROL='1')
+        self.env = dict(os.environ, TMP=str(self.root / 'ipc'), MIST_CONTROL='1',
+                        UDP_API='udp://127.0.0.1:%d' % free_port(socket.SOCK_DGRAM))
         self.env.pop('ATHEIST', None)
         self.env.pop('CTRL_ATHEIST', None)
         self.log = (self.root / 'controller.log').open('w+')
@@ -484,15 +485,45 @@ def processing_capacity_wake(fixture):
     assert 0 < first.get('processing_capacity_generation', 0) < second.get('processing_capacity_generation', 0), ('capacity generation did not advance', first, second)
 
 
+def session_tag_history(f):
+    source=f.root/'publisher.mp4'
+    subprocess.run([f.ffmpeg,'-v','error','-y','-f','lavfi','-i','testsrc2=size=320x180:rate=10','-t','2','-c:v','libx264','-preset','ultrafast','-g','10','-bf','0',str(source)],check=True,env=f.tool_env)
+    port=free_port()
+    f.start(streams_override={f.stream:{'source':'push://'}},extra_protocols=[{'connector':'RTMP','interface':'127.0.0.1','port':port}])
+    made=f.request({'authorize':{'new_username':'history-test','new_password':'fixture-only'}})
+    assert made.get('authorize',{}).get('status')=='ACC_MADE',made
+    pub=subprocess.Popen([f.ffmpeg,'-v','error','-re','-stream_loop','-1','-i',str(source),'-t','40','-c','copy','-f','flv',f'rtmp://127.0.0.1:{port}/live/{f.stream}'],env=f.tool_env,stdout=f.log,stderr=subprocess.STDOUT)
+    f.children.append(pub)
+    until(lambda:f.stream in (f.request({'active_streams':{'longform':True}}).get('active_streams') or {}),15,'publisher not active')
+    reader=subprocess.Popen([f.ffmpeg,'-v','error','-i',f'http://127.0.0.1:{f.http}/{f.stream}.mkv','-t','30','-f','null','-'],env=f.tool_env,stdout=f.log,stderr=subprocess.STDOUT)
+    f.children.append(reader)
+    def rows(offset):
+        response=f.request({'clients':{'time':offset,'fields':['stream','sessid','tags']}})['clients']
+        return [dict(zip(response['fields'],row)) for row in (response.get('data') or [])]
+    def viewer():
+        return next((row for row in rows(-1) if row['stream']==f.stream and row['sessid'][0] not in 'IOU'),None)
+    row=until(viewer,15,'native viewer never registered')
+    sid=row['sessid']
+    f.request({'tag_sessid':{sid:'fwproc'}})
+    until(lambda:any(r['sessid']==sid and 'fwproc' in (r.get('tags') or []) for r in rows(-1)),5,'positive control did not apply processing tag')
+    time.sleep(5)
+    assert reader.poll() is None,'positive control: reader ended before the native stop'
+    f.request({'stop_sessid':sid})
+    until(lambda: ('Session <'+sid+'>') in (f.root/'mist.log').read_text(errors='replace'),10,'native session did not report its disconnect')
+    history=[r for r in rows(-5) if r['sessid']==sid]
+    assert history,'positive control: completed session missing from five-second census'
+    assert all('fwproc' in (r.get('tags') or []) for r in history),'completed processing session lost its classification while still in the audience census'
+
+
 def main():
     mode, controller, ffmpeg = sys.argv[1:]
-    if mode in ('whep', 'whep-idle-timer', 'bandwidth', 'progressive-mp4', 'fragmented-mp4', 'fragmented-mp4-moof', 'record-mp4-no-b', 'record-mp4-av', 'record-mkv') and not shutil.which(ffmpeg):
+    if mode in ('session-tag-history', 'whep', 'whep-idle-timer', 'bandwidth', 'progressive-mp4', 'fragmented-mp4', 'fragmented-mp4-moof', 'record-mp4-no-b', 'record-mp4-av', 'record-mkv') and not shutil.which(ffmpeg):
         print('SKIP: this media regression requires ffmpeg')
         sys.exit(77)
     fixture = Fixture(controller, ffmpeg)
     failed = True
     try:
-        {'processing-capacity-wake': processing_capacity_wake, 'record-mp4-no-b': lambda f: record_mp4(f, 'mp4-no-b'), 'record-mp4-av': lambda f: record_mp4(f, 'mp4'), 'record-mkv': lambda f: record_mp4(f, 'mkv'), 'whep-idle-timer': whep_dtls_idle, 'stun-replies': stale_stun_replies, 'webrtc-idle': webrtc_idle, 'webrtc-reload': webrtc_reload, 'whep': whep_liveness, 'bandwidth': internal_bandwidth, 'progressive-mp4': progressive_mp4, 'fragmented-mp4': lambda f: progressive_mp4(f, 'fragmented'), 'fragmented-mp4-moof': lambda f: progressive_mp4(f, 'fragmented-moof')}[mode](fixture)
+        {'session-tag-history': session_tag_history, 'processing-capacity-wake': processing_capacity_wake, 'record-mp4-no-b': lambda f: record_mp4(f, 'mp4-no-b'), 'record-mp4-av': lambda f: record_mp4(f, 'mp4'), 'record-mkv': lambda f: record_mp4(f, 'mkv'), 'whep-idle-timer': whep_dtls_idle, 'stun-replies': stale_stun_replies, 'webrtc-idle': webrtc_idle, 'webrtc-reload': webrtc_reload, 'whep': whep_liveness, 'bandwidth': internal_bandwidth, 'progressive-mp4': progressive_mp4, 'fragmented-mp4': lambda f: progressive_mp4(f, 'fragmented'), 'fragmented-mp4-moof': lambda f: progressive_mp4(f, 'fragmented-moof')}[mode](fixture)
         failed = False
         print('PASS:', mode)
     finally:

@@ -72,7 +72,7 @@ namespace Mist{
     JSON::Value processDeclaration(const std::string & config, const JSON::Value & args);
     const ProcessGraph & resolveProcessGraph(const JSON::Value & procs);
     void resolveProcessGraphOnce(const JSON::Value & procs, const std::string & decisionKey);
-    void publishProcessGraph(const ProcessGraph & graph);
+    void publishProcessGraph(const ProcessGraph & graph, const std::set<size_t> & readyTracks);
     void publishFeedPaused();
     uint64_t holdingReaderLeadMs(uint64_t & targetDurationMs) const;
     // This is used for an ugly fix to prevent metadata from disappearing in some cases.

@@ -1,4 +1,5 @@
 #include "output_cmaf.h"
+#include "output_track_readiness.h"
 
 #include <mist/ac3.h>
 #include <mist/bitfields.h>
@@ -83,7 +84,7 @@ namespace Mist{
     if (!isInitialized){initialize();}
     meta.reloadReplacedPagesIfNeeded();
     if (!M.getValidTracks().size()){return false;}
-    uint32_t mainTrack = M.mainTrack();
+    uint32_t mainTrack = outputSelectionTimingTrack(M, targetParams, capa, UA);
     if (mainTrack == INVALID_TRACK_ID){return false;}
     DTSC::Fragments fragments(M.fragments(mainTrack));
     return fragments.getValidCount() > 1;

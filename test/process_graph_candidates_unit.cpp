@@ -109,6 +109,53 @@ int main() {
   check(C.getValidTracks().size() == 6, "every existing track is a candidate");
   check(producers.size() == 2, "both process outputs are attributed to their process");
 
+  {
+    DTSC::Meta source;
+    source.reInit("", true);
+    addTrack(source, "audio", "AAC", "");
+    addTrack(source, "video", "H264", "");
+    addTrack(source, "audio", "opus", "proc:audio/output");
+    source.update(0, 0, 0, 1, 0, true, 1);
+    source.update(0, 0, 2, 1, 0, true, 1);
+    source.validateTrack(1, TRACK_VALID_INT_PROCESS);
+    for (const size_t track : source.getValidTracks()) { source.breakClaim(track); }
+    const uint8_t mask = DTSC::trackValidMask;
+    DTSC::trackValidMask = TRACK_VALID_EXT_PUSH;
+    const std::set<size_t> first = Mist::processGraphOriginalTracks(source, true);
+    check(first == std::set<size_t>{0}, "graph coverage excludes header-only video and reserved process outputs");
+    check(Mist::processGraphOriginalTracks(source, false) == std::set<size_t>({0, 1}),
+          "the recording gate also sees masked source originals with no first packet yet");
+    source.update(0, 0, 1, 1, 0, true, 1);
+    check(first == std::set<size_t>{0}, "a later first packet cannot expand an already captured graph snapshot");
+    check(Mist::processGraphOriginalTracks(source, true) == std::set<size_t>({0, 1}),
+          "the next graph snapshot includes a masked original once its data arrives");
+    check(Mist::renditionDecisionKey(source).find("1:") != std::string::npos, "a masked original changes the rendition-decision identity");
+    check(DTSC::trackValidMask == TRACK_VALID_EXT_PUSH, "source snapshots preserve the caller visibility mask");
+    DTSC::trackValidMask = mask;
+  }
+
+  {
+    DTSC::Meta source;
+    source.reInit("", true);
+    addTrack(source, "video", "H264", "proc:a/360p");
+    source.setWidth(0, 640);
+    source.setHeight(0, 360);
+    source.update(0, 0, 0, 1, 0, true, 1);
+    source.breakClaim(0);
+    JSON::Value expected;
+    JSON::Value output = Mist::describeExistingTrack(source, 0, true);
+    expected.append(output);
+    std::set<std::string> acknowledged;
+    size_t selected = 0, ready = 0;
+    Mist::recordingExpectedOutputs(source, Mist::tracksWithDataAnyMask(source), expected, targetParams, capa, "",
+                                   selected, ready, &acknowledged);
+    check(selected == 1 && ready == 0, "a first output packet cannot bypass the buffer's visibility update");
+    acknowledged.insert("proc:a/360p");
+    Mist::recordingExpectedOutputs(source, Mist::tracksWithDataAnyMask(source), expected, targetParams, capa, "",
+                                   selected, ready, &acknowledged);
+    check(selected == 1 && ready == 1, "the buffer acknowledges output readiness after applying source masks");
+  }
+
   if (failures) {
     fprintf(stderr, "%d check(s) failed\n", failures);
     return 1;

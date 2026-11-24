@@ -6,11 +6,19 @@
 #include <string>
 
 namespace Mist {
-  enum PlayRewriteOutcome { PLAY_REWRITE_UNCHANGED, PLAY_REWRITE_CHANGED, PLAY_REWRITE_DENIED };
+  enum PlayRewriteOutcome {
+    PLAY_REWRITE_UNCHANGED,
+    PLAY_REWRITE_CHANGED,
+    PLAY_REWRITE_DENIED,
+    PLAY_REWRITE_UNAVAILABLE
+  };
 
   class PlayRewriteGate {
     public:
-      PlayRewriteGate() : handled(false) {}
+      PlayRewriteGate() : handled(false), unavailable_(false) {}
+
+      bool unavailable() const { return unavailable_; }
+      void markUnavailable() { unavailable_ = true; }
 
       bool begin(bool enabled) {
         if (!enabled || handled) { return false; }
@@ -20,6 +28,7 @@ namespace Mist {
 
     private:
       bool handled;
+      bool unavailable_;
   };
 
   inline std::string playRewriteTarget(const std::string & current, const Triggers::Result & result) {

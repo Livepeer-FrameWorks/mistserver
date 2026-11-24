@@ -109,7 +109,7 @@ case "$source_codec" in
     if "$ffmpeg" -hide_banner -encoders 2>/dev/null | grep -q 'libaom-av1'; then
       "$ffmpeg" -hide_banner -loglevel error -y \
         -f lavfi -i testsrc2=size=320x180:rate=25:duration=8 \
-        -c:v libaom-av1 -cpu-used 8 -crf 45 -g 250 -force_key_frames 0,1,2,3,4,5 \
+        -c:v libaom-av1 -usage realtime -cpu-used 8 -threads 2 -row-mt 1 -crf 45 -g 250 -force_key_frames 0,1,2,3,4,5 \
         -an -movflags +faststart "$source_media"
     elif "$ffmpeg" -hide_banner -encoders 2>/dev/null | grep -q 'libsvtav1'; then
       "$ffmpeg" -hide_banner -loglevel error -y \
@@ -171,7 +171,7 @@ if [ "$ready" -ne 1 ]; then
   exit 1
 fi
 
-TMP="$ipc_root" MIST_CONTROL=1 "$source_input" -r -s "$stream" "$source_media" >"$work/input.log" 2>&1 &
+TMP="$ipc_root" MIST_CONTROL=1 "$source_input" --debug 4 -r -s "$stream" "$source_media" >"$work/input.log" 2>&1 &
 input_pid=$!
 attempt=0
 while [ "$attempt" -lt 300 ]; do

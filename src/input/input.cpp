@@ -922,7 +922,6 @@ namespace Mist{
   /// input name
   /// ~~~~~~~~~~~~~~~
   void Input::serve(){
-    users.reload(streamName, true);
     startTime = Util::bootSecs();
 
     if (!M){
@@ -938,6 +937,10 @@ namespace Mist{
 
     internalOnly = (config->getString("input").find("INTERNAL_ONLY") != std::string::npos);
     isBuffer = (capa["name"].asStringRef() == "Buffer");
+    // A producer can attach as soon as its registration page is published.
+    // Publish the Buffer's live metadata before admitting it or announcing READY.
+    if (isBuffer) { meta.setLive(true); }
+    users.reload(streamName, true);
 
     /*LTS-START*/
     if (Triggers::shouldTrigger("STREAM_READY", config->getString("streamname"))){

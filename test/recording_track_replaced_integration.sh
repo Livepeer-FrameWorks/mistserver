@@ -89,7 +89,7 @@ api_port=$((24000 + ($$ % 12000)))
 rtmp_port=$((api_port + 1))
 config="$work/config.json"
 printf '%s\n' \
-  "{\"account\":{\"test\":{\"password\":\"098f6bcd4621d373cade4e832627b4f6\"}},\"auto_push\":null,\"bandwidth\":{\"exceptions\":[\"::1\",\"127.0.0.0/8\"]},\"config\":{\"accesslog\":\"LOG\",\"controller\":{\"interface\":\"127.0.0.1\",\"port\":$api_port,\"username\":null},\"debug\":4,\"defaultStream\":null,\"prometheus\":\"\",\"protocols\":[{\"connector\":\"RTMP\",\"interface\":\"127.0.0.1\",\"port\":$rtmp_port}],\"serverid\":null,\"sessionInputMode\":15,\"sessionOutputMode\":15,\"sessionStreamInfoMode\":1,\"sessionUnspecifiedMode\":0,\"sessionViewerMode\":14,\"tknMode\":15,\"triggers\":{},\"trustedproxy\":[]},\"extwriters\":null,\"jwks\":null,\"push_settings\":{\"maxspeed\":0,\"wait\":3},\"streamkeys\":null,\"streams\":{\"$stream\":{\"name\":\"$stream\",\"source\":\"push://\",\"resume\":1,\"inputtimeout\":6}},\"variables\":null}" \
+  "{\"account\":{\"test\":{\"password\":\"098f6bcd4621d373cade4e832627b4f6\"}},\"auto_push\":null,\"bandwidth\":{\"exceptions\":[\"::1\",\"127.0.0.0/8\"]},\"config\":{\"accesslog\":\"LOG\",\"controller\":{\"interface\":\"127.0.0.1\",\"port\":$api_port,\"username\":null},\"debug\":4,\"defaultStream\":null,\"prometheus\":\"\",\"protocols\":[{\"connector\":\"RTMP\",\"interface\":\"127.0.0.1\",\"port\":$rtmp_port}],\"serverid\":null,\"sessionInputMode\":15,\"sessionOutputMode\":15,\"sessionStreamInfoMode\":1,\"sessionUnspecifiedMode\":0,\"sessionViewerMode\":14,\"tknMode\":15,\"triggers\":{},\"trustedproxy\":[]},\"extwriters\":null,\"jwks\":null,\"push_settings\":{\"maxspeed\":0,\"wait\":3},\"streamkeys\":null,\"streams\":{\"$stream\":{\"name\":\"$stream\",\"source\":\"push://\",\"debug\":4,\"resume\":1,\"inputtimeout\":6}},\"variables\":null}" \
   >"$config"
 
 TMP="$ipc_root" MIST_CONTROL=1 "$controller" -c "$config" -C r -L "$work/controller.log" &
@@ -131,7 +131,7 @@ publish publisher1 "$first_size" 10
 publisher1_pid=$last_publisher
 wait_for 20 "the first publisher's stream to become active" logged "$work/controller.log" "Stream $stream became active"
 
-TMP="$ipc_root" MIST_CONTROL=1 "$timeout_program" 90 "$output_ts" -s "$stream" \
+TMP="$ipc_root" MIST_CONTROL=1 "$timeout_program" 90 "$output_ts" --debug 4 -s "$stream" \
   "$work/out/segments/\$segmentCounter.ts?m3u8=../rec.m3u8&audio=source&video=source&split=2&append=1&noendlist=1&nounlink=1" \
   >"$work/recording.log" 2>&1 &
 recording_pid=$!

@@ -4,18 +4,22 @@
 #undef protected
 #undef private
 #include "../src/input/processing_rate.h"
+#include "../src/processing_lifecycle.h"
 
 #include <mist/http_parser.h>
 #include <mist/proc_stats.h>
 #include <mist/stream.h>
 #include <mist/timing.h>
 
+#include <atomic>
 #include <csignal>
 #include <cstdio>
 #include <cstring>
 #include <fstream>
 #include <iostream>
+#include <pthread.h>
 #include <string>
+#include <thread>
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <sys/wait.h>
@@ -24,6 +28,11 @@
 
 namespace {
   int failures = 0;
+  volatile sig_atomic_t retentionWaitSignals = 0;
+
+  void interruptRetentionWait(int) {
+    ++retentionWaitSignals;
+  }
 
   void check(bool ok, const std::string & message) {
     if (ok) { return; }
@@ -544,7 +553,30 @@ namespace {
       configured.append(livepeer);
       const Mist::ProcessGraph *graph = &input.resolveProcessGraph(configured);
       check(!graph->runs.count(input.key(livepeer)), "the ladder waits briefly for an original's bitrate");
-      Util::sleep(5200);
+      // Process-exit signals must not shorten the real rendition-decision window.
+      retentionWaitSignals = 0;
+      const auto previous = std::signal(SIGUSR1, interruptRetentionWait);
+      check(previous != SIG_ERR, "retention wait must install its signal fixture");
+      if (previous != SIG_ERR) {
+        const pthread_t waitingThread = pthread_self();
+        std::atomic<bool> done(false);
+        std::thread interruptions([&]() {
+          while (!done.load()) {
+            Util::wait(20);
+            if (!done.load()) { pthread_kill(waitingThread, SIGUSR1); }
+          }
+        });
+        const uint64_t started = Util::bootMS();
+        Util::wait(5200);
+        const uint64_t elapsed = Util::bootMS() - started;
+        done.store(true);
+        interruptions.join();
+        std::signal(SIGUSR1, previous);
+        check(retentionWaitSignals > 0 && elapsed >= Mist::RENDITION_DECISION_WAIT_MS,
+              "retention wait must span the unchanged decision window despite signals");
+      } else {
+        Util::wait(5200);
+      }
       graph = &input.resolveProcessGraph(configured);
       check(graph->runs.count(input.key(livepeer)) && graphOutputNames(*graph) == std::set<std::string>({"360p", "480p", "720p"}),
             "an original without a bitrate must not retain its rung once the window passed, got " +
@@ -620,20 +652,72 @@ namespace {
       const JSON::Value livepeer = retainLadder(lpName);
       JSON::Value configured;
       configured.append(livepeer);
-      input.publishProcessGraph(input.resolveProcessGraph(configured));
+      input.publishProcessGraph(input.resolveProcessGraph(configured), Mist::tracksWithDataAnyMask(input.meta));
       JSON::Value published;
       check(Mist::readProcessGraphPage(input.processGraphPage, published), "publish: the graph page must be readable");
       check(Mist::processGraphCoversOriginal(published, audio), "publish: the graph lists the original it was resolved for");
       const size_t video = input.addTrack("video", "H264", 960, 540);
       check(!Mist::processGraphCoversOriginal(published, video), "publish: a later original is not covered by an earlier graph");
-      input.publishProcessGraph(input.resolveProcessGraph(configured));
+      input.publishProcessGraph(input.resolveProcessGraph(configured), Mist::tracksWithDataAnyMask(input.meta));
       check(Mist::readProcessGraphPage(input.processGraphPage, published) && !published["resolved"].asBool(),
             "publish: a graph whose ladder still waits for the new original's bitrate is not resolved");
       input.meta.setBps(video, mbit(2));
-      input.publishProcessGraph(input.resolveProcessGraph(configured));
+      input.publishProcessGraph(input.resolveProcessGraph(configured), Mist::tracksWithDataAnyMask(input.meta));
       check(Mist::readProcessGraphPage(input.processGraphPage, published) && published["resolved"].asBool() &&
               Mist::processGraphCoversOriginal(published, video) && published["outputs"].size() == 2,
             "publish: once decided the graph is resolved for the new original with its renditions, got " + published.toString());
+      input.processGraphPage.master = true;
+    }
+
+    {
+      // A header-only original can gain its first packet before the graph's next publication.
+      InputBufferProbe input(&config);
+      input.initMetadata("retainFirstPacket" + suffix);
+      input.addTrack("audio", "AAC", 0, 0);
+      const size_t video = input.meta.addTrack();
+      input.meta.setID(video, video + 1);
+      input.meta.setType(video, "video");
+      input.meta.setCodec(video, "H264");
+      input.meta.setWidth(video, 960);
+      input.meta.setHeight(video, 540);
+      input.meta.setBps(video, mbit(2));
+      input.meta.validateTrack(video, TRACK_VALID_ALL);
+      input.meta.breakClaim(video);
+      JSON::Value configured;
+      configured.append(retainLadder(lpName));
+      input.publishProcessGraph(input.resolveProcessGraph(configured), Mist::tracksWithDataAnyMask(input.meta));
+      JSON::Value published;
+      check(Mist::readProcessGraphPage(input.processGraphPage, published), "first-packet graph must be readable");
+      input.meta.update(0, 0, video, 1, 0, true, 1);
+      input.meta.setBps(video, mbit(2));
+      check(input.meta.getValidTracks(true).count(video), "first-packet fixture video must carry data");
+      std::map<std::string, std::string> everything;
+      everything["video"] = "all";
+      everything["audio"] = "all";
+      JSON::Value capa;
+      capa["codecs"][0u][0u].append("*");
+      size_t selected = 0, ready = 0;
+      Mist::recordingExpectedOutputs(input.M, Mist::tracksWithDataAnyMask(input.M), published["outputs"], everything,
+                                     capa, "", selected, ready);
+      const bool admitted = published["resolved"].asBool() && Mist::processGraphCoversOriginal(published, video) &&
+        Mist::processingRecordingTrackCountsReady(true, selected, ready, 2, 2, 0, 0);
+      check(!admitted, "a graph sampled before the video first packet must not admit a header without its ladder");
+      input.publishProcessGraph(input.resolveProcessGraph(configured), Mist::tracksWithDataAnyMask(input.meta));
+      check(Mist::readProcessGraphPage(input.processGraphPage, published) && published["resolved"].asBool() &&
+              Mist::processGraphCoversOriginal(published, video) && published["outputs"].size() == 2,
+            "a refreshed first-packet graph must expect both video renditions");
+      Mist::recordingExpectedOutputs(input.M, Mist::tracksWithDataAnyMask(input.M), published["outputs"], everything,
+                                     capa, "", selected, ready);
+      check(selected == 2 && !ready && !Mist::processingRecordingTrackCountsReady(true, selected, ready, 2, 2, 0, 0),
+            "a refreshed graph must hold the header until its renditions have data");
+      for (size_t index = 0; index < published["outputs"].size(); ++index) {
+        const size_t output = input.addTrack("video", "H264", index ? 854 : 640, index ? 480 : 360, video);
+        input.meta.setOutputKey(output, published["outputs"][(unsigned int)index]["key"].asString());
+      }
+      Mist::recordingExpectedOutputs(input.M, Mist::tracksWithDataAnyMask(input.M), published["outputs"], everything,
+                                     capa, "", selected, ready);
+      check(selected == 2 && ready == 2 && Mist::processingRecordingTrackCountsReady(true, selected, ready, 2, 2, 2, 2),
+            "the header must unblock once both expected renditions carry data");
       input.processGraphPage.master = true;
     }
 

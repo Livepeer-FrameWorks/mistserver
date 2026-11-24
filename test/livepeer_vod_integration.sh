@@ -265,7 +265,7 @@ if ! grep -q 'Controller started' "$work/controller.log"; then
   exit 1
 fi
 
-TMP="$ipc_root" MIST_CONTROL=1 "$input_ebml" -r -s "$stream" "$source_mkv" >"$work/input.log" 2>&1 &
+TMP="$ipc_root" MIST_CONTROL=1 "$input_ebml" --debug 4 -r -s "$stream" "$source_mkv" >"$work/input.log" 2>&1 &
 input_pid=$!
 attempt=0
 while [ "$attempt" -lt 30 ] && ! grep -q 'Input started' "$work/input.log" 2>/dev/null; do
@@ -279,7 +279,7 @@ if ! grep -q 'Input started' "$work/input.log"; then
 fi
 
 recording="$work/recording.mkv"
-"$timeout_program" "$output_timeout" env TMP="$ipc_root" MIST_CONTROL=1 "$output_ebml" -s "$stream" "$recording?stop=29500$recording_selection" \
+"$timeout_program" "$output_timeout" env TMP="$ipc_root" MIST_CONTROL=1 "$output_ebml" --debug 4 -s "$stream" "$recording?stop=29500$recording_selection" \
   >"$work/output.log" 2>&1 &
 output_pid=$!
 

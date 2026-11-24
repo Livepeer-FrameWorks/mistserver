@@ -151,6 +151,7 @@ namespace Mist{
     uint64_t outputAgeMs() const { return Util::bootMS() - outputStartMs; }
     virtual bool recordingHeaderContainsTrack(size_t) const { return false; }
     PlayRewriteOutcome applyPlayRewrite(const char *requestType);
+    bool playRewriteUnavailable() const { return playRewriteGate.unavailable(); }
     std::string currentTarget;
     virtual bool inlineRestartCapable() const{
       return false;

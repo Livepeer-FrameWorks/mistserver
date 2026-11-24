@@ -125,7 +125,7 @@ sleep 1
 # it took.
 cut() {
   began=$(date +%s)
-  "$timeout_program" 90 env TMP="$ipc_root" MIST_CONTROL=1 "$output_ebml" -s "$stream" \
+  "$timeout_program" 90 env TMP="$ipc_root" MIST_CONTROL=1 "$output_ebml" --debug 4 -s "$stream" \
     "$work/$1.mkv?startunix=-$2&duration=$3&video=all&audio=all&rate=0" >"$work/$1.log" 2>&1 || true
   took=$(($(date +%s) - began))
   if ! grep -q 'planned stopping point reached' "$work/$1.log"; then

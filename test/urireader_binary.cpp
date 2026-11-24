@@ -4,11 +4,62 @@
 #include <mist/urireader.h>
 
 #include <atomic>
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
+#include <unistd.h>
 #include <iostream>
+#include <limits>
 #include <string>
 #include <thread>
 
 namespace {
+  bool localPointerReads() {
+    char path[] = "/tmp/uri-reader-local-XXXXXX";
+    const int fd = mkstemp(path);
+    if (fd < 0) { return false; }
+    const std::string payload("\0\5hello", 7);
+    const bool written = write(fd, payload.data(), payload.size()) == (ssize_t)payload.size();
+    close(fd);
+    HTTP::URIReader reader{std::string(path)};
+    auto read = [&](size_t wanted, const std::string & expected) {
+      char *data = 0;
+      size_t size = 0;
+      const size_t got = reader.readSome(data, size, wanted);
+      const bool ok = got == expected.size() && size == expected.size() &&
+        (size == 0 || (data && !std::memcmp(data, expected.data(), size)));
+      if (!ok) { std::cerr << "Local pointer read: got " << got << ", wanted " << expected.size() << std::endl; }
+      return ok;
+    };
+    bool ok = written && read(2, payload.substr(0, 2)) && reader.getPos() == 2;
+    ok = reader.seek(2) && read(99, "hello") && reader.isEOF() && ok;
+    ok = reader.seek(0) && reader.readSome(2, reader) == 2 && read(2, payload.substr(0, 2)) && read(5, "hello") &&
+      reader.isEOF() && ok;
+    ok = reader.seek(0) && reader.readSome(2, reader) == 2 && read(1, payload.substr(0, 1)) &&
+      read(std::numeric_limits<size_t>::max(), payload.substr(1)) && reader.isEOF() && ok;
+    ok = reader.seek(99) && read(2, "") && reader.isEOF() && ok;
+    ok = reader.seek(0) && read(2, payload.substr(0, 2)) && ok;
+    reader.close();
+    unlink(path);
+    return ok;
+  }
+
+  bool pipePointerReads() {
+    int fds[2];
+    if (pipe(fds)) { return false; }
+    const bool written = write(fds[1], "data", 4) == 4;
+    close(fds[1]);
+    HTTP::URIReader reader;
+    const bool opened = reader.open(fds[0]);
+    char *data = 0;
+    size_t size = 0;
+    bool ok = written && opened && reader.readSome(data, size, 4) == 4 && size == 4 && data && !std::memcmp(data, "data", 4);
+    ok = reader.readSome(data, size, 1) == 0 && reader.isEOF() && ok;
+    reader.close();
+    if (!ok) { std::cerr << "Raw-stream pointer read stalled or changed" << std::endl; }
+    return ok;
+  }
+
   bool readRequest(Socket::Connection & conn, HTTP::Parser & request) {
     const uint64_t deadline = Util::bootMS() + 3000;
     while (conn && Util::bootMS() < deadline) {
@@ -82,7 +133,9 @@ namespace {
 } // namespace
 
 int main() {
+  const bool local = localPointerReads();
+  const bool pipe = pipePointerReads();
   const bool closed = check(false);
   const bool persistent = check(true);
-  return closed && persistent ? 0 : 1;
+  return local && pipe && closed && persistent ? 0 : 1;
 }
