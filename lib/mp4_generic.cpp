@@ -564,8 +564,10 @@ namespace MP4{
   void AVCC::setPayload(std::string newPayload){
     setPayload(newPayload.data(), newPayload.size());
   }
+  // reserve() takes a position in the box: the payload starts after the header, and replacing it
+  // from position 0 would shift the header into the payload whenever the new payload is shorter.
   void AVCC::setPayload(const char *data, size_t len){
-    if (!reserve(0, payloadSize(), len)){
+    if (!reserve(payloadOffset, payloadSize(), len)) {
       ERROR_MSG("Cannot allocate enough memory for payload");
       return;
     }
@@ -820,7 +822,7 @@ namespace MP4{
   }
 
   void HVCC::setPayload(std::string newPayload){
-    if (!reserve(0, payloadSize(), newPayload.size())){
+    if (!reserve(payloadOffset, payloadSize(), newPayload.size())) {
       ERROR_MSG("Cannot allocate enough memory for payload");
       return;
     }
@@ -895,7 +897,7 @@ namespace MP4{
   }
 
   void AV1C::setPayload(std::string newPayload){
-    if (!reserve(0, payloadSize(), newPayload.size())){
+    if (!reserve(payloadOffset, payloadSize(), newPayload.size())) {
       ERROR_MSG("Cannot allocate enough memory for payload");
       return;
     }

@@ -1212,6 +1212,9 @@ test('Large HTTP lengths preserve metadata and ranged reads', http_large_file_te
 tsassemblerstridetest = executable('tsassemblerstridetest', 'ts_assembler_stride_unit.cpp', header_tgts, dependencies: libmist_dep)
 test('Transport streams retain packet boundaries across 188 and 192 byte chunks', tsassemblerstridetest, suite: 'MPEG-TS')
 
+mp4codecconfigtest = executable('mp4codecconfigtest', 'mp4_codec_config_payload_unit.cpp', header_tgts,
+                                dependencies: libmist_dep)
+test('Codec configuration boxes keep their header when their payload shrinks', mp4codecconfigtest, suite: 'MP4')
 mp4uploadcodectest = executable('mp4uploadcodectest', 'mp4_upload_codec_unit.cpp', header_tgts, dependencies: libmist_dep)
 test('MP4 upload codec object types are not mislabeled as H264', mp4uploadcodectest, suite: 'MP4')
 
