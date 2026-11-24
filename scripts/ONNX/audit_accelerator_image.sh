@@ -48,7 +48,7 @@ docker run --rm -e PROFILE="$PROFILE" \
     sed -n "s/^[[:space:]]*\([^[:space:]]*\) => \(\/[^[:space:]]*\) .*/\1 \2/p" | sort -u > /tmp/resolved.txt
   grep -q " /opt/mist-onnx/lib/" /tmp/resolved.txt
   while read -r name resolved; do
-    if [ -e "/opt/mist-onnx/lib/$name" ] && [ "${resolved%/*}" != /opt/mist-onnx/lib ]; then
+    if [ -e "/opt/mist-onnx/lib/$name" ] && [ "$(readlink -f "${resolved%/*}")" != /opt/mist-onnx/lib ]; then
       echo "bundled $name resolves to $resolved (LD_LIBRARY_PATH=${LD_LIBRARY_PATH:-})" >&2
       exit 1
     fi
