@@ -40,6 +40,19 @@ docker run --rm -e PROFILE="$PROFILE" \
       *) cat /tmp/provider-libs.missing >&2; exit 1 ;;
     esac
   fi
+  # Every library the bundle ships loads from the bundle under the image environment. An
+  # LD_LIBRARY_PATH from the runtime base outranks the $ORIGIN RUNPATH of the bundled
+  # libraries (the OpenVINO base points it at /opt/intel/openvino) and would load another
+  # copy into the process.
+  cat /tmp/libmistonnx.ldd /tmp/onnxmodelprobe.ldd /tmp/provider-libs.ldd |
+    sed -n "s/^[[:space:]]*\([^[:space:]]*\) => \(\/[^[:space:]]*\) .*/\1 \2/p" | sort -u > /tmp/resolved.txt
+  grep -q " /opt/mist-onnx/lib/" /tmp/resolved.txt
+  while read -r name resolved; do
+    if [ -e "/opt/mist-onnx/lib/$name" ] && [ "${resolved%/*}" != /opt/mist-onnx/lib ]; then
+      echo "bundled $name resolves to $resolved (LD_LIBRARY_PATH=${LD_LIBRARY_PATH:-})" >&2
+      exit 1
+    fi
+  done < /tmp/resolved.txt
   case "$PROFILE" in
     cuda)
       test -f /opt/mist-onnx/lib/libonnxruntime_providers_cuda.so
@@ -61,6 +74,7 @@ docker run --rm -e PROFILE="$PROFILE" \
       test -f /opt/mist-onnx/lib/libonnxruntime_providers_openvino_plugin.so.1
       test -L /opt/mist-onnx/lib/libonnxruntime_providers_openvino_plugin.so
       ls /opt/mist-onnx/lib/libopenvino.so.* >/dev/null
+      grep -E "^libopenvino\.so\.[0-9]+ /opt/mist-onnx/lib/" /tmp/resolved.txt
       test -f /opt/mist-onnx/lib/libopenvino_intel_cpu_plugin.so
       test -f /opt/mist-onnx/lib/libopenvino_intel_gpu_plugin.so
       test -f /opt/mist-onnx/lib/libopenvino_intel_npu_plugin.so

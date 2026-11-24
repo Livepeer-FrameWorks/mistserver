@@ -6,6 +6,8 @@ ARG RUNTIME_BASE=ubuntu:24.04
 # profile, platform and BUILD_BASE. CI passes the content-addressed GHCR image by digest
 # (scripts/ONNX/dependency_image.sh); build_accelerator_local.sh builds it locally.
 ARG ONNX_DEPS_IMAGE
+# Selects the runtime-<profile> stage below.
+ARG ONNX_PROFILE=cpu
 
 FROM ${ONNX_DEPS_IMAGE} AS onnx_deps
 
@@ -119,7 +121,16 @@ RUN tar -C /mist-install/usr/local -cf /mist-runtime.tar \
     && mkdir -p /mist-runtime/usr/local \
     && tar -C /mist-runtime/usr/local -xf /mist-runtime.tar
 
-FROM ${RUNTIME_BASE}
+FROM ${RUNTIME_BASE} AS runtime-cpu
+FROM ${RUNTIME_BASE} AS runtime-cuda
+FROM ${RUNTIME_BASE} AS runtime-tensorrt
+# The OpenVINO runtime base points LD_LIBRARY_PATH at its own /opt/intel/openvino copy.
+# LD_LIBRARY_PATH outranks the $ORIGIN RUNPATH of Intel's ONNX Runtime plugin, which must
+# load the OpenVINO it bundles in /opt/mist-onnx/lib; Mist uses nothing from /opt/intel.
+FROM ${RUNTIME_BASE} AS runtime-openvino
+ENV LD_LIBRARY_PATH=
+
+FROM runtime-${ONNX_PROFILE}
 
 USER root
 ENV DEBIAN_FRONTEND=noninteractive

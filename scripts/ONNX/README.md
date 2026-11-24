@@ -317,13 +317,27 @@ GPU and NPU device plugins; `build_dependencies.sh` installs it into the same `l
 directory. At session creation MistProcONNX registers the plugin with
 `RegisterExecutionProviderLibrary` and appends its `OpenVINOExecutionProvider.AUTO` devices with
 `SessionOptionsAppendExecutionProvider_V2`, so OpenVINO places the model on the best device it
-finds. The NPU compiler needs static input shapes, so the NPU joins that device set only for
-models whose inputs are fully static; others run on the GPU and CPU. The plugin only offers
+finds. The NPU compiler needs static input shapes. Vision models, whose input MistProcONNX
+builds itself, get their symbolic input dims pinned before session creation (batch 1 and the
+configured `input_size`, by `dim_param` name), so a model exported with a dynamic batch or size
+still runs on the NPU. Raw tensor mode, OCR and audio models feed shapes that vary per call:
+the NPU joins their device set only when the model's inputs are already static, and so do
+vision models with an unnamed dynamic dim. The plugin only offers
 Intel hardware: on other CPUs it reports no device, an explicit
 `openvino` request fails, and the profile default falls back to the CPU provider. Intel GPUs
 need the OpenCL/Level Zero userspace (`intel-opencl-icd`, `libze-intel-gpu1`) and NPUs the
 Intel NPU driver; the runtime image is Intel's `openvino/ubuntu24_runtime` of the plugin's
-OpenVINO release, which carries both.
+OpenVINO release, which carries both. That base points `LD_LIBRARY_PATH` at its own
+`/opt/intel/openvino`, which would outrank the plugin's `$ORIGIN` RUNPATH, so the image clears
+it and the plugin loads the OpenVINO it bundles; `audit_accelerator_image.sh` fails when a
+bundled library resolves anywhere else.
+
+OpenVINO keeps compiled models in `openvino-cache/` inside the model directory (see
+[Where models are stored](#where-models-are-stored)), so a model is compiled for a device once per host (NPU:
+about 1 s, then about 80 ms). Session creation takes an exclusive lock on that directory, since
+OpenVINO itself does not guard a blob that several processes write at once. When the directory
+cannot be created or written, or the lock is not free within two minutes, the session compiles
+without the cache.
 
 The `onnxruntime` lock row records the upstream release and the source commit Microsoft built
 the nuget.org packages from; nothing is built from it.
