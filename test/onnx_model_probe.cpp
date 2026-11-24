@@ -32,6 +32,8 @@ int main(int argc, char **argv) {
     std::cout << base->GetVersionString() << std::endl;
     return 0;
   }
+  // INFO level reports which execution provider (and OpenVINO device set) was enabled.
+  if (Util::printDebugLevel < 4) { Util::printDebugLevel = 4; }
   const char *providerEnv = std::getenv("MIST_ONNX_TEST_PROVIDER");
   const std::string provider = providerEnv && *providerEnv ? providerEnv : "cpu";
 

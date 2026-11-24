@@ -30,6 +30,15 @@ namespace ONNX {
     // SessionRunners share this and none owns/releases an env. Returns nullptr on failure.
     OrtEnv *sharedEnv();
 
+    // Registers Intel's OpenVINO plugin execution provider with the shared env, once per
+    // process. The plugin library sits next to the loaded ONNX Runtime library. Returns
+    // false with the reason in err when the library is absent or ORT refuses it.
+    bool registerOpenVINOPlugin(std::string & err);
+
+    // Loads the model's graph on the CPU provider only to name its first input with a
+    // dynamic dimension (empty when every input shape is static). False when unreadable.
+    bool firstDynamicInput(const std::string & modelPath, std::string & input);
+
     // Extract tensor shape into a vector
     std::vector<int64_t> getTensorShape(const OrtTensorTypeAndShapeInfo *info);
 

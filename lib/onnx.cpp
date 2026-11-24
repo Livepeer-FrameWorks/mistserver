@@ -14,6 +14,7 @@
 #include <cmath>
 #include <cstring>
 #include <dirent.h>
+#include <dlfcn.h>
 #include <fstream>
 #include <limits>
 #include <mutex>
@@ -197,6 +198,82 @@ namespace ONNX {
         return e;
       }();
       return s_env;
+    }
+
+    bool firstDynamicInput(const std::string & modelPath, std::string & input) {
+      input.clear();
+      auto good = [](OrtStatus *status) {
+        if (!status) { return true; }
+        api()->ReleaseStatus(status);
+        return false;
+      };
+      OrtEnv *env = sharedEnv();
+      OrtSessionOptions *opts = nullptr;
+      OrtSession *session = nullptr;
+      bool ok = env && good(api()->CreateSessionOptions(&opts)) &&
+        good(api()->SetSessionGraphOptimizationLevel(opts, ORT_DISABLE_ALL)) &&
+        good(api()->CreateSession(env, modelPath.c_str(), opts, &session));
+      size_t count = 0;
+      if (ok) { ok = good(api()->SessionGetInputCount(session, &count)); }
+      OrtAllocator *allocator = nullptr;
+      if (ok) { ok = good(api()->GetAllocatorWithDefaultOptions(&allocator)); }
+      for (size_t i = 0; ok && i < count && input.empty(); ++i) {
+        OrtTypeInfo *typeInfo = nullptr;
+        const OrtTensorTypeAndShapeInfo *tensorInfo = nullptr;
+        if (!good(api()->SessionGetInputTypeInfo(session, i, &typeInfo))) {
+          ok = false;
+          break;
+        }
+        if (good(api()->CastTypeInfoToTensorInfo(typeInfo, &tensorInfo)) && tensorInfo) {
+          for (int64_t dim : getTensorShape(tensorInfo)) {
+            if (dim < 0) {
+              char *name = nullptr;
+              if (good(api()->SessionGetInputName(session, i, allocator, &name)) && name) {
+                input = name;
+                allocator->Free(allocator, name);
+              } else {
+                input = "#" + std::to_string(i);
+              }
+              break;
+            }
+          }
+        }
+        api()->ReleaseTypeInfo(typeInfo);
+      }
+      if (session) { api()->ReleaseSession(session); }
+      if (opts) { api()->ReleaseSessionOptions(opts); }
+      return ok;
+    }
+
+    bool registerOpenVINOPlugin(std::string & err) {
+      static std::mutex s_mutex;
+      static bool s_done = false;
+      static std::string s_err;
+      std::lock_guard<std::mutex> lock(s_mutex);
+      if (!s_done) {
+        s_done = true;
+        Dl_info info;
+        std::string path;
+        if (dladdr((const void *)&OrtGetApiBase, &info) && info.dli_fname) {
+          path = info.dli_fname;
+          size_t slash = path.rfind('/');
+          path = (slash == std::string::npos ? std::string(".") : path.substr(0, slash)) + "/libonnxruntime_providers_openvino_plugin.so";
+        }
+        OrtEnv *env = sharedEnv();
+        if (path.empty()) {
+          s_err = "cannot locate the loaded ONNX Runtime library";
+        } else if (access(path.c_str(), R_OK)) {
+          s_err = "plugin library not found: " + path;
+        } else if (!env) {
+          s_err = "no OrtEnv";
+        } else if (OrtStatus *st = api()->RegisterExecutionProviderLibrary(env, "openvino", path.c_str())) {
+          const char *msg = api()->GetErrorMessage(st);
+          s_err = std::string("registering ") + path + " failed: " + (msg ? msg : "(unknown)");
+          api()->ReleaseStatus(st);
+        }
+      }
+      err = s_err;
+      return s_err.empty();
     }
 
     std::vector<int64_t> getTensorShape(const OrtTensorTypeAndShapeInfo *info) {
@@ -3019,8 +3096,73 @@ namespace ONNX {
         return true;
       };
 
-      const char *oviKeys[] = {"device_type"};
-      const char *oviVals[] = {"AUTO"};
+      // OpenVINO ships as Intel's plugin EP. It publishes one OrtEpDevice per supported
+      // device under two factories; the AUTO meta-device factory lets OpenVINO place the
+      // model on the best of them (GPU/NPU before CPU), so it is preferred.
+      auto tryRegisterOpenVINO = [&]() -> bool {
+        std::string why;
+        if (!ORTHelpers::registerOpenVINOPlugin(why)) {
+          MEDIUM_MSG("OpenVINO EP not available: %s", why.c_str());
+          return false;
+        }
+        const OrtEpDevice *const *devices = nullptr;
+        size_t deviceCount = 0;
+        if (OrtStatus *st = api->GetEpDevices(env_, &devices, &deviceCount)) {
+          const char *msg = api->GetErrorMessage(st);
+          MEDIUM_MSG("OpenVINO EP device query failed: %s", msg ? msg : "(unknown)");
+          api->ReleaseStatus(st);
+          return false;
+        }
+        auto ovDevice = [&](const OrtEpDevice *device) -> std::string {
+          const char *const *keys = nullptr;
+          const char *const *values = nullptr;
+          size_t pairs = 0;
+          api->GetKeyValuePairs(api->EpDevice_EpMetadata(device), &keys, &values, &pairs);
+          for (size_t k = 0; k < pairs; ++k) {
+            if (!strcmp(keys[k], "ov_device")) { return values[k]; }
+          }
+          return "";
+        };
+        std::vector<const OrtEpDevice *> chosen;
+        for (const char *factory : {"OpenVINOExecutionProvider.AUTO", "OpenVINOExecutionProvider"}) {
+          for (size_t i = 0; i < deviceCount; ++i) {
+            const char *epName = api->EpDevice_EpName(devices[i]);
+            if (epName && !strcmp(epName, factory)) { chosen.push_back(devices[i]); }
+          }
+          if (!chosen.empty()) { break; }
+        }
+        // The NPU compiler only accepts static input shapes and crashes the process on a
+        // dynamic one, so the NPU joins the device set only for fully static models.
+        bool hasNpu = false;
+        for (const OrtEpDevice *device : chosen) { hasNpu = hasNpu || ovDevice(device) == "NPU"; }
+        if (hasNpu) {
+          std::string dynamicInput;
+          if (!ORTHelpers::firstDynamicInput(modelPath, dynamicInput) || !dynamicInput.empty()) {
+            chosen.erase(std::remove_if(chosen.begin(), chosen.end(),
+                                        [&](const OrtEpDevice *device) { return ovDevice(device) == "NPU"; }),
+                         chosen.end());
+            INFO_MSG("OpenVINO NPU left out for %s: input %s has a dynamic shape", modelPath.c_str(),
+                     dynamicInput.empty() ? "(unreadable)" : dynamicInput.c_str());
+          }
+        }
+        std::string deviceNames;
+        for (const OrtEpDevice *device : chosen) { deviceNames += (deviceNames.empty() ? "" : ",") + ovDevice(device); }
+        if (chosen.empty()) {
+          MEDIUM_MSG("OpenVINO EP found no supported device on this host");
+          return false;
+        }
+        OrtStatus *st =
+          api->SessionOptionsAppendExecutionProvider_V2(opts_, env_, chosen.data(), chosen.size(), nullptr, nullptr, 0);
+        if (st) {
+          const char *msg = api->GetErrorMessage(st);
+          MEDIUM_MSG("OpenVINO EP registration failed: %s", msg ? msg : "(unknown)");
+          api->ReleaseStatus(st);
+          return false;
+        }
+        activeEP_ = "OpenVINO";
+        INFO_MSG("Execution provider enabled: OpenVINO (devices: %s)", deviceNames.c_str());
+        return true;
+      };
 
       if (!epExplicit) {
         if (buildProfile == "cuda") { epRegistered = tryRegisterCUDA(); }
@@ -3032,7 +3174,9 @@ namespace ONNX {
           }
         }
         else if (buildProfile == "coreml") { epRegistered = tryRegisterGenericEP("CoreML", nullptr, nullptr, 0); }
-        else if (buildProfile == "openvino") { epRegistered = tryRegisterGenericEP("OpenVINO", oviKeys, oviVals, 1); }
+        else if (buildProfile == "openvino") {
+          epRegistered = tryRegisterOpenVINO();
+        }
         if (!epRegistered) {
           MEDIUM_MSG("ONNX build profile '%s' is using CPU", buildProfile.c_str());
         }
@@ -3046,7 +3190,9 @@ namespace ONNX {
           }
         }
         else if (requestedEP == "coreml") { epRegistered = tryRegisterGenericEP("CoreML", nullptr, nullptr, 0); }
-        else if (requestedEP == "openvino") { epRegistered = tryRegisterGenericEP("OpenVINO", oviKeys, oviVals, 1); }
+        else if (requestedEP == "openvino") {
+          epRegistered = tryRegisterOpenVINO();
+        }
         else {
           err = "Unknown execution provider: " + requestedEP;
           return false;
