@@ -213,6 +213,11 @@ jobs:
           ninja -C build-asan
           test -x build-asan/MistProcONNX
 
+      - name: Provision pinned ONNX integration model
+        run: |
+          scripts/ONNX/prepare_models.sh --dir "$RUNNER_TEMP/onnx-models" yolo26n
+          echo "MIST_ONNX_TEST_MODEL=$RUNNER_TEMP/onnx-models/yolo26n.onnx" >> "$GITHUB_ENV"
+
       - name: Run tests with ASan
         run: |
           python3 scripts/ci/check_test_inventory.py build-asan
