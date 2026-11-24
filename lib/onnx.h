@@ -14,7 +14,9 @@
 #include <opencv2/geometry.hpp>
 #endif
 #include <cstdint>
+#include <functional>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace ONNX {
@@ -35,9 +37,40 @@ namespace ONNX {
     // false with the reason in err when the library is absent or ORT refuses it.
     bool registerOpenVINOPlugin(std::string & err);
 
-    // Loads the model's graph on the CPU provider only to name its first input with a
-    // dynamic dimension (empty when every input shape is static). False when unreadable.
-    bool firstDynamicInput(const std::string & modelPath, std::string & input);
+    // One graph input as the model declares it: -1 marks a dynamic dim, and dimNames holds
+    // each dim's symbolic name (dim_param), empty for a fixed or unnamed dim.
+    struct DeclaredInput {
+        std::string name;
+        std::vector<int64_t> shape;
+        std::vector<std::string> dimNames;
+    };
+
+    // Loads the model's graph on the CPU provider, without optimisation, only to read its
+    // declared inputs. False when the model is unreadable.
+    bool probeInputs(const std::string & modelPath, std::vector<DeclaredInput> & inputs);
+
+    // The shape a caller always feeds to input `index` of a model whose declared shape is
+    // `declared`. An empty result or an entry <= 0 leaves that dim free.
+    typedef std::function<std::vector<int64_t>(size_t index, const std::vector<int64_t> & declared)> FedShape;
+
+    // Free-dimension overrides that make the declared inputs static at the fed shapes.
+    // ORT overrides by dim_param name across all inputs, so a name is pinned only when
+    // every dim carrying it is fed the same value; unnamed dims cannot be pinned.
+    struct InputPins {
+        std::vector<std::pair<std::string, int64_t>> overrides; // dim_param -> value
+        std::string firstDynamic; // first input still dynamic after pinning; "" = all static
+        std::vector<std::string> unpinned; // why each remaining dynamic dim stayed free
+    };
+    InputPins planInputPins(const std::vector<DeclaredInput> & inputs, const FedShape & fed);
+
+    // Writable directory for OpenVINO's compiled-model cache, created when missing:
+    // "openvino-cache/" in the model directory (ModelRegistry::getModelDir). Returns ""
+    // with the reason in why when it cannot be created or written.
+    std::string openVINOCacheDir(std::string & why);
+
+    // Takes the exclusive lock on the cache in dir, waiting at most timeoutMs. Returns the
+    // descriptor that holds it (closing it releases the lock), or -1 with the reason in why.
+    int lockOpenVINOCache(const std::string & dir, uint64_t timeoutMs, std::string & why);
 
     // Extract tensor shape into a vector
     std::vector<int64_t> getTensorShape(const OrtTensorTypeAndShapeInfo *info);
@@ -114,6 +147,11 @@ namespace ONNX {
       bool load(const std::string &modelPath, int numThreads,
                 const std::string &requestedEP, std::string &err, bool lowLatency = false);
 
+      // Declares, before load(), the shapes the caller always feeds. load() then pins the
+      // matching symbolic input dims so the session's inputs are static, which also keeps
+      // the OpenVINO NPU (static shapes only) in the device set. Unset = no pinning.
+      void setFedShape(const ORTHelpers::FedShape & fed) { fedShape_ = fed; }
+
       bool loaded() const { return session_ != nullptr; }
       const std::vector<TensorSpec> &inputs() const { return inputSpecs_; }
       const std::vector<TensorSpec> &outputs() const { return outputSpecs_; }
@@ -186,6 +224,7 @@ namespace ONNX {
       std::vector<TensorSpec> inputSpecs_;
       std::vector<TensorSpec> outputSpecs_;
       std::string activeEP_ = "CPU";
+      ORTHelpers::FedShape fedShape_;
 
       // Output->input state loops for stateful streaming models (see bindStateLoop)
       struct StateLoop {
@@ -692,6 +731,11 @@ namespace ONNX {
       void runSession(const std::vector<OrtValue *> & inputs, std::vector<OrtValue *> & outputs,
                       const char *ctx);
 
+      // The shape this adapter always feeds to input `index` (see SessionRunner::setFedShape):
+      // the image input as {1, 3, inputHeight_, inputWidth_}, any other input with its
+      // dynamic dims as 1. initialize() pins these when fixedInputShapes_ is set.
+      virtual std::vector<int64_t> fedInputShape(size_t index, const std::vector<int64_t> & declared) const;
+
       // Resolve a class id to a name: custom labels first, then the given built-in
       // fallback table (only when no custom labels are set), then "class_<id>".
       std::string className(int classId, const std::vector<std::string> & fallback) const;
@@ -713,6 +757,8 @@ namespace ONNX {
       std::string requestedEP_; // User-requested EP (empty = auto)
       std::string activeEP_ = "CPU"; // Which EP was actually activated (mirrors runner_)
       bool lowLatency_ = false; // Intra-op hot-spinning (see setLowLatency)
+      // Every inference feeds fedInputShape(); false for adapters whose input size varies per call.
+      bool fixedInputShapes_ = true;
 
       // Letterbox transform state (set by preprocessImage, used by coordinate remapping)
       bool useLetterbox_ = true;
@@ -1024,6 +1070,8 @@ namespace ONNX {
     protected:
       std::vector<Detection> parseOutput(float *outputData, const std::vector<int64_t> & outputShape,
                                          float confThreshold, const cv::Size & originalSize) override;
+      // decodeMasks feeds every input at its declared shape with each dynamic dim as 1.
+      std::vector<int64_t> fedInputShape(size_t index, const std::vector<int64_t> & declared) const override;
   };
 
   struct ModelBundle; // resolved multi-file audio bundle (defined below)

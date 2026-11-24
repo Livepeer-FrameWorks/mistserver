@@ -1182,6 +1182,10 @@ if have_onnx
                                dependencies: [libmist_dep, onnx_dep, onnx_libs],
                                override_options: onnx_cpp_std)
   test('Model sidecar parsing (labels + preprocessor config)', onnxsidecartest, suite: 'ONNX')
+  onnxinputpinstest = executable('onnxinputpinstest', 'onnx_input_pins.cpp', header_tgts,
+                                 dependencies: [libmist_dep, onnx_dep, onnx_libs],
+                                 override_options: onnx_cpp_std)
+  test('Fed input shapes pin symbolic dims and the OpenVINO cache directory falls back', onnxinputpinstest, suite: 'ONNX')
   onnxfbanktest = executable('onnxfbanktest', 'onnx_fbank.cpp', header_tgts,
                              dependencies: [libmist_dep, onnx_dep, onnx_libs],
                              override_options: onnx_cpp_std)

@@ -10,15 +10,22 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cerrno>
 #include <chrono>
 #include <cmath>
+#include <cstdlib>
 #include <cstring>
 #include <dirent.h>
 #include <dlfcn.h>
+#include <fcntl.h>
 #include <fstream>
 #include <limits>
+#include <map>
 #include <mutex>
 #include <numeric>
+#include <set>
+#include <sys/file.h>
+#include <sys/stat.h>
 #include <unistd.h>
 
 namespace ONNX {
@@ -200,8 +207,8 @@ namespace ONNX {
       return s_env;
     }
 
-    bool firstDynamicInput(const std::string & modelPath, std::string & input) {
-      input.clear();
+    bool probeInputs(const std::string & modelPath, std::vector<DeclaredInput> & inputs) {
+      inputs.clear();
       auto good = [](OrtStatus *status) {
         if (!status) { return true; }
         api()->ReleaseStatus(status);
@@ -217,7 +224,15 @@ namespace ONNX {
       if (ok) { ok = good(api()->SessionGetInputCount(session, &count)); }
       OrtAllocator *allocator = nullptr;
       if (ok) { ok = good(api()->GetAllocatorWithDefaultOptions(&allocator)); }
-      for (size_t i = 0; ok && i < count && input.empty(); ++i) {
+      for (size_t i = 0; ok && i < count; ++i) {
+        DeclaredInput input;
+        char *name = nullptr;
+        if (good(api()->SessionGetInputName(session, i, allocator, &name)) && name) {
+          input.name = name;
+          allocator->Free(allocator, name);
+        } else {
+          input.name = "#" + std::to_string(i);
+        }
         OrtTypeInfo *typeInfo = nullptr;
         const OrtTensorTypeAndShapeInfo *tensorInfo = nullptr;
         if (!good(api()->SessionGetInputTypeInfo(session, i, &typeInfo))) {
@@ -225,24 +240,107 @@ namespace ONNX {
           break;
         }
         if (good(api()->CastTypeInfoToTensorInfo(typeInfo, &tensorInfo)) && tensorInfo) {
-          for (int64_t dim : getTensorShape(tensorInfo)) {
-            if (dim < 0) {
-              char *name = nullptr;
-              if (good(api()->SessionGetInputName(session, i, allocator, &name)) && name) {
-                input = name;
-                allocator->Free(allocator, name);
-              } else {
-                input = "#" + std::to_string(i);
-              }
-              break;
-            }
+          input.shape = getTensorShape(tensorInfo);
+          std::vector<const char *> params(input.shape.size(), nullptr);
+          if (!params.empty() && good(api()->GetSymbolicDimensions(tensorInfo, params.data(), params.size()))) {
+            for (const char *param : params) { input.dimNames.push_back(param ? param : ""); }
           }
         }
+        input.dimNames.resize(input.shape.size());
         api()->ReleaseTypeInfo(typeInfo);
+        inputs.push_back(input);
       }
       if (session) { api()->ReleaseSession(session); }
       if (opts) { api()->ReleaseSessionOptions(opts); }
       return ok;
+    }
+
+    InputPins planInputPins(const std::vector<DeclaredInput> & inputs, const FedShape & fed) {
+      InputPins pins;
+      // Every value each dim_param is fed with; 0 = a dim carrying it that the caller leaves free.
+      std::map<std::string, std::set<int64_t>> fedByName;
+      std::vector<std::vector<int64_t>> fedShapes(inputs.size());
+      for (size_t i = 0; i < inputs.size(); ++i) {
+        if (fed) { fedShapes[i] = fed(i, inputs[i].shape); }
+        for (size_t d = 0; d < inputs[i].shape.size(); ++d) {
+          if (inputs[i].shape[d] >= 0 || inputs[i].dimNames[d].empty()) { continue; }
+          int64_t value = d < fedShapes[i].size() && fedShapes[i][d] > 0 ? fedShapes[i][d] : 0;
+          fedByName[inputs[i].dimNames[d]].insert(value);
+        }
+      }
+      std::set<std::string> pinned;
+      for (const auto & entry : fedByName) {
+        if (entry.second.size() == 1 && *entry.second.begin() > 0) {
+          pins.overrides.push_back(std::make_pair(entry.first, *entry.second.begin()));
+          pinned.insert(entry.first);
+        }
+      }
+      for (size_t i = 0; i < inputs.size(); ++i) {
+        for (size_t d = 0; d < inputs[i].shape.size(); ++d) {
+          if (inputs[i].shape[d] >= 0) { continue; }
+          const std::string & dimName = inputs[i].dimNames[d];
+          if (!dimName.empty() && pinned.count(dimName)) { continue; }
+          if (pins.firstDynamic.empty()) { pins.firstDynamic = inputs[i].name; }
+          if (!fed || d >= fedShapes[i].size() || fedShapes[i][d] <= 0) { continue; }
+          std::string where = "input " + inputs[i].name + " dim " + std::to_string(d);
+          if (dimName.empty()) {
+            pins.unpinned.push_back(where + " has no dim_param name");
+          } else {
+            pins.unpinned.push_back(where + " shares dim_param '" + dimName + "' with a dim fed another size");
+          }
+        }
+      }
+      return pins;
+    }
+
+    std::string openVINOCacheDir(std::string & why) {
+      why.clear();
+      std::string dir = ModelRegistry::getModelDir() + "openvino-cache";
+      // mkdir -p: EEXIST on each existing component is fine, a non-directory is caught below.
+      for (size_t pos = dir.find('/', 1);; pos = dir.find('/', pos + 1)) {
+        std::string part = pos == std::string::npos ? dir : dir.substr(0, pos);
+        if (!part.empty() && mkdir(part.c_str(), 0755) && errno != EEXIST) {
+          why = "cannot create " + part + ": " + strerror(errno);
+          return "";
+        }
+        if (pos == std::string::npos) { break; }
+      }
+      if (!Util::isDirectory(dir)) {
+        why = dir + " is not a directory";
+        return "";
+      }
+      // Write access proven by creating a file: access(W_OK) ignores read-only mounts for root.
+      std::string probe = dir + "/.write-test-XXXXXX";
+      std::vector<char> path(probe.begin(), probe.end());
+      path.push_back(0);
+      int fd = mkstemp(path.data());
+      if (fd < 0) {
+        why = "cannot write to " + dir + ": " + strerror(errno);
+        return "";
+      }
+      close(fd);
+      unlink(path.data());
+      return dir;
+    }
+
+    int lockOpenVINOCache(const std::string & dir, uint64_t timeoutMs, std::string & why) {
+      std::string lockPath = dir + "/.lock";
+      int fd = open(lockPath.c_str(), O_RDWR | O_CREAT | O_CLOEXEC, 0644);
+      if (fd < 0) {
+        why = "cannot open " + lockPath + ": " + strerror(errno);
+        return -1;
+      }
+      uint64_t deadline = Util::bootMS() + timeoutMs;
+      int locked;
+      while ((locked = flock(fd, LOCK_EX | LOCK_NB)) && (errno == EWOULDBLOCK || errno == EINTR) && Util::bootMS() < deadline) {
+        Util::sleep(50);
+      }
+      if (locked) {
+        why = "cannot lock " + lockPath + ": " + (errno == EWOULDBLOCK ? std::string("timed out") : strerror(errno));
+        close(fd);
+        return -1;
+      }
+      return fd;
     }
 
     bool registerOpenVINOPlugin(std::string & err) {
@@ -3008,6 +3106,45 @@ namespace ONNX {
     if (OrtStatus *st = api->AddSessionConfigEntry(opts_, "session.intra_op.allow_spinning", lowLatency ? "1" : "0")) { api->ReleaseStatus(st); }
     if (OrtStatus *st = api->AddSessionConfigEntry(opts_, "session.inter_op.allow_spinning", "0")) { api->ReleaseStatus(st); }
 
+    // The declared inputs are read at most once per load, by a throwaway unoptimised CPU
+    // session: for pinning the fed shapes, and for the OpenVINO NPU static-shape check.
+    std::vector<ORTHelpers::DeclaredInput> declared;
+    ORTHelpers::InputPins pins;
+    int declaredState = 0; // 0 = not read, 1 = read, -1 = unreadable
+    auto readDeclared = [&]() -> bool {
+      if (!declaredState) {
+        declaredState = ORTHelpers::probeInputs(modelPath, declared) ? 1 : -1;
+        if (declaredState > 0) { pins = ORTHelpers::planInputPins(declared, fedShape_); }
+      }
+      return declaredState > 0;
+    };
+    if (fedShape_) {
+      if (!readDeclared()) {
+        WARN_MSG("Could not read the declared inputs of %s; its input shapes stay as declared", modelPath.c_str());
+      } else {
+        std::string pinned;
+        for (size_t i = 0; i < pins.overrides.size(); ++i) {
+          const std::pair<std::string, int64_t> & pin = pins.overrides[i];
+          if (OrtStatus *st = api->AddFreeDimensionOverrideByName(opts_, pin.first.c_str(), pin.second)) {
+            const char *msg = api->GetErrorMessage(st);
+            WARN_MSG("Pinning input dim %s=%" PRId64 " failed: %s", pin.first.c_str(), pin.second, msg ? msg : "(unknown)");
+            api->ReleaseStatus(st);
+            if (pins.firstDynamic.empty()) { pins.firstDynamic = "dim " + pin.first; }
+            continue;
+          }
+          pinned += (pinned.empty() ? "" : ", ") + pin.first + "=" + std::to_string(pin.second);
+        }
+        if (!pinned.empty()) { INFO_MSG("Pinned symbolic input dims of %s: %s", modelPath.c_str(), pinned.c_str()); }
+        for (const std::string & why : pins.unpinned) {
+          INFO_MSG("Input dim of %s stays dynamic: %s", modelPath.c_str(), why.c_str());
+        }
+      }
+    }
+
+    // Held by an OpenVINO session that uses the compiled-model cache until CreateSession
+    // returns; see the cache setup in tryRegisterOpenVINO.
+    int cacheLock = -1;
+
     // Register execution providers.
     // CUDA/TensorRT require the V2 opaque-options API; other EPs use the generic API.
     if (requestedEP != "cpu") {
@@ -3132,18 +3269,16 @@ namespace ONNX {
           if (!chosen.empty()) { break; }
         }
         // The NPU compiler only accepts static input shapes and crashes the process on a
-        // dynamic one, so the NPU joins the device set only for fully static models.
+        // dynamic one, so the NPU joins the device set only when every input is static
+        // once the fed shapes are pinned.
         bool hasNpu = false;
         for (const OrtEpDevice *device : chosen) { hasNpu = hasNpu || ovDevice(device) == "NPU"; }
-        if (hasNpu) {
-          std::string dynamicInput;
-          if (!ORTHelpers::firstDynamicInput(modelPath, dynamicInput) || !dynamicInput.empty()) {
-            chosen.erase(std::remove_if(chosen.begin(), chosen.end(),
-                                        [&](const OrtEpDevice *device) { return ovDevice(device) == "NPU"; }),
-                         chosen.end());
-            INFO_MSG("OpenVINO NPU left out for %s: input %s has a dynamic shape", modelPath.c_str(),
-                     dynamicInput.empty() ? "(unreadable)" : dynamicInput.c_str());
-          }
+        if (hasNpu && (!readDeclared() || !pins.firstDynamic.empty())) {
+          chosen.erase(std::remove_if(chosen.begin(), chosen.end(),
+                                      [&](const OrtEpDevice *device) { return ovDevice(device) == "NPU"; }),
+                       chosen.end());
+          INFO_MSG("OpenVINO NPU left out for %s: input %s has a dynamic shape", modelPath.c_str(),
+                   declaredState < 0 ? "(unreadable)" : pins.firstDynamic.c_str());
         }
         std::string deviceNames;
         for (const OrtEpDevice *device : chosen) { deviceNames += (deviceNames.empty() ? "" : ",") + ovDevice(device); }
@@ -3151,12 +3286,49 @@ namespace ONNX {
           MEDIUM_MSG("OpenVINO EP found no supported device on this host");
           return false;
         }
+        // Compiled-model cache shared by every Mist process on the host (NPU compile ~1 s
+        // -> ~80 ms on reload). OpenVINO writes a blob in place with no cross-process lock,
+        // and a process truncating a blob another one has mapped crashes the reader, so
+        // session creation holds an exclusive lock on the cache: a blob is then only ever
+        // written as a new file. Startup fallback stays off so AUTO compiles (and writes)
+        // the chosen device inside CreateSession instead of in the background after it.
+        // The plugin reads load_config per factory and device ("AUTO", or the device name).
+        // A process stuck compiling must not hold the others back: past two minutes this
+        // session compiles without the cache instead.
+        std::string cacheWhy;
+        std::string cacheDir = ORTHelpers::openVINOCacheDir(cacheWhy);
+        if (!cacheDir.empty()) { cacheLock = ORTHelpers::lockOpenVINOCache(cacheDir, 120000, cacheWhy); }
+        if (cacheLock >= 0) {
+          const char *epName = api->EpDevice_EpName(chosen[0]);
+          std::string factory = epName ? epName : "";
+          JSON::Value loadConfig;
+          if (factory == "OpenVINOExecutionProvider.AUTO") {
+            loadConfig["AUTO"]["CACHE_DIR"] = cacheDir;
+            loadConfig["AUTO"]["ENABLE_STARTUP_FALLBACK"] = false;
+          } else {
+            for (const OrtEpDevice *device : chosen) { loadConfig[ovDevice(device)]["CACHE_DIR"] = cacheDir; }
+          }
+          std::transform(factory.begin(), factory.end(), factory.begin(), ::tolower);
+          std::string key = "ep." + factory + ".load_config";
+          if (OrtStatus *st = api->AddSessionConfigEntry(opts_, key.c_str(), loadConfig.toString().c_str())) {
+            const char *msg = api->GetErrorMessage(st);
+            cacheWhy = std::string("setting ") + key + " failed: " + (msg ? msg : "(unknown)");
+            api->ReleaseStatus(st);
+            close(cacheLock);
+            cacheLock = -1;
+          }
+        }
+        if (cacheLock < 0) { WARN_MSG("OpenVINO runs without its compiled-model cache: %s", cacheWhy.c_str()); }
         OrtStatus *st =
           api->SessionOptionsAppendExecutionProvider_V2(opts_, env_, chosen.data(), chosen.size(), nullptr, nullptr, 0);
         if (st) {
           const char *msg = api->GetErrorMessage(st);
           MEDIUM_MSG("OpenVINO EP registration failed: %s", msg ? msg : "(unknown)");
           api->ReleaseStatus(st);
+          if (cacheLock >= 0) {
+            close(cacheLock);
+            cacheLock = -1;
+          }
           return false;
         }
         activeEP_ = "OpenVINO";
@@ -3205,9 +3377,11 @@ namespace ONNX {
     }
 
     // Create session
-    if (OrtStatus *st = api->CreateSession(env_, modelPath.c_str(), opts_, &session_)) {
-      err = "Failed to create ONNX session for model " + modelPath + ": " + api->GetErrorMessage(st);
-      api->ReleaseStatus(st);
+    OrtStatus *createStatus = api->CreateSession(env_, modelPath.c_str(), opts_, &session_);
+    if (cacheLock >= 0) { close(cacheLock); }
+    if (createStatus) {
+      err = "Failed to create ONNX session for model " + modelPath + ": " + api->GetErrorMessage(createStatus);
+      api->ReleaseStatus(createStatus);
       return false;
     }
     // Report the EP that was registered for this session. NOTE: this is the requested/
@@ -3620,6 +3794,12 @@ namespace ONNX {
 
   DetectionModel::~DetectionModel() {}
 
+  std::vector<int64_t> DetectionModel::fedInputShape(size_t index, const std::vector<int64_t> & declared) const {
+    // createInputTensor always builds {1, 3, inputHeight_, inputWidth_}.
+    if (index == 0 && declared.size() == 4) { return {1, 3, inputHeight_, inputWidth_}; }
+    return std::vector<int64_t>(declared.size(), 1);
+  }
+
   void DetectionModel::runSession(const std::vector<OrtValue *> & inputs, std::vector<OrtValue *> & outputs,
                                   const char *ctx) {
     std::string err;
@@ -3632,6 +3812,10 @@ namespace ONNX {
     try {
       // Load the model through the neutral runtime layer (owns session + I/O).
       std::string loadErr;
+      if (fixedInputShapes_) {
+        runner_.setFedShape(
+          [this](size_t index, const std::vector<int64_t> & declared) { return fedInputShape(index, declared); });
+      }
       if (!runner_.load(modelPath_, numThreads, requestedEP_, loadErr, lowLatency_)) {
         ERROR_MSG("Failed to load ONNX model %s: %s", modelPath_.c_str(), loadErr.c_str());
         return false;
@@ -6616,6 +6800,8 @@ namespace ONNX {
   OCRModel::OCRModel(const std::string & detPath, const std::string & recPath, const std::string & dictPath)
     : DetectionModel(detPath, 960), recPath_(recPath), dictPath_(dictPath) {
     // Detection input is dynamic; the base uses these only to size a default input.
+    // processOCRFrame feeds each frame at its own /32-rounded size, so nothing is pinned.
+    fixedInputShapes_ = false;
     preprocessConfig_.resizeMode = PreprocessConfig::DIRECT_RESIZE;
     preprocessConfig_.normMode = PreprocessConfig::IMAGENET;
     useLetterbox_ = false;
@@ -7202,6 +7388,10 @@ namespace ONNX {
   std::vector<Detection> SAM2DecoderModel::parseOutput(float * /*outputData*/, const std::vector<int64_t> & /*outputShape*/,
                                                         float /*confThreshold*/, const cv::Size & /*originalSize*/) {
     return {};
+  }
+
+  std::vector<int64_t> SAM2DecoderModel::fedInputShape(size_t /*index*/, const std::vector<int64_t> & declared) const {
+    return std::vector<int64_t>(declared.size(), 1);
   }
 
   SAM2Result SAM2DecoderModel::decodeMasks(const std::vector<cv::Mat> & imageEmbeddings,
