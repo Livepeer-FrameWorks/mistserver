@@ -34,8 +34,11 @@ int main(int argc, char **argv) {
   }
   // INFO level reports which execution provider (and OpenVINO device set) was enabled.
   if (Util::printDebugLevel < 4) { Util::printDebugLevel = 4; }
+  // MIST_ONNX_TEST_PROVIDER names the execution provider; unset means "cpu", and "default"
+  // is the build profile's own choice, as MistProcONNX makes it without an explicit one.
   const char *providerEnv = std::getenv("MIST_ONNX_TEST_PROVIDER");
-  const std::string provider = providerEnv && *providerEnv ? providerEnv : "cpu";
+  std::string provider = providerEnv && *providerEnv ? providerEnv : "cpu";
+  if (provider == "default") { provider.clear(); }
 
   if (!strcmp(argv[1], "--tensor")) {
     if (argc < 3) return 1;
