@@ -1624,7 +1624,8 @@ if get_option('WITH_AV')
   test('Audio resampler detects rate and equal-count speaker layout changes', avaudioformattest, suite: 'AV')
   test('MP3 rate changes retain the complete Opus timeline', find_program('python3'),
        args: [files('process_av_surround_integration.py'), meson.project_build_root(), ffmpeg_program, ffprobe_program],
-       env: {'MIST_AUDIO_RATE_CHANGE': '1'}, depends: media_test_deps, suite: 'Processing', timeout: 120, is_parallel: false)
+       env: {'MIST_AUDIO_RATE_CHANGE': '1', 'MIST_ASAN': get_option('b_sanitize').contains('address') ? '1' : '0'},
+       depends: media_test_deps, suite: 'Processing', timeout: 120, is_parallel: false)
 endif
 ac3decoderconfigtest = executable('ac3decoderconfigtest', 'ac3_decoder_config_unit.cpp', header_tgts, dependencies: libmist_dep)
 test('EAC-3 decoder configurations retain all dependent substreams', ac3decoderconfigtest, suite: 'audio')

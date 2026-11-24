@@ -69,7 +69,10 @@ def record_rate_change(command, env, output_log, seconds, work, api_port, stream
     assert all(-packetization_ms <= row["lag_ms"] <= 100 for row in steady), ("while-running resampler exceeds the 100 ms lag or input PES lead", packetization_ms, steady)
     resident = [row["resident_kib"] for row in steady[-20:]]
     assert len(resident) >= 10 and min(resident) > 0, ("missing while-running process memory", resident)
-    assert max(resident) - min(resident) <= 2048, ("resampler resident memory grew after the rate change", min(resident), max(resident))
+    # AddressSanitizer keeps freed blocks in its quarantine (256 MB by default), so resident memory
+    # grows with every allocation the encoder frees; a leak is LeakSanitizer's to report at exit.
+    if os.environ.get("MIST_ASAN") != "1":
+        assert max(resident) - min(resident) <= 2048, ("resampler resident memory grew after the rate change", min(resident), max(resident))
     print("PASS while-running resampler: lag=%d..%d ms; resident=%d..%d KiB" %
           (min(row["lag_ms"] for row in steady), max(row["lag_ms"] for row in steady), min(resident), max(resident)), flush=True)
 
