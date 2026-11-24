@@ -494,9 +494,13 @@ jobs:
           rm -rf /tmp/mistserver-install/include
           find /tmp/mistserver-install/lib -type d -name pkgconfig -prune -exec rm -rf {} +
           cp -a /opt/mist-onnx/lib/*.so* /tmp/mistserver-install/lib/
+          # meson install drops the build-tree rpath. Point every binary at the bundle's lib/
+          # first, so the closure collector resolves ONNX Runtime/OpenCV from there and the
+          # libraries it collects (libva, libvpl, ...) load from there on the host.
+          for bin in /tmp/mistserver-install/bin/Mist*; do
+            patchelf --set-rpath '$ORIGIN/../lib:$ORIGIN/../lib/x86_64-linux-gnu' "$bin"
+          done
           scripts/collect-native-libraries.sh /tmp/mistserver-install
-          patchelf --set-rpath '$ORIGIN/../lib:$ORIGIN/../lib/x86_64-linux-gnu' \
-            /tmp/mistserver-install/bin/MistProcONNX
           find /tmp/mistserver-install/lib -type f -name '*.so*' -exec \
             patchelf --set-rpath '$ORIGIN:$ORIGIN/..' {} \;
           capability=$(/tmp/mistserver-install/bin/MistProcONNX -j 2>/dev/null || true)
@@ -757,9 +761,13 @@ jobs:
           rm -rf /tmp/mistserver-install/include
           find /tmp/mistserver-install/lib -type d -name pkgconfig -prune -exec rm -rf {} +
           cp -a /opt/mist-onnx/lib/*.so* /tmp/mistserver-install/lib/
+          # meson install drops the build-tree rpath. Point every binary at the bundle's lib/
+          # first, so the closure collector resolves ONNX Runtime/OpenCV from there and the
+          # libraries it collects (libva, libvpl, ...) load from there on the host.
+          for bin in /tmp/mistserver-install/bin/Mist*; do
+            patchelf --set-rpath '$ORIGIN/../lib:$ORIGIN/../lib/aarch64-linux-gnu' "$bin"
+          done
           scripts/collect-native-libraries.sh /tmp/mistserver-install
-          patchelf --set-rpath '$ORIGIN/../lib:$ORIGIN/../lib/aarch64-linux-gnu' \
-            /tmp/mistserver-install/bin/MistProcONNX
           find /tmp/mistserver-install/lib -type f -name '*.so*' -exec \
             patchelf --set-rpath '$ORIGIN:$ORIGIN/..' {} \;
           capability=$(/tmp/mistserver-install/bin/MistProcONNX -j 2>/dev/null || true)

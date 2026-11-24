@@ -382,16 +382,17 @@ onnx_profile = get_option('ONNX_PROFILE')
 onnx_required = onnx_opt.enabled()
 
 # ONNX Runtime and OpenCV are always linked shared: release packages ship the locked
-# runtime libraries next to Mist with an executable-relative rpath.
-onnxruntime_dep = dependency('libonnxruntime', 'onnxruntime', required: onnx_required)
+# runtime libraries next to Mist with an executable-relative rpath. static: false keeps
+# --prefer-static release builds from searching for archives that do not exist.
+onnxruntime_dep = dependency('libonnxruntime', 'onnxruntime', required: onnx_required, static: false)
 onnxruntime_usable = onnxruntime_dep.found()
 # OpenCV 5 renamed its pkg-config file while retaining the component libraries. Probe
 # both names and request exactly the modules used by libmistonnx. In particular,
 # videoio was never used; imgcodecs, video and geometry are.
 opencv_modules = ['core', 'imgproc', 'imgcodecs', 'video', 'geometry']
-opencv_dep = dependency('opencv4', modules: opencv_modules, required: false)
+opencv_dep = dependency('opencv4', modules: opencv_modules, required: false, static: false)
 if not opencv_dep.found()
-  opencv_dep = dependency('opencv5', modules: opencv_modules, required: onnx_required)
+  opencv_dep = dependency('opencv5', modules: opencv_modules, required: onnx_required, static: false)
 endif
 
 have_onnx = not onnx_opt.disabled() and onnxruntime_usable and opencv_dep.found()
