@@ -16,7 +16,7 @@ import sys
 import time
 import urllib.request
 
-from controller_capacity_lifecycle_integration import Fixture
+from controller_capacity_lifecycle_integration import Fixture, until
 
 
 def free_port():
@@ -55,7 +55,15 @@ def main():
         feeder_log = (fixture.root / "feeder.log").open("wb")
         fixture.children.append(subprocess.Popen([str(build / "MistInEBML"), "-r", "-s", origin, str(source)],
                                                  env=fixture.env, stdout=feeder_log, stderr=subprocess.STDOUT))
-        time.sleep(1)
+        # The origin must be the realtime feeder's live stream before a replica pulls it: a pull that
+        # arrives first boots the origin from its file as VOD instead (a slow, instrumented feeder
+        # loses that race), and the replica then receives the whole file at once.
+        def origin_live():
+            info = fixture.request({"active_streams": {"longform": True, "fields": ["status", "tracks", "lastms"]}})
+            stream = (info.get("active_streams") or {}).get(origin) or {}
+            return stream.get("status") == "Online" and stream.get("tracks", 0) >= 2 and stream.get("lastms", 0) > 0
+        until(lambda: b"Input started" in (fixture.root / "feeder.log").read_bytes() and origin_live(), 60,
+              "the realtime origin did not come online")
         for replica, (_, query) in replicas.items():
             started = time.monotonic()
             url = "http://127.0.0.1:%d/hls/%s/index.m3u8%s" % (fixture.http, replica, query)
