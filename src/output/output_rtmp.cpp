@@ -1793,8 +1793,7 @@ namespace Mist {
             std::string newUrl = reqUrl;
             Triggers::doTrigger("RTMP_PUSH_REWRITE", payload, "", false, newUrl);
             if (!newUrl.size()) {
-              FAIL_MSG("Push from %s to URL %s rejected - RTMP_PUSH_REWRITE trigger blanked the URL",
-                       getConnectedHost().c_str(), reqUrl.c_str());
+              FAIL_MSG("Push from %s rejected - RTMP_PUSH_REWRITE trigger blanked the URL", getConnectedHost().c_str());
               onFinish();
               return;
             }
@@ -1828,10 +1827,9 @@ namespace Mist {
             std::string newStream = streamName;
             Triggers::doTrigger("PUSH_REWRITE", payload, "", false, newStream);
             if (!newStream.size()) {
-              FAIL_MSG("Push from %s to URL %s rejected - PUSH_REWRITE trigger blanked the URL",
-                       getConnectedHost().c_str(), reqUrl.c_str());
-              Util::logExitReason(ER_TRIGGER, "Push from %s to URL %s rejected - PUSH_REWRITE trigger blanked the URL",
-                                  getConnectedHost().c_str(), reqUrl.c_str());
+              FAIL_MSG("Push from %s rejected - PUSH_REWRITE trigger blanked the URL", getConnectedHost().c_str());
+              Util::logExitReason(ER_TRIGGER, "Push from %s rejected - PUSH_REWRITE trigger blanked the URL",
+                                  getConnectedHost().c_str());
               onFinish();
               return;
             } else {

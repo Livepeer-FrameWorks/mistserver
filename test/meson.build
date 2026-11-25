@@ -1920,3 +1920,8 @@ bufferreadytest = executable('bufferreadytest', 'input_buffer_serve_readiness_un
   objects: bufferreadyobjects, dependencies: libmist_dep,
   include_directories: include_directories('../src/input'))
 test('Buffer publishes live metadata before accepting readers', bufferreadytest, suite: 'Processing')
+
+if python_program.found()
+  test('All output connectors omit publishing URLs from refusal logs', python_program,
+       args: [meson.project_source_root() / 'test/push_refusal_logs.py'], suite: 'HTTP')
+endif

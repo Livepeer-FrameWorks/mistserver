@@ -24,8 +24,7 @@ namespace Mist{
         std::string newStream = streamName;
         Triggers::doTrigger("PUSH_REWRITE", payload, "", false, newStream);
         if (!newStream.size()) {
-          FAIL_MSG("Push from %s to URL %s rejected - PUSH_REWRITE trigger blanked the URL", getConnectedHost().c_str(),
-                   reqUrl.c_str());
+          FAIL_MSG("Push from %s rejected - PUSH_REWRITE trigger blanked the URL", getConnectedHost().c_str());
           config->is_active = false;
           return;
         } else {
