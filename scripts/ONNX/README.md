@@ -353,6 +353,11 @@ prevents the vendor runtime image's preinstalled drivers from hiding missing nat
 dependencies. Run `scripts/ONNX/audit_native_runtime.sh IMAGE linux/amd64` directly or
 through `audit_accelerator_image.sh`.
 
+OpenVINO containers expose present `/dev/dri` GPU nodes and `/dev/accel/accel*` NPU nodes.
+The hardware job resolves the matrix's optional device directories on its host and
+asserts that host NPU nodes are visible inside the test container. Absent optional
+directories do not prevent GPU-only or CPU-only hosts from running the image.
+
 OpenVINO keeps compiled models in `openvino-cache/` inside the model directory (see
 [Where models are stored](#where-models-are-stored)), so a model is compiled for a device once per host (NPU:
 about 1 s, then about 80 ms). Session creation takes an exclusive lock on that directory, since

@@ -403,14 +403,23 @@ jobs:
         env:
           IMAGE: ${{ steps.version.outputs.image }}
           PROFILE: ${{ matrix.profile }}
-          DOCKER_ARGS: ${{ matrix.docker_args }}
         shell: bash
         run: |
           docker pull "$IMAGE"
-          # DOCKER_ARGS is a fixed matrix value, split deliberately into Docker CLI arguments.
-          # shellcheck disable=SC2086
-          docker run --rm $DOCKER_ARGS -e PROFILE="$PROFILE" --entrypoint /bin/sh "$IMAGE" -ec '
+          device_args_file=$(mktemp)
+          python3 scripts/ONNX/container_device_args.py "$PROFILE" > "$device_args_file"
+          mapfile -t docker_args < "$device_args_file"
+          rm "$device_args_file"
+          expect_npu=false
+          if [ "$PROFILE" = openvino ] && compgen -G '/dev/accel/accel*' >/dev/null; then
+            expect_npu=true
+          fi
+          docker run --rm "${docker_args[@]}" -e PROFILE="$PROFILE" -e EXPECT_NPU="$expect_npu" \
+            --entrypoint /bin/sh "$IMAGE" -ec '
             set -eu
+            if [ "$EXPECT_NPU" = true ]; then
+              find /dev/accel -maxdepth 1 -type c -name "accel*" -print | grep .
+            fi
             model_dir=$(mktemp -d)
             /opt/mist-onnx/share/mistserver/onnx/prepare_models.sh --dir "$model_dir" yolo26n
             ffmpeg -hide_banner -loglevel error -y -f lavfi \

@@ -97,7 +97,7 @@
         "installation": "bundled",
         "system_packages": ["ocl-icd-libopencl1", "intel-opencl-icd"],
         "probe_commands": [],
-        "optional_device_paths": ["/dev/dri"],
+        "optional_device_paths": ["/dev/dri", "/dev/accel"],
         "cpu_fallback": true
       }
     },
@@ -169,7 +169,7 @@
       "runtime_distribution": "onnxruntime-linux-x64",
       "runtime_packages": "",
       "nvidia_driver_capabilities": "",
-      "docker_args": "--device=/dev/dri"
+      "docker_args": "--device=/dev/dri --device=/dev/accel"
     }
   ]
 }
