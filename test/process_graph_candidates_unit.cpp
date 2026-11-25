@@ -156,6 +156,42 @@ int main() {
     check(selected == 1 && ready == 1, "the buffer acknowledges output readiness after applying source masks");
   }
 
+  {
+    DTSC::Meta source;
+    source.reInitMemory(3);
+    addTrack(source, "video", "H264", "");
+    addTrack(source, "video", "H264", "");
+    addTrack(source, "video", "H264", "proc:video/output");
+    source.setID(0, 1);
+    source.setID(2, 1);
+    source.setSourceTrack(2, 0);
+    source.validateTrack(1, 0);
+    source.update(0, 0, 0, 1, 0, true, 1);
+    source.update(0, 0, 2, 1, 0, true, 1);
+    for (const size_t track : source.getValidTracks()) { source.breakClaim(track); }
+    JSON::Value expected;
+    expected.append(Mist::describeExistingTrack(source, 2, true));
+    std::set<std::string> acknowledged{"proc:video/output"};
+    for (const char *selector : {"all,!i1", "all,!2", "all,!0"}) {
+      std::map<std::string, std::string> params;
+      params["video"] = selector;
+      params["audio"] = "none";
+      size_t actual = 0;
+      for (const size_t track : Util::wouldSelect(source, params, capa, "")) {
+        if (!source.getOutputKey(track).empty()) { ++actual; }
+      }
+      size_t selected = 0, ready = 0;
+      Mist::recordingExpectedOutputs(source, Mist::tracksWithDataAnyMask(source), expected, params, capa, "", selected,
+                                     ready, &acknowledged);
+      check(selected == actual && ready == actual,
+            (std::string("recording graph must preserve track identity for ") + selector).c_str());
+    }
+    DTSC::Meta candidates;
+    Mist::buildCandidates(candidates, source, {}, {});
+    check(candidates.getValidTracks() == source.getValidTracks(), "graph candidates preserve holes in live track indices");
+    check(candidates.getID(0) == 1 && candidates.getID(2) == 1, "graph candidates preserve repeated producer track IDs");
+  }
+
   if (failures) {
     fprintf(stderr, "%d check(s) failed\n", failures);
     return 1;

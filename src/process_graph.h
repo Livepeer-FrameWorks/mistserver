@@ -237,6 +237,8 @@ namespace Mist {
   /// output key, whether it is an original (ingest) track and whether it carries data.
   inline JSON::Value describeExistingTrack(const DTSC::Meta & M, size_t idx, bool hasData) {
     JSON::Value desc;
+    desc["idx"] = (uint64_t)idx;
+    desc["id"] = (uint64_t)M.getID(idx);
     desc["type"] = M.getType(idx);
     desc["codec"] = M.getCodec(idx);
     desc["lang"] = M.getLang(idx);
@@ -259,9 +261,20 @@ namespace Mist {
   /// Adds a described track to a memory-backed meta, holding one packet when it carries data, so
   /// track selection treats it like the track it describes.
   inline size_t addCandidateTrack(DTSC::Meta & C, const JSON::Value & desc) {
+    // Numeric selectors name stream indices, and i-prefixed selectors name producer IDs.
+    // Both identities must match the real stream, including holes and repeated producer IDs.
+    if (desc.isMember("idx")) {
+      const size_t wanted = desc["idx"].asInt();
+      while (C.trackCount() < wanted) {
+        const size_t hole = C.addTrack(2, 2, 2, 2);
+        if (hole == INVALID_TRACK_ID) { return hole; }
+        C.validateTrack(hole, 0);
+        C.breakClaim(hole);
+      }
+    }
     const size_t idx = C.addTrack(2, 2, 2, 2);
     if (idx == INVALID_TRACK_ID) { return idx; }
-    C.setID(idx, idx + 1);
+    C.setID(idx, desc.isMember("id") ? desc["id"].asInt() : idx + 1);
     C.setType(idx, desc["type"].asString());
     C.setCodec(idx, desc["codec"].asString());
     C.setLang(idx, desc["lang"].asString());
@@ -360,7 +373,7 @@ namespace Mist {
     const std::set<size_t> existing = M.getValidTracks();
     DTSC::trackValidMask = oldMask;
     // Room for every candidate up front: this runs on every buffer tick and recording check.
-    C.reInitMemory(existing.size() + predicted.size());
+    C.reInitMemory((existing.empty() ? 0 : *existing.rbegin() + 1) + predicted.size());
     std::set<std::string> existingKeys;
     for (const size_t idx : existing) {
       const std::string key = M.getOutputKey(idx);
@@ -570,7 +583,7 @@ namespace Mist {
     DTSC::trackValidMask = mask;
     // Room for every candidate up front: a recording runs this on every track check.
     DTSC::Meta C;
-    C.reInitMemory(existing.size() + outputs.size());
+    C.reInitMemory((existing.empty() ? 0 : *existing.rbegin() + 1) + outputs.size());
     std::set<std::string> existingKeys;
     for (const size_t idx : existing) {
       const std::string key = M.getOutputKey(idx);

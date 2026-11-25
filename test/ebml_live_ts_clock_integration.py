@@ -42,9 +42,10 @@ def main():
     success = False
     try:
         source = f.root / 'adaptive.mkv'
-        subprocess.run([ffmpeg, '-v', 'error', '-y', '-f', 'lavfi', '-i', 'testsrc2=size=320x180:rate=25:duration=20',
+        subprocess.run([ffmpeg, '-v', 'error', '-y', '-filter_threads', '1', '-filter_complex_threads', '1',
+                        '-f', 'lavfi', '-i', 'testsrc2=size=320x180:rate=25:duration=20',
                         '-f', 'lavfi', '-i', 'sine=sample_rate=48000:duration=20', '-c:v', *encoder, '-threads', '1',
-                        '-preset', 'medium', '-bf', '3', '-g', '20', '-keyint_min', '1', '-sc_threshold', '0',
+                        '-preset', 'veryfast' if codec == 'HEVC' else 'medium', '-bf', '3', '-g', '20', '-keyint_min', '1', '-sc_threshold', '0',
                         '-force_key_frames', 'expr:if(lt(t,4.2),1,if(lt(t,8),eq(mod(n,20),0),1))',
                         '-c:a', 'aac', str(source)], env=f.tool_env, check=True, timeout=30)
         original = json.loads(subprocess.check_output([ffprobe, '-v', 'error', '-select_streams', 'v:0',
