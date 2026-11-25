@@ -239,7 +239,7 @@ namespace Mist{
 
   bool InputEBML::readExistingHeader(){
     if (!Input::readExistingHeader()) { return false; }
-    if (!M.inputLocalVars.isMember("version") || M.inputLocalVars["version"].asInt() < 6) {
+    if (!M.inputLocalVars.isMember("version") || M.inputLocalVars["version"].asInt() < 7) {
       INFO_MSG("Header needs update, regenerating");
       return false;
     }
@@ -254,6 +254,10 @@ namespace Mist{
       predictor.maxDelay = clock["depth"].asInt();
       predictor.decodeDelay = clock["delay"].asInt();
       predictor.decodeOrigin = clock["origin"].asInt();
+      jsonForEachConst (clock["steps"], step) {
+        predictor.decodeDelays[strtoull(step.key().c_str(), 0, 10)] = step->asInt();
+      }
+      if (predictor.maxDelay && predictor.decodeDelays.empty()) { return false; }
       predictor.initialized = true;
     }
     return true;
@@ -314,8 +318,9 @@ namespace Mist{
       clock["depth"] = uint64_t(track.second.maxDelay);
       clock["delay"] = track.second.decodeDelay;
       clock["origin"] = track.second.decodeOrigin;
+      for (const auto & step : track.second.decodeDelays) { clock["steps"][std::to_string(step.first)] = step.second; }
     }
-    meta.inputLocalVars["version"] = 6;
+    meta.inputLocalVars["version"] = 7;
     if (wholeFile) { meta.inputLocalVars["complete"] = 1; }
     return true;
   }

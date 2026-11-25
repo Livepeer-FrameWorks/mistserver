@@ -1671,6 +1671,9 @@ test('Process pipe probe retries interrupted reads', procspipeinheritance, args:
 ebmldecodetimestamptest = executable('ebmldecodetimestamptest', 'ebml_decode_timestamps_unit.cpp',
                                    header_tgts, dependencies: libmist_dep)
 test('Reordered EBML frames retain PTS with monotonic nonnegative DTS', ebmldecodetimestamptest, suite: 'EBML')
+ebmlreplayclocktest = executable('ebmlreplayclocktest', 'ebml_replay_clock_unit.cpp',
+                                  header_tgts, dependencies: libmist_dep)
+test('Matroska indexed clocks match full replay and mid-file seeks', ebmlreplayclocktest, suite: 'EBML')
 if get_option('WITH_AV')
   avencodecalltest = executable('avencodecalltest', ['process_av_encode_call_unit.cpp', input_cpp, output_cpp, io_cpp], header_tgts,
                                dependencies: [libmist_dep, av_codec_map_dep])

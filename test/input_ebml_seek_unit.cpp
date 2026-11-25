@@ -46,18 +46,22 @@ namespace {
         meta.setType(track, "video");
         meta.setCodec(track, "H264");
         meta.update(current ? 1000 : 80, legacyVersion < 5 && !current ? -40 : 0, track, 5, 0, true, 40);
-        meta.inputLocalVars["version"] = current ? 6 : legacyVersion;
+        meta.inputLocalVars["version"] = current ? 7 : legacyVersion;
         if (current || legacyVersion >= 5) {
           JSON::Value & clock = meta.inputLocalVars["decode_clocks"]["1"];
           clock["depth"] = current ? 3 : 16;
           clock["delay"] = current ? 120 : 533;
           clock["origin"] = current ? 1000 : 80;
+          if (current) {
+            clock["steps"]["1000"] = 80u;
+            clock["steps"]["2000"] = 120u;
+          }
         }
         meta.inputLocalVars["complete"] = 1;
         const std::string header = std::string(path) + ".dtsh";
         M.toFile(header);
         DTSC::Meta cached("", header);
-        if (cached.inputLocalVars["version"].asInt() != (current ? 6 : legacyVersion) || cached.getValidTracks().empty()) {
+        if (cached.inputLocalVars["version"].asInt() != (current ? 7 : legacyVersion) || cached.getValidTracks().empty()) {
           fprintf(stderr, "FAIL: legacy clock fixture did not create a valid DTSH file\n");
           ++failures;
         }
@@ -67,7 +71,8 @@ namespace {
         if (current) {
           const auto clock = parser.packBuf.find(1);
           return accepted && clock != parser.packBuf.end() && clock->second.initialized &&
-            clock->second.maxDelay == 3 && clock->second.decodeDelay == 120 && clock->second.decodeOrigin == 1000;
+            clock->second.maxDelay == 3 && clock->second.decodeDelay == 120 && clock->second.decodeOrigin == 1000 &&
+            clock->second.decodeDelays.at(1000) == 80 && clock->second.decodeDelays.at(2000) == 120;
         }
         return accepted;
       }
@@ -152,6 +157,12 @@ int main(int argc, char **argv) {
     config.is_active = true;
     InputEBMLSeekProbe input(&config);
     check(input.acceptsLegacyClockHeader(true), "cached Matroska indexes must restore the original decode clock");
+  }
+  {
+    Util::Config config("ebml-clock-cache-adaptive-probe");
+    config.is_active = true;
+    InputEBMLSeekProbe input(&config);
+    check(!input.acceptsLegacyClockHeader(false, 6), "cached final-only adaptive clocks must be rebuilt");
   }
   if (argc > 1) { fileCase(argv[1]); }
   if (failures) { return 1; }

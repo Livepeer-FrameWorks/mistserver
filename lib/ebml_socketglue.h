@@ -86,6 +86,8 @@ namespace EBML{
       uint64_t decodeOrigin{0};
       uint64_t lastDecode{0};
       bool haveDecode{false};
+      // Lag checkpoints use the sorted presentation clock and survive seeks.
+      std::map<uint64_t, uint64_t> decodeDelays;
       bool hasPackets();
       void finish();
       void flush();

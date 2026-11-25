@@ -639,15 +639,32 @@ namespace EBML{
       initialized = true;
       return p;
     }
-    const size_t depth = std::min<uint64_t>(maxDelay, ctr - rem - 1);
-    // A slower frame cadence needs a larger time span for the same B-frame depth.
-    decodeDelay = std::max(decodeDelay, times[depth] - times[0]);
+    const uint64_t clockTime = times[0];
     if (!initialized) {
-      decodeOrigin = times[0];
+      const size_t depth = std::min<uint64_t>(maxDelay, ctr - rem - 1);
+      decodeDelay = times[depth] - clockTime;
+      decodeOrigin = clockTime;
       initialized = true;
     }
+    // A seek restores the lag at this point, rather than the final lag learned later.
+    const auto checkpoint = decodeDelays.upper_bound(clockTime);
+    if (checkpoint != decodeDelays.begin()) {
+      decodeDelay = std::prev(checkpoint)->second;
+    } else if (!decodeDelays.empty()) {
+      decodeDelay = decodeDelays.begin()->second;
+    }
+    const uint64_t previousDelay = decodeDelay;
+    // Leave a distinct decode tick before every buffered packet's presentation deadline.
+    // Gaps between sorted timestamps are not evidence of a slower frame cadence.
+    uint64_t latest = p.time;
+    for (size_t i = 1; i < ctr - rem; ++i) {
+      const uint64_t presentation = pkts[(rem + i) % PKT_COUNT].time;
+      latest = std::min(latest, presentation >= i ? presentation - i : 0);
+    }
+    if (clockTime > latest) { decodeDelay = std::max(decodeDelay, clockTime - latest); }
+    if (decodeDelays.empty() || previousDelay != decodeDelay) { decodeDelays[clockTime] = decodeDelay; }
     const uint64_t presentation = p.time;
-    // The largest buffered reorder span belongs to this input's decode clock,
+    // The learned lag belongs to this position on the input decode clock,
     // so every output can use the original presentation time without adding delay.
     p.time = times[0] >= decodeOrigin + decodeDelay ? times[0] - decodeDelay : decodeOrigin;
     // Keep the initial decode preroll inside the source timeline so its first
