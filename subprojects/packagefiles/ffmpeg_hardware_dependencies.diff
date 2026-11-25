@@ -1,6 +1,6 @@
 --- a/meson.build
 +++ b/meson.build
-@@ -2191,7 +2191,9 @@
+@@ -2466,7 +2466,9 @@
            else
              req = false
            endif
@@ -11,17 +11,7 @@
            found = found and dep.found()
            extra_deps += dep
          endforeach
-@@ -2211,6 +2213,9 @@
-         if opts.has_key('versions')
-           foreach version: opts['versions']
-             dep = dependency(pkg_name, required: false, version: version, static: conf.get('static').is_odd())
-+            if dep.found()
-+              break
-+            endif
-           endforeach
-
-           if not dep.found() and req.enabled()
-@@ -2501,7 +2506,19 @@
+@@ -2926,7 +2928,19 @@
    conf.set10('MFX_CODEC_VP9'.to_lower(), cc.has_header_symbol('mfxstructures.h', 'MFX_CODEC_VP9'))
    warning('libmfx is deprecated. Please run meson setup with -Dlibmfx=disabled to use libvpl instead.')
  elif conf.get('libvpl') == 1
@@ -40,22 +30,10 @@
 +  conf.set10('cuvidav1picparams', cc.has_type('CUVIDAV1PICPARAMS',
 +    prefix: '#include <ffnvcodec/dynlink_cuda.h>\n#include <ffnvcodec/dynlink_cuviddec.h>', dependencies: ffnvcodec_extra_deps))
  endif
-
+ 
  # Manual check for libx264
-@@ -3728,9 +3745,9 @@
-     cuda_objects = asm_gen.process(cuda_sources)
-     if conf.get('ptx_compression') == 1
-       gz_objs = gzip_gen.process(cuda_objects)
--      gen_objects = bin2c.process(gz_objs)
-+      gen_objects += bin2c.process(gz_objs)
-     else
--      gen_objects = bin2c_with_extension.process(cuda_objects)
-+      gen_objects += bin2c_with_extension.process(cuda_objects)
-     endif
-   endif
-
-@@ -3795,7 +3812,7 @@
-   static_lib = static_library('@0@-static'.format(built_lib[0]), sources + gen_objects + [config_h, config_components_h],
+@@ -4324,7 +4338,7 @@
+   static_lib = static_library('@0@-static'.format(built_lib[0]), sources + x86asm_sources + gen_objects + [config_h, config_components_h],
      objects: special_objects,
      dependencies: deps,
 -    include_directories: common_incs,
