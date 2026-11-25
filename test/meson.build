@@ -835,8 +835,7 @@ if host_machine.system() == 'linux'
   test('The buffer collects an unreaped producer exit on its supervision pass', bufferzombietest,
        suite: 'Processing')
   exitpublicationtest = executable('exitpublicationtest', 'process_exit_publication_unit.cpp',
-                                    header_tgts, dependencies: libmist_dep,
-                                    link_args: ['-Wl,--wrap=waitpid'])
+                                    header_tgts, dependencies: libmist_dep)
   test('Child liveness waits for the reaper to publish its exit status', exitpublicationtest,
        suite: 'Processes')
 endif
