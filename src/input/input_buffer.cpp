@@ -887,9 +887,10 @@ namespace Mist{
         procInterval = 1000;
       }
     }
+    // Reap owned children now: kill(pid, 0) still succeeds for zombies.
     bool processExited = false;
     for (std::map<std::string, pid_t>::iterator it = runningProcs.begin(); it != runningProcs.end(); ++it) {
-      if (it->second && !Util::Procs::isActive(it->second)) {
+      if (it->second && !Util::Procs::childRunning(it->second)) {
         processExited = true;
         break;
       }
@@ -1600,7 +1601,7 @@ namespace Mist{
     std::string debugLvl;
     // start up new/changed connectors
     for (const std::string & config : newProcs) {
-      if (runningProcs.count(config) && Util::Procs::isActive(runningProcs[config])) { continue; }
+      if (runningProcs.count(config) && Util::Procs::childRunning(runningProcs[config])) { continue; }
       JSON::Value args(PARSEJSON, config);
 
       // Skip if this process previously hard-failed or was stopped (config change clears this).

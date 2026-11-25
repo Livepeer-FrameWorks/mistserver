@@ -823,6 +823,20 @@ inputbufferprocesstest = executable('inputbufferprocesstest',
 test('Input buffer source-only inhibitors and PROCESS_REPLACE', inputbufferprocesstest, suite: 'Processing',
      timeout: 60)
 
+if host_machine.system() == 'linux'
+  bufferzombietest = executable('bufferzombietest',
+                                 files('input_buffer_zombie_unit.cpp', '../src/input/input.cpp',
+                                       '../src/input/input_buffer.cpp', '../src/io.cpp'),
+                                 header_tgts, dependencies: libmist_dep)
+  test('The buffer collects an unreaped producer exit on its supervision pass', bufferzombietest,
+       suite: 'Processing')
+  exitpublicationtest = executable('exitpublicationtest', 'process_exit_publication_unit.cpp',
+                                    header_tgts, dependencies: libmist_dep,
+                                    link_args: ['-Wl,--wrap=waitpid'])
+  test('Child liveness waits for the reaper to publish its exit status', exitpublicationtest,
+       suite: 'Processes')
+endif
+
 controlleralwaysontest = executable('controlleralwaysontest', 'controller_always_on_unit.cpp', header_tgts,
                                     dependencies: libmist_dep)
 test('Always-on inputs are adopted, not duplicated, after a rolling restart', controlleralwaysontest,

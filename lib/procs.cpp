@@ -52,12 +52,12 @@ void childsig_handler(int signum){return;}
 
 /// Attempts to reap child and returns current running status.
 bool Util::Procs::childRunning(pid_t p) {
+  std::lock_guard<std::mutex> guard(plistMutex);
   int status;
   pid_t ret;
   do {
     ret = waitpid(p, &status, WNOHANG);
     if (ret == p) {
-      std::lock_guard<std::mutex> guard(plistMutex);
       int exitcode = -1;
       if (WIFEXITED(status)) {
         exitcode = WEXITSTATUS(status);
@@ -279,6 +279,8 @@ void Util::Procs::reap(){
   int status;
   pid_t ret = -1;
   while (ret != 0){
+    // Liveness observers must not overtake publication of the collected exit status.
+    std::lock_guard<std::mutex> guard(plistMutex);
     ret = waitpid(-1, &status, WNOHANG);
     if (ret <= 0){// ignore, would block otherwise
       if (ret == 0 || errno != EINTR){break;}
@@ -293,7 +295,6 @@ void Util::Procs::reap(){
       break;
     }
     {
-      std::lock_guard<std::mutex> guard(plistMutex);
       bool ignoreExit = ignoredExitCodePids.count(ret);
       ignoredExitCodePids.erase(ret);
       if (!ignoreExit) { exitCodeMap[ret] = exitcode; }
