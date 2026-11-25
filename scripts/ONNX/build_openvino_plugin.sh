@@ -76,6 +76,6 @@ cp "$lock_file" "$license_dir/build-inputs.lock.tsv"
 # A successful Add requires OpenVINO: the probe disables ORT CPU EP fallback.
 patchelf --force-rpath --set-rpath "\$ORIGIN" "$prefix/lib/libonnxruntime_providers_openvino_plugin.so.1"
 "${CXX:-c++}" -std=c++17 -O1 "$script_dir/../../test/onnx_openvino_cpu.cpp" \
-  -I"$prefix/include" -L"$prefix/lib" -Wl,-rpath,"$prefix/lib" -lonnxruntime \
+  -I"$prefix/include/onnxruntime" -L"$prefix/lib" -Wl,-rpath,"$prefix/lib" -lonnxruntime \
   -o "$work_dir/openvino-cpu-probe"
 "$work_dir/openvino-cpu-probe" "$prefix/lib/libonnxruntime_providers_openvino_plugin.so"

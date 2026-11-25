@@ -1194,6 +1194,10 @@ if have_onnx
                               dependencies: [libmist_dep, onnx_dep, onnx_libs],
                               override_options: onnx_cpp_std)
   test('ONNX Kalman tracking initializes and updates portable matrices', onnxtrackertest, suite: 'ONNX')
+  # build_openvino_plugin.sh runs this probe against a built OpenVINO plugin; building it here keeps
+  # it compiling against the locked ONNX Runtime headers and gives clang-tidy its compile command.
+  executable('onnxopenvinocpuprobe', 'onnx_openvino_cpu.cpp', dependencies: onnx_libs,
+             override_options: onnx_cpp_std)
   test('OpenVINO hardware runners expose present GPU and NPU device nodes', find_program('python3'),
        args: [meson.project_source_root() / 'test/onnx_device_mounts.py'], suite: 'ONNX')
   test('Native ONNX bundles declare profile driver dependencies', find_program('python3'),

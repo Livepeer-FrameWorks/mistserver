@@ -2,13 +2,13 @@
 #include <cstdlib>
 #include <cstring>
 #include <initializer_list>
-#include <onnxruntime/onnxruntime_c_api.h>
-#include <onnxruntime/onnxruntime_session_options_config_keys.h>
+#include "onnxruntime_c_api.h"
+#include "onnxruntime_session_options_config_keys.h"
 
 int main(int argc, char **argv) {
   if (argc != 2) { return 2; }
   std::printf("ORT_RUNTIME_VERSION %s\n", OrtGetApiBase()->GetVersionString());
-  if (std::strcmp(OrtGetApiBase()->GetVersionString(), "1.32.0")) { return 2; }
+  if (std::strcmp(OrtGetApiBase()->GetVersionString(), "1.32.0") != 0) { return 2; }
   const OrtApi *api = OrtGetApiBase()->GetApi(ORT_API_VERSION);
   if (!api) { return 2; }
   auto check = [&](OrtStatus *status) {
@@ -31,13 +31,13 @@ int main(int argc, char **argv) {
   for (const char *factory : {"OpenVINOExecutionProvider.AUTO", "OpenVINOExecutionProvider"}) {
     for (size_t i = 0; i < count; ++i) {
       const char *name = api->EpDevice_EpName(devices[i]);
-      if (!name || std::strcmp(name, factory)) { continue; }
+      if (!name || std::strcmp(name, factory) != 0) { continue; }
       const char *const *keys = nullptr, *const *values = nullptr;
       size_t pairs = 0;
       api->GetKeyValuePairs(api->EpDevice_EpMetadata(devices[i]), &keys, &values, &pairs);
       for (size_t k = 0; k < pairs; ++k) {
         std::printf("OPENVINO_DEVICE factory=%s %s=%s\n", name, keys[k], values[k]);
-        if (!std::strcmp(keys[k], "ov_device") && !std::strcmp(values[k], "CPU")) { chosen = devices[i]; }
+        if (std::strcmp(keys[k], "ov_device") == 0 && std::strcmp(values[k], "CPU") == 0) { chosen = devices[i]; }
       }
     }
     if (chosen) { break; }
