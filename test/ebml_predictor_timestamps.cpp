@@ -98,6 +98,19 @@ static bool checkH264DefaultDepth() {
               (unsigned long long)(c.width + 1), (unsigned long long)(c.height + 1), c.frames, actual, c.expected);
       return false;
     }
+    size_t startupFrames = 0;
+    while (!parser.packBuf[1].hasPackets() && startupFrames < 16) {
+      ++startupFrames;
+      std::string next;
+      EBML::appendSimpleBlock(next, "frame", 5, 1, startupFrames * 40, false, 0);
+      parser.parseElement(EBML::Element(next.data()), 0, meta);
+    }
+    if (!parser.packBuf[1].hasPackets()) {
+      fprintf(stderr, "H264 without a reorder restriction waited beyond 16 frames / 640 ms at25fps\n");
+      return false;
+    }
+    printf("PASS H264 absent reorder restriction: level=%u depth=%zu startup=%zu frames / %zu ms at25fps\n", c.level,
+           actual, startupFrames, startupFrames * 40);
   }
   return true;
 }

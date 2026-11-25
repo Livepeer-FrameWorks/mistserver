@@ -639,14 +639,15 @@ namespace EBML{
       initialized = true;
       return p;
     }
+    const size_t depth = std::min<uint64_t>(maxDelay, ctr - rem - 1);
+    // A slower frame cadence needs a larger time span for the same B-frame depth.
+    decodeDelay = std::max(decodeDelay, times[depth] - times[0]);
     if (!initialized) {
-      const size_t depth = std::min<uint64_t>(maxDelay, ctr - rem - 1);
-      decodeDelay = times[depth] - times[0];
       decodeOrigin = times[0];
       initialized = true;
     }
     const uint64_t presentation = p.time;
-    // The fixed buffered reorder span belongs to this input's decode clock,
+    // The largest buffered reorder span belongs to this input's decode clock,
     // so every output can use the original presentation time without adding delay.
     p.time = times[0] >= decodeOrigin + decodeDelay ? times[0] - decodeDelay : decodeOrigin;
     // Keep the initial decode preroll inside the source timeline so its first
