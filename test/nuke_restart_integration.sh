@@ -100,7 +100,7 @@ wait_for 5 "the test controller" logged "$work/controller.log" 'Controller start
 
 # The buffer runs with its angel, as the controller starts it: the angel holds
 # the input lock and its child serves the stream.
-TMP="$ipc_root" MIST_CONTROL=1 "$input_buffer" -s "$stream" "push://INTERNAL_ONLY:test" >"$work/old.log" 2>&1 &
+TMP="$ipc_root" MIST_CONTROL=1 "$input_buffer" --debug 4 -s "$stream" "push://INTERNAL_ONLY:test" >"$work/old.log" 2>&1 &
 old_pid=$!
 wait_for 10 "the first generation" logged "$work/old.log" 'Input started'
 old_child=$(grep 'Input started' "$work/old.log" | head -n 1 | cut -d'|' -f3)
@@ -120,7 +120,7 @@ wait_for 10 "the nuke to hold the input lock and stop the inputs" logged "$work/
 # What an exiting input does with its lock: the name goes, and the lock the
 # nuke holds stays behind under no name.
 rm -f -- "$lock"
-TMP="$ipc_root" MIST_CONTROL=1 "$input_buffer" -s "$stream" "push://INTERNAL_ONLY:test" >"$work/new.log" 2>&1 &
+TMP="$ipc_root" MIST_CONTROL=1 "$input_buffer" --debug 4 -s "$stream" "push://INTERNAL_ONLY:test" >"$work/new.log" 2>&1 &
 new_pid=$!
 wait_for 10 "the next generation" logged "$work/new.log" 'Input started'
 if ! kill -0 "$nuke_pid" 2>/dev/null; then

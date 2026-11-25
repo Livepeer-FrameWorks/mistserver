@@ -92,6 +92,12 @@ static int checkSwitch(const std::string & name, const char *bindHost, int recei
 
 int main() {
   Util::printDebugLevel = DLVL_WARN;
+  // AI_ADDRCONFIG excludes loopback when checking for a configured IPv6 address.
+  const std::deque<Socket::Address> ipv6 = Socket::getAddrs("127.0.0.1", 0, AF_INET6, true);
+  if (ipv6.empty() || ipv6.front().family() != AF_INET6) {
+    std::cout << "IPv6 is not configured for family switching on this host" << std::endl;
+    return 77;
+  }
   // A specific IPv4 address moves to its IPv4-mapped IPv6 form when the destination is IPv4-mapped IPv6.
   if (checkSwitch("IPv4 address to IPv6", "127.0.0.1", AF_INET, "127.0.0.1", "127.0.0.1", AF_INET6)) { return 1; }
   // The dual-stack IPv6 wildcard becomes the IPv4 wildcard.

@@ -96,7 +96,7 @@ wait_for() {
 logged() { grep -q "$2" "$1" 2>/dev/null; }
 wait_for 5 "the test controller" logged "$work/controller.log" 'Controller started'
 
-TMP="$ipc_root" MIST_CONTROL=1 "$input_buffer" -s "$stream" "push://INTERNAL_ONLY:test" >"$work/old.log" 2>&1 &
+TMP="$ipc_root" MIST_CONTROL=1 "$input_buffer" --debug 4 -s "$stream" "push://INTERNAL_ONLY:test" >"$work/old.log" 2>&1 &
 old_pid=$!
 wait_for 10 "the first generation" logged "$work/old.log" 'Input started'
 old_child=$(grep 'Input started' "$work/old.log" | head -n 1 | cut -d'|' -f3)

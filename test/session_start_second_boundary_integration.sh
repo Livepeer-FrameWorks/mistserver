@@ -69,7 +69,7 @@ done
 
 session_id="O$(printf '%016x' "$$")"
 # Keep a log-helper process from masking a session that has already shut down.
-MIST_CONTROL=1 TMP="$ipc_root" LD_PRELOAD="$preload" "$session_binary" "$session_id" -s secondboundary >"$work/session.log" 2>&1 &
+MIST_CONTROL=1 TMP="$ipc_root" LD_PRELOAD="$preload" "$session_binary" --debug 4 "$session_id" -s secondboundary >"$work/session.log" 2>&1 &
 session_pid=$!
 
 attempt=0

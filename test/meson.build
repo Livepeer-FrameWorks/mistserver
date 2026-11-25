@@ -215,15 +215,17 @@ if startup_timeout_program.found()
   test('A controller told to stop during startup stops', controllerstartupstoptest,
        args: [exec_tgts.get('MistController')],
        suite: 'Controller', timeout: 30, is_parallel: false)
+  nuke_verbose_fixture = executable('nuke_verbose_fixture', 'nuke_verbose_fixture.cpp', header_tgts,
+                                      dependencies: libmist_dep)
   nukerestarttest = find_program('nuke_restart_integration.sh')
   test('A nuke leaves a stream generation that started during it alone', nukerestarttest,
        args: [exec_tgts.get('MistController'), exec_tgts.get('MistInBuffer'),
-              exec_tgts.get('MistUtilNuke'), startup_timeout_program],
+              nuke_verbose_fixture, startup_timeout_program],
        suite: 'Inputs', timeout: 30, is_parallel: false)
   nukerestartwaittest = find_program('nuke_restart_wait_integration.sh')
   test('A nuke holds its stream at shutting down until it is done', nukerestartwaittest,
        args: [exec_tgts.get('MistController'), exec_tgts.get('MistInBuffer'),
-              exec_tgts.get('MistUtilNuke'), startup_timeout_program],
+              nuke_verbose_fixture, startup_timeout_program],
        suite: 'Inputs', timeout: 30, is_parallel: false)
 endif
 if ffmpeg_program.found() and ffprobe_program.found()
