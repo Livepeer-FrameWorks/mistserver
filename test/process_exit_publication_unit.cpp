@@ -72,6 +72,10 @@ int main() {
               << ", exit available=" << available << ", code=" << exitCode << std::endl;
     return 1;
   }
+  if (Util::Procs::childRunning(0) || Util::Procs::childRunning(-1)) {
+    std::cerr << "FAIL: nonpositive child handle treated as a process group" << std::endl;
+    return 1;
+  }
   std::cout << "Child liveness cannot overtake the reaper's exit-status publication" << std::endl;
   return 0;
 }

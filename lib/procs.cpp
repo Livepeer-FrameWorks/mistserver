@@ -52,6 +52,7 @@ void childsig_handler(int signum){return;}
 
 /// Attempts to reap child and returns current running status.
 bool Util::Procs::childRunning(pid_t p) {
+  if (p <= 0) { return false; }
   std::lock_guard<std::mutex> guard(plistMutex);
   int status;
   pid_t ret;
