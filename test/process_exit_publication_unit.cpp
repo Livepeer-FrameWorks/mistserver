@@ -5,6 +5,7 @@
 #include <condition_variable>
 #include <iostream>
 #include <mutex>
+#include <sys/resource.h>
 #include <sys/wait.h>
 #include <thread>
 #include <unistd.h>
@@ -16,9 +17,10 @@ namespace {
   bool reaped = false, releaseReaper = false, observerEntered = false, observerDone = false;
 } // namespace
 
-extern "C" pid_t __real_waitpid(pid_t, int *, int);
-extern "C" pid_t __wrap_waitpid(pid_t pid, int *status, int flags) {
-  const pid_t result = __real_waitpid(pid, status, flags);
+// Defined in the executable so it also replaces the waitpid that a shared libmist calls;
+// a link-time --wrap only rewrites references inside this executable.
+extern "C" pid_t waitpid(pid_t pid, int *status, int flags) {
+  const pid_t result = wait4(pid, status, flags, nullptr);
   if (pid == -1 && result == expectedPid) {
     std::unique_lock<std::mutex> lock(mutex);
     reaped = true;
