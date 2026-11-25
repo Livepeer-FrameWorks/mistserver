@@ -401,6 +401,9 @@ if [ "${LIVEPEER_TEST_HEADER_BUFFER_KILLED:-}" = "1" ]; then
   echo "killing stream-owned MistInBuffer PIDs $buffer_pids while recording waits for its header"
   for killed_pid in $buffer_pids; do kill -0 "$killed_pid"; done
   for killed_pid in $buffer_pids; do kill -KILL "$killed_pid"; done
+  # kill -0 keeps succeeding for a zombie until its parent reaps it. Under a wrapper that adopts
+  # orphans without reaping them (the Ubuntu 24.04 header-wait failure) it never does, so a zombie
+  # counts as dead here.
   for killed_pid in $buffer_pids; do
     python3 "$(dirname "$0")/fixture_ipc.py" --wait-dead "$killed_pid"
   done
