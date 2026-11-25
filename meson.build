@@ -377,6 +377,7 @@ endif
 
 onnx_libs = []
 onnx_defines = []
+onnx_rpath = ''
 onnx_opt = get_option('ONNX')
 onnx_profile = get_option('ONNX_PROFILE')
 onnx_required = onnx_opt.enabled()
@@ -398,6 +399,13 @@ endif
 have_onnx = not onnx_opt.disabled() and onnxruntime_usable and opencv_dep.found()
 if have_onnx
   onnx_libs += [onnxruntime_dep, opencv_dep]
+  # LD_LIBRARY_PATH outranks DT_RUNPATH, so a host exporting another ONNX Runtime, OpenCV or
+  # OpenVINO (OpenVINO's setupvars.sh does) would replace the locked prefix. Installed
+  # targets linking it record the prefix as DT_RPATH, which the loader searches first.
+  if host_machine.system() != 'darwin'
+    onnx_rpath = onnxruntime_dep.get_variable(pkgconfig: 'libdir', default_value: '')
+    onnx_libs += declare_dependency(link_args: '-Wl,--disable-new-dtags')
+  endif
   onnx_defines += '-DMIST_ONNX_PROFILE="@0@"'.format(onnx_profile)
   message('ONNX support enabled (profile=@0@)'.format(onnx_profile))
 else
@@ -518,6 +526,7 @@ foreach exec : executables
     cpp_args: exec.get('defines'),
     override_options: exec_override_options,
     install: true,
+    install_rpath: exec.get('install_rpath', ''),
   ) }
 endforeach
 

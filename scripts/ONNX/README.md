@@ -328,9 +328,13 @@ Intel hardware: on other CPUs it reports no device, an explicit
 need the OpenCL/Level Zero userspace (`intel-opencl-icd`, `libze-intel-gpu1`) and NPUs the
 Intel NPU driver; the runtime image is Intel's `openvino/ubuntu24_runtime` of the plugin's
 OpenVINO release, which carries both. That base points `LD_LIBRARY_PATH` at its own
-`/opt/intel/openvino`, which would outrank the plugin's `$ORIGIN` RUNPATH, so the image clears
-it and the plugin loads the OpenVINO it bundles; `audit_accelerator_image.sh` fails when a
-bundled library resolves anywhere else.
+`/opt/intel/openvino`, as OpenVINO's `setupvars.sh` does on a host. `LD_LIBRARY_PATH` outranks
+a `DT_RUNPATH`, so `build_dependencies.sh` gives every library in the prefix `DT_RPATH $ORIGIN`
+and Meson links the Mist targets that use the prefix with `DT_RPATH` to it; the loader
+searches `DT_RPATH` first, so the plugin, OpenVINO, its device plugins and TBB load from the
+prefix whatever `LD_LIBRARY_PATH` holds. `audit_accelerator_image.sh` fails when a bundled
+library resolves anywhere else, under the image environment and with a decoy
+`LD_LIBRARY_PATH` directory holding a copy of every bundled library.
 
 OpenVINO keeps compiled models in `openvino-cache/` inside the model directory (see
 [Where models are stored](#where-models-are-stored)), so a model is compiled for a device once per host (NPU:
@@ -344,7 +348,9 @@ the nuget.org packages from; nothing is built from it.
 
 Every profile links ONNX Runtime and OpenCV as shared libraries. Native packages ship them in
 their `lib/` directory with an executable-relative rpath (`$ORIGIN/../lib` on Linux,
-`@executable_path/../lib` on macOS), so an extracted package needs no system ONNX Runtime. CUDA
+`@executable_path/../lib` on macOS), so an extracted package needs no system ONNX Runtime. On
+Linux that rpath is a `DT_RPATH`, so a host `LD_LIBRARY_PATH` cannot replace a packaged
+library; the release workflow checks it on the host contract with a decoy `LD_LIBRARY_PATH`. CUDA
 and TensorRT images add their vendor userspace from the runtime base image.
 
 Build the locked dependencies and then make ONNX mandatory:

@@ -220,6 +220,7 @@ if have_onnx
     cpp_args: onnx_defines,
     override_options: onnx_cpp_std,
     install: true,
+    install_rpath: onnx_rpath,
   )
   onnx_dep = declare_dependency(link_with: [libonnx])
 endif

@@ -496,13 +496,14 @@ jobs:
           cp -a /opt/mist-onnx/lib/*.so* /tmp/mistserver-install/lib/
           # meson install drops the build-tree rpath. Point every binary at the bundle's lib/
           # first, so the closure collector resolves ONNX Runtime/OpenCV from there and the
-          # libraries it collects (libva, libvpl, ...) load from there on the host.
+          # libraries it collects (libva, libvpl, ...) load from there on the host. DT_RPATH
+          # (--force-rpath), unlike DT_RUNPATH, is searched before a host LD_LIBRARY_PATH.
           for bin in /tmp/mistserver-install/bin/Mist*; do
-            patchelf --set-rpath '$ORIGIN/../lib:$ORIGIN/../lib/x86_64-linux-gnu' "$bin"
+            patchelf --force-rpath --set-rpath '$ORIGIN/../lib:$ORIGIN/../lib/x86_64-linux-gnu' "$bin"
           done
           scripts/collect-native-libraries.sh /tmp/mistserver-install
           find /tmp/mistserver-install/lib -type f -name '*.so*' -exec \
-            patchelf --set-rpath '$ORIGIN:$ORIGIN/..' {} \;
+            patchelf --force-rpath --set-rpath '$ORIGIN:$ORIGIN/..' {} \;
           capability=$(/tmp/mistserver-install/bin/MistProcONNX -j 2>/dev/null || true)
           printf '%s' "$capability" | grep -F "This binary packages the 'cpu' profile"
 
@@ -559,6 +560,19 @@ jobs:
             ldd /opt/mist/bin/MistProcONNX | grep -E "libonnxruntime[.]so[.]1 => /opt/mist/(bin/[.][.]/)?lib/"
             capability=$(/opt/mist/bin/MistProcONNX -j 2>/dev/null || true)
             printf "%s" "$capability" | grep -E "This binary packages the .cpu. profile"
+            # A host LD_LIBRARY_PATH (OpenVINO setupvars.sh exports one) must not replace a
+            # packaged library, even with a copy of every one of them in front.
+            mkdir /tmp/decoy-libs
+            for library in /opt/mist/lib/*.so* /opt/mist/lib/*/*.so*; do
+              if [ -f "$library" ]; then cp -L "$library" /tmp/decoy-libs/; fi
+            done
+            for object in /opt/mist/bin/Mist* /opt/mist/lib/*.so* /opt/mist/lib/*/*.so*; do
+              [ -f "$object" ] || continue
+              if LD_LIBRARY_PATH=/tmp/decoy-libs ldd "$object" 2>/dev/null | grep -F "=> /tmp/decoy-libs/"; then
+                echo "$(basename "$object") loads a library from LD_LIBRARY_PATH instead of the package" >&2
+                failed=1
+              fi
+            done
             exit $failed
           '
 
@@ -763,13 +777,14 @@ jobs:
           cp -a /opt/mist-onnx/lib/*.so* /tmp/mistserver-install/lib/
           # meson install drops the build-tree rpath. Point every binary at the bundle's lib/
           # first, so the closure collector resolves ONNX Runtime/OpenCV from there and the
-          # libraries it collects (libva, libvpl, ...) load from there on the host.
+          # libraries it collects (libva, libvpl, ...) load from there on the host. DT_RPATH
+          # (--force-rpath), unlike DT_RUNPATH, is searched before a host LD_LIBRARY_PATH.
           for bin in /tmp/mistserver-install/bin/Mist*; do
-            patchelf --set-rpath '$ORIGIN/../lib:$ORIGIN/../lib/aarch64-linux-gnu' "$bin"
+            patchelf --force-rpath --set-rpath '$ORIGIN/../lib:$ORIGIN/../lib/aarch64-linux-gnu' "$bin"
           done
           scripts/collect-native-libraries.sh /tmp/mistserver-install
           find /tmp/mistserver-install/lib -type f -name '*.so*' -exec \
-            patchelf --set-rpath '$ORIGIN:$ORIGIN/..' {} \;
+            patchelf --force-rpath --set-rpath '$ORIGIN:$ORIGIN/..' {} \;
           capability=$(/tmp/mistserver-install/bin/MistProcONNX -j 2>/dev/null || true)
           printf '%s' "$capability" | grep -F "This binary packages the 'cpu' profile"
 
@@ -826,6 +841,19 @@ jobs:
             ldd /opt/mist/bin/MistProcONNX | grep -E "libonnxruntime[.]so[.]1 => /opt/mist/(bin/[.][.]/)?lib/"
             capability=$(/opt/mist/bin/MistProcONNX -j 2>/dev/null || true)
             printf "%s" "$capability" | grep -E "This binary packages the .cpu. profile"
+            # A host LD_LIBRARY_PATH (OpenVINO setupvars.sh exports one) must not replace a
+            # packaged library, even with a copy of every one of them in front.
+            mkdir /tmp/decoy-libs
+            for library in /opt/mist/lib/*.so* /opt/mist/lib/*/*.so*; do
+              if [ -f "$library" ]; then cp -L "$library" /tmp/decoy-libs/; fi
+            done
+            for object in /opt/mist/bin/Mist* /opt/mist/lib/*.so* /opt/mist/lib/*/*.so*; do
+              [ -f "$object" ] || continue
+              if LD_LIBRARY_PATH=/tmp/decoy-libs ldd "$object" 2>/dev/null | grep -F "=> /tmp/decoy-libs/"; then
+                echo "$(basename "$object") loads a library from LD_LIBRARY_PATH instead of the package" >&2
+                failed=1
+              fi
+            done
             exit $failed
           '
 

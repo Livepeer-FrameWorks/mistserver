@@ -124,11 +124,10 @@ RUN tar -C /mist-install/usr/local -cf /mist-runtime.tar \
 FROM ${RUNTIME_BASE} AS runtime-cpu
 FROM ${RUNTIME_BASE} AS runtime-cuda
 FROM ${RUNTIME_BASE} AS runtime-tensorrt
-# The OpenVINO runtime base points LD_LIBRARY_PATH at its own /opt/intel/openvino copy.
-# LD_LIBRARY_PATH outranks the $ORIGIN RUNPATH of Intel's ONNX Runtime plugin, which must
-# load the OpenVINO it bundles in /opt/mist-onnx/lib; Mist uses nothing from /opt/intel.
+# The OpenVINO runtime base points LD_LIBRARY_PATH at its own /opt/intel/openvino copy. Mist
+# and every library in /opt/mist-onnx/lib carry DT_RPATH, which the loader searches before
+# LD_LIBRARY_PATH, so they load the OpenVINO the plugin bundles; Mist uses nothing from there.
 FROM ${RUNTIME_BASE} AS runtime-openvino
-ENV LD_LIBRARY_PATH=
 
 FROM runtime-${ONNX_PROFILE}
 

@@ -112,5 +112,6 @@ if have_onnx
     'deps'   : [ libmist_dep, process_common_dep, onnx_dep, onnx_libs ],
     'defines': onnx_defines,
     'override_options': onnx_cpp_std,
+    'install_rpath': onnx_rpath,
   }
 endif

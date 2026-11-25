@@ -3,7 +3,8 @@
 #
 # Audits a built accelerator image without a GPU: the packaged profile, every
 # library each Mist and provider binary links (only the host driver's
-# libcuda.so.1 may be absent), the vendor codecs, and that no build toolchain
+# libcuda.so.1 may be absent) and that bundled ones load from the bundle under
+# any LD_LIBRARY_PATH, the vendor codecs, and that no build toolchain
 # reached the runtime layer. CI runs it after building each profile; run it
 # locally against a local build before cutting a release.
 set -euo pipefail
@@ -40,19 +41,34 @@ docker run --rm -e PROFILE="$PROFILE" \
       *) cat /tmp/provider-libs.missing >&2; exit 1 ;;
     esac
   fi
-  # Every library the bundle ships loads from the bundle under the image environment. An
-  # LD_LIBRARY_PATH from the runtime base outranks the $ORIGIN RUNPATH of the bundled
-  # libraries (the OpenVINO base points it at /opt/intel/openvino) and would load another
-  # copy into the process.
-  cat /tmp/libmistonnx.ldd /tmp/onnxmodelprobe.ldd /tmp/provider-libs.ldd |
-    sed -n "s/^[[:space:]]*\([^[:space:]]*\) => \(\/[^[:space:]]*\) .*/\1 \2/p" | sort -u > /tmp/resolved.txt
-  grep -q " /opt/mist-onnx/lib/" /tmp/resolved.txt
-  while read -r name resolved; do
-    if [ -e "/opt/mist-onnx/lib/$name" ] && [ "$(readlink -f "${resolved%/*}")" != /opt/mist-onnx/lib ]; then
-      echo "bundled $name resolves to $resolved (LD_LIBRARY_PATH=${LD_LIBRARY_PATH:-})" >&2
-      exit 1
-    fi
-  done < /tmp/resolved.txt
+  # Every library the bundle ships loads from the bundle whatever LD_LIBRARY_PATH holds: the
+  # image environment (the OpenVINO base points it at /opt/intel/openvino), and a decoy
+  # directory with a copy of every bundled library in front of it, as a host that exports
+  # another OpenVINO, ONNX Runtime or OpenCV would. The bundled libraries and the Mist
+  # objects linking them carry DT_RPATH, which the loader searches before LD_LIBRARY_PATH.
+  resolve_bundle() {
+    for object in "$lib" /opt/mist-onnx/libexec/onnxmodelprobe /usr/local/bin/Mist* \
+                  /opt/mist-onnx/lib/*.so /opt/mist-onnx/lib/*.so.*; do
+      [ -e "$object" ] || continue
+      ldd "$object" 2>/dev/null
+    done | sed -n "s/^[[:space:]]*\([^[:space:]]*\) => \(\/[^[:space:]]*\) .*/\1 \2/p" | sort -u > /tmp/resolved.txt
+    grep -q " /opt/mist-onnx/lib/" /tmp/resolved.txt
+    while read -r name resolved; do
+      if [ -e "/opt/mist-onnx/lib/$name" ] && [ "$(readlink -f "${resolved%/*}")" != /opt/mist-onnx/lib ]; then
+        echo "bundled $name resolves to $resolved (LD_LIBRARY_PATH=${LD_LIBRARY_PATH:-})" >&2
+        exit 1
+      fi
+    done < /tmp/resolved.txt
+  }
+  mkdir /tmp/decoy-libs
+  cp -L /opt/mist-onnx/lib/*.so* /tmp/decoy-libs/
+  (
+    LD_LIBRARY_PATH=/tmp/decoy-libs${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}
+    export LD_LIBRARY_PATH
+    resolve_bundle
+  )
+  rm -rf /tmp/decoy-libs
+  resolve_bundle
   case "$PROFILE" in
     cuda)
       test -f /opt/mist-onnx/lib/libonnxruntime_providers_cuda.so

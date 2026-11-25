@@ -63,9 +63,10 @@ for command_name in awk cmake git pkg-config; do
 done
 # --verify-only reads the prefix stamp only, so it runs in images without the fetch tools.
 if [ "$verify_only" -eq 0 ]; then
-  soname_tool=readelf
-  if [ "$platform" = Darwin ]; then soname_tool=otool; fi
-  for command_name in curl unzip "$soname_tool"; do
+  elf_tools="readelf patchelf"
+  if [ "$platform" = Darwin ]; then elf_tools=otool; fi
+  # shellcheck disable=SC2086
+  for command_name in curl unzip $elf_tools; do
     command -v "$command_name" >/dev/null 2>&1 || {
       echo "Required command not found: $command_name" >&2
       exit 1
@@ -320,7 +321,7 @@ cp "$runtime_unpack/ThirdPartyNotices.txt" \
 
 if [ -n "$plugin_distribution" ]; then
   # Intel's plugin bundles its own OpenVINO runtime (libopenvino, device plugins, TBB,
-  # hwloc and the GPU kernel cache.json); its RUNPATH is $ORIGIN, so it all stays together.
+  # hwloc and the GPU kernel cache.json), which loads from the same directory.
   fetch_locked_package "$plugin_distribution"
   plugin_libs=$package_native
   plugin_name=libonnxruntime_providers_openvino_plugin.so
@@ -335,6 +336,24 @@ if [ -n "$plugin_distribution" ]; then
   mkdir -p "$prefix/share/licenses/onnxruntime-openvino-ep"
   cp "$plugin_libs/third-party-programs.txt" \
     "$prefix/share/licenses/onnxruntime-openvino-ep/third-party-programs.txt"
+fi
+
+# LD_LIBRARY_PATH outranks DT_RUNPATH, so a host exporting another OpenVINO, ONNX Runtime or
+# OpenCV (OpenVINO's setupvars.sh does) would load it in place of a library's siblings here.
+# Every library in the prefix carries DT_RPATH $ORIGIN instead, which the loader searches
+# before LD_LIBRARY_PATH; OpenVINO dlopens its device plugins by path from this directory.
+# shellcheck disable=SC2016
+if [ "$platform" = Linux ]; then
+  for library in "$prefix"/lib/*.so*; do
+    if [ -L "$library" ] || [ ! -f "$library" ]; then continue; fi
+    patchelf --force-rpath --set-rpath '$ORIGIN' "$library"
+    dynamic=$(readelf -d "$library")
+    if printf '%s\n' "$dynamic" | grep -F '(RUNPATH)' >/dev/null ||
+       ! printf '%s\n' "$dynamic" | grep -F '(RPATH)' | grep -F '[$ORIGIN]' >/dev/null; then
+      echo "$library does not carry DT_RPATH \$ORIGIN" >&2
+      exit 1
+    fi
+  done
 fi
 
 cat > "$prefix/lib/pkgconfig/libonnxruntime.pc" <<EOF
