@@ -52,8 +52,8 @@ static uint16_t sourcePort(int sock) {
   return ntohs(((sockaddr_in6 &)from).sin6_port);
 }
 
-/// Binds a Mist socket on bindHost, points it at a destination of the other address family, and requires the
-/// rebound socket to keep its port: the datagram it then sends must arrive from that port.
+/// Binds a Mist socket on bindHost with SO_BROADCAST on, points it at a destination of the other address family, and
+/// requires the rebound socket to keep its port and SO_BROADCAST: the datagram it then sends must arrive from that port.
 static int checkSwitch(const std::string & name, const char *bindHost, int receiverFamily, const char *receiverHost,
                        const std::string & destHost, int destFamily) {
   int receiver = -1;
@@ -62,6 +62,10 @@ static int checkSwitch(const std::string & name, const char *bindHost, int recei
   Socket::UDPConnection sock(false, destFamily == AF_INET ? AF_INET6 : AF_INET);
   const uint16_t port = sock.bind(0, bindHost);
   if (!port) { return fail(name + ": could not bind the switching socket"); }
+  const int on = 1;
+  if (setsockopt(sock.getSock(), SOL_SOCKET, SO_BROADCAST, &on, sizeof on)) {
+    return fail(name + ": could not enable SO_BROADCAST");
+  }
   const sa_family_t boundFamily = sock.getBoundAddr().family();
   if (boundFamily == destFamily) { return fail(name + ": the switching socket was bound in the destination family"); }
   std::deque<Socket::Address> dest = Socket::getAddrs(destHost, receiverPort, destFamily, destFamily == AF_INET6);
@@ -71,13 +75,18 @@ static int checkSwitch(const std::string & name, const char *bindHost, int recei
     return fail(name + ": after the switch the socket is bound to " + sock.getBoundAddr().toString() +
                 " instead of port " + std::to_string(port));
   }
+  int broadcast = 0;
+  socklen_t broadcastLen = sizeof broadcast;
+  if (getsockopt(sock.getSock(), SOL_SOCKET, SO_BROADCAST, &broadcast, &broadcastLen) || !broadcast) {
+    return fail(name + ": the switched socket lost SO_BROADCAST");
+  }
   sock.SendNow("switched");
   const uint16_t from = sourcePort(receiver);
   close(receiver);
   if (from != port) {
     return fail(name + ": the datagram came from port " + std::to_string(from) + " instead of " + std::to_string(port));
   }
-  std::cout << name << ": kept port " << port << std::endl;
+  std::cout << name << ": kept port " << port << " and SO_BROADCAST" << std::endl;
   return 0;
 }
 

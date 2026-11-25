@@ -2883,9 +2883,16 @@ bool Socket::UDPConnection::setDestination(const Socket::Address & addr) {
   if (family != addr.family()) {
     if (ignoreSendErrors){return false;}
     WARN_MSG("Switching UDP socket from %s to %s", addrFam(family), addrFam(addr.family()));
+    // The new socket keeps the old one's SO_BROADCAST; bind() below carries it over from the new socket.
+    int broadcast = 0;
+    socklen_t broadcastLen = sizeof(broadcast);
+    if (sock == -1 || getsockopt(sock, SOL_SOCKET, SO_BROADCAST, &broadcast, &broadcastLen)) { broadcast = 0; }
     close();
     family = addr.family();
     sock = socket(family, SOCK_DGRAM, 0);
+    if (broadcast && setsockopt(sock, SOL_SOCKET, SO_BROADCAST, &broadcast, sizeof(broadcast))) {
+      WARN_MSG("Could not keep SO_BROADCAST on the switched UDP socket: %s", strerror(errno));
+    }
     if (family == AF_INET6){
       const int optval = 0;
       if (setsockopt(sock, IPPROTO_IPV6, IPV6_V6ONLY, &optval, sizeof(optval)) < 0){

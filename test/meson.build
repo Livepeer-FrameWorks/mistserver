@@ -49,7 +49,7 @@ test('Ephemeral UDP ports are never shared with a socket that already holds them
 
 udpfamilyswitchtest = executable('udpfamilyswitchtest', 'udp_family_switch_unit.cpp', header_tgts,
                                  dependencies: libmist_dep)
-test('A UDP socket switching address family keeps its bound port and address', udpfamilyswitchtest,
+test('A UDP socket switching address family keeps its bound port, address and broadcast flag', udpfamilyswitchtest,
      suite: 'Sockets')
 
 urireaderregressiontest = executable('urireaderregressiontest', 'urireader_regression.cpp', header_tgts,
