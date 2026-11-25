@@ -3270,7 +3270,7 @@ namespace ONNX {
       // OpenVINO ships as Intel's plugin EP. It publishes one OrtEpDevice per supported
       // device under two factories; the AUTO meta-device factory lets OpenVINO place the
       // model on the best of them (GPU/NPU before CPU), so it is preferred.
-      auto tryRegisterOpenVINO = [&]() -> bool {
+      auto tryRegisterOpenVINOPlugin = [&]() -> bool {
         std::string why;
         if (!ORTHelpers::registerOpenVINOPlugin(why)) {
           MEDIUM_MSG("OpenVINO EP not available: %s", why.c_str());
@@ -3372,6 +3372,15 @@ namespace ONNX {
         activeEP_ = "OpenVINO";
         INFO_MSG("Execution provider enabled: OpenVINO (devices: %s)", deviceNames.c_str());
         return true;
+      };
+
+      auto tryRegisterOpenVINO = [&]() -> bool {
+        if (tryRegisterOpenVINOPlugin()) { return true; }
+        // Distro and source-built runtimes can compile the EP into ONNX Runtime instead
+        // of shipping Intel's separate plugin. AUTO also retains their CPU device path.
+        const char *keys[] = {"device_type"};
+        const char *values[] = {"AUTO"};
+        return tryRegisterGenericEP("OpenVINO", keys, values, 1);
       };
 
       if (!epExplicit) {

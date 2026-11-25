@@ -1196,6 +1196,10 @@ if have_onnx
                                  dependencies: [libmist_dep, onnx_dep, onnx_libs],
                                  override_options: onnx_cpp_std)
   test('Fed input shapes pin symbolic dims; the OpenVINO cache falls back and is keyed per device name', onnxinputpinstest, suite: 'ONNX')
+  onnxopenvinofallbacktest = executable('onnxopenvinofallbacktest', 'onnx_openvino_fallback.cpp', header_tgts,
+                                        dependencies: [libmist_dep, onnx_libs],
+                                        override_options: onnx_cpp_std)
+  test('OpenVINO falls back to a compiled-in provider when the plugin is unavailable', onnxopenvinofallbacktest, suite: 'ONNX')
   onnxfbanktest = executable('onnxfbanktest', 'onnx_fbank.cpp', header_tgts,
                              dependencies: [libmist_dep, onnx_dep, onnx_libs],
                              override_options: onnx_cpp_std)

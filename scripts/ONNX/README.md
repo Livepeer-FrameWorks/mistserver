@@ -322,9 +322,11 @@ builds itself, get their symbolic input dims pinned before session creation (bat
 configured `input_size`, by `dim_param` name), so a model exported with a dynamic batch or size
 still runs on the NPU. Raw tensor mode, OCR and audio models feed shapes that vary per call:
 the NPU joins their device set only when the model's inputs are already static, and so do
-vision models with an unnamed dynamic dim. The plugin only offers
-Intel hardware: on other CPUs it reports no device, an explicit
-`openvino` request fails, and the profile default falls back to the CPU provider. Intel GPUs
+vision models with an unnamed dynamic dim. If the plugin cannot register or offers no
+usable device, Mist tries the runtime's compiled-in OpenVINO provider with `device_type=AUTO`.
+This retains support for distro and source-built OpenVINO runtimes, including their CPU
+device path. If neither provider is available, an explicit `openvino` request fails and
+the profile default falls back to the CPU provider. Intel GPUs
 need the OpenCL/Level Zero userspace (`intel-opencl-icd`, `libze-intel-gpu1`) and NPUs the
 Intel NPU driver; the runtime image is Intel's `openvino/ubuntu24_runtime` of the plugin's
 OpenVINO release, which carries both. That base points `LD_LIBRARY_PATH` at its own
