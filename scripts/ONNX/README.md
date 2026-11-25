@@ -460,8 +460,12 @@ and refresh the cache once to remove stale entries.
 Linux accelerator images are separate because the OS/architecture alone does not define the GPU
 vendor or driver ABI. Each image includes its matching userspace SDK runtime and keeps the shared
 provider closure in `/opt/mist-onnx/lib`; the target host supplies only a compatible kernel driver
-and device. The loader path is registered through `/etc/ld.so.conf.d/mist-onnx.conf` without
-discarding vendor paths inherited from the runtime image.
+and device. Mist and its libraries resolve `libmist`, the pinned mbedtls and
+`/opt/mist-onnx/lib` through the same `DT_RPATH` as the native bundles
+(`isolate_native_libraries.sh`), so the image registers nothing in the loader cache and keeps the
+vendor paths inherited from the runtime image. The image build fails if any shipped ELF object
+has an unresolved library (only the host driver's `libcuda.so.1` may be absent on CUDA and
+TensorRT).
 
 All production ONNX containers are built from `Dockerfile.mistserver-onnx`; a build fails if
 `MistProcONNX` or the advertised profile is missing. The exact source revisions and package

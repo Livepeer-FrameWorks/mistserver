@@ -18,7 +18,7 @@ ENV DEBIAN_FRONTEND=noninteractive
 # verify_release.sh runs the ONNX test suite here: its packaging and dependency-script tests
 # need jq and unzip, which ubuntu and debian build bases do not ship.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-      build-essential ca-certificates curl git patch jq unzip \
+      build-essential ca-certificates curl git patch patchelf jq unzip \
       python3 python3-pip ninja-build pkg-config cmake ffmpeg \
       libcjson-dev libmbedtls-dev libxml2-dev zlib1g-dev liblzma-dev \
       libavcodec-dev libavfilter-dev libavformat-dev libavutil-dev \
@@ -119,10 +119,13 @@ RUN rm -rf /opt/mist-onnx/include
 
 # Only MistServer's own installed files reach the runtime layer. The build base's
 # /usr/local also holds its toolchain (the devel CUDA toolkit, pip build tools).
+# The image resolves libmist, the pinned mbedtls and /opt/mist-onnx/lib through the same
+# DT_RPATH the native bundles carry, so nothing is registered in the loader cache.
 RUN tar -C /mist-install/usr/local -cf /mist-runtime.tar \
       -T /mist-install/usr/local/share/mistserver/installed-files.txt \
     && mkdir -p /mist-runtime/usr/local \
-    && tar -C /mist-runtime/usr/local -xf /mist-runtime.tar
+    && tar -C /mist-runtime/usr/local -xf /mist-runtime.tar \
+    && bash /src/scripts/ONNX/isolate_native_libraries.sh /mist-runtime/usr/local
 
 FROM ${RUNTIME_BASE} AS runtime-cpu
 FROM ${RUNTIME_BASE} AS runtime-cuda
@@ -152,11 +155,28 @@ ENV NVIDIA_DRIVER_CAPABILITIES=${NVIDIA_DRIVER_CAPABILITIES}
 
 COPY --from=mist_build /mist-runtime/usr/local/ /usr/local/
 COPY --from=mist_build /opt/mist-onnx/ /opt/mist-onnx/
-RUN linkage="$(ldd /usr/local/bin/MistOutWebRTC)" \
-    && echo "$linkage" \
-    && for library in mbedtls mbedx509 mbedcrypto; do \
-         echo "$linkage" | grep -E "lib${library}\\.so.*=> /usr/local/lib/"; \
-       done
+# Every ELF object MistServer ships resolves all of its libraries without the loader cache;
+# only the host driver's libcuda.so.1 is mounted at run time. MistOutWebRTC loads the pinned
+# mbedtls from /usr/local/lib, not the distribution copy.
+ARG ONNX_PROFILE=cpu
+RUN set -e; unresolved=; \
+    for object in $(sed -n 's|^\./|/usr/local/|p' /usr/local/share/mistserver/installed-files.txt) \
+                  $(find /opt/mist-onnx -type f); do \
+      [ -f "$object" ] && [ ! -L "$object" ] || continue; \
+      [ "$(head -c 4 "$object")" = "$(printf '\177ELF')" ] || continue; \
+      missing=$(ldd "$object" 2>&1 | grep -F 'not found' || true); \
+      case "$ONNX_PROFILE" in \
+        cuda|tensorrt) missing=$(printf '%s\n' "$missing" | grep -Ev '^[[:space:]]*libcuda\.so\.1 => not found$' || true) ;; \
+      esac; \
+      if [ -n "$missing" ]; then unresolved="$unresolved$object:\n$missing\n"; fi; \
+    done; \
+    if [ -n "$unresolved" ]; then printf 'Unresolved runtime libraries:\n%b' "$unresolved" >&2; exit 1; fi; \
+    if ldconfig -p | grep -F ' => /opt/mist-onnx/'; then echo '/opt/mist-onnx is in the loader cache' >&2; exit 1; fi; \
+    linkage="$(ldd /usr/local/bin/MistOutWebRTC)"; \
+    echo "$linkage"; \
+    for library in mbedtls mbedx509 mbedcrypto; do \
+      echo "$linkage" | grep -E "lib${library}\\.so.*=> /usr/local/lib/"; \
+    done
 
 LABEL org.opencontainers.image.authors="Livepeer FrameWorks"
 EXPOSE 4242 8080 1935 5554 8889/udp 18203/udp
