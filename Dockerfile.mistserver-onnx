@@ -125,7 +125,7 @@ RUN tar -C /mist-install/usr/local -cf /mist-runtime.tar \
       -T /mist-install/usr/local/share/mistserver/installed-files.txt \
     && mkdir -p /mist-runtime/usr/local \
     && tar -C /mist-runtime/usr/local -xf /mist-runtime.tar \
-    && bash /src/scripts/ONNX/isolate_native_libraries.sh /mist-runtime/usr/local
+    && bash /src/scripts/ONNX/isolate_native_libraries.sh /mist-runtime/usr/local /opt/mist-onnx
 
 FROM ${RUNTIME_BASE} AS runtime-cpu
 FROM ${RUNTIME_BASE} AS runtime-cuda
@@ -175,7 +175,8 @@ RUN set -e; unresolved=; \
     linkage="$(ldd /usr/local/bin/MistOutWebRTC)"; \
     echo "$linkage"; \
     for library in mbedtls mbedx509 mbedcrypto; do \
-      echo "$linkage" | grep -E "lib${library}\\.so.*=> /usr/local/lib/"; \
+      resolved=$(echo "$linkage" | sed -n "s/^[[:space:]]*lib${library}\\.so[^ ]* => \\([^ ]*\\) .*/\\1/p"); \
+      readlink -f "$resolved" | grep '^/usr/local/lib/'; \
     done
 
 LABEL org.opencontainers.image.authors="Livepeer FrameWorks"
