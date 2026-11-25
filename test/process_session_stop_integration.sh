@@ -122,7 +122,7 @@ wait_for() {
 }
 logged() { grep -qE -- "$2" "$1" 2>/dev/null; }
 
-api_port=$((24000 + ($$ % 9000)))
+api_port=$(python3 "$(dirname "$0")/test_ports.py" 3 $$)
 rtmp_port=$((api_port + 1))
 broadcaster_port=$((api_port + 2))
 "$broadcaster_stub" "$broadcaster_port" >"$work/broadcaster.log" 2>&1 &

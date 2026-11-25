@@ -9,6 +9,7 @@ import subprocess
 import sys
 import tempfile
 import time
+from test_ports import free_port
 
 binary, auditor = sys.argv[1:]
 with tempfile.TemporaryDirectory(prefix='mist-webrtc-fd-') as directory:
@@ -17,8 +18,7 @@ with tempfile.TemporaryDirectory(prefix='mist-webrtc-fd-') as directory:
     libraries = subprocess.run(['ldd', binary], capture_output=True, text=True, check=True).stdout
     runtimes = re.findall(r'=> (/\S*(?:libasan|libclang_rt\.asan)\S*)', libraries)
     env = dict(os.environ, LD_PRELOAD=':'.join(runtimes + [auditor]), MIST_SHUTDOWN_AUDIT=str(marker), TMP=directory)
-    with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as probe:
-        probe.bind(('127.0.0.1', 0)); port = probe.getsockname()[1]
+    port = free_port()
     with (Path(directory) / 'listener.log').open('w+') as log:
         process = subprocess.Popen([binary, '-i', '127.0.0.1', '-p', str(port)], env=env, stdout=log, stderr=subprocess.STDOUT)
         try:

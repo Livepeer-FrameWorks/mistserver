@@ -4,11 +4,11 @@ import os
 from pathlib import Path
 import shutil
 import signal
-import socket
 import subprocess
 import sys
 import tempfile
 from process_av_rotation_integration import run, wait_for
+from test_ports import free_port
 
 
 def main():
@@ -48,9 +48,7 @@ def main():
 
         run([ffmpeg, "-v", "error", "-y", "-f", "lavfi", "-i", f"color=blue:size=160x90:rate=10:duration={length}",
              "-i", cue, *encoder, "-g", "10", source])
-        with socket.socket() as port:
-            port.bind(("127.0.0.1", 0))
-            api_port = port.getsockname()[1]
+        api_port = free_port()
         config = {"config": {"debug": 4, "device_discovery": False, "protocols": [],
                              "controller": {"interface": "127.0.0.1", "port": api_port, "username": None},
                              "sessionInputMode": 15, "sessionOutputMode": 15, "sessionStreamInfoMode": 1,

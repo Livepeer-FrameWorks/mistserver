@@ -81,7 +81,7 @@ trap 'exit 129' HUP
 trap 'exit 130' INT
 trap 'exit 143' TERM
 
-api_port=$((24000 + ($$ % 12000)))
+api_port=$(python3 "$(dirname "$0")/test_ports.py" 3 $$)
 http_port=$((api_port + 1))
 webrtc_port=$((api_port + 2))
 config="$work/config.json"

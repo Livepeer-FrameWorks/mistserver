@@ -58,7 +58,7 @@ trap 'exit 143' TERM
 
 TMP="$ipc_root" "$fixture" "$pull_lock"
 
-api_port=$((24000 + ($$ % 9000)))
+api_port=$(python3 "$(dirname "$0")/test_ports.py" 2 $$)
 udp_port=$((api_port + 1))
 printf '%s\n' \
   "{\"account\":{\"test\":{\"password\":\"098f6bcd4621d373cade4e832627b4f6\"}},\"config\":{\"accesslog\":\"LOG\",\"controller\":{\"interface\":\"127.0.0.1\",\"port\":$api_port,\"username\":null},\"debug\":4,\"protocols\":[],\"trustedproxy\":[]},\"streams\":{\"$stream\":{\"name\":\"$stream\",\"source\":\"tsudp://127.0.0.1:$udp_port\",\"always_on\":true}}}" \

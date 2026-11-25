@@ -10,19 +10,13 @@ down after its input timeout because no viewer had selected a track yet.
 """
 import os
 from pathlib import Path
-import socket
 import subprocess
 import sys
 import time
 import urllib.request
 
 from controller_capacity_lifecycle_integration import Fixture, until
-
-
-def free_port():
-    with socket.socket() as sock:
-        sock.bind(("127.0.0.1", 0))
-        return sock.getsockname()[1]
+from test_ports import free_port
 
 
 def main():

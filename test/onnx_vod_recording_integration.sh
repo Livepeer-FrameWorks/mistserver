@@ -104,7 +104,7 @@ source_mkv="$work/source.mkv"
   -c:v libx264 -pix_fmt yuv420p -preset veryfast -g 20 -keyint_min 20 -bf 0 -sc_threshold 0 \
   -c:a aac -b:a 96k "$source_mkv"
 
-port=$((26000 + ($$ % 10000)))
+port=$(python3 "$(dirname "$0")/test_ports.py" 1 $$)
 config="$work/config.json"
 printf '%s\n' \
   "{\"account\":{\"test\":{\"password\":\"098f6bcd4621d373cade4e832627b4f6\"}},\"auto_push\":null,\"bandwidth\":{\"exceptions\":[\"::1\",\"127.0.0.0/8\"]},\"config\":{\"accesslog\":\"LOG\",\"controller\":{\"interface\":\"127.0.0.1\",\"port\":$port,\"username\":null},\"debug\":4,\"defaultStream\":null,\"prometheus\":\"\",\"protocols\":[],\"serverid\":null,\"sessionInputMode\":15,\"sessionOutputMode\":15,\"sessionStreamInfoMode\":1,\"sessionUnspecifiedMode\":0,\"sessionViewerMode\":14,\"tknMode\":15,\"triggers\":{},\"trustedproxy\":[]},\"extwriters\":null,\"jwks\":null,\"push_settings\":{\"maxspeed\":0,\"wait\":3},\"streamkeys\":null,\"streams\":{\"$stream\":{\"name\":\"$stream\",\"source\":\"$source_mkv\",\"process_controlled_realtime\":true,\"realtime_speed\":1,\"processes\":[{\"process\":\"AV\",\"x-LSP-kind\":\"video\",\"codec\":\"NV12\",\"track_select\":\"video=H264&audio=none\",\"target_mask\":4,\"restart_type\":\"disabled\"},{\"process\":\"ONNX\",\"model\":\"custom\",\"model_path\":\"$MIST_ONNX_TEST_MODEL\",\"model_type\":\"yolo-nms\",\"input_size\":640,\"process_every_nth\":2,\"track_select\":\"video=NV12&audio=none\",\"target_mask\":2,\"restart_type\":\"disabled\"}]}},\"variables\":null}" \

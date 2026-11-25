@@ -5,13 +5,13 @@ import os
 from pathlib import Path
 import shutil
 import signal
-import socket
 import subprocess
 import sys
 import tempfile
 import urllib.parse
 import urllib.request
 from process_av_rotation_integration import run, wait_for
+from test_ports import free_port
 
 if os.environ.get('MIST_RUN_MEDIA_TESTS')!='1':sys.exit(77)
 build,ffmpeg,ffprobe,mode=Path(sys.argv[1]).resolve(),sys.argv[2],sys.argv[3],sys.argv[4]
@@ -25,9 +25,7 @@ try:
     audio_codec='ac3' if mode.endswith('-ac3') else 'aac' if mode.endswith('-aac') else 'eac3'
     source=work/('source.'+suffix)
     run([ffmpeg,'-v','error','-y','-f','lavfi','-i','testsrc2=size=320x180:rate=10','-f','lavfi','-i','anullsrc=channel_layout=5.1:sample_rate=48000','-t','12','-c:v','libx264','-threads','2','-preset','ultrafast','-g','10','-bf','0','-c:a',audio_codec,'-b:a','192k',source])
-    with socket.socket() as api, socket.socket() as http:
-        api.bind(('127.0.0.1',0));http.bind(('127.0.0.1',0))
-        api_port,http_port=api.getsockname()[1],http.getsockname()[1]
+    api_port,http_port=free_port(),free_port()
     stream='eacpass'+str(os.getpid())
     config={'config':{'debug':4,'device_discovery':False,'protocols':[{'connector':'HTTP','interface':'127.0.0.1','port':http_port},{'connector':'HLS'},{'connector':'MP4'},{'connector':'EBML'}],'controller':{'interface':'127.0.0.1','port':api_port,'username':None},'sessionInputMode':15,'sessionOutputMode':15,'sessionStreamInfoMode':1,'sessionUnspecifiedMode':0,'sessionViewerMode':14,'tknMode':15,'triggers':{}},'streams':{stream:{'name':stream,'source':str(source)}}}
     (work/'config.json').write_text(json.dumps(config))

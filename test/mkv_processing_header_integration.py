@@ -17,11 +17,11 @@ import os
 from pathlib import Path
 import shutil
 import signal
-import socket
 import subprocess
 import sys
 import tempfile
 import time
+from test_ports import free_port
 
 
 def run(command, **kwargs):
@@ -85,9 +85,7 @@ def exercise(build, ffmpeg, ffprobe, source_mode):
         ladder.append({"process": "Thumbs", "track_select": "video=maxbps", "thumb_width": 80, "thumb_height": 80,
                        "grid_cols": 2, "grid_rows": 2, "interval": 1000, "inconsequential": True, "target_mask": 3,
                        "restart_type": "disabled"})
-        with socket.socket() as port:
-            port.bind(("127.0.0.1", 0))
-            api_port = port.getsockname()[1]
+        api_port = free_port()
         config = {"account": {"test": {"password": "098f6bcd4621d373cade4e832627b4f6"}},
                   "config": {"debug": 4, "device_discovery": False, "protocols": [],
                              "controller": {"interface": "127.0.0.1", "port": api_port, "username": None},

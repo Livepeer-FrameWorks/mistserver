@@ -49,7 +49,7 @@ fail() {
   exit 1
 }
 
-port=$((21000 + ($$ % 20000)))
+port=$(python3 "$(dirname "$0")/test_ports.py" 2 $$)
 http_port=$((port + 1))
 config="$fixture_dir/config.json"
 printf '%s\n' \

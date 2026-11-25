@@ -182,7 +182,7 @@ fi
 
 # The staging incident: --version through /proc/<pid>/exe of a running controller.
 if [ -e /proc/self/exe ]; then
-  port=$((21000 + ($$ % 20000)))
+  port=$(python3 "$(dirname "$0")/test_ports.py" 1 $$)
   printf '{"config":{"controller":{"interface":"127.0.0.1","port":%d},"debug":4,"prometheus":"","protocols":[]},"streams":{}}\n' \
     "$port" >"$work/config.json"
   TMP="$ipc_root" MIST_CONTROL=1 "$controller_binary" -c "$work/config.json" -C r -L "$work/controller.log" \

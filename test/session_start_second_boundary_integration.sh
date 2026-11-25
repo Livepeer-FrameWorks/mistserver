@@ -50,7 +50,7 @@ trap cleanup EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
 
-port=$((21000 + ($$ % 20000)))
+port=$(python3 "$(dirname "$0")/test_ports.py" 1 $$)
 printf '{"config":{"controller":{"interface":"127.0.0.1","port":%d},"debug":4,"protocols":[]},"streams":{}}\n' "$port" \
   >"$work/config.json"
 ATHEIST=1 TMP="$ipc_root" MIST_CONTROL=1 "$controller_binary" -c "$work/config.json" -C r -L "$work/controller.log" \

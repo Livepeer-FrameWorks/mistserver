@@ -24,7 +24,7 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
-port=$((21000 + ($$ % 20000)))
+port=$(python3 "$(dirname "$0")/test_ports.py" 1 $$)
 printf '{"config":{"controller":{"interface":"127.0.0.1","port":%d},"debug":4,"protocols":[]},"streams":{}}\n' "$port" \
   >"$work/config.json"
 

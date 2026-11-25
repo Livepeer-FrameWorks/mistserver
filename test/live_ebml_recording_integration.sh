@@ -72,7 +72,7 @@ source_mkv="$work/source.mkv"
   -c:v libx264 -pix_fmt yuv420p -preset veryfast -g 50 -keyint_min 50 -bf 2 -sc_threshold 0 \
   -c:a aac -b:a 96k "$source_mkv"
 
-port=$((22000 + ($$ % 15000)))
+port=$(python3 "$(dirname "$0")/test_ports.py" 1 $$)
 config="$work/config.json"
 printf '%s\n' \
   "{\"account\":{\"test\":{\"password\":\"098f6bcd4621d373cade4e832627b4f6\"}},\"auto_push\":null,\"bandwidth\":{\"exceptions\":[\"::1\",\"127.0.0.0/8\"]},\"config\":{\"accesslog\":\"LOG\",\"controller\":{\"interface\":\"127.0.0.1\",\"port\":$port,\"username\":null},\"debug\":4,\"defaultStream\":null,\"prometheus\":\"\",\"protocols\":[],\"serverid\":null,\"sessionInputMode\":15,\"sessionOutputMode\":15,\"sessionStreamInfoMode\":1,\"sessionUnspecifiedMode\":0,\"sessionViewerMode\":14,\"tknMode\":15,\"triggers\":{},\"trustedproxy\":[]},\"extwriters\":null,\"jwks\":null,\"push_settings\":{\"maxspeed\":0,\"wait\":3},\"streamkeys\":null,\"streams\":{\"$stream\":{\"name\":\"$stream\",\"source\":\"mkv-exec:$ffmpeg -hide_banner -loglevel error -re -stream_loop -1 -i $source_mkv -map 0:v:0 -map 0:a:0 -c copy -f matroska -\"}},\"variables\":null}" \

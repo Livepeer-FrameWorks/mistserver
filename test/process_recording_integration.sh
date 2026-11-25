@@ -97,7 +97,7 @@ source_bframes=${MIST_PROCESS_SOURCE_BFRAMES:-0}
   -c:v libx264 -pix_fmt yuv420p -preset veryfast -g 50 -keyint_min 50 -bf "$source_bframes" -sc_threshold 0 \
   -c:a aac -b:a 96k -movflags +faststart "$source_media"
 
-port=$((24000 + ($$ % 12000)))
+port=$(python3 "$(dirname "$0")/test_ports.py" 1 $$)
 config="$work/config.json"
 printf '%s\n' \
   "{\"account\":{\"test\":{\"password\":\"098f6bcd4621d373cade4e832627b4f6\"}},\"auto_push\":null,\"bandwidth\":{\"exceptions\":[\"::1\",\"127.0.0.0/8\"]},\"config\":{\"accesslog\":\"LOG\",\"controller\":{\"interface\":\"127.0.0.1\",\"port\":$port,\"username\":null},\"debug\":4,\"defaultStream\":null,\"prometheus\":\"\",\"protocols\":[],\"serverid\":null,\"sessionInputMode\":15,\"sessionOutputMode\":15,\"sessionStreamInfoMode\":1,\"sessionUnspecifiedMode\":0,\"sessionViewerMode\":14,\"tknMode\":15,\"triggers\":{\"PROCESS_EXIT\":[{\"handler\":\"$trigger_handler\",\"sync\":false,\"streams\":[\"$stream\"]}],\"RECORDING_END\":[{\"handler\":\"$trigger_handler\",\"sync\":false,\"streams\":[\"$stream\"]}]},\"trustedproxy\":[]},\"extwriters\":null,\"jwks\":null,\"push_settings\":{\"maxspeed\":0,\"wait\":3},\"streamkeys\":null,\"streams\":{\"$stream\":{\"name\":\"$stream\",\"source\":\"$source_media\",\"process_controlled_realtime\":true,\"realtime_speed\":1,\"processes\":[{\"process\":\"AV\",\"x-LSP-kind\":\"video\",\"codec\":\"H264\",\"bitrate\":1000000,\"gopsize\":250,\"preset\":\"ultrafast\",\"tune\":\"zerolatency\",\"track_select\":\"video=H264&audio=none\",\"source_mask\":4,\"target_mask\":3,\"restart_type\":\"fixed\"}]}},\"variables\":null}" \

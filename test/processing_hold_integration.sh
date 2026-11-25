@@ -117,7 +117,7 @@ source_media="$work/source.mp4"
 source_bytes=$(wc -c <"$source_media" | tr -d ' ')
 sink_rate=$(awk -v b="$source_bytes" -v d="$source_duration" -v s="$sink_speed" 'BEGIN { printf "%d", b / d * s }')
 
-port=$((27000 + ($$ % 9000)))
+port=$(python3 "$(dirname "$0")/test_ports.py" 1 $$)
 config="$work/config.json"
 printf '%s\n' \
   "{\"account\":{\"test\":{\"password\":\"098f6bcd4621d373cade4e832627b4f6\"}},\"auto_push\":null,\"bandwidth\":{\"exceptions\":[\"::1\",\"127.0.0.0/8\"]},\"config\":{\"accesslog\":\"LOG\",\"controller\":{\"interface\":\"127.0.0.1\",\"port\":$port,\"username\":null},\"debug\":4,\"defaultStream\":null,\"prometheus\":\"\",\"protocols\":[],\"serverid\":null,\"sessionInputMode\":15,\"sessionOutputMode\":15,\"sessionStreamInfoMode\":1,\"sessionUnspecifiedMode\":0,\"sessionViewerMode\":14,\"tknMode\":15,\"triggers\":null,\"trustedproxy\":[]},\"extwriters\":null,\"jwks\":null,\"push_settings\":{\"maxspeed\":0,\"wait\":3},\"streamkeys\":null,\"streams\":{\"$stream\":{\"name\":\"$stream\",\"source\":\"$source_media\",\"process_controlled_realtime\":true,\"processes\":[{\"process\":\"Thumbs\",\"track_select\":\"video=H264\",\"inconsequential\":true,\"thumb_width\":80,\"thumb_height\":80,\"grid_cols\":3,\"grid_rows\":2,\"jpeg_quality\":80,\"interval\":2000,\"source_mask\":4,\"target_mask\":3,\"restart_type\":\"$thumbs_restart\"}]}},\"variables\":null}" \

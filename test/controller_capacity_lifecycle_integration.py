@@ -21,6 +21,7 @@ import urllib.parse
 import urllib.request
 import zlib
 from fixture_ipc import cleanup_logs
+from test_ports import free_port
 
 
 def until(predicate, seconds, message):
@@ -32,12 +33,6 @@ def until(predicate, seconds, message):
         if time.monotonic() >= deadline:
             raise AssertionError(message)
         time.sleep(0.1)
-
-
-def free_port(kind=socket.SOCK_STREAM):
-    with socket.socket(socket.AF_INET, kind) as probe:
-        probe.bind(("127.0.0.1", 0))
-        return probe.getsockname()[1]
 
 
 def process_table():
@@ -153,10 +148,10 @@ class Fixture:
         self.temp = tempfile.TemporaryDirectory(prefix='mist-capacity-lifecycle-')
         self.root = Path(self.temp.name)
         (self.root / 'ipc').mkdir()
-        self.api, self.http, self.udp = free_port(), free_port(), free_port(socket.SOCK_DGRAM)
+        self.api, self.http, self.udp = free_port(), free_port(), free_port()
         self.stream = 'capacity' + str(os.getpid())
         self.env = dict(os.environ, TMP=str(self.root / 'ipc'), MIST_CONTROL='1',
-                        UDP_API='udp://127.0.0.1:%d' % free_port(socket.SOCK_DGRAM))
+                        UDP_API='udp://127.0.0.1:%d' % free_port())
         self.env.pop('ATHEIST', None)
         self.env.pop('CTRL_ATHEIST', None)
         self.log = (self.root / 'controller.log').open('w+')

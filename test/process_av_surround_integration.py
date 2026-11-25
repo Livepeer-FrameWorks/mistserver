@@ -6,7 +6,6 @@ import os
 from pathlib import Path
 import shutil
 import signal
-import socket
 import subprocess
 import sys
 import tempfile
@@ -14,6 +13,7 @@ import time
 import urllib.parse
 import urllib.request
 from process_av_rotation_integration import run, wait_for
+from test_ports import free_port
 
 
 
@@ -134,9 +134,7 @@ def main():
                       "track_select": "audio=%s&video=none&subtitle=none&meta=none" % ("MP3" if rate_changing else "AC3" if changing else input_codec), "source_mask": 4,
                       "max_channels": maximum, "target_mask": 3, "restart_type": "fixed", "bitrate": 384000 if codec == "AAC" else 128000}
                      for codec in (("AAC",) if changing and not rate_changing else ("opus",))]
-        with socket.socket() as port:
-            port.bind(("127.0.0.1", 0))
-            api_port = port.getsockname()[1]
+        api_port = free_port()
         config = {"config": {"debug": 4, "device_discovery": False, "protocols": [],
                              "controller": {"interface": "127.0.0.1", "port": api_port, "username": None},
                              "sessionInputMode": 15, "sessionOutputMode": 15, "sessionStreamInfoMode": 1,

@@ -85,7 +85,7 @@ trap 'exit 129' HUP
 trap 'exit 130' INT
 trap 'exit 143' TERM
 
-api_port=$((24000 + ($$ % 12000)))
+api_port=$(python3 "$(dirname "$0")/test_ports.py" 2 $$)
 rtmp_port=$((api_port + 1))
 config="$work/config.json"
 # No bitrate on the process: the tier configs leave it unset for audio.

@@ -91,7 +91,7 @@ wait_for() {
 }
 logged() { grep -qE -- "$2" "$1" 2>/dev/null; }
 
-api_port=$((26000 + ($$ % 9000)))
+api_port=$(python3 "$(dirname "$0")/test_ports.py" 2 $$)
 rtmp_port=$((api_port + 1))
 config="$work/config.json"
 printf '%s\n' \

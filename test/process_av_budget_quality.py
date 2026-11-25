@@ -6,12 +6,12 @@ from pathlib import Path
 import re
 import shutil
 import signal
-import socket
 import subprocess
 import sys
 import tempfile
 import time
 from process_av_rotation_integration import run, wait_for
+from test_ports import free_port
 
 if os.environ.get('MIST_RUN_MEDIA_TESTS') != '1':
     sys.exit(77)
@@ -24,9 +24,7 @@ success = False
 try:
     source = work/'source.mp4'
     run([ffmpeg,'-v','error','-y','-f','lavfi','-i','testsrc2=size=3840x2160:rate=12','-t','2','-c:v','libx264','-threads','2','-preset','ultrafast','-g','12','-bf','0','-pix_fmt','yuv420p',source])
-    with socket.socket() as sock:
-        sock.bind(('127.0.0.1',0))
-        port = sock.getsockname()[1]
+    port = free_port()
     stream = 'budgetquality'+str(os.getpid())
     processor = {'process':'AV','codec':'H264','accel':'sw','bitrate':8000000,'gopsize':12,'preset':'faster','source_mask':4,'target_mask':3,'track_select':'video=H264&audio=none&subtitle=none&meta=none','restart_type':'disabled','decode_threads':4,'encode_threads':8,'lookahead':20}
     zero_latency = os.environ.get('MIST_ENCODER_ZERO_LATENCY') == '1'

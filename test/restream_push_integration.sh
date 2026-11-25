@@ -72,7 +72,7 @@ trap 'exit 129' HUP
 trap 'exit 130' INT
 trap 'exit 143' TERM
 
-api_port=$((26000 + ($$ % 12000)))
+api_port=$(python3 "$(dirname "$0")/test_ports.py" 2 $$)
 rtmp_port=$((api_port + 1))
 printf '%s\n' \
   "{\"account\":{\"test\":{\"password\":\"098f6bcd4621d373cade4e832627b4f6\"}},\"auto_push\":null,\"bandwidth\":{\"exceptions\":[\"::1\",\"127.0.0.0/8\"]},\"config\":{\"accesslog\":\"LOG\",\"controller\":{\"interface\":\"127.0.0.1\",\"port\":$api_port,\"username\":null},\"debug\":4,\"defaultStream\":null,\"prometheus\":\"\",\"protocols\":[{\"connector\":\"RTMP\",\"interface\":\"127.0.0.1\",\"port\":$rtmp_port}],\"serverid\":null,\"sessionInputMode\":15,\"sessionOutputMode\":15,\"sessionStreamInfoMode\":1,\"sessionUnspecifiedMode\":0,\"sessionViewerMode\":14,\"tknMode\":15,\"triggers\":{\"PUSH_END\":[{\"handler\":\"$push_end_handler\",\"sync\":false,\"streams\":[\"$source_stream\"]}]},\"trustedproxy\":[]},\"extwriters\":null,\"jwks\":null,\"push_settings\":{\"maxspeed\":0,\"wait\":0},\"streamkeys\":null,\"streams\":{\"$source_stream\":{\"name\":\"$source_stream\",\"source\":\"push://\",\"resume\":1,\"inputtimeout\":6},\"$sink_stream\":{\"name\":\"$sink_stream\",\"source\":\"push://\",\"resume\":1,\"inputtimeout\":6},\"$failed_stream\":{\"name\":\"$failed_stream\",\"source\":\"push://\",\"resume\":1,\"inputtimeout\":6}},\"variables\":null}" \

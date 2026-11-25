@@ -64,7 +64,7 @@ fail() {
 
 count_link() { pgrep -f -- "^$link " 2>/dev/null | wc -l | tr -d ' '; }
 
-port=$((21000 + ($$ % 20000)))
+port=$(python3 "$(dirname "$0")/test_ports.py" 1 $$)
 printf '{"config":{"controller":{"interface":"127.0.0.1","port":%d},"debug":4,"prometheus":"","protocols":[]},"streams":{}}\n' \
   "$port" >"$work/config.json"
 

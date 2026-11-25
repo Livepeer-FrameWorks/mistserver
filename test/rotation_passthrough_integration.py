@@ -12,6 +12,7 @@ import tempfile
 import urllib.request
 
 from process_av_rotation_integration import run, wait_for
+from test_ports import free_port
 
 
 def main():
@@ -24,10 +25,7 @@ def main():
                PATH=str(build) + os.pathsep + os.environ["PATH"])
     Path(env["TMP"]).mkdir()
     stream = "passthrough" + str(os.getpid())
-    with socket.socket() as api, socket.socket() as http:
-        api.bind(("127.0.0.1", 0))
-        http.bind(("127.0.0.1", 0))
-        api_port, http_port = api.getsockname()[1], http.getsockname()[1]
+    api_port, http_port = free_port(), free_port()
     angle = int(os.environ.get("MIST_PASSTHROUGH_ANGLE", "90"))
     mirror = os.environ.get("MIST_PASSTHROUGH_MIRROR") == "1"
     controller = None

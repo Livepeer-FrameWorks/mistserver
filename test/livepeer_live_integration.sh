@@ -190,7 +190,7 @@ alt_flag="$work/alternate"
 alt_segment="$work/alternate.ts"
 "$ffmpeg" -hide_banner -loglevel error -y -f lavfi -i testsrc2=size=160x90:rate=25:duration=2 \
   -c:v libx264 -pix_fmt yuv420p -preset ultrafast -g 50 -keyint_min 50 -bf 0 -f mpegts "$alt_segment"
-api_port=$((24000 + ($$ % 9000)))
+api_port=$(python3 "$(dirname "$0")/test_ports.py" 4 $$)
 rtmp_port=$((api_port + 1))
 broadcaster_port=$((api_port + 2))
 srt_port=$((api_port + 3))

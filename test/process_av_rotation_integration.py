@@ -6,12 +6,12 @@ import re
 from pathlib import Path
 import shutil
 import signal
-import socket
 import subprocess
 import sys
 import tempfile
 import threading
 import time
+from test_ports import free_port
 
 
 def run(command, **kwargs):
@@ -117,9 +117,7 @@ def exercise(build, ffmpeg, ffprobe, codec, angle, mirror=False):
                           "source_mask": 4, "target_mask": 3, "restart_type": "fixed"}]
         processes.append({"process": "Thumbs", "accel": os.environ.get("MIST_THUMBS_ACCEL", "sw" if os.environ.get("MIST_ROTATION_ACCEL", "sw") == "sw" else "auto"), "track_select": f"video={codec}", "thumb_width": 80, "thumb_height": 80,
                           "grid_cols": 2, "grid_rows": 2, "interval": 1000, "target_mask": 3, "restart_type": "fixed"})
-        with socket.socket() as port:
-            port.bind(("127.0.0.1", 0))
-            api_port = port.getsockname()[1]
+        api_port = free_port()
         config = {"account": {"test": {"password": "098f6bcd4621d373cade4e832627b4f6"}},
                   "config": {"debug": 4, "device_discovery": False, "protocols": [],
                              "controller": {"interface": "127.0.0.1", "port": api_port, "username": None},

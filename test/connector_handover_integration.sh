@@ -21,7 +21,7 @@ done
 work=$(mktemp -d "${TMPDIR:-/tmp}/mist-connector-handover.XXXXXX")
 ipc_root="$work/ipc"
 mkdir -p "$ipc_root"
-api_port=$((21000 + ($$ % 15000)))
+api_port=$(python3 "$(dirname "$0")/test_ports.py" 3 $$)
 udp_port=$((api_port + 1))
 http_port=$((api_port + 2))
 controller_pid=

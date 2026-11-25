@@ -86,8 +86,8 @@ trap 'exit 129' HUP
 trap 'exit 130' INT
 trap 'exit 143' TERM
 
-controller_port=$((28000 + ($$ % 4000)))
-receiver_port=$((32000 + ($$ % 4000)))
+controller_port=$(python3 "$(dirname "$0")/test_ports.py" 2 $$)
+receiver_port=$((controller_port + 1))
 jpeg_pixel_format=${MIST_JPEG_PIXEL_FORMAT:-yuvj420p}
 config="$work/config.json"
 printf '%s\n' \

@@ -1458,6 +1458,9 @@ test('Live EBML packet oracle rejects missing or changed packets', find_program(
 test('Fixture IPC owners preserve unrelated pages and child exit status', find_program('python3'),
      args: files('fixture_ipc_unit.py'), suite: 'Processing')
 
+test('Fixture listen ports avoid the ephemeral range and never overlap', find_program('python3'),
+     args: files('test_ports_unit.py'), suite: 'Build')
+
 if get_option('WITH_AV') and ffmpeg_program.found()
   test('CPU 4K downscale retains fine detail above 40 dB', find_program('python3'),
        args: [files('process_av_scale_quality.py'), ffmpeg_program, avrotationtest], suite: 'AV', timeout: 30)

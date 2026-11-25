@@ -115,8 +115,8 @@ else
     -c:a aac -b:a 96k "$source_mkv"
 fi
 
-controller_port=$((28000 + ($$ % 8000)))
-broadcaster_port=$((38000 + ($$ % 8000)))
+controller_port=$(python3 "$(dirname "$0")/test_ports.py" 1 $$)
+broadcaster_port=$(python3 "$(dirname "$0")/test_ports.py" 4 $$)
 broadcasters="\"http://127.0.0.1:$broadcaster_port\""
 stub_logs="$work/broadcaster.log"
 if [ "${LIVEPEER_TEST_FAILING_GATEWAY:-}" = "1" ]; then
