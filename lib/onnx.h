@@ -72,6 +72,19 @@ namespace ONNX {
     // descriptor that holds it (closing it releases the lock), or -1 with the reason in why.
     int lockOpenVINOCache(const std::string & dir, uint64_t timeoutMs, std::string & why);
 
+    // Whether ovDevice, a device name from an OrtEpDevice's "ov_device" metadata, is of
+    // the given OpenVINO device type. The plugin reports the bare type ("GPU") when a host
+    // has one such device and indexed names ("GPU.0", "GPU.1") when it has several.
+    bool isOpenVINODeviceType(const std::string & ovDevice, const std::string & type);
+
+    // The session config entry that points OpenVINO at the compiled-model cache in
+    // cacheDir for a session on the plugin factory `factory` (OrtEpDevice EpName) and the
+    // ov_device names of the devices it is given. The plugin looks load_config up by the
+    // device it compiles for: "AUTO" for the AUTO meta-device factory, otherwise the exact
+    // ov_device name. Returns "ep.<factory lowercased>.load_config"; json receives the value.
+    std::string openVINOLoadConfig(const std::string & factory, const std::vector<std::string> & ovDevices,
+                                   const std::string & cacheDir, std::string & json);
+
     // Extract tensor shape into a vector
     std::vector<int64_t> getTensorShape(const OrtTensorTypeAndShapeInfo *info);
 

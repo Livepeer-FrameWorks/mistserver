@@ -343,6 +343,25 @@ namespace ONNX {
       return fd;
     }
 
+    bool isOpenVINODeviceType(const std::string & ovDevice, const std::string & type) {
+      return !ovDevice.compare(0, type.size(), type) && (ovDevice.size() == type.size() || ovDevice[type.size()] == '.');
+    }
+
+    std::string openVINOLoadConfig(const std::string & factory, const std::vector<std::string> & ovDevices,
+                                   const std::string & cacheDir, std::string & json) {
+      JSON::Value loadConfig;
+      if (factory == "OpenVINOExecutionProvider.AUTO") {
+        loadConfig["AUTO"]["CACHE_DIR"] = cacheDir;
+        loadConfig["AUTO"]["ENABLE_STARTUP_FALLBACK"] = false;
+      } else {
+        for (const std::string & device : ovDevices) { loadConfig[device]["CACHE_DIR"] = cacheDir; }
+      }
+      json = loadConfig.toString();
+      std::string key = factory;
+      std::transform(key.begin(), key.end(), key.begin(), ::tolower);
+      return "ep." + key + ".load_config";
+    }
+
     bool registerOpenVINOPlugin(std::string & err) {
       static std::mutex s_mutex;
       static bool s_done = false;
@@ -3272,11 +3291,10 @@ namespace ONNX {
         // dynamic one, so the NPU joins the device set only when every input is static
         // once the fed shapes are pinned.
         bool hasNpu = false;
-        for (const OrtEpDevice *device : chosen) { hasNpu = hasNpu || ovDevice(device) == "NPU"; }
+        auto isNpu = [&](const OrtEpDevice *device) { return ORTHelpers::isOpenVINODeviceType(ovDevice(device), "NPU"); };
+        for (const OrtEpDevice *device : chosen) { hasNpu = hasNpu || isNpu(device); }
         if (hasNpu && (!readDeclared() || !pins.firstDynamic.empty())) {
-          chosen.erase(std::remove_if(chosen.begin(), chosen.end(),
-                                      [&](const OrtEpDevice *device) { return ovDevice(device) == "NPU"; }),
-                       chosen.end());
+          chosen.erase(std::remove_if(chosen.begin(), chosen.end(), isNpu), chosen.end());
           INFO_MSG("OpenVINO NPU left out for %s: input %s has a dynamic shape", modelPath.c_str(),
                    declaredState < 0 ? "(unreadable)" : pins.firstDynamic.c_str());
         }
@@ -3292,7 +3310,6 @@ namespace ONNX {
         // session creation holds an exclusive lock on the cache: a blob is then only ever
         // written as a new file. Startup fallback stays off so AUTO compiles (and writes)
         // the chosen device inside CreateSession instead of in the background after it.
-        // The plugin reads load_config per factory and device ("AUTO", or the device name).
         // A process stuck compiling must not hold the others back: past two minutes this
         // session compiles without the cache instead.
         std::string cacheWhy;
@@ -3300,17 +3317,12 @@ namespace ONNX {
         if (!cacheDir.empty()) { cacheLock = ORTHelpers::lockOpenVINOCache(cacheDir, 120000, cacheWhy); }
         if (cacheLock >= 0) {
           const char *epName = api->EpDevice_EpName(chosen[0]);
-          std::string factory = epName ? epName : "";
-          JSON::Value loadConfig;
-          if (factory == "OpenVINOExecutionProvider.AUTO") {
-            loadConfig["AUTO"]["CACHE_DIR"] = cacheDir;
-            loadConfig["AUTO"]["ENABLE_STARTUP_FALLBACK"] = false;
-          } else {
-            for (const OrtEpDevice *device : chosen) { loadConfig[ovDevice(device)]["CACHE_DIR"] = cacheDir; }
-          }
-          std::transform(factory.begin(), factory.end(), factory.begin(), ::tolower);
-          std::string key = "ep." + factory + ".load_config";
-          if (OrtStatus *st = api->AddSessionConfigEntry(opts_, key.c_str(), loadConfig.toString().c_str())) {
+          std::vector<std::string> ovDevices;
+          ovDevices.reserve(chosen.size());
+          for (const OrtEpDevice *device : chosen) { ovDevices.push_back(ovDevice(device)); }
+          std::string loadConfig;
+          std::string key = ORTHelpers::openVINOLoadConfig(epName ? epName : "", ovDevices, cacheDir, loadConfig);
+          if (OrtStatus *st = api->AddSessionConfigEntry(opts_, key.c_str(), loadConfig.c_str())) {
             const char *msg = api->GetErrorMessage(st);
             cacheWhy = std::string("setting ") + key + " failed: " + (msg ? msg : "(unknown)");
             api->ReleaseStatus(st);

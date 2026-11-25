@@ -1195,7 +1195,7 @@ if have_onnx
   onnxinputpinstest = executable('onnxinputpinstest', 'onnx_input_pins.cpp', header_tgts,
                                  dependencies: [libmist_dep, onnx_dep, onnx_libs],
                                  override_options: onnx_cpp_std)
-  test('Fed input shapes pin symbolic dims and the OpenVINO cache directory falls back', onnxinputpinstest, suite: 'ONNX')
+  test('Fed input shapes pin symbolic dims; the OpenVINO cache falls back and is keyed per device name', onnxinputpinstest, suite: 'ONNX')
   onnxfbanktest = executable('onnxfbanktest', 'onnx_fbank.cpp', header_tgts,
                              dependencies: [libmist_dep, onnx_dep, onnx_libs],
                              override_options: onnx_cpp_std)

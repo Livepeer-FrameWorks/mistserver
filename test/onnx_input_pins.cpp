@@ -1,7 +1,8 @@
 // Unit test for pinning the symbolic input dims of sessions whose input Mist builds itself
 // (ORTHelpers::planInputPins, SessionRunner::setFedShape, DetectionModel::initialize), and
 // for the OpenVINO compiled-model cache directory and its cross-process lock
-// (ORTHelpers::openVINOCacheDir, ORTHelpers::lockOpenVINOCache). The
+// (ORTHelpers::openVINOCacheDir, ORTHelpers::lockOpenVINOCache) and the load_config entry
+// that hands it to the plugin per OpenVINO device name (ORTHelpers::openVINOLoadConfig). The
 // OpenVINO NPU compiler only takes static shapes, so a vision model exported with a
 // dynamic batch must reach the session with every input dim fixed.
 //
@@ -253,6 +254,36 @@ int main() {
     CHECK(ONNX::ORTHelpers::openVINOCacheDir(why).empty());
     CHECK(why.find("cannot write") != std::string::npos);
     chmod((dir + "/readonly/openvino-cache").c_str(), 0755);
+  }
+
+  // Device types match the bare name of a host's only device and the indexed names of
+  // several, and nothing else.
+  CHECK(ONNX::ORTHelpers::isOpenVINODeviceType("NPU", "NPU"));
+  CHECK(ONNX::ORTHelpers::isOpenVINODeviceType("NPU.1", "NPU"));
+  CHECK(ONNX::ORTHelpers::isOpenVINODeviceType("GPU.0", "GPU"));
+  CHECK(!ONNX::ORTHelpers::isOpenVINODeviceType("GPU.0", "NPU"));
+  CHECK(!ONNX::ORTHelpers::isOpenVINODeviceType("NPUX", "NPU"));
+  CHECK(!ONNX::ORTHelpers::isOpenVINODeviceType("NP", "NPU"));
+  CHECK(!ONNX::ORTHelpers::isOpenVINODeviceType("", "NPU"));
+
+  // load_config is keyed by the device name the plugin compiles for: "AUTO" on the AUTO
+  // factory, otherwise each exact ov_device name, indexed ones included.
+  {
+    std::string json;
+    std::string key = ONNX::ORTHelpers::openVINOLoadConfig("OpenVINOExecutionProvider", {"GPU.0", "GPU.1", "NPU"}, "/c", json);
+    CHECK(key == "ep.openvinoexecutionprovider.load_config");
+    JSON::Value config = JSON::fromString(json);
+    CHECK(config.size() == 3);
+    CHECK(config["GPU.0"]["CACHE_DIR"].asStringRef() == "/c");
+    CHECK(config["GPU.1"]["CACHE_DIR"].asStringRef() == "/c");
+    CHECK(config["NPU"]["CACHE_DIR"].asStringRef() == "/c");
+    CHECK(!config.isMember("GPU"));
+    key = ONNX::ORTHelpers::openVINOLoadConfig("OpenVINOExecutionProvider.AUTO", {"GPU.0", "NPU", "CPU"}, "/c", json);
+    CHECK(key == "ep.openvinoexecutionprovider.auto.load_config");
+    config = JSON::fromString(json);
+    CHECK(config.size() == 1);
+    CHECK(config["AUTO"]["CACHE_DIR"].asStringRef() == "/c");
+    CHECK(config["AUTO"].isMember("ENABLE_STARTUP_FALLBACK") && !config["AUTO"]["ENABLE_STARTUP_FALLBACK"].asBool());
   }
 
   if (system(("rm -rf '" + dir + "'").c_str()) != 0) { std::cerr << "cleanup of " << dir << " failed" << std::endl; }
