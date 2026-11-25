@@ -7,7 +7,8 @@
 // dynamic batch must reach the session with every input dim fixed.
 //
 // The models are tiny Identity graphs written as ONNX protobuf bytes, so the test needs
-// no model download and runs on the CPU provider of every build profile.
+// no model download and runs in every build profile; the openvino profile also loads them
+// on its OpenVINO provider.
 #include "../lib/onnx.h"
 
 #include <cstdlib>
@@ -167,9 +168,43 @@ int main() {
   // The CPU vision adapter keeps symbolic model inputs and its configured feed size.
   {
     PinProbeModel model(vision, 64);
+    model.setExecutionProvider("cpu");
     CHECK(model.initialize(1));
+    CHECK(model.getExecutionProvider() == "CPU");
     CHECK(model.sessionInputs().size() == 1 && model.sessionInputs()[0].shape == std::vector<int64_t>({-1, 3, -1, -1}));
     CHECK(model.getInputHeight() == 64 && model.getInputWidth() == 64);
+  }
+
+  // Only OpenVINO registration pins the fed shape, explicitly or as the openvino profile's
+  // automatic provider. Other profiles refuse an explicit OpenVINO request at the profile
+  // gate and keep symbolic inputs on their automatic provider.
+  {
+    bool openVINOProfile = false;
+    {
+      PinProbeModel model(vision, 64);
+      model.setExecutionProvider("openvino");
+      std::string err;
+      ONNX::SessionRunner gate;
+      if (gate.load(vision, 1, "openvino", err)) {
+        openVINOProfile = true;
+        CHECK(model.initialize(1));
+        CHECK(model.getExecutionProvider() == "OpenVINO");
+        CHECK(model.sessionInputs().size() == 1 && model.sessionInputs()[0].shape == nchw(64, 64));
+      } else {
+        CHECK(err.find("'openvino' is not included in this '") != std::string::npos);
+      }
+    }
+    PinProbeModel model(vision, 64);
+    CHECK(model.initialize(1));
+    CHECK(model.getInputHeight() == 64 && model.getInputWidth() == 64);
+    CHECK(model.sessionInputs().size() == 1);
+    if (openVINOProfile) {
+      CHECK(model.getExecutionProvider() == "OpenVINO");
+      CHECK(model.sessionInputs()[0].shape == nchw(64, 64));
+    } else {
+      CHECK(model.getExecutionProvider() != "OpenVINO");
+      CHECK(model.sessionInputs()[0].shape == std::vector<int64_t>({-1, 3, -1, -1}));
+    }
   }
 
   // A dynamic dim without a dim_param name cannot be pinned by name and stays dynamic.
