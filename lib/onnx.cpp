@@ -347,6 +347,21 @@ namespace ONNX {
       return !ovDevice.compare(0, type.size(), type) && (ovDevice.size() == type.size() || ovDevice[type.size()] == '.');
     }
 
+    std::vector<size_t> openVINODeviceOrder(const std::vector<std::string> & ovDevices) {
+      auto rank = [&](size_t i) {
+        size_t r = 0;
+        for (const char *type : {"NPU", "GPU", "CPU"}) {
+          if (isOpenVINODeviceType(ovDevices[i], type)) { return r; }
+          ++r;
+        }
+        return r;
+      };
+      std::vector<size_t> order(ovDevices.size());
+      std::iota(order.begin(), order.end(), 0);
+      std::stable_sort(order.begin(), order.end(), [&](size_t a, size_t b) { return rank(a) < rank(b); });
+      return order;
+    }
+
     std::string openVINOLoadConfig(const std::string & factory, const std::vector<std::string> & ovDevices,
                                    const std::string & cacheDir, std::string & json) {
       JSON::Value loadConfig;
@@ -3297,6 +3312,17 @@ namespace ONNX {
           chosen.erase(std::remove_if(chosen.begin(), chosen.end(), isNpu), chosen.end());
           INFO_MSG("OpenVINO NPU left out for %s: input %s has a dynamic shape", modelPath.c_str(),
                    declaredState < 0 ? "(unreadable)" : pins.firstDynamic.c_str());
+        }
+        // AUTO takes the device order as its priority and the plain factory compiles for the
+        // first device only: both get NPU, then GPU, then CPU.
+        {
+          std::vector<std::string> names;
+          names.reserve(chosen.size());
+          for (const OrtEpDevice *device : chosen) { names.push_back(ovDevice(device)); }
+          std::vector<const OrtEpDevice *> ordered;
+          ordered.reserve(chosen.size());
+          for (size_t i : ORTHelpers::openVINODeviceOrder(names)) { ordered.push_back(chosen[i]); }
+          chosen.swap(ordered);
         }
         std::string deviceNames;
         for (const OrtEpDevice *device : chosen) { deviceNames += (deviceNames.empty() ? "" : ",") + ovDevice(device); }

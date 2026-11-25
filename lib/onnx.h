@@ -77,6 +77,12 @@ namespace ONNX {
     // has one such device and indexed names ("GPU.0", "GPU.1") when it has several.
     bool isOpenVINODeviceType(const std::string & ovDevice, const std::string & type);
 
+    // The order in which to hand OpenVINO devices (their ov_device names) to a session: NPU,
+    // then GPU, then CPU, then anything else, keeping the given order within a type. The
+    // AUTO factory takes this as its device priority, and the plain factory compiles for the
+    // first device only, so both pick the same device. Returns indices into ovDevices.
+    std::vector<size_t> openVINODeviceOrder(const std::vector<std::string> & ovDevices);
+
     // The session config entry that points OpenVINO at the compiled-model cache in
     // cacheDir for a session on the plugin factory `factory` (OrtEpDevice EpName) and the
     // ov_device names of the devices it is given. The plugin looks load_config up by the

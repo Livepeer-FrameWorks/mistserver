@@ -266,6 +266,14 @@ int main() {
   CHECK(!ONNX::ORTHelpers::isOpenVINODeviceType("NP", "NPU"));
   CHECK(!ONNX::ORTHelpers::isOpenVINODeviceType("", "NPU"));
 
+  // Devices go to the session NPU first, then GPU, then CPU, in enumeration order within a
+  // type, so the plain factory's single device is the one AUTO prefers.
+  CHECK(ONNX::ORTHelpers::openVINODeviceOrder({"CPU", "GPU.0", "NPU", "GPU.1"}) == std::vector<size_t>{2, 1, 3, 0});
+  CHECK(ONNX::ORTHelpers::openVINODeviceOrder({"CPU", "GPU"}) == std::vector<size_t>{1, 0});
+  CHECK(ONNX::ORTHelpers::openVINODeviceOrder({"NPU", "GPU", "CPU"}) == std::vector<size_t>{0, 1, 2});
+  CHECK(ONNX::ORTHelpers::openVINODeviceOrder({"HETERO", "CPU"}) == std::vector<size_t>{1, 0});
+  CHECK(ONNX::ORTHelpers::openVINODeviceOrder({}).empty());
+
   // load_config is keyed by the device name the plugin compiles for: "AUTO" on the AUTO
   // factory, otherwise each exact ov_device name, indexed ones included.
   {
