@@ -71,6 +71,7 @@ docker run --rm --entrypoint /bin/sh "$image" -ec '
   tar -C /usr/local -cf - -T /usr/local/share/mistserver/installed-files.txt
 ' | tar -C "$stage" -xf -
 docker cp "$container:/opt/mist-onnx/." "$stage/opt/mist-onnx/"
+bash "$script_dir/isolate_native_libraries.sh" "$stage"
 
 jq -e \
   --arg profile "$profile" \
@@ -100,20 +101,20 @@ jq -e \
               {source: "opt/mist-onnx", destination: "/opt/mist-onnx"},
               {source: "share", destination: "/usr/local/share"}
             ],
-            run_ldconfig: true,
-            loader_paths: $matrix.native_deployment.platforms[$platform].loader_paths
+            run_ldconfig: false,
+            loader_paths: []
           }
         }
       end
   ' "$matrix" > "$stage/share/mistserver/onnx/deployment-contract.json"
-jq -e '.install.loader_paths | type == "array" and length > 0' \
+jq -e '.install.run_ldconfig == false and (.install.loader_paths | type == "array" and length == 0)' \
   "$stage/share/mistserver/onnx/deployment-contract.json" >/dev/null
 
-docker run --rm --entrypoint /bin/sh "$image" -ec '
-  for file in /usr/local/bin/Mist* \
-              /usr/local/lib/*/libmistonnx.so \
-              /opt/mist-onnx/libexec/onnxmodelprobe \
-              /opt/mist-onnx/lib/*.so /opt/mist-onnx/lib/*.so.*; do
+docker run --rm --volume "$stage:/native-bundle:ro" --entrypoint /bin/sh "$image" -ec '
+  for file in /native-bundle/bin/Mist* \
+              /native-bundle/lib/*/libmistonnx.so \
+              /native-bundle/opt/mist-onnx/libexec/onnxmodelprobe \
+              /native-bundle/opt/mist-onnx/lib/*.so /native-bundle/opt/mist-onnx/lib/*.so.*; do
     [ -e "$file" ] || continue
     printf "[%s]\n" "$file"
     ldd "$file"

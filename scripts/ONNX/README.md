@@ -442,8 +442,12 @@ Native bundles contain `share/mistserver/onnx/deployment-contract.json` and a ca
 baseline, apt prerequisites, install destinations, loader paths, provider runtime/version,
 device probes, CPU-fallback status, and digest-pinned reference runtime image. Vendor userspace
 runtimes and kernel drivers remain external host prerequisites; a deployer such as the Frameworks
-monorepo CLI can preflight them, install a supported vendor package set, write the declared loader
-configuration, run `ldconfig`, and reject an incompatible host before replacing a live binary.
+monorepo CLI can preflight them, install a supported vendor package set, and reject an
+incompatible host before replacing a live binary. Bundled libraries stay outside the host-wide
+loader cache: each ELF binary and library uses `DT_RPATH` to its private bundle directories.
+The same bundle runs extracted or installed, and an inherited `LD_LIBRARY_PATH` cannot replace
+its provider runtime. Installers remove legacy `/etc/ld.so.conf.d/mist-onnx.conf` registrations
+and refresh the cache once to remove stale entries.
 
 Linux accelerator images are separate because the OS/architecture alone does not define the GPU
 vendor or driver ABI. Each image includes its matching userspace SDK runtime and keeps the shared

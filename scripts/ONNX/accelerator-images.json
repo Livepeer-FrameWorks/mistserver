@@ -23,11 +23,7 @@
           "libsrtp2-1",
           "libusrsctp2"
         ],
-        "loader_paths": [
-          "/usr/local/lib",
-          "/usr/local/lib/x86_64-linux-gnu",
-          "/opt/mist-onnx/lib"
-        ]
+        "loader_paths": []
       },
       "linux/arm64": {
         "os": "linux",
@@ -50,11 +46,7 @@
           "libsrtp2-1",
           "libusrsctp2"
         ],
-        "loader_paths": [
-          "/usr/local/lib",
-          "/usr/local/lib/aarch64-linux-gnu",
-          "/opt/mist-onnx/lib"
-        ]
+        "loader_paths": []
       },
       "darwin/arm64": {
         "os": "darwin",

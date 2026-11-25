@@ -152,9 +152,7 @@ ENV NVIDIA_DRIVER_CAPABILITIES=${NVIDIA_DRIVER_CAPABILITIES}
 
 COPY --from=mist_build /mist-runtime/usr/local/ /usr/local/
 COPY --from=mist_build /opt/mist-onnx/ /opt/mist-onnx/
-RUN echo '/opt/mist-onnx/lib' > /etc/ld.so.conf.d/mist-onnx.conf \
-    && ldconfig \
-    && linkage="$(ldd /usr/local/bin/MistOutWebRTC)" \
+RUN linkage="$(ldd /usr/local/bin/MistOutWebRTC)" \
     && echo "$linkage" \
     && for library in mbedtls mbedx509 mbedcrypto; do \
          echo "$linkage" | grep -E "lib${library}\\.so.*=> /usr/local/lib/"; \

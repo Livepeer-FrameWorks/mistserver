@@ -79,6 +79,10 @@ class NativeBundleTest(unittest.TestCase):
         contract = json.load(archive.extractfile('share/mistserver/onnx/deployment-contract.json'))
       for package in ('ocl-icd-libopencl1', 'intel-opencl-icd'):
         self.assertIn(package, contract['host']['system_packages'])
+      self.assertFalse(contract['install']['run_ldconfig'],
+                       'Native bundles must not register private provider libraries in the host cache')
+      self.assertEqual(contract['install']['loader_paths'], [])
+      self.assertEqual(contract['host']['loader_paths'], [])
 
 
 if __name__ == '__main__':
