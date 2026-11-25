@@ -1,4 +1,4 @@
-# Local hooks for formatting. Pre-commit formats the staged C/C++ lines.
+# Local hooks for formatting. Pre-commit checks the staged C/C++ lines.
 # Pre-push runs the same changed-line diff gate as .github/workflows/lint.yml
 # so CI doesn't catch what could've been caught locally.
 #
@@ -28,15 +28,18 @@ pre-commit:
         - "subprojects/**"
         - "**/*.js.h"
         - "**/*.css.h"
-      # Keep clang-format replacements inside semantic staged lines; its range
-      # expansion must not reflow neighboring code. Pre-push uses the same rule.
+      # Checks the staged content (the index), confined to its semantic changed
+      # lines, and never writes files. Formatting in place with stage_fixed is
+      # unsafe: lefthook then hides a partially staged file's unstaged hunks
+      # while the command runs and re-applies them afterwards, at shifted lines
+      # whenever the command changed the file.
       run: |
         binary="$(scripts/clang-format-21.sh)" || exit 1
-        python3 scripts/format-changed-lines.py --binary "$binary" --staged --apply
-      # lefthook re-stages any files the command modified.
-      stage_fixed: true
+        python3 scripts/format-changed-lines.py --binary "$binary" --staged
       fail_text: |
-        clang-format could not safely format the staged semantic lines. Review the error above.
+        The staged C/C++ lines above are not clang-format 21 clean. Stage each listed file completely, then run
+          python3 scripts/format-changed-lines.py --binary "$(scripts/clang-format-21.sh)" --staged --apply
+        and stage the result.
 
 pre-push:
   parallel: true
