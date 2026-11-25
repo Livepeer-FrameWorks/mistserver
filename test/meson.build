@@ -107,6 +107,7 @@ tspackettest = executable('tspackettest', 'ts_packet_unit.cpp', header_tgts, dep
 test('Opus MPEG-TS descriptor payload', tspackettest, suite: 'MPEG-TS')
 test('Large PMTs retain complete entries in their first packet', tspackettest, args: ['large-pmt'], suite: 'MPEG-TS')
 test('Malformed TS adaptation fields and PAT pointers stay in bounds', tspackettest, args: ['malformed'], suite: 'MPEG-TS')
+test('Malformed TS adaptation fields on a PES PID stay in bounds', tspackettest, args: ['malformed-pes'], suite: 'MPEG-TS')
 
 embeddedframetest = executable('embeddedframetest', 'dtsc_embedded_frames_unit.cpp', header_tgts,
                                dependencies: libmist_dep)

@@ -68,6 +68,78 @@ int main(int argc, char **argv) {
     }
     return 0;
   }
+  if (argc == 2 && std::string(argv[1]) == "malformed-pes") {
+    // A PES-bearing PID, not only the PAT, must survive an adaptation field longer than the packet:
+    // the stream assembles its payload into a PES and parses it when the next unit starts.
+    DTSC::Meta meta;
+    meta.reInit("", true);
+    const size_t video = addTrack(meta, 1, "video", "H264");
+    std::set<size_t> selected{video};
+    const unsigned int pid = TS::getUniqTrackID(meta, video);
+    uint8_t counter = 0;
+    auto pesPacket = [&](bool unitStart, uint64_t pts) {
+      std::string raw(188, '\xff');
+      raw[0] = 0x47;
+      raw[1] = (unitStart ? 0x40 : 0x00) | ((pid >> 8) & 0x1f);
+      raw[2] = pid & 0xff;
+      raw[3] = 0x10 | (counter++ & 0x0f);
+      size_t at = 4;
+      if (unitStart) {
+        const char header[] = {0, 0, 1, (char)0xe0, 0, 0, (char)0x80, (char)0x80, 5};
+        raw.replace(at, sizeof(header), header, sizeof(header));
+        at += sizeof(header);
+        raw[at++] = 0x21 | ((pts >> 29) & 0x0e);
+        raw[at++] = (pts >> 22) & 0xff;
+        raw[at++] = 0x01 | ((pts >> 14) & 0xfe);
+        raw[at++] = (pts >> 7) & 0xff;
+        raw[at++] = 0x01 | ((pts << 1) & 0xfe);
+        const char nal[] = {0, 0, 0, 1, 0x09, (char)0xf0};
+        raw.replace(at, sizeof(nal), nal, sizeof(nal));
+      }
+      return raw;
+    };
+    for (unsigned int length = 184; length <= 255; ++length) {
+      TS::Stream stream;
+      uint64_t bytePos = 0;
+      auto feed = [&](const std::string & raw) {
+        TS::Packet packet;
+        packet.FromPointer(raw.data());
+        stream.parse(packet, bytePos);
+        bytePos += 188;
+      };
+      TS::Packet pat;
+      pat.FromPointer(TS::PAT);
+      stream.parse(pat, bytePos);
+      bytePos += 188;
+      TS::Packet pmt;
+      pmt.FromPointer(TS::createPMT(selected, meta));
+      stream.parse(pmt, bytePos);
+      bytePos += 188;
+      feed(pesPacket(true, 90000));
+      feed(pesPacket(false, 0));
+      std::string bad = pesPacket(false, 0);
+      bad[3] = 0x30 | (counter - 1);
+      bad[4] = length;
+      feed(bad);
+      feed(pesPacket(false, 0));
+      feed(pesPacket(true, 93600));
+      feed(pesPacket(true, 97200));
+      stream.finish();
+      DTSC::Packet out;
+      size_t drained = 0;
+      while (stream.hasPacket() && drained < 16) {
+        stream.getEarliestPacket(out);
+        ++drained;
+      }
+      if (!drained) {
+        fprintf(stderr, "adaptation length %u on the PES PID lost every frame of the stream\n", length);
+        return 1;
+      }
+    }
+    puts("PASS malformed adaptation lengths on a PES PID stay in bounds and keep the stream's frames");
+    return 0;
+  }
+
   if (argc == 2 && std::string(argv[1]) == "malformed") {
     for (unsigned int length = 184; length <= 255; ++length) {
       std::string raw(TS::PAT, 188);
