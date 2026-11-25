@@ -55,7 +55,7 @@ def main():
         fixture.streams.update(streams)
         for name, source in sources.items():
             feeder_log = (fixture.root / (name + ".log")).open("wb")
-            fixture.children.append(subprocess.Popen([str(build / "MistInEBML"), "-r", "-s", name, str(source)],
+            fixture.children.append(subprocess.Popen([str(build / "MistInEBML"), "--debug", "4", "-r", "-s", name, str(source)],
                                                  env=fixture.env, stdout=feeder_log, stderr=subprocess.STDOUT))
         # The origin must be the realtime feeder's live stream before a replica pulls it: a pull that
         # arrives first boots the origin from its file as VOD instead (a slow, instrumented feeder

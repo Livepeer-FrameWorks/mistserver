@@ -7,6 +7,7 @@ import shutil
 import subprocess
 import sys
 import time
+import tempfile
 
 if os.environ.get("MIST_RUN_MEDIA_TESTS") != "1":
     print("set MIST_RUN_MEDIA_TESTS=1 to run live AV restart supervision")
@@ -21,17 +22,19 @@ from controller_capacity_lifecycle_integration import Fixture, free_port, until
 
 fixture = Fixture(build / 'MistController', sys.argv[2])
 success = False
+private = None
 try:
-    private = fixture.root / 'bin'
-    private.mkdir()
+    # Keep private executable links on the build filesystem across TMPDIR mounts.
+    private = Path(tempfile.mkdtemp(prefix='av-backoff-', dir=build))
     (private / "lib").symlink_to(build / "lib", target_is_directory=True)
     (private / "subprojects").symlink_to(build / "subprojects", target_is_directory=True)
-    for executable in build.iterdir():
-        if executable.is_file() and executable.name.startswith('Mist'):
-            try:
-                os.link(executable, private / executable.name)
-            except OSError:
-                shutil.copy2(executable, private / executable.name)
+    for name in ('MistController', 'MistInBuffer', 'MistOutHTTP', 'MistOutWebRTC', 'MistOutEBML',
+                 'MistOutHLS', 'MistOutMP4', 'MistOutRTMP', 'MistSession', 'MistUtilLog', 'MistProcAV'):
+        executable = build / name
+        try:
+            os.link(executable, private / name)
+        except OSError:
+            shutil.copy2(executable, private / name)
     for name in ('MistController', 'MistInBuffer'):
         (private / name).unlink()
         source = Path(os.environ.get('MIST_AV_BACKOFF_BUFFER', str(build / name))) if name == 'MistInBuffer' else build / name
@@ -74,4 +77,8 @@ try:
 finally:
     if fixture.process and fixture.group is None:
         fixture.group = fixture.process.pid
-    fixture.close(failed=not success)
+    try:
+        fixture.close(failed=not success)
+    finally:
+        if private is not None:
+            shutil.rmtree(private)

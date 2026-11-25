@@ -78,7 +78,11 @@ cleanup() {
     kill -INT "$controller_pid" >/dev/null 2>&1 || true
     wait "$controller_pid" >/dev/null 2>&1 || true
   fi
-  rm -rf -- "$work"
+  if [ "${MIST_KEEP_TEST_ARTIFACTS:-}" = 1 ]; then
+    echo "preserved test artifacts in $work" >&2
+  else
+    rm -rf -- "$work"
+  fi
   exit "$status"
 }
 trap cleanup EXIT
@@ -116,9 +120,9 @@ if [ "$ready" -ne 1 ]; then
 fi
 sleep 0.5
 
-"$ffmpeg" -hide_banner -loglevel error -re \
+"$ffmpeg" -hide_banner -loglevel error -filter_threads 1 -filter_complex_threads 1 -re \
   -f lavfi -i testsrc2=size=320x180:rate=10:duration=15 \
-  -c:v mjpeg -q:v 5 -pix_fmt "$jpeg_pixel_format" -f image2pipe \
+  -c:v mjpeg -threads 1 -q:v 5 -pix_fmt "$jpeg_pixel_format" -f image2pipe \
   "tcp://127.0.0.1:$receiver_port" >"$work/feeder.log" 2>&1 &
 feeder_pid=$!
 
@@ -144,7 +148,9 @@ recording="$work/recording.mkv"
 TMP="$ipc_root" MIST_CONTROL=1 "$timeout_program" 15 "$output_ebml" -s "$stream" \
   "$recording?duration=3" >"$work/output.log" 2>&1
 
-"$ffmpeg" -hide_banner -loglevel error -i "$recording" -f null - 2>"$work/decode.log"
+time_base=$(python3 "$(dirname "$0")/recording_clock.py" "$ffprobe" "$recording")
+"$ffmpeg" -hide_banner -loglevel error -i "$recording" -fps_mode passthrough \
+  -enc_time_base "$time_base" -f null - 2>"$work/decode.log"
 if [ -s "$work/decode.log" ]; then
   echo "JPEGReceiver recording emitted decoder/demuxer diagnostics" >&2
   exit 1
@@ -153,7 +159,9 @@ if grep -q 'Invalid H264 init data received' "$work/controller.log"; then
   echo "JPEGReceiver published invalid H.264 initialization metadata" >&2
   exit 1
 fi
-"$ffmpeg" -hide_banner -loglevel error -i "$recording" -map 0:v:0 -f framemd5 "$work/frames.md5"
+"$ffmpeg" -hide_banner -loglevel error -i "$recording" -map 0:v:0 -fps_mode passthrough \
+  -enc_time_base "$time_base" -f framemd5 "$work/frames.md5"
+decoded_frames=$(awk '!/^#/ && NF {n++} END {print n+0}' "$work/frames.md5")
 unique_frames=$(awk -F, '!/^#/ {gsub(/[[:space:]]/, "", $6); print $6}' "$work/frames.md5" | \
   sort -u | wc -l | tr -d ' ')
 
@@ -168,10 +176,10 @@ keyframes=$("$ffprobe" -v error -select_streams v:0 -skip_frame nokey -count_fra
 first_key=$("$ffprobe" -v error -select_streams v:0 -show_packets \
   -show_entries packet=flags -of csv=p=0 "$recording" | sed -n '1p')
 if [ "$codec" != "h264" ] || [ "$dimensions" != "320x180" ] || \
-   [ "$packets" -lt 25 ] || [ "$unique_frames" -lt 25 ] || \
+   [ "$packets" -lt 25 ] || [ "$unique_frames" -lt 25 ] || [ "$decoded_frames" -ne "$packets" ] || \
    [ "$keyframes" -lt 4 ] || [ "$keyframes" -gt 8 ] || \
    [ "${first_key#K}" = "$first_key" ]; then
-  echo "invalid JPEGReceiver output: codec=$codec dimensions=$dimensions packets=$packets unique=$unique_frames keyframes=$keyframes first_flags=$first_key" >&2
+  echo "invalid JPEGReceiver output: codec=$codec dimensions=$dimensions packets=$packets decoded=$decoded_frames unique=$unique_frames keyframes=$keyframes first_flags=$first_key" >&2
   exit 1
 fi
 

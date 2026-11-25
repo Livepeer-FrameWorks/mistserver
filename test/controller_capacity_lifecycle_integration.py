@@ -178,6 +178,8 @@ class Fixture:
         if streams_override is not None:
             config['streams'] = streams_override
         config['config']['protocols'].extend(extra_protocols)
+        for protocol in config['config']['protocols']:
+            protocol.setdefault('debug', 4)
         if triggers_override is not None:
             config['config']['triggers'] = triggers_override
         path = self.root / 'config.json'

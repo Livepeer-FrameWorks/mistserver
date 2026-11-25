@@ -600,6 +600,9 @@ if ffmpeg_program.found() and ffprobe_program.found()
                 timeout_program, files('capture_trigger.sh')],
          env: {'MIST_THUMBNAIL_SOURCE_DURATION': '120'},
          suite: 'Processing', timeout: 240, is_parallel: false)
+    test('Recording clock accepts millisecond VFR and rejects duplicate timestamps', find_program('python3'),
+         args: [files('recording_clock_integration.py'), ffmpeg_program, ffprobe_program],
+         suite: 'JPEGReceiver', timeout: 45, is_parallel: false)
     jpegreceivertest = find_program('jpeg_receiver_integration.sh')
     test('JPEGReceiver transcodes complete real-time frame sequences', jpegreceivertest,
          args: [ffmpeg_program, ffprobe_program, exec_tgts.get('MistController'),
