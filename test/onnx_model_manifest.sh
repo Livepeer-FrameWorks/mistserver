@@ -51,6 +51,29 @@ if [ -n "$dependencies" ]; then
         plugin = "^https:\\/\\/api\\.nuget\\.org\\/v3-flatcontainer\\/intel\\.ml\\.onnxruntime\\.ep\\.openvino\\/" $2 "\\/intel\\.ml\\.onnxruntime\\.ep\\.openvino\\." $2 "\\.nupkg$"
         if ($5 !~ plugin) { print "dependency lock line " NR ": OpenVINO plugin is not the official Intel NuGet package" > "/dev/stderr"; ok = 0 }
         if ($6 != "runtimes/linux-x64/native") { print "dependency lock line " NR ": invalid package native directory" > "/dev/stderr"; ok = 0 }
+      } else if ($1 ~ /^openvino-plugin-/) {
+        if ($3 !~ /^[0-9a-f]{64}$/) { print "dependency lock line " NR ": invalid plugin build SHA-256" > "/dev/stderr"; ok = 0 }
+        if ($1 == "openvino-plugin-sdk") {
+          if ($5 !~ /^https:\/\/files\.pythonhosted\.org\/packages\// ||
+              index($5, "/openvino-" $2 "-") == 0 || $5 !~ /-cp312-cp312-manylinux_2_28_x86_64\.whl$/ || $6 != "openvino") {
+            print "dependency lock line " NR ": invalid OpenVINO development wheel" > "/dev/stderr"; ok = 0
+          }
+        } else {
+          repos["openvino-plugin-source"] = "onnxruntime/onnxruntime-ep-openvino"
+          repos["openvino-plugin-gsl"] = "microsoft/GSL"
+          repos["openvino-plugin-json"] = "nlohmann/json"
+          repos["openvino-plugin-googletest"] = "google/googletest"
+          count = split($5, path, "/")
+          commit = path[count]
+          if (!($1 in repos) || commit !~ /^[0-9a-f]{40}$/ ||
+              $5 != "https://codeload.github.com/" repos[$1] "/zip/" commit ||
+              $6 !~ /^[A-Za-z0-9._-]+$/ || substr($6, length($6)-40) != "-" commit) {
+            print "dependency lock line " NR ": invalid commit-pinned plugin build source" > "/dev/stderr"; ok = 0
+          }
+          if ($1 == "openvino-plugin-source" && $2 != version["onnxruntime-openvino-ep-linux-x64"]) {
+            print "dependency lock line " NR ": plugin source/package version mismatch" > "/dev/stderr"; ok = 0
+          }
+        }
       } else {
         if ($3 !~ /^[0-9a-f]{64}$/) { print "dependency lock line " NR ": invalid archive SHA-256" > "/dev/stderr"; ok = 0 }
         if ($2 != version["onnxruntime"]) { print "dependency lock line " NR ": runtime version differs from the onnxruntime source" > "/dev/stderr"; ok = 0 }
@@ -74,13 +97,18 @@ if [ -n "$dependencies" ]; then
       required["onnxruntime-linux-aarch64"] = 1
       required["onnxruntime-osx-arm64"] = 1
       required["onnxruntime-openvino-ep-linux-x64"] = 1
+      required["openvino-plugin-source"] = 1
+      required["openvino-plugin-sdk"] = 1
+      required["openvino-plugin-gsl"] = 1
+      required["openvino-plugin-json"] = 1
+      required["openvino-plugin-googletest"] = 1
       for (dependency in required) {
         if (!seen[dependency]) {
           print "dependency lock missing required entry: " dependency > "/dev/stderr"
           ok = 0
         }
       }
-      if (rows != 8) {
+      if (rows != 13) {
         print "dependency lock contains unexpected entries" > "/dev/stderr"
         ok = 0
       }

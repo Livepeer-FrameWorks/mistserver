@@ -1,0 +1,9 @@
+--- a/plugin/ov_factory.cc
++++ b/plugin/ov_factory.cc
+@@ -209 +209,2 @@
+-  if (hw_device.VendorId() != vendor_id_) {
++  // OpenVINO also supports non-Intel CPUs; GPU and NPU matching remains vendor-specific.
++  if (hw_device.Type() != OrtHardwareDeviceType_CPU && hw_device.VendorId() != vendor_id_) {
+@@ -473 +474 @@
+-      Ort::Experimental::EpContextConfig cfg{Ort::ConstSessionOptions{session_options}};
++      Ort::EpContextConfig cfg{Ort::ConstSessionOptions{session_options}};

@@ -43,7 +43,8 @@ ARG RELEASE=Docker_${TARGETPLATFORM}
 # The prefix comes prebuilt from ONNX_DEPS_IMAGE; --verify-only refuses one whose stamp is
 # not this platform, profile, lock and runtime distribution instead of rebuilding it.
 COPY --from=onnx_deps /opt/mist-onnx/ /opt/mist-onnx/
-COPY scripts/ONNX/build_dependencies.sh scripts/ONNX/dependencies.lock.tsv /src/scripts/ONNX/
+COPY scripts/ONNX/build_dependencies.sh scripts/ONNX/build_openvino_plugin.sh \
+     scripts/ONNX/openvino-plugin-cpu.patch scripts/ONNX/dependencies.lock.tsv /src/scripts/ONNX/
 RUN /src/scripts/ONNX/build_dependencies.sh --verify-only \
       --prefix /opt/mist-onnx \
       --work-dir /tmp/onnx-deps-verify \

@@ -22,6 +22,9 @@ matrix="$root/scripts/ONNX/accelerator-images.json"
 hashed_files=(
   Dockerfile.onnx-deps
   scripts/ONNX/build_dependencies.sh
+  scripts/ONNX/build_openvino_plugin.sh
+  scripts/ONNX/openvino-plugin-cpu.patch
+  test/onnx_openvino_cpu.cpp
   scripts/ONNX/dependencies.lock.tsv
 )
 

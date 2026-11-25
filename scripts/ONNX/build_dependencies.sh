@@ -18,7 +18,8 @@ Options:
   --verify-only       Only check that the prefix already holds this exact locked build
 
 The openvino profile also installs the locked Intel OpenVINO plugin execution
-provider next to a packaged runtime. Source builds use the compiled-in EP.
+provider next to a packaged runtime, rebuilt to admit supported non-Intel CPUs.
+Source builds use the compiled-in EP.
 
 Source SDK environment: CUDA_HOME, CUDNN_HOME and ONNX_CUDA_ARCHITECTURES for
 cuda/tensorrt; TENSORRT_HOME for tensorrt; OpenVINO_DIR for openvino.
@@ -176,6 +177,14 @@ if [ "$runtime_distribution" = source ]; then
 fi
 if [ -n "$plugin_distribution" ]; then
   stamp="$stamp/plugin-$plugin_distribution-$plugin_sha256"
+  for plugin_input in "$lock_file" "$script_dir/build_openvino_plugin.sh" "$script_dir/openvino-plugin-cpu.patch"; do
+    if command -v sha256sum >/dev/null 2>&1; then
+      input_hash=$(sha256sum "$plugin_input" | awk '{print $1}')
+    else
+      input_hash=$(shasum -a 256 "$plugin_input" | awk '{print $1}')
+    fi
+    stamp="$stamp/$input_hash"
+  done
 fi
 if [ -f "$prefix/.mist-onnx-dependencies" ]; then
   if [ "$(cat "$prefix/.mist-onnx-dependencies")" = "$stamp" ]; then
@@ -415,6 +424,7 @@ if [ -n "$plugin_distribution" ]; then
   mkdir -p "$prefix/share/licenses/onnxruntime-openvino-ep"
   cp "$plugin_libs/third-party-programs.txt" \
     "$prefix/share/licenses/onnxruntime-openvino-ep/third-party-programs.txt"
+  bash "$script_dir/build_openvino_plugin.sh" "$prefix" "$work_dir/openvino-plugin-build" "$jobs" "$lock_file"
 fi
 
 # LD_LIBRARY_PATH outranks DT_RUNPATH, so a host exporting another OpenVINO, ONNX Runtime or

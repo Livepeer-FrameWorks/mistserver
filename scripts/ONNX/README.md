@@ -322,7 +322,13 @@ The `openvino` profile installs the CPU runtime plus Intel's official OpenVINO p
 execution provider (`Intel.ML.OnnxRuntime.EP.OpenVINO` on nuget.org, lock row
 `onnxruntime-openvino-ep-linux-x64`). The plugin bundles its own OpenVINO runtime with the CPU,
 GPU and NPU device plugins; `build_dependencies.sh` installs it into the same `lib/`
-directory. At session creation MistProcONNX registers the plugin with
+directory. The plugin is rebuilt from its locked source with CPU vendor filtering removed;
+OpenVINO decides whether its CPU backend supports the host, including AMD CPUs. Intel GPU
+and NPU vendor filtering and the packaged device libraries remain intact. The matching
+OpenVINO SDK and all plugin build dependencies are checksum-locked; an SDK/runtime SONAME
+mismatch fails the build. Every packaged OpenVINO dependency build runs a real Add inference
+with ORT CPU fallback disabled, so registering an empty device set cannot pass the smoke test.
+At session creation MistProcONNX registers the plugin with
 `RegisterExecutionProviderLibrary` and appends its `OpenVINOExecutionProvider.AUTO` devices with
 `SessionOptionsAppendExecutionProvider_V2`, so OpenVINO places the model on the best device it
 finds. The NPU compiler needs static input shapes. Vision models, whose input MistProcONNX
