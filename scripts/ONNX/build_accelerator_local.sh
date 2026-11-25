@@ -11,6 +11,11 @@
 # reused while that image exists in the local Docker image store. The accelerator
 # build resolves that local image, so it needs the default docker-driver builder.
 set -euo pipefail
+# Packaging the native bundle after the image build needs jq and patchelf on this host;
+# check them before the build instead of after it.
+for command_name in docker jq patchelf; do
+  command -v "$command_name" >/dev/null || { echo "Missing host command: $command_name" >&2; exit 1; }
+done
 profile=${1:?usage: build_accelerator_local.sh PROFILE [OUTPUT_DIR]}
 output_dir=${2:-build-accelerators}
 root=$(cd "$(dirname "$0")/../.." && pwd)

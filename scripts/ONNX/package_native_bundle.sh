@@ -37,7 +37,7 @@ done
 case "$profile" in cuda|tensorrt|openvino) ;; *) usage ;; esac
 case "$platform" in linux/amd64|linux/arm64) ;; *) usage ;; esac
 
-for command_name in docker jq tar sha256sum; do
+for command_name in docker jq patchelf tar sha256sum; do
   command -v "$command_name" >/dev/null || {
     echo "Missing packaging command: $command_name" >&2
     exit 1
