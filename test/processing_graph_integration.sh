@@ -112,20 +112,18 @@ exceeds() {
   awk -v value="$1" -v limit="$2" 'BEGIN { exit !(value > limit) }'
 }
 
-# The buffer starts processes next to itself, so the slow ONNX process is a wrapper in a copy of
-# the binaries that starts the real one late. Describing its outputs is not delayed.
+# The buffer starts processes next to itself, so the binaries run from a copy. MistProcONNX is
+# a wrapper that executes the built binary in place: its ONNX Runtime and OpenCV rpath may be
+# relative to the build directory, which a copy elsewhere would not resolve. In slow-onnx mode
+# the wrapper starts it late; describing its outputs is not delayed.
 for program in "$controller" "$input_ebml" "$input_buffer" "$process_av" "$output_ebml" "$session" "$util_nuke"; do
   cp "$program" "$bin/"
 done
-if [ "$mode" = slow-onnx ]; then
-  cp "$process_onnx" "$bin/MistProcONNX.real"
-  printf '%s\n' '#!/bin/sh' \
-    'if [ "$1" != --describe-outputs ]; then sleep 4; fi' \
-    'exec "$(dirname "$0")/MistProcONNX.real" "$@"' >"$bin/MistProcONNX"
-  chmod +x "$bin/MistProcONNX"
-else
-  cp "$process_onnx" "$bin/MistProcONNX"
-fi
+process_onnx_path=$(cd "$(dirname "$process_onnx")" && pwd)/$(basename "$process_onnx")
+onnx_delay=
+if [ "$mode" = slow-onnx ]; then onnx_delay='if [ "$1" != --describe-outputs ]; then sleep 4; fi'; fi
+printf '%s\n' '#!/bin/sh' "$onnx_delay" "exec '$process_onnx_path' \"\$@\"" >"$bin/MistProcONNX"
+chmod +x "$bin/MistProcONNX"
 
 duration=20
 recording_seconds=10
