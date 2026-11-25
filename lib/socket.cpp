@@ -3162,6 +3162,12 @@ void Socket::UDPConnection::sendPaced(uint64_t uSendWindow){
   }while(uTime - currPace < uSendWindow);
 }
 
+/// Lets per-peer sockets later join the ephemeral port the next bind(0) picks, as WebRTC sessions, shared-port
+/// listeners and Foghorn punching do through connect() or an explicit rebind. Explicit ports can always be joined.
+void Socket::UDPConnection::setPortSharing(bool share) {
+  portSharing = share;
+}
+
 /// Bind to a port number, returning the bound port.
 /// If that fails, returns zero.
 /// \arg port Port to bind to, required.
@@ -3170,12 +3176,6 @@ void Socket::UDPConnection::sendPaced(uint64_t uSendWindow){
 /// Optional, left out means automatically chosen by kernel. \return Actually bound port number, or
 /// zero on error.
 uint16_t Socket::UDPConnection::bind(int port, std::string iface, const std::string &multicastInterfaces){
-/// Lets per-peer sockets later join the ephemeral port the next bind(0) picks, as WebRTC sessions, shared-port
-  /// listeners and Foghorn punching do through connect() or an explicit rebind. Explicit ports can always be joined.
-  void Socket::UDPConnection::setPortSharing(bool share) {
-    portSharing = share;
-  }
-
   // Store broadcast state if socket exists
   int broadcast = 0;
   socklen_t optlen = sizeof(broadcast);
