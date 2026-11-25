@@ -88,6 +88,16 @@ class ReleaseIndexTest(unittest.TestCase):
     with self.assertRaises(FileNotFoundError):
       build_index(self.dist, self.matrix, self.tag, "deadbeef", "ghcr.io/example")
 
+  def test_openvino_host_includes_profile_driver_packages(self):
+    matrix = json.loads(self.matrix.read_text())
+    matrix['native_deployment']['profiles']['openvino']['system_packages'] = [
+        'ocl-icd-libopencl1', 'intel-opencl-icd']
+    self.matrix.write_text(json.dumps(matrix))
+    index = build_index(self.dist, self.matrix, self.tag, "deadbeef", "ghcr.io/example")
+    self.assertEqual(index['profiles']['openvino']['platforms']['linux/amd64']['host']['system_packages'],
+                     ['ffmpeg', 'ocl-icd-libopencl1', 'intel-opencl-icd'])
+    self.assertEqual(index['profiles']['cpu']['platforms']['linux/amd64']['host']['system_packages'], ['ffmpeg'])
+
   def test_accepts_merged_actions_artifact_directories(self):
     metadata = self.dist / "release-metadata"
     native = self.dist / "release-native"

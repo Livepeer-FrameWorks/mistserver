@@ -52,6 +52,14 @@ def _image(image: str, digest: str) -> dict[str, str]:
   return {"ref": image, "digest": digest}
 
 
+def _deployment_host(deployment: dict, platform: str, profile: str) -> dict:
+  host = dict(deployment["platforms"][platform])
+  host["system_packages"] = list(dict.fromkeys(
+      host["system_packages"] + deployment["profiles"][profile].get("system_packages", [])
+  ))
+  return host
+
+
 def build_index(
     dist: Path,
     matrix_path: Path,
@@ -115,7 +123,7 @@ def build_index(
         {**deployment["profiles"][profile], "platforms": {}},
     )
     profile_entry["platforms"][platform] = {
-        "host": deployment["platforms"][platform],
+        "host": _deployment_host(deployment, platform, profile),
         "reference_runtime_image": build_target["runtime_base"],
         "image": _image(
             _text(_required_file(dist, f"{stem}-image.txt")),

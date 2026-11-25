@@ -95,6 +95,7 @@
         "family": "intel-openvino",
         "version": "2026.4.1",
         "installation": "bundled",
+        "system_packages": ["ocl-icd-libopencl1", "intel-opencl-icd"],
         "probe_commands": [],
         "optional_device_paths": ["/dev/dri"],
         "cpu_fallback": true

@@ -346,6 +346,13 @@ prefix whatever `LD_LIBRARY_PATH` holds. `audit_accelerator_image.sh` fails when
 library resolves anywhere else, under the image environment and with a decoy
 `LD_LIBRARY_PATH` directory holding a copy of every bundled library.
 
+Native OpenVINO contracts additionally declare `ocl-icd-libopencl1` and `intel-opencl-icd`.
+The native host audit copies only the shipped library prefix into the pinned Ubuntu
+baseline, installs the declared host packages, and checks every library there. This
+prevents the vendor runtime image's preinstalled drivers from hiding missing native
+dependencies. Run `scripts/ONNX/audit_native_runtime.sh IMAGE linux/amd64` directly or
+through `audit_accelerator_image.sh`.
+
 OpenVINO keeps compiled models in `openvino-cache/` inside the model directory (see
 [Where models are stored](#where-models-are-stored)), so a model is compiled for a device once per host (NPU:
 about 1 s, then about 80 ms). Session creation takes an exclusive lock on that directory, since

@@ -87,7 +87,8 @@ jq -e \
           source_revision: $source_revision,
           profile: $profile,
           platform: $platform,
-          host: $matrix.native_deployment.platforms[$platform],
+          host: ($matrix.native_deployment.platforms[$platform] | .system_packages +=
+            ($matrix.native_deployment.profiles[$profile].system_packages // [])),
           provider_runtime: ($matrix.native_deployment.profiles[$profile] + {
             reference_runtime_image: $target.runtime_base
           }),

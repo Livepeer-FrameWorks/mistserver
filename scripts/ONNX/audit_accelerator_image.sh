@@ -124,3 +124,7 @@ case "$PROFILE" in
     esac
     ;;
 esac
+
+if [ "$PROFILE" = openvino ]; then
+  "$(dirname "$0")/audit_native_runtime.sh" "$IMAGE" linux/amd64
+fi
