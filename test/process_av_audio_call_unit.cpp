@@ -1,10 +1,26 @@
+extern "C" {
+#include <libswresample/swresample.h>
+}
+
+static int observeResampleDelay(SwrContext *context, uint8_t **output, int capacity, const uint8_t **input, int samples);
+#define swr_convert observeResampleDelay
 #define main avProcessorMain
 #include "../src/process/process_av.cpp"
 #undef main
+#undef swr_convert
 
 #include <cstdio>
 #include <fstream>
 #include <iterator>
+
+static int64_t maximumResampleDelay = 0;
+
+static int observeResampleDelay(SwrContext *context, uint8_t **output, int capacity, const uint8_t **input, int samples) {
+  if (getenv("MIST_AUDIO_BACKLOG_CONTROL") && samples) { capacity = 1; }
+  const int result = swr_convert(context, output, capacity, input, samples);
+  maximumResampleDelay = std::max(maximumResampleDelay, swr_get_delay(context, 48000));
+  return result;
+}
 
 int main(int argc, char **argv) {
   if (argc != 3) { return 2; }
@@ -52,6 +68,11 @@ int main(int argc, char **argv) {
           return 2;
         }
         if (!source.decodeFrame((char *)bytes.data() + offset, size) || !source.transformAudioFrame()) { return 2; }
+        if (maximumResampleDelay > 128) {
+          fprintf(stderr, "swr_get_delay exceeds128 samples before EOF: %lld\n", (long long)maximumResampleDelay);
+          passed = false;
+          break;
+        }
         if (source.receiveDecodedFrame()) { return 2; }
         expected += samples * 48000 / rate;
         const int available = av_audio_fifo_size(audioBuffer);
@@ -76,6 +97,7 @@ int main(int argc, char **argv) {
   avcodec_free_context(&context_in);
   avcodec_free_context(&context_out);
   if (!passed) { return 1; }
+  printf("PASS direct swr_get_delay bound: maximum=%lld samples at48000Hz\n", (long long)maximumResampleDelay);
   puts("PASS actual ProcAV EAC3 decoder/resampler keeps 64 seconds of 256@48k ->1536@32k output within128 samples "
        "before EOF");
   return 0;
