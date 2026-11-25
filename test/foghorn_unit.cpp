@@ -3,6 +3,8 @@
 
 #include <atomic>
 #include <cassert>
+#include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <iostream>
 #include <signal.h>
@@ -253,12 +255,24 @@ static void testPublishedAnnouncement() {
   assert(invalid.size() == 0);
 }
 
-static void testLocalRelay(const char *relayPath) {
+// The relay binds its own port, so it comes from the shared fixture reservation: outside the
+// ephemeral range that bind(0) and outgoing sockets draw from, and held for this process.
+static uint16_t reservedPort(const char *python, const char *portHelper) {
+  const std::string command = std::string("'") + python + "' '" + portHelper + "' 1 " + std::to_string(getpid());
+  FILE *helper = popen(command.c_str(), "r");
+  assert(helper);
+  char line[32] = {0};
+  const bool gotLine = fgets(line, sizeof(line), helper) != nullptr;
+  const int status = pclose(helper);
+  assert(gotLine && status == 0);
+  const unsigned long port = strtoul(line, nullptr, 10);
+  assert(port > 0 && port <= 0xFFFF);
+  return port;
+}
+
+static void testLocalRelay(const char *relayPath, const char *python, const char *portHelper) {
   const std::string protocol = "SRT-LONG-01";
-  Socket::UDPConnection reservation;
-  uint16_t relayPort = reservation.bind(0, "127.0.0.1");
-  assert(relayPort);
-  reservation.close();
+  uint16_t relayPort = reservedPort(python, portHelper);
 
   pid_t relayPid = fork();
   assert(relayPid >= 0);
@@ -374,8 +388,8 @@ static void testLocalRelay(const char *relayPath) {
 }
 
 int main(int argc, char **argv) {
-  if (argc == 3 && std::string(argv[1]) == "relay") {
-    testLocalRelay(argv[2]);
+  if (argc == 5 && std::string(argv[1]) == "relay") {
+    testLocalRelay(argv[2], argv[3], argv[4]);
     std::cout << "Foghorn local relay test passed" << std::endl;
     return 0;
   }

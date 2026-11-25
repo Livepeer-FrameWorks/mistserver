@@ -92,7 +92,9 @@ test('Controller routes push kill and reinitialize requests', pushcontrolrequest
 
 foghornunittest = executable('foghornunittest', 'foghorn_unit.cpp', header_tgts, dependencies: libmist_dep)
 test('Foghorn packets and relay announcements', foghornunittest, suite: 'Foghorn')
-test('Foghorn local relay traversal', foghornunittest, args: ['relay', exec_tgts.get('MistUtilFoghorn')],
+test('Foghorn local relay traversal', foghornunittest,
+     args: ['relay', exec_tgts.get('MistUtilFoghorn'), find_program('python3'),
+            meson.project_source_root() / 'test/test_ports.py'],
      suite: 'Foghorn', timeout: 30)
 
 if have_srt

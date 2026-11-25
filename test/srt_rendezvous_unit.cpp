@@ -19,7 +19,7 @@ static bool readBytes(int fd, char *buffer, size_t count) {
   return true;
 }
 
-static int runPeer(const std::string & localHost, uint16_t localPort, const std::string & remoteHost, uint16_t remotePort,
+static int runPeer(Socket::UDPConnection & udp, const std::string & remoteHost, uint16_t remotePort,
                    const std::string & direction, int startFd, int readyFd, int transferFd, int acknowledgmentFd) {
   char start = 0;
   if (!readBytes(startFd, &start, 1)) { return 1; }
@@ -30,11 +30,6 @@ static int runPeer(const std::string & localHost, uint16_t localPort, const std:
     return 1;
   }
 
-  Socket::UDPConnection udp(false, AF_INET);
-  if (udp.bind(localPort, localHost) != localPort) {
-    std::cerr << direction << " peer could not bind its UDP socket" << std::endl;
-    return 1;
-  }
   std::deque<Socket::Address> remote = Socket::getAddrs(remoteHost, remotePort, AF_INET, false);
   if (!remote.size()) {
     std::cerr << direction << " peer could not resolve its counterpart" << std::endl;
@@ -94,14 +89,14 @@ static int runPeer(const std::string & localHost, uint16_t localPort, const std:
 int main() {
   Socket::UDPConnection inputReservation(false, AF_INET);
   Socket::UDPConnection outputReservation(false, AF_INET);
+  // Each peer inherits its already-bound socket, so no other socket can take the port between
+  // choosing it and the rendezvous.
   const uint16_t inputPort = inputReservation.bind(0, "127.0.0.1");
   const uint16_t outputPort = outputReservation.bind(inputPort, "127.0.0.2");
   if (!inputPort || outputPort != inputPort) {
-    std::cerr << "could not reserve the rendezvous port on two loopback addresses" << std::endl;
+    std::cerr << "could not bind the rendezvous port on two loopback addresses" << std::endl;
     return 1;
   }
-  inputReservation.close();
-  outputReservation.close();
 
   int startPipe[2];
   int readyPipe[2];
@@ -114,7 +109,8 @@ int main() {
     close(readyPipe[0]);
     close(transferPipe[1]);
     close(acknowledgmentPipe[0]);
-    _exit(runPeer("127.0.0.1", inputPort, "127.0.0.2", outputPort, "input", startPipe[0], readyPipe[1], transferPipe[0],
+    outputReservation.close();
+    _exit(runPeer(inputReservation, "127.0.0.2", outputPort, "input", startPipe[0], readyPipe[1], transferPipe[0],
                   acknowledgmentPipe[1]));
   }
   if (inputPid < 0) { return 1; }
@@ -125,10 +121,13 @@ int main() {
     close(readyPipe[0]);
     close(transferPipe[1]);
     close(acknowledgmentPipe[1]);
-    _exit(runPeer("127.0.0.2", outputPort, "127.0.0.1", inputPort, "output", startPipe[0], readyPipe[1],
+    inputReservation.close();
+    _exit(runPeer(outputReservation, "127.0.0.1", inputPort, "output", startPipe[0], readyPipe[1],
                   transferPipe[0], acknowledgmentPipe[0]));
   }
   if (outputPid < 0) { return 1; }
+  inputReservation.close();
+  outputReservation.close();
 
   close(startPipe[0]);
   close(readyPipe[1]);
