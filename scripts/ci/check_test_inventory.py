@@ -42,6 +42,7 @@ required.update({
     'Premature MP4 sample order exhaustion fails loudly',
     'DTSC header length matches valid and partless track selection',
     'AAC mono stays mono through Opus processing',
+    'A processing reader waits a full data wait after a feed pause ends',
     'TS container playback progressive-ac3',
     'TS container playback progressive-eac3',
     'TS container playback mkv-aac',

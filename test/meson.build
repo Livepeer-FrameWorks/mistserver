@@ -1376,6 +1376,10 @@ test('HLS MP4 initialization maps compose all track and movie orientations', seg
 mp4unreadyaudiotest = executable('mp4unreadyaudiotest', ['mp4_unready_audio_unit.cpp', '../src/output/output.cpp', '../src/output/output_http.cpp', '../src/output/output_mp4.cpp', io_cpp], header_tgts, dependencies: libmist_dep)
 test('MP4 keeps ready video while EAC-3 setup is unavailable', mp4unreadyaudiotest, suite: 'MP4')
 
+feedpausewaittest = executable('feedpausewaittest', ['output_feed_pause_wait_unit.cpp', '../src/output/output.cpp', io_cpp],
+                               header_tgts, dependencies: libmist_dep)
+test('A processing reader waits a full data wait after a feed pause ends', feedpausewaittest, suite: 'Processing')
+
 
 
 binformstest = executable('binformstest', 'socket_binforms_unit.cpp', header_tgts, dependencies: libmist_dep)

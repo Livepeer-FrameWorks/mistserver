@@ -136,6 +136,8 @@ namespace Mist{
                  ///< prepareNext().
     std::string prevHost; ///< Old value for getConnectedBinHost, for caching
     uint64_t lastReceive;
+    bool waitedOnFeedPause = false; ///< The last wait for data saw the buffer pause its feed.
+    uint64_t feedPauseWaitMs = 0; ///< bootMS() of the last wait during, or first wait after, a feed pause.
     bool recursingSync;
     uint32_t seekCount;
     bool firstData;

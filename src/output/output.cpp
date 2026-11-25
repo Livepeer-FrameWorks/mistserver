@@ -3176,11 +3176,12 @@ namespace Mist{
 
       // A process-controlled buffer that paused its feed for a slower recorder withholds this
       // data on purpose and resumes once that recorder caught up; waiting for it is no stall.
-      if (lastReceive + dataWaitTimeout < thisBootMs && M.getLive() && processControlled && processingFeedPaused()) {
-        lastReceive = thisBootMs;
-      }
+      // The pause uses none of the data wait: it counts from the first wait after the resume.
+      const bool feedPaused = M.getLive() && processControlled && processingFeedPaused();
+      if (feedPaused || waitedOnFeedPause) { feedPauseWaitMs = thisBootMs; }
+      waitedOnFeedPause = feedPaused;
       // in sync mode, after ~25 seconds, give up and drop the track.
-      if (lastReceive + dataWaitTimeout < thisBootMs){
+      if (std::max(lastReceive, feedPauseWaitMs) + dataWaitTimeout < thisBootMs) {
         //curPage[nxt.tid].mapped + nxt.offset + preLoad.getDataLen()
         WARN_MSG("Waiting at %s byte %" PRIu64, cPageIt->second.name.c_str(), nxt.offset + preLoad.getDataLen());
         dropTrack(nxt.tid, "EOP: data wait timeout");
@@ -3234,6 +3235,7 @@ namespace Mist{
       return 1;
     }
     lastReceive = thisBootMs;
+    waitedOnFeedPause = false;
     thisIdx = nxt.tid;
     thisTime = nxt.time;
     thisPacket.getString("data", thisData, thisDataLen);
