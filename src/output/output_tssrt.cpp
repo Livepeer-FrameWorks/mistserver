@@ -939,6 +939,8 @@ namespace Mist {
     if (udpSrv.getSock() != 0 && Socket::checkTrueSocket(0)) {
       udpSrv.assimilate(0);
     } else {
+      // Each accepted connection connect()s its own socket onto this port, also when it is ephemeral.
+      udpSrv.setPortSharing(true);
       udpSrv.bind(conf.getInteger("port"), conf.getString("interface"));
     }
     // Ensure socket zero is now us

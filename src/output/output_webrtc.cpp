@@ -237,6 +237,8 @@ namespace Mist{
     if (Socket::checkTrueSocket(0)){
       lstn.assimilate(0);
     }else{
+      // Session processes connect() their per-pair sockets onto this port, also when it is ephemeral.
+      lstn.setPortSharing(true);
       lstn.bind(conf.getInteger("port"), conf.getString("interface"));
     }
     if (!lstn){
@@ -1795,6 +1797,8 @@ namespace Mist{
 
     controlling = true;
     dtlsClient = true;
+    // Per-pair sockets connect() onto this port once candidates pair up.
+    mainSocket.setPortSharing(true);
     udpPort = mainSocket.bind(0);
     if (!udpPort) {
       FAIL_MSG("Cannot bind to unused port: aborting");

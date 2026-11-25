@@ -433,6 +433,8 @@ namespace Foghorn {
       HTTP::parseVars(trgt.args, args);
       if (args.count("lport")) { lPort = JSON::Value(args["lport"]).asInt(); }
     }
+    // Once punched, this socket keeps punching while a new socket binds the same port (see start()).
+    pData->sock->setPortSharing(true);
     lPort = pData->sock->bind(lPort);
     if (!lPort) {
       pData.reset();

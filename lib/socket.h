@@ -318,6 +318,7 @@ namespace Socket{
     bool isConnected;
     bool ignoreSendErrors;
     bool pretendReceive; ///< If true, will pretend to have just received the current data buffer on new Receive() call
+    bool portSharing; ///< If true, bind(0) leaves the ephemeral port open for later per-peer sockets to join
     bool onData();
    
     // dTLS-related members
@@ -362,6 +363,7 @@ namespace Socket{
     int releaseSocket(); ///< Relinquish the descriptor without closing it.
     void swapSocket(UDPConnection & other);
     uint16_t bind(int port, std::string iface = "", const std::string &multicastAddress = "");
+    void setPortSharing(bool share);
     void setMulticastTTL(size_t ttl);
     bool connect();
     bool connectDestination();

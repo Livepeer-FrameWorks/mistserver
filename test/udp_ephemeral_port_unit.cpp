@@ -10,10 +10,11 @@
 #include <set>
 #include <string>
 #include <sys/socket.h>
+#include <unistd.h>
 #include <vector>
 
-// Ports this process holds model the sockets of other Mist processes on the host, such as a live SRT rendezvous
-// socket or a WebRTC session port. With 400 of the roughly 28000 ephemeral ports held, 2000 binds that may land on
+// Ports this process holds model the non-sharing ephemeral sockets of other Mist processes on the host, such as
+// RTP ports or send sockets. With 400 of the roughly 28000 ephemeral ports held, 2000 binds that may land on
 // held ports hit one about 28 times.
 static const size_t heldCount = 400;
 static const size_t bindCount = 2000;
@@ -86,13 +87,38 @@ int main() {
                 std::to_string(bindCount));
   }
 
-  // A per-peer socket still joins the port an ephemeral bind holds, as WebRTC and Foghorn punching do, and takes the
-  // datagrams its peer sends there.
-  Socket::UDPConnection & listener = *held.front();
+  // A foreign program that sets SO_REUSEADDR before bind(0) must not be handed a held Mist port either.
+  size_t foreignCollisions = 0;
+  for (size_t i = 0; i < bindCount; ++i) {
+    const int sock = socket(AF_INET, SOCK_DGRAM, 0);
+    const int on = 1;
+    sockaddr_in any = {};
+    any.sin_family = AF_INET;
+    any.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    if (sock < 0 || setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, &on, sizeof on) || ::bind(sock, (sockaddr *)&any, sizeof any)) {
+      return fail("could not bind a foreign SO_REUSEADDR socket");
+    }
+    if (heldPorts.count(localPort(sock))) { ++foreignCollisions; }
+    close(sock);
+  }
+  if (foreignCollisions) {
+    return fail("foreign SO_REUSEADDR binds landed on held ports " + std::to_string(foreignCollisions) +
+                " times out of " + std::to_string(bindCount));
+  }
+
+  // Only a socket that opted into port sharing can be joined by a per-peer socket.
   Socket::UDPConnection peer(false, AF_INET);
   if (!peer.bind(0, "127.0.0.1")) { return fail("could not bind the peer socket"); }
+  Socket::UDPConnection intruder(peer.getBoundAddr(), held.front()->getBoundAddr());
+  if (intruder.connect()) { return fail("a per-peer socket joined an ephemeral port that does not share"); }
+
+  // A per-peer socket joins the ephemeral port of a sharing socket, as WebRTC sessions, shared-port listeners and
+  // Foghorn punching do, and takes the datagrams its peer sends there.
+  Socket::UDPConnection listener(false, AF_INET);
+  listener.setPortSharing(true);
+  if (!listener.bind(0, "127.0.0.1")) { return fail("could not bind the sharing listener socket"); }
   Socket::UDPConnection joined(peer.getBoundAddr(), listener.getBoundAddr());
-  if (!joined.connect()) { return fail("a per-peer socket could not join the port of an ephemeral bind"); }
+  if (!joined.connect()) { return fail("a per-peer socket could not join the port of a sharing ephemeral bind"); }
   peer.setDestination(listener.getBoundAddr());
   const std::string payload("joined");
   peer.SendNow(payload);
@@ -100,6 +126,7 @@ int main() {
     return fail("the per-peer socket did not receive its peer's datagram");
   }
 
-  std::cout << "ephemeral UDP ports stay exclusive across " << bindCount << " binds and " << bindCount << " sends" << std::endl;
+  std::cout << "ephemeral UDP ports stay exclusive across " << bindCount << " Mist binds, " << bindCount
+            << " sends and " << bindCount << " foreign SO_REUSEADDR binds" << std::endl;
   return 0;
 }

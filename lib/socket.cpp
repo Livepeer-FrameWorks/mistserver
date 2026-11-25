@@ -2425,6 +2425,7 @@ void Socket::UDPConnection::init(bool _nonblock, int _family){
   isConnected = false;
   wasEncrypted = false;
   pretendReceive = false;
+  portSharing = false;
   ignoreSendErrors = false;
   intTimer = 0;
   finTimer = 0;
@@ -3169,6 +3170,12 @@ void Socket::UDPConnection::sendPaced(uint64_t uSendWindow){
 /// Optional, left out means automatically chosen by kernel. \return Actually bound port number, or
 /// zero on error.
 uint16_t Socket::UDPConnection::bind(int port, std::string iface, const std::string &multicastInterfaces){
+/// Lets per-peer sockets later join the ephemeral port the next bind(0) picks, as WebRTC sessions, shared-port
+  /// listeners and Foghorn punching do through connect() or an explicit rebind. Explicit ports can always be joined.
+  void Socket::UDPConnection::setPortSharing(bool share) {
+    portSharing = share;
+  }
+
   // Store broadcast state if socket exists
   int broadcast = 0;
   socklen_t optlen = sizeof(broadcast);
@@ -3235,8 +3242,8 @@ repeatAddressFinding:
     {
       int on = 1;
       // An explicit port may be shared on purpose (per-peer sockets connected on a listener's port). An ephemeral
-      // bind gets SO_REUSEADDR only once bound: Linux hands an SO_REUSEADDR socket any port that other SO_REUSEADDR
-      // sockets hold, and the newest socket on an address takes all of its unicast datagrams.
+      // bind never carries SO_REUSEADDR into the bind: Linux hands an SO_REUSEADDR socket any port that other
+      // SO_REUSEADDR sockets hold, and the newest socket on an address takes all of its unicast datagrams.
       if (port) { setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, &on, sizeof(on)); }
       // Restore broadcast if it was set
       if (hadBroadcast) {
@@ -3288,7 +3295,9 @@ repeatAddressFinding:
       }
     }
     if (::bind(sock, rp->ai_addr, rp->ai_addrlen) == 0){
-      if (!port) {
+      // Only a socket that per-peer sockets join later opens its ephemeral port to sharing, and only once bound.
+      // That also lets any other SO_REUSEADDR binder be handed the port, so every other ephemeral port stays closed.
+      if (!port && portSharing) {
         const int on = 1;
         setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, &on, sizeof(on));
       }
