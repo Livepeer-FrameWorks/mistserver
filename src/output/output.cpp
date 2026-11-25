@@ -3568,6 +3568,9 @@ namespace Mist{
   }
 
   bool Output::checkStreamKey() {
+    // The requested name may still be a publishing credential. Only the
+    // validated stream belongs in the log context.
+    Util::setStreamName("");
     // No streamkey? Maybe its a valid JWT
     if (!Util::checkStreamKey(streamName)) {
       if (!JWT::isJWS(streamName)) { return false; }

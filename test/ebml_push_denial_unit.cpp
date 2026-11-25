@@ -17,7 +17,7 @@ class DeniedPush : public Mist::OutEBML {
       H.method = "PUT";
       H.protocol = "HTTP/1.1";
       streamName = "sk_denied";
-      reqUrl = "http://localhost/sk_denied.mkv";
+      reqUrl = "http://localhost/sk_denied%2Emkv?publish_token=secret";
     }
     void onFail(const std::string & reason, bool critical = false) override {
       ++failures;
@@ -40,6 +40,7 @@ int main(int argc, char **argv) {
   char name[NAME_BUFFER_SIZE];
   snprintf(name, sizeof(name), SHM_TRIGGER, "PUSH_REWRITE");
   unsigned failures = 0;
+  std::string denialLog;
   {
     IPC::sharedPage page(name, 32768, true, false);
     if (!page.mapped) { return 3; }
@@ -66,8 +67,22 @@ int main(int argc, char **argv) {
       Util::Config config("ebml-denied-push");
       JSON::Value capability;
       Mist::OutEBML::init(&config, capability);
+      config.getOption("streamname", true).append("sk_denied");
       DeniedPush output(connection, config, capability);
+      FILE *captured = tmpfile();
+      const int savedStderr = dup(STDERR_FILENO);
+      if (!captured || savedStderr < 0) { return 3; }
+      fflush(stderr);
+      if (dup2(fileno(captured), STDERR_FILENO) < 0) { return 3; }
       output.preHTTP();
+      fflush(stderr);
+      if (dup2(savedStderr, STDERR_FILENO) < 0) { return 3; }
+      close(savedStderr);
+      rewind(captured);
+      char buffer[4096];
+      size_t count;
+      while ((count = fread(buffer, 1, sizeof(buffer), captured))) { denialLog.append(buffer, count); }
+      fclose(captured);
       failures = output.failures;
     }
     close(pair[1]);
@@ -75,6 +90,14 @@ int main(int argc, char **argv) {
   rmdir(directory);
   if (failures != 1) {
     fprintf(stderr, "Denied MKV push continued into source admission: %u failures, expected one\n", failures);
+    return 1;
+  }
+  if (denialLog.find("blanked") == std::string::npos) {
+    fprintf(stderr, "Denied MKV push did not record its refusal: %s\n", denialLog.c_str());
+    return 1;
+  }
+  if (denialLog.find("sk_denied") != std::string::npos || denialLog.find("publish_token=secret") != std::string::npos) {
+    fprintf(stderr, "Denied MKV push leaked publishing credentials: %s\n", denialLog.c_str());
     return 1;
   }
   return 0;

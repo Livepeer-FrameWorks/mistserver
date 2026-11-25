@@ -1458,7 +1458,7 @@ namespace Mist{
     if (rawStream) { streamName = rawStream; }
     if (checkStreamKey()) {
       if (!streamName.size()) {
-        WARN_MSG("Push from %s to URL %s rejected: the stream key matches no stream", getConnectedHost().c_str(), reqUrl.c_str());
+        WARN_MSG("Push from %s rejected: the stream key matches no stream", getConnectedHost().c_str());
         return false;
       }
     } else {
@@ -1467,8 +1467,7 @@ namespace Mist{
         std::string newStream = streamName;
         Triggers::doTrigger("PUSH_REWRITE", payload, "", false, newStream);
         if (!newStream.size()) {
-          FAIL_MSG("Push from %s to URL %s rejected - PUSH_REWRITE trigger blanked the URL", getConnectedHost().c_str(),
-                   reqUrl.c_str());
+          FAIL_MSG("Push from %s rejected - PUSH_REWRITE trigger blanked the URL", getConnectedHost().c_str());
           return false;
         } else {
           streamName = newStream;
