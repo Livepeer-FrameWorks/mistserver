@@ -217,15 +217,15 @@ namespace Mist{
       size_t tempLen = dataLen;
       if (codec == "AAC"){
         tempLen += 7;
-        // Make sure TS timestamp is sample-aligned, if possible
+        // Millisecond packet times jitter around the frame cadence. Snap them to whole 1024-sample
+        // frames counted from the track's first frame, since a timeline may start at any sample;
+        // every request for a VoD track then shares one grid.
         uint32_t freq = M.getRate(thisIdx);
         if (freq){
-          uint64_t aacSamples = packTime * freq / 90000;
-          //round to nearest packet, assuming all 1024 samples (probably wrong, but meh)
-          aacSamples += 256;//Add a quarter frame of offset to encourage correct rounding
-          aacSamples &= ~0x3FF;
-          //Get closest 90kHz clock time to perfect sample alignment
-          packTime = aacSamples * 90000 / freq;
+          const uint64_t aacSamples = packTime * freq / 90000;
+          const auto phase = aacPhases.emplace(thisIdx, M.getFirstms(thisIdx) * freq / 1000 % 1024).first->second;
+          const uint64_t frames = (aacSamples + 512 - std::min<uint64_t>(aacSamples + 512, phase)) / 1024;
+          packTime = (frames * 1024 + phase) * 90000 / freq;
         }
       }
       if (codec == "opus"){

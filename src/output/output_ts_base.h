@@ -27,6 +27,7 @@ namespace Mist{
     std::map<size_t, size_t> pidMap;
     virtual bool inlineRestartCapable() const{return true;}
     std::map<size_t, bool> first;
+    std::map<size_t, uint64_t> aacPhases; ///< Sample offset of each AAC track's frame grid
     std::map<size_t, uint16_t> contCounters;
     uint16_t contPAT;
     uint16_t contPMT;
