@@ -560,6 +560,7 @@ namespace Mist{
           FAIL_MSG("Push from %s to URL %s rejected - PUSH_REWRITE trigger blanked the URL", getConnectedHost().c_str(),
                    reqUrl.c_str());
           onFail("Pushing not allowed");
+          return;
         } else {
           streamName = newStream;
         }

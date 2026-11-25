@@ -1897,6 +1897,14 @@ if exec_tgts.has_key('MistOutHLS')
   test('Authoritative playback denials remain final HTTP refusals', playbackunavailabletest, args: ['deny'], suite: 'HTTP', timeout: 15, is_parallel: false)
 endif
 
+if exec_tgts.has_key('MistOutEBML')
+  ebmldeniedpushobjects = exec_tgts['MistOutEBML'].extract_objects(output_cpp, io_cpp, output_http_cpp, output_ebml_cpp)
+  ebmldeniedpushtest = executable('ebmldeniedpushtest', 'ebml_push_denial_unit.cpp', header_tgts,
+    objects: ebmldeniedpushobjects, dependencies: libmist_dep,
+    include_directories: include_directories('../src/output'))
+  test('Denied Matroska pushes stop before source admission', ebmldeniedpushtest, suite: 'HTTP', timeout: 15, is_parallel: false)
+endif
+
 bufferreadyobjects = inputbufferlifecycletest.extract_objects(
   files('../src/input/input.cpp', '../src/input/input_buffer.cpp', '../src/io.cpp'))
 bufferreadytest = executable('bufferreadytest', 'input_buffer_serve_readiness_unit.cpp', header_tgts,
