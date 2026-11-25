@@ -350,6 +350,9 @@ namespace Mist{
   }
 
   bool InputBuffer::keepRunning(bool updateActCtr) {
+    // A readiness waiter has no selected media page yet. Its live connection
+    // keeps a cold replica available while its first upstream fragments arrive.
+    if (updateActCtr && waitingReaderUsers) { activityCounter = Util::bootSecs(); }
     if (M.getLive() && updateActCtr) {
       uint64_t currLastUpdate = M.getLastUpdated();
       if (currLastUpdate > activityCounter) {
@@ -963,6 +966,7 @@ namespace Mist{
     /*LTS-END*/
     connectedUsers = 0;
     drainConsumerUsers = 0;
+    waitingReaderUsers = 0;
     bufferHolds.beginScan();
 
     //Store child process PIDs in generatePids.
@@ -1025,6 +1029,9 @@ namespace Mist{
     if (!(users.getStatus(id) & COMM_STATUS_DONOTTRACK)) {
       ++connectedUsers;
       if (!(users.getStatus(id) & COMM_STATUS_SOURCE)) { ++drainConsumerUsers; }
+      if (!(users.getStatus(id) & (COMM_STATUS_SOURCE | COMM_STATUS_DISCONNECT)) && users.getTrack(id) == INVALID_TRACK_ID) {
+        ++waitingReaderUsers;
+      }
     }
     if (processControlledRealtime && (users.getStatus(id) & COMM_STATUS_HOLDBUFFER) && !(users.getStatus(id) & COMM_STATUS_SOURCE)) {
       bufferHolds.observe(id, users.getPid(id), users.getTrack(id), users.getKeyNum(id), Util::bootMS());

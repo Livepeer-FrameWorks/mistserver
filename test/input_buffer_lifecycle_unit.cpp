@@ -202,6 +202,32 @@ namespace {
 
 int main() {
   {
+    Util::Config config("buffer-playlist-waiter");
+    InputBufferProbe input(&config);
+    config.is_active = true;
+    input.initMetadata("playlistwait" + std::to_string(getpid()));
+    input.meta.setLive(true);
+    input.meta.trackList.setInt(input.meta.trackLastUpdateField, Util::bootSecs() - 10, 0);
+    input.users.reload(input.streamName, true);
+    {
+      Comms::Users waiting;
+      waiting.reload(input.streamName, (size_t)INVALID_TRACK_ID);
+      if (!waiting) { return fail("could not register playlist readiness waiter"); }
+      COMM_LOOP(input.users, input.userOnActive(id), input.userOnDisconnect(id));
+      input.inputTimeout = 6;
+      input.activityCounter = Util::bootSecs();
+      if (!input.keepRunning()) { return fail("positive control: fresh active cold buffer is not running"); }
+      input.activityCounter = Util::bootSecs() - 10;
+      if (!input.keepRunning()) { return fail("cold buffer timed out beneath its playlist readiness waiter"); }
+    }
+    input.userLeadIn();
+    COMM_LOOP(input.users, input.userOnActive(id), input.userOnDisconnect(id));
+    input.inputTimeout = 6;
+    input.meta.trackList.setInt(input.meta.trackLastUpdateField, Util::bootSecs() - 10, 0);
+    input.activityCounter = Util::bootSecs() - 10;
+    if (input.keepRunning()) { return fail("disconnected playlist waiter kept an idle buffer alive"); }
+  }
+  {
     const pid_t pid = 10000000 + getpid();
     char name[NAME_BUFFER_SIZE];
     snprintf(name, sizeof(name), SHM_PROC_STATE, pid);

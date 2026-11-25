@@ -182,6 +182,7 @@ namespace Mist{
     // they are kept for it.
     std::map<size_t, uint64_t> producerHoldUntil;
     size_t drainConsumerUsers;
+    size_t waitingReaderUsers{0};
     size_t lastBPS; ///< Used for STREAM_BANDWIDTH trigger
   };
 }// namespace Mist
