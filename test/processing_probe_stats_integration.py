@@ -9,6 +9,7 @@ import threading
 import time
 import urllib.request
 from controller_capacity_lifecycle_integration import Fixture, until
+from processing_probe_ownership import assert_single_probe_source
 
 build, ffmpeg = Path(sys.argv[1]).resolve(), sys.argv[2]
 admitted = threading.Event()
@@ -94,7 +95,7 @@ with http.server.ThreadingHTTPServer(('127.0.0.1',0), Trigger) as server:
             active=f.request({'active_streams':{'longform':True,'fields':['health','sourcepids']}}).get('active_streams') or {}
             return active.get(f.stream,{})
         original=until(lambda:snapshot().get('sourcepids'),10,'paused source has no owner')
-        assert len(original)==1,('probe has more than one source input',original)
+        assert_single_probe_source(f, original)
         admitted.set()
         observed={}
         def started():
@@ -111,6 +112,7 @@ with http.server.ThreadingHTTPServer(('127.0.0.1',0), Trigger) as server:
             health=active.get(f.stream,{}).get('health') or {}
             return any(isinstance(t,dict) and t.get('codec')=='H264' and t.get('width')==160 and t.get('height')==90 and t.get('buffer',0)>0 for t in health.values())
         until(rendition_available,20,'admitted source never produced its video rendition')
+        assert_single_probe_source(f, original)
         success=True
         print('PASS metadata probe -> admitted AV ladder with one source input and no restart',flush=True)
     finally:

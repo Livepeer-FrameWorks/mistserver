@@ -64,6 +64,7 @@ namespace Controller{
     void finish();
     statStorage curData;
     std::set<std::string> tags;
+    bool finished{false};
     sessType getSessType();
     void update(uint64_t index, Comms::Sessions &data);
     uint64_t getStart();

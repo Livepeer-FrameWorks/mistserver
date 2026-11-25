@@ -1760,6 +1760,8 @@ endif
 
 test('Fixture teardown preserves controller diagnostic logs', python_program,
      args: files('fixture_cleanup_log_test.py'), suite: 'Build', timeout: 30)
+test('Metadata probe ownership includes sources that exited before the snapshot', python_program,
+     args: files('processing_probe_ownership_unit.py'), suite: 'Processing', timeout: 30)
 
 if get_option('WITH_AV') and ffmpeg_program.found() and ffprobe_program.found()
   foreach codec : ['HEVC', 'MPEG2', 'MPEG4', 'MP2', 'MP3', 'AC3', 'EAC-3']

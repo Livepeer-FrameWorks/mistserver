@@ -495,7 +495,8 @@ def session_tag_history(f):
     pub=subprocess.Popen([f.ffmpeg,'-v','error','-re','-stream_loop','-1','-i',str(source),'-t','40','-c','copy','-f','flv',f'rtmp://127.0.0.1:{port}/live/{f.stream}'],env=f.tool_env,stdout=f.log,stderr=subprocess.STDOUT)
     f.children.append(pub)
     until(lambda:f.stream in (f.request({'active_streams':{'longform':True}}).get('active_streams') or {}),15,'publisher not active')
-    reader=subprocess.Popen([f.ffmpeg,'-v','error','-i',f'http://127.0.0.1:{f.http}/{f.stream}.mkv','-t','30','-f','null','-'],env=f.tool_env,stdout=f.log,stderr=subprocess.STDOUT)
+    viewer_url=f'http://127.0.0.1:{f.http}/{f.stream}.mkv?tkn=history-fixture'
+    reader=subprocess.Popen([f.ffmpeg,'-v','error','-i',viewer_url,'-t','30','-f','null','-'],env=f.tool_env,stdout=f.log,stderr=subprocess.STDOUT)
     f.children.append(reader)
     def rows(offset):
         response=f.request({'clients':{'time':offset,'fields':['stream','sessid','tags']}})['clients']
@@ -513,6 +514,14 @@ def session_tag_history(f):
     history=[r for r in rows(-5) if r['sessid']==sid]
     assert history,'positive control: completed session missing from five-second census'
     assert all('fwproc' in (r.get('tags') or []) for r in history),'completed processing session lost its classification while still in the audience census'
+    f.request({'tag_sessid':{sid:'fresh-lifetime'}})
+    reader.wait(timeout=15)
+    reused=subprocess.Popen([f.ffmpeg,'-v','error','-i',viewer_url,'-t','30','-f','null','-'],env=f.tool_env,stdout=f.log,stderr=subprocess.STDOUT)
+    f.children.append(reused)
+    row=until(viewer,15,'reused native viewer never registered')
+    assert row['sessid']==sid,('fixture did not reuse its session identity',sid,row)
+    assert 'fwproc' not in (row.get('tags') or []),('reused session inherited completed lifetime tags',row)
+    assert 'fresh-lifetime' in (row.get('tags') or []),('reused session lost its newly queued classification',row)
 
 
 def main():

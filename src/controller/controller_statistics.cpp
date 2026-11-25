@@ -356,7 +356,7 @@ void Controller::sessId_tag(const std::string & sessId, const std::string & tag)
     return;
   }
   std::lock_guard<std::recursive_mutex> guard(statsMutex);
-  if (sessions.count(sessId)) {
+  if (sessions.count(sessId) && !sessions[sessId].finished) {
     sessions[sessId].tags.insert(tag);
     return;
   }
@@ -890,9 +890,10 @@ void Controller::statSession::finish(){
       }
     }
   }
-  // Historical client samples retain this session classification until their session is purged.
+  // Keep the completed lifetime's classification until this ID is reused or purged.
   // Insert null datapoint
   curData.log[curData.log.rbegin()->first + 1] = emptyLogEntry;
+  finished = true;
 }
 
 /// Constructs an empty session
@@ -1140,6 +1141,10 @@ void Controller::statOnActive(size_t id){
   if (statComm.getNow(id) >= statDropoff){
     const std::string sessId = statComm.getSessId(id);
     statSession & session = sessions[sessId];
+    if (session.finished) {
+      session.tags.clear();
+      session.finished = false;
+    }
     const auto queued = sessionTagQueue.find(sessId);
     if (queued != sessionTagQueue.end()) {
       if (queued->second.lastChange + 60 >= Util::bootSecs()) {
