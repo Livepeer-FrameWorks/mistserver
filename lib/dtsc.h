@@ -652,6 +652,8 @@ namespace DTSC{
 
     void removeLimiter();
     void applyLimiter(uint64_t min, uint64_t max);
+    void setLimiterShift(size_t trackIdx, uint64_t shift);
+    uint64_t getLimiterShift(size_t trackIdx) const;
 
     void ignorePid(uint64_t ignPid);
 
@@ -678,6 +680,8 @@ namespace DTSC{
     uint64_t limitMin;
     uint64_t limitMax;
     bool isLimited;
+    /// Moves a track's limiter window later, so it selects the same presentation interval.
+    std::map<size_t, uint64_t> limitShifts;
 
     char *streamMemBuf;
     bool isMemBuf;

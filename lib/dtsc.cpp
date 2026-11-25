@@ -3232,13 +3232,20 @@ namespace DTSC{
     return t.track.getPointer(t.trackLangField);
   }
 
+  /// A limiter bound moved by a track's shift; an unbounded end stays unbounded.
+  static uint64_t limitShifted(uint64_t limit, uint64_t shift) {
+    return limit > UINT64_MAX - shift ? UINT64_MAX : limit + shift;
+  }
+
   void Meta::setFirstms(size_t trackIdx, uint64_t firstms){
     DTSC::Track &t = tracks.at(trackIdx);
     t.track.setInt(t.trackFirstmsField, firstms);
   }
   uint64_t Meta::getFirstms(size_t trackIdx) const{
     const DTSC::Track &t = tracks.at(trackIdx);
-    if (isLimited && limitMin > t.track.getInt(t.trackFirstmsField)){return limitMin;}
+    if (isLimited && limitShifted(limitMin, getLimiterShift(trackIdx)) > t.track.getInt(t.trackFirstmsField)) {
+      return limitShifted(limitMin, getLimiterShift(trackIdx));
+    }
     return t.track.getInt(t.trackFirstmsField);
   }
 
@@ -3251,7 +3258,9 @@ namespace DTSC{
   }
   uint64_t Meta::getLastms(size_t trackIdx) const{
     const DTSC::Track &t = tracks.at(trackIdx);
-    if (isLimited && limitMax < t.track.getInt(t.trackLastmsField)){return limitMax;}
+    if (isLimited && limitShifted(limitMax, getLimiterShift(trackIdx)) < t.track.getInt(t.trackLastmsField)) {
+      return limitShifted(limitMax, getLimiterShift(trackIdx));
+    }
     return t.track.getInt(t.trackLastmsField);
   }
 
@@ -3954,10 +3963,11 @@ namespace DTSC{
     const Track & t = tracks.at(trackIdx);
     DTSC::Keys k(t);
     if (applyLimiter && isLimited) {
+      const uint64_t shift = getLimiterShift(trackIdx);
       if (t.frames.isReady()) {
-        k.applyLimiter(limitMin, limitMax);
+        k.applyLimiter(limitShifted(limitMin, shift), limitShifted(limitMax, shift));
       } else {
-        k.applyLimiter(limitMin, limitMax, DTSC::Parts(t.parts));
+        k.applyLimiter(limitShifted(limitMin, shift), limitShifted(limitMax, shift), DTSC::Parts(t.parts));
       }
     }
     return k;
@@ -5047,6 +5057,20 @@ namespace DTSC{
     isLimited = false;
     limitMin = 0;
     limitMax = 0;
+    limitShifts.clear();
+  }
+
+  void Meta::setLimiterShift(size_t trackIdx, uint64_t shift) {
+    if (shift) {
+      limitShifts[trackIdx] = shift;
+    } else {
+      limitShifts.erase(trackIdx);
+    }
+  }
+
+  uint64_t Meta::getLimiterShift(size_t trackIdx) const {
+    const auto it = limitShifts.find(trackIdx);
+    return it == limitShifts.end() ? 0 : it->second;
   }
 
   void Meta::applyLimiter(uint64_t min, uint64_t max){
