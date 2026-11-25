@@ -42,6 +42,11 @@ udpsendsockettest = executable('udpsendsockettest', 'udp_send_socket_unit.cpp', 
 test('UDP API and push send sockets are connected to their destination instead of sitting on the wildcard address',
      udpsendsockettest, suite: 'Sockets')
 
+udpephemeralporttest = executable('udpephemeralporttest', 'udp_ephemeral_port_unit.cpp', header_tgts,
+                                  dependencies: libmist_dep)
+test('Ephemeral UDP ports are never shared with a socket that already holds them', udpephemeralporttest,
+     suite: 'Sockets')
+
 urireaderregressiontest = executable('urireaderregressiontest', 'urireader_regression.cpp', header_tgts,
                                      dependencies: libmist_dep)
 test('terminal ranged response can be reopened', urireaderregressiontest, suite: 'URIReader')

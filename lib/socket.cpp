@@ -2441,12 +2441,6 @@ void Socket::UDPConnection::init(bool _nonblock, int _family){
     checkRecvBuf();
   }
 
-  {
-    // Allow address re-use
-    int on = 1;
-    setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, &on, sizeof(on));
-  }
-
   up = 0;
   down = 0;
   hasReceiveData = false;
@@ -2873,11 +2867,6 @@ bool Socket::UDPConnection::setDestination(const Socket::Address & addr) {
     close();
     family = addr.family();
     sock = socket(family, SOCK_DGRAM, 0);
-    {
-      // Allow address re-use
-      int on = 1;
-      setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, &on, sizeof(on));
-    }
     if (family == AF_INET6){
       const int optval = 0;
       if (setsockopt(sock, IPPROTO_IPV6, IPV6_V6ONLY, &optval, sizeof(optval)) < 0){
@@ -3218,9 +3207,11 @@ repeatAddressFinding:
     sock = socket(rp->ai_family, rp->ai_socktype, rp->ai_protocol);
     if (sock == -1){continue;}
     {
-      // Allow address re-use
       int on = 1;
-      setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, &on, sizeof(on));
+      // An explicit port may be shared on purpose (per-peer sockets connected on a listener's port). An ephemeral
+      // bind gets SO_REUSEADDR only once bound: Linux hands an SO_REUSEADDR socket any port that other SO_REUSEADDR
+      // sockets hold, and the newest socket on an address takes all of its unicast datagrams.
+      if (port) { setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, &on, sizeof(on)); }
       // Restore broadcast if it was set
       if (hadBroadcast) {
         setsockopt(sock, SOL_SOCKET, SO_BROADCAST, &on, sizeof(on));
@@ -3271,6 +3262,10 @@ repeatAddressFinding:
       }
     }
     if (::bind(sock, rp->ai_addr, rp->ai_addrlen) == 0){
+      if (!port) {
+        const int on = 1;
+        setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, &on, sizeof(on));
+      }
       bindAddr.reserve();
       socklen_t alen = bindAddr.size();
       if (getsockname(sock, bindAddr, &alen)) { WARN_MSG("Could not read bind address: %s", strerror(errno)); }
@@ -3397,9 +3392,16 @@ bool Socket::UDPConnection::connect(){
       WARN_MSG("Could not set IPv6 UDP socket to be dual-stack! %s", strerror(errno));
     }
   }
-  if (!bindAddr.size() && ::bind(sock, recvAddr, recvAddr.size())) {
-    FAIL_MSG("Failed to bind socket %d to %s: %s", sock, recvAddr.toString().c_str(), strerror(errno));
-    return false;
+  if (!bindAddr.size()) {
+    // A per-peer socket joins the port its listener holds; an ephemeral local port must not share one (see bind()).
+    if (recvAddr.port()) {
+      const int on = 1;
+      setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, &on, sizeof(on));
+    }
+    if (::bind(sock, recvAddr, recvAddr.size())) {
+      FAIL_MSG("Failed to bind socket %d to %s: %s", sock, recvAddr.toString().c_str(), strerror(errno));
+      return false;
+    }
   }
   if (::connect(sock, destAddr, destAddr.size())) {
     FAIL_MSG("Failed to connect socket %d to %s: %s", sock, destAddr.toString().c_str(), strerror(errno));
