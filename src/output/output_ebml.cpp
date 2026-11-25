@@ -446,6 +446,10 @@ namespace Mist{
     } else {
       blockTime += packetOffset;
     }
+    // The declared CodecDelay is subtracted on playback, so blocks carry it on top of presentation.
+    if (M.getCodec(thisIdx) == "opus" && M.getInit(thisIdx).size() > 11) {
+      blockTime += Opus::getPreSkip(M.getInit(thisIdx).data()) * 1000000 / 48 / 1000000;
+    }
     if (M.getCodec(thisIdx) == "subtitle") {
       std::string block;
       EBML::appendSubtitleBlock(block, thisData, thisDataLen, thisIdx + 1, blockTime, thisPacket.getInt("duration"), currentClusterTime);

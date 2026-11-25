@@ -632,17 +632,32 @@ namespace EBML{
     haveDecode = false;
   }
 
+  /// The lag the decode clock starts with: the first reorder span, widened so every
+  /// buffered packet keeps a distinct decode tick before its presentation deadline.
+  uint64_t trackPredictor::startupLag() const {
+    if (ctr == rem) { return 0; }
+    const size_t buffered = std::min<uint64_t>(ctr - rem, PKT_COUNT);
+    uint64_t lag = times[std::min<uint64_t>(maxDelay, buffered - 1)] - times[0];
+    uint64_t latest = pkts[rem % PKT_COUNT].time;
+    for (size_t i = 1; i < buffered; ++i) {
+      const uint64_t presentation = pkts[(rem + i) % PKT_COUNT].time;
+      latest = std::min(latest, presentation >= i ? presentation - i : 0);
+    }
+    if (times[0] > latest) { lag = std::max(lag, times[0] - latest); }
+    return lag;
+  }
+
   packetData & trackPredictor::getPacketData(bool mustCalcOffsets) {
     // grab the next packet to output
     packetData & p = pkts[rem % PKT_COUNT];
     if (!mustCalcOffsets || !maxDelay) {
       initialized = true;
+      p.time += lead;
       return p;
     }
     const uint64_t clockTime = times[0];
     if (!initialized) {
-      const size_t depth = std::min<uint64_t>(maxDelay, ctr - rem - 1);
-      decodeDelay = times[depth] - clockTime;
+      decodeDelay = startupLag();
       decodeOrigin = clockTime;
       initialized = true;
     }
@@ -663,12 +678,13 @@ namespace EBML{
     }
     if (clockTime > latest) { decodeDelay = std::max(decodeDelay, clockTime - latest); }
     if (decodeDelays.empty() || previousDelay != decodeDelay) { decodeDelays[clockTime] = decodeDelay; }
-    const uint64_t presentation = p.time;
-    // The learned lag belongs to this position on the input decode clock,
-    // so every output can use the original presentation time without adding delay.
-    p.time = times[0] >= decodeOrigin + decodeDelay ? times[0] - decodeDelay : decodeOrigin;
-    // Keep the initial decode preroll inside the source timeline so its first
-    // timestamp still aligns with other tracks. Presentation never moves.
+    const uint64_t presentation = p.time + lead;
+    const uint64_t clock = clockTime + lead;
+    // The decode clock starts one initial lag before the first presentation, at the frame cadence;
+    // only a timeline without room for that lag compresses the decode times of its first frames.
+    const uint64_t start = decodeOrigin + lead;
+    const uint64_t earliest = start - std::min(start, decodeDelays.begin()->second);
+    p.time = clock >= earliest + decodeDelay ? clock - decodeDelay : earliest;
     if (haveDecode && p.time <= lastDecode) { p.time = lastDecode + 1; }
     lastDecode = p.time;
     haveDecode = true;
@@ -702,6 +718,8 @@ namespace EBML{
   }
 
   void trackPredictor::remove() {
+    // Release the payload: a slot is reused only after the whole ring has turned over.
+    Util::ResizeablePointer().swap(pkts[rem % PKT_COUNT].ptr);
     ++rem;
     size_t buffLen = ctr - rem;
     if (buffLen >= PKT_COUNT) { buffLen = PKT_COUNT - 1; }
@@ -736,7 +754,14 @@ namespace EBML{
     }
 
     if (E.getID() == EBML::EID_TRACKENTRY) {
-      EBML::parseTrackEntry(E, meta);
+      if (EBML::parseTrackEntry(E, meta)) {
+        const uint64_t track = E.findChild(EBML::EID_TRACKNUMBER).getValUInt();
+        const std::string codec = E.findChild(EBML::EID_CODECID).getValString();
+        if (codec == "V_MPEG4/ISO/AVC" || codec == "V_MPEGH/ISO/HEVC") { reorderedTracks.insert(track); }
+        // Block timestamps include the codec's built-in delay, which playback subtracts.
+        const EBML::Element delay = E.findChild(EBML::EID_CODECDELAY);
+        if (delay) { codecDelays[track] = delay.getValUInt() / 1000000; }
+      }
       return;
     }
     if (E.getID() == EBML::EID_TIMECODESCALE) {
@@ -936,11 +961,51 @@ namespace EBML{
   }
 
   void toDTSC::flush() {
+    finishing = false;
     for (auto & it : packBuf) { it.second.flush(); }
   }
 
   void toDTSC::finish() {
+    finishing = true;
     for (auto & it : packBuf) { it.second.finish(); }
+  }
+
+  /// Picks the timeline lead once every reordered video track holds its first reorder window,
+  /// so all tracks shift alike before any packet leaves. A full buffer or the end of input
+  /// decides with what is known.
+  bool toDTSC::decideLead() {
+    if (leadKnown) { return true; }
+    bool full = finishing;
+    for (const auto & it : packBuf) {
+      if (it.second.ctr - it.second.rem >= PKT_COUNT - 1) { full = true; }
+    }
+    for (const uint64_t track : reorderedTracks) {
+      const auto it = packBuf.find(track);
+      if (full) { break; }
+      if (it == packBuf.end() || !it->second.ctr) { return false; }
+      const trackPredictor & TP = it->second;
+      if (TP.maxDelay && !TP.initialized && TP.finished == INVALID_TRACK_ID && TP.ctr - TP.rem <= TP.maxDelay) {
+        return false;
+      }
+    }
+    // Every track's earliest timestamp minus its codec delay, and every reordered track's first
+    // decode time, must stay on the non-negative timeline.
+    for (const auto & delay : codecDelays) { lead = std::max(lead, delay.second); }
+    for (const uint64_t track : reorderedTracks) {
+      const auto it = packBuf.find(track);
+      if (it == packBuf.end() || !it->second.maxDelay || it->second.initialized || it->second.ctr == it->second.rem) {
+        continue;
+      }
+      const uint64_t lag = it->second.startupLag() + codecDelay(track);
+      if (lag > it->second.times[0]) { lead = std::max(lead, lag - it->second.times[0]); }
+    }
+    leadKnown = true;
+    return true;
+  }
+
+  uint64_t toDTSC::codecDelay(uint64_t track) const {
+    const auto it = codecDelays.find(track);
+    return it == codecDelays.end() ? 0 : it->second;
   }
 
   void toDTSC::postHeader(DTSC::Meta & meta) {
@@ -964,9 +1029,10 @@ namespace EBML{
   }
 
   bool toDTSC::fillPacket(const DTSC::Meta & M, size_t & thisIdx, uint64_t & thisTime, DTSC::Packet & thisPacket) {
-    if (bufferedPacks && packBuf.size()) {
+    if (bufferedPacks && packBuf.size() && decideLead()) {
       for (auto & it : packBuf) {
         EBML::trackPredictor & TP = it.second;
+        TP.lead = lead - codecDelay(it.first);
         if (TP.hasPackets()) {
           thisIdx = M.trackIDToIndex(it.first, getpid());
           EBML::packetData & C = TP.getPacketData(M.getType(thisIdx) == "video");
@@ -1017,9 +1083,10 @@ namespace EBML{
   }
 
   void toDTSC::fillPacketData(DTSC::Meta & meta) {
-    if (bufferedPacks && packBuf.size()) {
+    if (bufferedPacks && packBuf.size() && decideLead()) {
       for (auto & it : packBuf) {
         EBML::trackPredictor & TP = it.second;
+        TP.lead = lead - codecDelay(it.first);
         size_t thisIdx = meta.trackIDToIndex(it.first, getpid());
         while (TP.hasPackets()) {
           EBML::packetData & C = TP.getPacketData(meta.getType(thisIdx) == "video");

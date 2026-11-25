@@ -35,8 +35,14 @@ static bool checkHEVCOpenGOP(const std::string & init = "") {
     while (parser.fillPacket(meta, idx, time, packet)) {
       if (count >= sizeof(presentation) / sizeof(*presentation) || (count && time <= previous) ||
           int64_t(packet.getInt("offset")) < 0 ||
-          int64_t(time) + int64_t(packet.getInt("offset")) != int64_t(presentation[count])) {
-        fprintf(stderr, "HEVC open GOP lost decode/presentation order: frame=%zu DTS=%llu previous=%llu\n", count,
+          int64_t(time) + int64_t(packet.getInt("offset")) != int64_t(presentation[count] + parser.lead)) {
+        fprintf(stderr, "HEVC open GOP lost decode/presentation order: frame=%zu DTS=%llu previous=%llu lead=%llu\n",
+                count, (unsigned long long)time, (unsigned long long)previous, (unsigned long long)parser.lead);
+        return false;
+      }
+      // The shared lead leaves room for the whole reorder lag, so decoding keeps the 40 ms cadence.
+      if (count && time - previous != 40) {
+        fprintf(stderr, "HEVC open GOP decode clock left the frame cadence: frame=%zu DTS=%llu previous=%llu\n", count,
                 (unsigned long long)time, (unsigned long long)previous);
         return false;
       }

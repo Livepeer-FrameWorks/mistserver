@@ -1598,7 +1598,7 @@ if get_option('WITH_AV') and ffmpeg_program.found() and ffprobe_program.found()
 endif
 
 ebmlpredictortest = executable('ebmlpredictortest', 'ebml_predictor_timestamps.cpp', header_tgts, dependencies: libmist_dep)
-test('Matroska B-frames retain monotonic DTS and unchanged presentation', ebmlpredictortest, suite: 'EBML')
+test('Matroska B-frames retain a cadenced monotonic DTS and presentation spacing', ebmlpredictortest, suite: 'EBML')
 if ffmpeg_program.found() and ffprobe_program.found()
   foreach rate : ['10', '30']
     foreach source_mode : ['bf3', 'no-restriction']
@@ -1615,6 +1615,11 @@ if ffmpeg_program.found() and ffprobe_program.found()
          args: [files('livepeer_bframe_timing_integration.py'), meson.project_build_root(), ffmpeg_program, ffprobe_program, return_bframes],
          depends: media_test_deps, suite: 'Processing', timeout: 100, is_parallel: false)
   endforeach
+  foreach rate : ['5', '10']
+    test('Livepeer Matroska segments keep the source frame rate ' + rate + 'fps', find_program('python3'),
+         args: [files('livepeer_matroska_rate_integration.py'), meson.project_build_root(), ffmpeg_program, ffprobe_program, rate],
+         depends: media_test_deps, suite: 'Processing', timeout: 100, is_parallel: false)
+  endforeach
   liveingestprobe = executable('liveingestprobe', 'live_ingest_probe.cpp', header_tgts, dependencies: libmist_dep)
   test('Live HEVC Matroska uses its declared TS reorder bound', find_program('python3'),
        args: [files('ebml_live_ts_clock_integration.py'), meson.project_build_root(), ffmpeg_program, ffprobe_program, 'HEVC', liveingestprobe],
@@ -1628,6 +1633,13 @@ if ffmpeg_program.found() and ffprobe_program.found()
   test('Nonzero-origin Matroska MP4 recordings preserve A/V alignment', find_program('python3'),
        args: [files('ebml_bframe_timeline_integration.py'), meson.project_build_root(), ffmpeg_program, ffprobe_program],
        env: {'MIST_TIMELINE_ORIGIN': '1'}, depends: media_test_deps, suite: 'Processing', timeout: 100, is_parallel: false)
+  foreach container : ['mkv', 'mp4', 'ts']
+    foreach target : ['mp4', 'ts', 'hls']
+      test('B-frame ' + container + ' input keeps A/V alignment in ' + target + ' output', find_program('python3'),
+           args: [files('av_sync_matrix_integration.py'), meson.project_build_root(), ffmpeg_program, ffprobe_program, container, target],
+           depends: media_test_deps + [exec_tgts['MistOutHTTPTS'], exec_tgts['MistOutHLS']], suite: 'Processing', timeout: 100, is_parallel: false)
+    endforeach
+  endforeach
   test('MP4 input B-frame remux preserves pixels and A/V alignment', find_program('python3'),
        args: [files('ebml_bframe_timeline_integration.py'), meson.project_build_root(), ffmpeg_program, ffprobe_program],
        env: {'MIST_TIMELINE_CONTAINER': 'mp4'}, depends: media_test_deps, suite: 'Processing', timeout: 100, is_parallel: false)

@@ -5,7 +5,8 @@
 #include "orientation.h"
 #include "socket.h"
 
-#define PKT_COUNT 24
+// Holds a full reorder window of slow video plus the audio interleaved with it.
+#define PKT_COUNT 256
 
 namespace EBML{
   void sendUniInt(Socket::Connection &C, const uint64_t val);
@@ -88,7 +89,11 @@ namespace EBML{
       bool haveDecode{false};
       // Lag checkpoints use the sorted presentation clock and survive seeks.
       std::map<uint64_t, uint64_t> decodeDelays;
+      /// Added to every timestamp: the shared timeline lead minus this track's codec delay, so the decode
+      /// clock can start one reorder span before the first presentation.
+      uint64_t lead{0};
       bool hasPackets();
+      uint64_t startupLag() const;
       void finish();
       void flush();
       packetData & getPacketData(bool mustCalcOffsets);
@@ -115,9 +120,18 @@ namespace EBML{
       uint64_t bufferedPacks{0};
       std::map<uint64_t, EBML::trackPredictor> packBuf;
       std::set<uint64_t> swapEndianness;
+      /// Timeline shift shared by all tracks; see trackPredictor::lead.
+      uint64_t lead{0};
+      bool leadKnown{false};
+      /// Matroska CodecDelay per track number, in ms; presentation is the block time minus it.
+      std::map<uint64_t, uint64_t> codecDelays;
+      uint64_t codecDelay(uint64_t track) const;
 
     private:
+      bool decideLead();
+      std::set<uint64_t> reorderedTracks; ///< H264/HEVC track numbers whose first window sets the lead
       bool withData{true};
+      bool finishing{false};
       double timeScale{0};
       int64_t dateVal{0};
   };

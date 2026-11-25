@@ -239,7 +239,7 @@ namespace Mist{
 
   bool InputEBML::readExistingHeader(){
     if (!Input::readExistingHeader()) { return false; }
-    if (!M.inputLocalVars.isMember("version") || M.inputLocalVars["version"].asInt() < 7) {
+    if (!M.inputLocalVars.isMember("version") || M.inputLocalVars["version"].asInt() < 8) {
       INFO_MSG("Header needs update, regenerating");
       return false;
     }
@@ -259,6 +259,13 @@ namespace Mist{
       }
       if (predictor.maxDelay && predictor.decodeDelays.empty()) { return false; }
       predictor.initialized = true;
+    }
+    if (M.inputLocalVars.isMember("decode_lead")) {
+      parser.lead = M.inputLocalVars["decode_lead"].asInt();
+      parser.leadKnown = true;
+    }
+    jsonForEachConst (M.inputLocalVars["codec_delays"], delay) {
+      parser.codecDelays[strtoull(delay.key().c_str(), 0, 10)] = delay->asInt();
     }
     return true;
   }
@@ -320,7 +327,12 @@ namespace Mist{
       clock["origin"] = track.second.decodeOrigin;
       for (const auto & step : track.second.decodeDelays) { clock["steps"][std::to_string(step.first)] = step.second; }
     }
-    meta.inputLocalVars["version"] = 7;
+    // Every track of the cached index and of later reads shares this timeline shift.
+    if (parser.leadKnown) { meta.inputLocalVars["decode_lead"] = parser.lead; }
+    for (const auto & delay : parser.codecDelays) {
+      meta.inputLocalVars["codec_delays"][std::to_string(delay.first)] = delay.second;
+    }
+    meta.inputLocalVars["version"] = 8;
     if (wholeFile) { meta.inputLocalVars["complete"] = 1; }
     return true;
   }

@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
-"""Receive real SDP/RTP output from a B-frame Matroska file."""
+"""Receive real SDP/RTP output from a B-frame Matroska file.
+
+RTP timestamps start at an arbitrary origin; Mist sends its shared presentation timeline, which
+may sit a constant lead after the file's own. Every frame must keep its exact presentation time
+relative to the others, in presentation order on the 90 kHz clock.
+"""
 from pathlib import Path
 import json
 import socket
@@ -35,7 +40,9 @@ def main():
                     if len(data) >= 12 and data[1] & 0x80:
                         observed.append(int.from_bytes(data[4:8], 'big'))
                 assert output.wait(timeout=10) == 0, 'SDP output failed'
-        assert observed == expected, ('RTP presentation clock differs from MKV PTS', observed[:10], expected[:10])
+        assert len(observed) == 100 and len(expected) >= 100, ('missing frames', len(observed), len(expected))
+        shifts = {(o - e) & 0xffffffff for o, e in zip(observed, expected)}
+        assert len(shifts) == 1, ('RTP presentation clock differs from MKV PTS', observed[:10], expected[:10])
         success = True
         print('PASS real B-frame MKV -> SDP/RTP: all 100 frame timestamps retain presentation order and 90 kHz clock', flush=True)
     finally:
