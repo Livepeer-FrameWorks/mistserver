@@ -109,7 +109,7 @@ namespace Mist{
   bool InputMP4::needHeader(){
     //Attempt to read cache, but force calling of the readHeader function anyway
     bool r = Input::needHeader();
-    if (!r && M.inputLocalVars["mp4_input_version"].asInt() != 4) {
+    if (!r && M.inputLocalVars["mp4_input_version"].asInt() != 5) {
       meta.clear();
       return true;
     }
@@ -156,7 +156,8 @@ namespace Mist{
           trackHeaders.push_back(MP4::TrackHeader());
           MP4::Box movieBox = ((MP4::MOOV *)&moovBox)->getChild("mvhd");
           MP4::MVHD & movie = (MP4::MVHD &)movieBox;
-          trackHeaders.rbegin()->read(*trakIt, movie.isType("mvhd") ? movie.getOrientation() : Mist::Orientation());
+          trackHeaders.rbegin()->read(*trakIt, movie.isType("mvhd") ? movie.getOrientation() : Mist::Orientation(),
+                                      movie.isType("mvhd") ? movie.getTimeScale() : 0);
         }
         std::deque<MP4::TREX> trex = ((MP4::MOOV*)&moovBox)->getChild<MP4::MVEX>().getChildren<MP4::TREX>();
         for (std::deque<MP4::TREX>::iterator trexIt = trex.begin(); trexIt != trex.end(); trexIt++){
@@ -191,6 +192,20 @@ namespace Mist{
       return false;
     }
 
+    // Place every track at its edit-list presentation time with non-negative composition
+    // offsets and decode times, keeping multi-track sync: PTS = movie time + globalTimeOffset
+    // for every track. A cached header holds these times, so later reads apply the same shifts.
+    const int64_t globalTimeOffset = MP4::TrackHeader::normalizeCompositionOffsets(trackHeaders);
+    for (std::deque<MP4::TrackHeader>::iterator it = trackHeaders.begin(); it != trackHeaders.end(); it++) {
+      if (!it->compatible()) { continue; }
+      int64_t minCTS = it->getMinCTSOffsetMs();
+      int64_t dtsCtsOffset = it->offsetShift;
+      if (dtsCtsOffset || it->timeShift) {
+        INFO_MSG("Track %" PRIu32 ": rebasing offsets by +%" PRId64 " ms, DTS by %+" PRId64
+                 " ms (min CTS offset was %" PRId64 " ms, edit shift %+" PRId64 " ms, global shift %" PRId64 " ms)",
+                 (uint32_t)it->trackId, dtsCtsOffset, it->timeShift, minCTS, it->editShift, globalTimeOffset);
+      }
+    }
 
     // If we already read a cached header, we can exit here.
     if (M){
@@ -203,25 +218,6 @@ namespace Mist{
     meta.reInit(isSingular() ? streamName : "");
     tNumber = 0;
     bps = 0;
-
-    // Compute a uniform PTS rebase across all compatible tracks so that any negative
-    // CTTS composition offsets are turned into non-negative offsets, while keeping
-    // multi-track sync. Each track's DTS gets shifted forward by globalTimeOffset (max
-    // negative offset across tracks) and its per-sample offset is increased by this
-    // track's own negative-offset magnitude. Net effect: PTS = origPTS + globalTimeOffset
-    // for every track, and offsets are always >= 0 — so downstream code that reads
-    // them as unsigned (e.g. TS PES encoder) stays correct.
-    const int64_t globalTimeOffset = MP4::TrackHeader::normalizeCompositionOffsets(trackHeaders);
-    for (std::deque<MP4::TrackHeader>::iterator it = trackHeaders.begin(); it != trackHeaders.end(); it++) {
-      if (!it->compatible()) { continue; }
-      int64_t minCTS = it->getMinCTSOffsetMs();
-      int64_t dtsCtsOffset = it->offsetShift;
-      if (dtsCtsOffset || globalTimeOffset) {
-        INFO_MSG("Track %" PRIu32 ": rebasing offsets by +%" PRId64 " ms, DTS by +%" PRId64
-                 " ms (min CTS offset was %" PRId64 " ms, global shift %" PRId64 " ms)",
-                 (uint32_t)it->trackId, dtsCtsOffset, it->timeShift, minCTS, globalTimeOffset);
-      }
-    }
 
     bool sawParts = false;
     bool parsedInitial = false;
@@ -373,7 +369,7 @@ namespace Mist{
       }
     }
 
-    meta.inputLocalVars["mp4_input_version"] = 4;
+    meta.inputLocalVars["mp4_input_version"] = 5;
     return true;
   }
 

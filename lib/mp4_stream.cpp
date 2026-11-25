@@ -94,18 +94,22 @@ namespace MP4{
   }
 
   int64_t TrackHeader::normalizeCompositionOffsets(std::deque<TrackHeader> & tracks) {
+    // A track presents at DTS + CTS + editShift. Raising its offsets by -minCTS and its decode
+    // times by editShift + shift - that amount keeps every presentation shifted alike; the
+    // shared shift is the smallest one that keeps all decode times non-negative.
     int64_t globalTimeOffset = 0;
     for (std::deque<TrackHeader>::iterator it = tracks.begin(); it != tracks.end(); ++it) {
       if (!it->compatible()) { continue; }
       const int64_t minCTS = it->getMinCTSOffsetMs();
-      if (minCTS < 0 && -minCTS > globalTimeOffset) { globalTimeOffset = -minCTS; }
+      const int64_t offsetRebase = minCTS < 0 ? -minCTS : 0;
+      globalTimeOffset = std::max(globalTimeOffset, offsetRebase - it->editShift);
     }
     for (std::deque<TrackHeader>::iterator it = tracks.begin(); it != tracks.end(); ++it) {
       if (!it->compatible()) { continue; }
       const int64_t minCTS = it->getMinCTSOffsetMs();
       const int64_t offsetRebase = minCTS < 0 ? -minCTS : 0;
       it->offsetShift = offsetRebase;
-      it->timeShift = globalTimeOffset - offsetRebase;
+      it->timeShift = it->editShift + globalTimeOffset - offsetRebase;
     }
     return globalTimeOffset;
   }
@@ -135,7 +139,7 @@ namespace MP4{
     if (trexBox.isType("trex")){trexPtr = &trexBox;}
   }
 
-  void TrackHeader::read(TRAK & trakBox, Mist::Orientation movieOrientation) {
+  void TrackHeader::read(TRAK & trakBox, Mist::Orientation movieOrientation, uint64_t movieTimeScale) {
     vidWidth = vidHeight = audChannels = audRate = audSize = 0;
     codec.clear();
     // Default to incompatible — codec-detection blocks below promote to true.
@@ -162,6 +166,25 @@ namespace MP4{
     if (!timeScale) {
       WARN_MSG("Track %zu has timeScale=0 (MDHD missing or malformed); marking track as unusable", trackId);
       return;
+    }
+
+    // Leading empty edits delay the track; the first media edit names the sample time presented
+    // at that movie time. Later edits (cuts, rate changes) are not applied.
+    editShift = 0;
+    ELST elst = trakBox.getChild<EDTS>().getChild<ELST>();
+    if (elst.isType("elst") && movieTimeScale) {
+      const uint64_t empty = elst.getVersion() == 1 ? 0xFFFFFFFFFFFFFFFFull : 0xFFFFFFFFull;
+      uint64_t dwell = 0;
+      for (uint32_t i = 0; i < elst.getCount(); ++i) {
+        if (elst.getMediaTime(i) == empty) {
+          dwell += elst.getSegmentDuration(i);
+          continue;
+        }
+        if (elst.getMediaRateInteger(i) == 1) {
+          editShift = int64_t(dwell * 1000 / movieTimeScale) - int64_t(elst.getMediaTime(i) * 1000 / timeScale);
+        }
+        break;
+      }
     }
 
     STBL stblBox = mdiaBox.getChild<MINF>().getChild<STBL>();

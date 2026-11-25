@@ -62,6 +62,24 @@ namespace Mist{
       }
   };
 
+  /// The earliest presentation time of a progressive track, where its edit list starts it on
+  /// the movie timeline. Fragmented and live output place tracks by their first decode time.
+  static uint64_t presentationStart(const DTSC::Meta & M, size_t track, bool fragmented) {
+    const uint64_t first = M.getFirstms(track);
+    if (fragmented || M.getLive()) { return first; }
+    DTSC::Keys keys = M.getKeys(track);
+    const size_t count = std::min<size_t>(keys.getTotalPartCount(), 64);
+    if (!count) { return first; }
+    const DTSC::Parts parts(M.parts(track));
+    const size_t begin = keys.getFirstPart(keys.getFirstValid());
+    int64_t decode = int64_t(first), earliest = INT64_MAX;
+    for (size_t part = begin; part < begin + count; ++part) {
+      earliest = std::min(earliest, decode + parts.getOffset(part));
+      decode += int64_t(parts.getDuration(part));
+    }
+    return earliest > 0 ? uint64_t(earliest) : 0;
+  }
+
   bool OutMP4::trackReadyForOutput(size_t track) const {
     if (sentHeader && !fileHeaderTracks.empty() && !fileHeaderTracks.count(track)) { return false; }
     return M.getCodec(track) != "EAC-3" || AC3::validDEC3(M.getInit(track));
@@ -321,7 +339,7 @@ namespace Mist{
     uint64_t res = 36 + 8 + 108; // FTYP + MOOV + MVHD Boxes
     uint64_t firstms = 0xFFFFFFFFFFFFFFFFull;
     for (std::map<size_t, Comms::Users>::const_iterator it = userSelect.begin(); it != userSelect.end(); it++){
-      firstms = std::min(firstms, M.getFirstms(it->first));
+      firstms = std::min(firstms, presentationStart(M, it->first, fragmented));
     }
     for (std::map<size_t, Comms::Users>::const_iterator it = userSelect.begin(); it != userSelect.end(); it++){
       const std::string tType = M.getType(it->first);
@@ -338,7 +356,7 @@ namespace Mist{
                 + 8                                           // MINF Box
                 + 36                                          // DINF Box
                 + 8;                                          // STBL Box
-      if (!M.getLive() && M.getFirstms(it->first) != firstms){
+      if (!M.getLive() && presentationStart(M, it->first, fragmented) != firstms) {
         tmpRes += 12; // EDTS entry extra
       }
 
@@ -546,8 +564,8 @@ namespace Mist{
       for (std::map<size_t, Comms::Users>::const_iterator it = userSelect.begin();
            it != userSelect.end(); it++){
         if (prevVidTrack != INVALID_TRACK_ID && it->first == prevVidTrack){continue;}
-        lastms = std::max(lastms, M.getFirstms(it->first) + presentationDuration(it->first));
-        firstms = std::min(firstms, M.getFirstms(it->first));
+        lastms = std::max(lastms, presentationStart(M, it->first, fragmented) + presentationDuration(it->first));
+        firstms = std::min(firstms, presentationStart(M, it->first, fragmented));
       }
       mvhdBox.setDuration(lastms - firstms);
     }
@@ -583,10 +601,12 @@ namespace Mist{
       MP4::ELST elstBox;
       elstBox.setVersion(0);
       elstBox.setFlags(0);
-      if (!M.getLive() && M.getFirstms(it->first) != firstms){
+      // Every track starts at its earliest presentation, relative to the earliest across tracks.
+      const uint64_t trackStart = presentationStart(M, it->first, fragmented);
+      if (!M.getLive() && trackStart != firstms) {
         elstBox.setCount(2);
 
-        elstBox.setSegmentDuration(0, M.getFirstms(it->first) - firstms);
+        elstBox.setSegmentDuration(0, trackStart - firstms);
         elstBox.setMediaTime(0, 0xFFFFFFFFull);
         elstBox.setMediaRateInteger(0, 0);
         elstBox.setMediaRateFraction(0, 0);
@@ -595,7 +615,7 @@ namespace Mist{
         elstBox.setMediaTime(1, mediaStart);
         elstBox.setMediaRateInteger(1, 1);
         elstBox.setMediaRateFraction(1, 0);
-      }else{
+      } else {
         elstBox.setCount(1);
         elstBox.setSegmentDuration(0, fragmented ? 0 : tDuration);
         elstBox.setMediaTime(0, mediaStart);

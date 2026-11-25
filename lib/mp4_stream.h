@@ -29,7 +29,7 @@ namespace MP4{
     TrackHeader();
 
     /// Reads (new) track header information for processing
-    void read(TRAK & trakBox, Mist::Orientation movieOrientation = Mist::Orientation());
+    void read(TRAK & trakBox, Mist::Orientation movieOrientation = Mist::Orientation(), uint64_t movieTimeScale = 0);
     /// Reads (new) track header information for processing
     void read(TREX &trexBox);
     /// Reads (new) track header information for processing
@@ -57,8 +57,9 @@ namespace MP4{
     /// Useful for the input layer to compute a uniform PTS rebase across tracks.
     int64_t getMinCTSOffsetMs();
 
-    /// Makes every compatible track's composition offsets non-negative while shifting each
-    /// presentation timeline by the same amount. Returns that shared presentation-time shift.
+    /// Places every compatible track at its edit-list presentation time with non-negative
+    /// composition offsets and decode times, shifting all tracks by the same amount.
+    /// Returns that shared shift.
     static int64_t normalizeCompositionOffsets(std::deque<TrackHeader> & tracks);
 
     // Information about the track. Public for convenience, but setting them has no effect.
@@ -70,6 +71,8 @@ namespace MP4{
     // composition offsets uniformly while keeping multi-track sync. Both default to 0.
     int64_t timeShift; ///< Added to every returned *time (ms)
     int64_t offsetShift; ///< Added to every returned *timeOffset (ms)
+    /// Movie time minus media time (ms) of the first presented sample, from the edit list.
+    int64_t editShift{0};
     std::string sType; ///< MP4-internal codec name for this track - do not write to externally!
     std::string codec; ///< Mist codec name for this track
     std::string trackType; ///< Which Mist-compatible track type this is

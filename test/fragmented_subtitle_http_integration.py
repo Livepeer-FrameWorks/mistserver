@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
-"""Read actual fragmented tx3g through the controller's HTTP subtitle output."""
+"""Read actual fragmented tx3g through the controller's HTTP subtitle output.
+
+Cues are served on the stream's presentation timeline, which may lead the file's movie
+timeline by a constant (a progressive file's audio priming edit); they must stay exactly in
+step with the stream's video.
+"""
 from pathlib import Path
 import os
 import json
@@ -105,9 +110,17 @@ for mode in ('moof', 'absolute', 'progressive', 'moof-noaudio', 'absolute-noaudi
         packets = probe['packets']
         cues = [packet for packet in packets if int(packet['size']) > 2]
         assert len(cues) == 2, cues
+        source_video = json.loads(subprocess.check_output([ffprobe,'-v','error','-select_streams','v:0','-show_entries','packet=pts_time','-of','json',str(source)],text=True))['packets']
+        lead = Decimal(0)
         def timestamp(seconds):
-            ms = int(Decimal(seconds) * 1000)
+            ms = int((Decimal(seconds) + lead) * 1000)
             return '%02d:%02d:%02d.%03d' % (ms//3600000,ms//60000%60,ms//1000%60,ms%1000)
+        fixture.start(streams_override={fixture.stream:{'source':str(source)}}, extra_protocols=[{'connector':'SubRip'}])
+        with urllib.request.urlopen('http://127.0.0.1:%d/json_%s.js' % (fixture.http, fixture.stream), timeout=30) as response:
+            tracks = json.load(response)['meta']['tracks'].values()
+        video_first = min(Decimal(track['firstms']) for track in tracks if track['type'] == 'video') / 1000
+        lead = video_first - min(Decimal(packet['pts_time']) for packet in source_video)
+        assert 0 <= lead < Decimal('0.1'), (mode, 'stream timeline moved by more than one priming delay', lead)
         if all('duration_time' in packet for packet in cues):
             expected_times = [timestamp(packet['pts_time']) + ' --> ' + timestamp(str(Decimal(packet['pts_time'])+Decimal(packet['duration_time']))) for packet in cues]
         else:
@@ -116,7 +129,6 @@ for mode in ('moof', 'absolute', 'progressive', 'moof-noaudio', 'absolute-noaudi
             expected_times = [timestamp(start) + ' --> ' + timestamp(end)
                               for start, end in fragmented_cue_times(source, probe['streams'][0])]
             print('Using independent ISO BMFF subtitle timing for', mode, flush=True)
-        fixture.start(streams_override={fixture.stream:{'source':str(source)}}, extra_protocols=[{'connector':'SubRip'}])
         for extension in ('srt','vtt'):
             url = 'http://127.0.0.1:%d/%s.%s' % (fixture.http, fixture.stream, extension)
             with urllib.request.urlopen(url, timeout=30) as response:
