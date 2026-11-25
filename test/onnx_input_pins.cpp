@@ -17,6 +17,7 @@
 #include <sys/stat.h>
 #include <sys/wait.h>
 #include <unistd.h>
+#include <utility>
 #include <vector>
 
 static int fails = 0;
@@ -268,11 +269,17 @@ int main() {
 
   // Devices go to the session NPU first, then GPU, then CPU, in enumeration order within a
   // type, so the plain factory's single device is the one AUTO prefers.
-  CHECK(ONNX::ORTHelpers::openVINODeviceOrder({"CPU", "GPU.0", "NPU", "GPU.1"}) == std::vector<size_t>{2, 1, 3, 0});
-  CHECK(ONNX::ORTHelpers::openVINODeviceOrder({"CPU", "GPU"}) == std::vector<size_t>{1, 0});
-  CHECK(ONNX::ORTHelpers::openVINODeviceOrder({"NPU", "GPU", "CPU"}) == std::vector<size_t>{0, 1, 2});
-  CHECK(ONNX::ORTHelpers::openVINODeviceOrder({"HETERO", "CPU"}) == std::vector<size_t>{1, 0});
-  CHECK(ONNX::ORTHelpers::openVINODeviceOrder({}).empty());
+  {
+    // Each case: the enumerated devices, then the order they reach the session in.
+    const std::vector<std::pair<std::vector<std::string>, std::vector<size_t>>> cases = {
+      {{"CPU", "GPU.0", "NPU", "GPU.1"}, {2, 1, 3, 0}},
+      {{"CPU", "GPU"}, {1, 0}},
+      {{"NPU", "GPU", "CPU"}, {0, 1, 2}},
+      {{"HETERO", "CPU"}, {1, 0}},
+      {{}, {}},
+    };
+    for (const auto & entry : cases) { CHECK(ONNX::ORTHelpers::openVINODeviceOrder(entry.first) == entry.second); }
+  }
 
   // load_config is keyed by the device name the plugin compiles for: "AUTO" on the AUTO
   // factory, otherwise each exact ov_device name, indexed ones included.
