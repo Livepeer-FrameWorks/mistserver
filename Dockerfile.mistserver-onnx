@@ -19,11 +19,15 @@ ENV DEBIAN_FRONTEND=noninteractive
 # need jq and unzip, which ubuntu and debian build bases do not ship.
 RUN apt-get update && apt-get install -y --no-install-recommends \
       build-essential ca-certificates curl git patch patchelf jq unzip \
-      python3 python3-pip ninja-build pkg-config cmake ffmpeg \
+      python3 python3-pip ninja-build pkg-config cmake ffmpeg nasm yasm \
       libcjson-dev libmbedtls-dev libxml2-dev zlib1g-dev liblzma-dev \
-      libavcodec-dev libavfilter-dev libavformat-dev libavutil-dev \
-      libswscale-dev libswresample-dev \
+      libaom-dev libdav1d-dev libjpeg-dev libmp3lame-dev libnuma-dev libopus-dev libpng-dev \
+      libsvtav1enc-dev libvpx-dev libx265-dev \
+      clang llvm lld libffmpeg-nvenc-dev libva-dev libdrm-dev \
       librist-dev libsrt-openssl-dev libsrtp2-dev libusrsctp-dev libssl-dev \
+    && if [ "$(dpkg --print-architecture)" = amd64 ]; then \
+         apt-get install -y --no-install-recommends libvpl-dev; \
+       fi \
     && python3 -m pip install --break-system-packages 'meson>=1.6.0' 'cmake>=3.28' \
     && rm -rf /var/lib/apt/lists/*
 
@@ -69,7 +73,7 @@ ENV CMAKE_PREFIX_PATH=/opt/mist-onnx
 RUN export LD_LIBRARY_PATH="/opt/mist-onnx/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
     && meson setup /build /src \
       --buildtype=debugoptimized \
-      --force-fallback-for=mbedtls \
+      --force-fallback-for=mbedtls,libavcodec,libavfilter,libavformat,libavutil,libswscale,libswresample,x264 \
       -DDOCKERRUN=true \
       -DNOUPDATE=true \
       -DDEBUG=${DEBUG} \
@@ -84,6 +88,7 @@ RUN export LD_LIBRARY_PATH="/opt/mist-onnx/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PA
     && grep -qE 'NDI:[[:space:]]+COMPILED' /build/meson-logs/meson-log.txt \
     && grep -qE 'ONVIF camera discovery:[[:space:]]+YES' /build/meson-logs/meson-log.txt \
     && grep -qE 'Dependency mbedtls for host machine from subproject .* found: YES' /build/meson-logs/meson-log.txt \
+    && grep -qE '^Dependency libavcodec for host machine found: YES [0-9.]+ \(overridden\)' /build/meson-logs/meson-log.txt \
     && if [ -n "${MIST_BUILD_JOBS}" ]; then ninja -C /build -j "${MIST_BUILD_JOBS}"; else ninja -C /build; fi \
     && if [ "${ONNX_RUN_PROVIDER_TEST}" = true ]; then \
          /src/scripts/ONNX/prepare_models.sh --dir /tmp/onnx-models yolo26n; \
