@@ -39,7 +39,14 @@ cleanup() {
     kill -INT "$controller_pid" >/dev/null 2>&1 || true
     wait "$controller_pid" >/dev/null 2>&1 || true
   fi
+  # The always-on input outlives its controller. It is this test's process, so the test waits for
+  # it to exit (an instrumented build can take seconds) instead of leaving it to the caller.
   pkill -f "MistInTS.*$stream" >/dev/null 2>&1 || true
+  tries=0
+  while pgrep -f "MistInTS.*$stream" >/dev/null 2>&1 && [ "$tries" -lt 200 ]; do
+    tries=$((tries + 1))
+    sleep 0.1
+  done
   TMP="$ipc_root" "$fixture" --release "$pull_lock" >/dev/null 2>&1 || true
   rm -rf -- "$work"
   exit "$status"
