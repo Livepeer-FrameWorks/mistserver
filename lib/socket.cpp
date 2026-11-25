@@ -2859,6 +2859,24 @@ bool Socket::UDPConnection::setDestination(const sockaddr *addr, const size_t si
   return setDestination(Socket::Address(addr, size));
 }
 
+/// Spells bound address a as a bind() interface in family fam: wildcards become "" (the family's wildcard) and IPv4
+/// addresses move between their plain and IPv4-mapped IPv6 forms. Other IPv6 addresses have no IPv4 form and are
+/// returned as they are, so binding them in IPv4 fails.
+static std::string bindHostInFamily(const Socket::Address & a, sa_family_t fam) {
+  const uint8_t *ip = a.ipPtr();
+  if (!ip) { return ""; }
+  if (a.family() == AF_INET) {
+    if (!ip[0] && !ip[1] && !ip[2] && !ip[3]) { return ""; }
+    return fam == AF_INET6 ? "::ffff:" + a.host() : a.host();
+  }
+  static const uint8_t anyV6[16] = {0};
+  if (!memcmp(ip, anyV6, 16)) { return ""; }
+  if (a.is4in6() && fam == AF_INET) {
+    return std::to_string(ip[12]) + '.' + std::to_string(ip[13]) + '.' + std::to_string(ip[14]) + '.' + std::to_string(ip[15]);
+  }
+  return a.host();
+}
+
 bool Socket::UDPConnection::setDestination(const Socket::Address & addr) {
   // UDP sockets can on-the-fly switch between IPv4/IPv6 if necessary
   if (family != addr.family()) {
@@ -2875,8 +2893,16 @@ bool Socket::UDPConnection::setDestination(const Socket::Address & addr) {
     }
     checkRecvBuf();
     if (bindAddr) {
-      INFO_MSG("Rebinding to %s %s", bindAddr.toString().c_str(), boundMulti.c_str());
-      bind(bindAddr, boundMulti);
+      // Bind the new socket to the port, and where the new family can spell it the address, the old one held.
+      // bind() resolves the interface in the destination's family.
+      const Socket::Address previous = bindAddr;
+      const std::string host = bindHostInFamily(previous, family);
+      destAddr = addr;
+      INFO_MSG("Rebinding to [%s]:%" PRIu16 " %s", host.c_str(), previous.port(), boundMulti.c_str());
+      if (bind(previous.port(), host, boundMulti) != previous.port()) {
+        FAIL_MSG("Could not rebind UDP socket to port %" PRIu16 " for %s", previous.port(), addr.toString().c_str());
+        return false;
+      }
     }
   }
   hasReceiveData = false;

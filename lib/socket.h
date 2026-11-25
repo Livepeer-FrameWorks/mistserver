@@ -77,7 +77,7 @@ namespace Socket{
       bool is4in6() const;
       uint16_t port() const;
       std::string host() const;
-      operator bool() const;
+      explicit operator bool() const; ///< Explicit, so an address never converts to a port or flag argument.
       const uint8_t *const ipPtr() const;
       operator sockaddr *() const { return (sockaddr *)(const char *)addr; }
       size_t size() const { return addr.size(); }
@@ -362,7 +362,6 @@ namespace Socket{
     int releaseSocket(); ///< Relinquish the descriptor without closing it.
     void swapSocket(UDPConnection & other);
     uint16_t bind(int port, std::string iface = "", const std::string &multicastAddress = "");
-    uint16_t bind(const Socket::Address *addr, const std::string & multicastAddress = "");
     void setMulticastTTL(size_t ttl);
     bool connect();
     bool connectDestination();
