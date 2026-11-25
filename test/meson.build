@@ -1895,6 +1895,11 @@ if exec_tgts.has_key('MistOutHLS')
     include_directories: include_directories('../src/output'))
   test('Unavailable playback decisions return retryable HTTP 503', playbackunavailabletest, suite: 'HTTP', timeout: 15, is_parallel: false)
   test('Authoritative playback denials remain final HTTP refusals', playbackunavailabletest, args: ['deny'], suite: 'HTTP', timeout: 15, is_parallel: false)
+  playbacksessiontest = executable('playbacksessiontest', 'playback_session_continuity_unit.cpp', header_tgts,
+    objects: hlsreadinessobjects, dependencies: libmist_dep, cpp_args: ['-DTS_BASECLASS=HTTPOutput'],
+    include_directories: include_directories('../src/output'))
+  test('Admitted HLS sessions survive playback handler outages', playbacksessiontest, suite: 'HTTP', timeout: 30, is_parallel: false)
+  test('Protocol-bound HLS sessions survive playback handler outages', playbacksessiontest, args: ['protocol-bound'], suite: 'HTTP', timeout: 30, is_parallel: false)
 endif
 
 if exec_tgts.has_key('MistOutEBML')

@@ -337,11 +337,19 @@ namespace Mist{
     if (playRewriteGate.unavailable()) { return PLAY_REWRITE_UNAVAILABLE; }
     if (!playRewriteGate.begin(Triggers::shouldTrigger("PLAY_REWRITE", streamName))) { return PLAY_REWRITE_UNCHANGED; }
     const std::string oldStreamName = streamName;
+    playRewriteSource = oldStreamName;
     const std::string payload = oldStreamName + "\n" + getConnectedHost() + "\n" + capa["name"].asStringRef() + "\n" + reqUrl;
     Triggers::Result triggerResult;
     triggerResult.response = oldStreamName;
     Triggers::doTrigger("PLAY_REWRITE", payload, oldStreamName, false, triggerResult);
     if (triggerResult.handlerFailed && triggerResult.action == Triggers::ACT_DENY) {
+      const std::string admitted =
+        Comms::admittedViewerStream(oldStreamName, getConnectedBinHost(), tkn, getStatsName(), viewerOrigin, viewerReferer);
+      if (!admitted.empty()) {
+        streamName = admitted;
+        Util::setStreamName(streamName);
+        return streamName == oldStreamName ? PLAY_REWRITE_UNCHANGED : PLAY_REWRITE_CHANGED;
+      }
       playRewriteGate.markUnavailable();
       return PLAY_REWRITE_UNAVAILABLE;
     }
@@ -3348,7 +3356,8 @@ namespace Mist{
     if (!tkn.size()){ tkn = JSON::Value(getpid()).asString(); }
 
     if (!statComm){
-      statComm.reload(streamName, getConnectedBinHost(), tkn, getStatsName(), reqUrl, false, false, viewerOrigin, viewerReferer);
+      statComm.reload(streamName, getConnectedBinHost(), tkn, getStatsName(), reqUrl, false, false, viewerOrigin,
+                      viewerReferer, playRewriteSource);
     }
     if (!statComm &&
         !Comms::missingSessionEndsConnection(Util::Config::binaryType == Util::PROCESS, statComm.sessionStartFailed())) {

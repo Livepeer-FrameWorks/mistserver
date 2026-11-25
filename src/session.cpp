@@ -263,6 +263,8 @@ int main(int argc, char **argv){
   sessions.setHost(thisHost);
   sessions.setSessId(thisSessionId);
   sessions.setStream(thisStreamName);
+  // Retain the admitted rewrite across separate HTTP requests for its alias.
+  sessions.setRequestedStream(getenv("SESSION_REQUESTED_STREAM") ? getenv("SESSION_REQUESTED_STREAM") : "");
   if (thisProtocol.size() && thisProtocol != "HTTP"){connectorLastActive[thisProtocol] = now;}
   if (thisStreamName.size()){streamLastActive[thisStreamName] = now;}
   if (memcmp(thisHost.data(), nullAddress, 16)){hostLastActive[thisHost] = now;}

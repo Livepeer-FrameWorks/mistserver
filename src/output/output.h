@@ -124,6 +124,7 @@ namespace Mist{
     void noteSelectedTrackLost(size_t trackIdx);
     bool replacesLostSelectedTrack(size_t trackIdx) const;
     PlayRewriteGate playRewriteGate;
+    std::string playRewriteSource;
     ProcessingRecordingWaitLog recordingHeaderWaitLog;
     uint64_t lastStats; ///< Time of last sending of stats.
     void reinitPlaylist(std::string &playlistBuffer, uint64_t &maxAge, uint64_t &maxEntries,

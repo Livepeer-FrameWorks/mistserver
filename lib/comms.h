@@ -38,6 +38,10 @@ namespace Comms{
   /// Returns the scheme://host[:port] a viewer request comes from: its Origin header, or the origin
   /// part of its Referer when Origin is empty or "null". Empty when neither names one.
   std::string viewerSessionOrigin(const std::string & origin, const std::string & referer);
+  /// Returns the resolved stream of this viewer's live, admitted decision,
+  /// or an empty string. Does not create sessions during a handler outage.
+  std::string admittedViewerStream(const std::string & streamName, const std::string & ip, const std::string & token,
+                                   const std::string & protocol, const std::string & origin, const std::string & referer);
   /// Builds the USER_NEW trigger payload. Lines 8 and 9 are the viewer request's Origin and Referer,
   /// written even when empty, and the payload ends with a newline so empty trailing lines survive.
   std::string userNewPayload(const std::string & streamName, const std::string & host, const std::string & token,
@@ -100,7 +104,8 @@ namespace Comms{
   public:
     void reload(const std::string & streamName, const std::string & ip, const std::string & tkn,
                 const std::string & protocol, const std::string & reqUrl, bool _master = false, bool reIssue = false,
-                const std::string & origin = "", const std::string & referer = "");
+                const std::string & origin = "",
+                const std::string & referer = "", const std::string & requestedStream = "");
     void reload(const std::string & sessId, bool _master = false, bool reIssue = false);
     void unload();
     operator bool() const{return dataPage.mapped && (master || index != INVALID_RECORD_INDEX);}
@@ -242,9 +247,13 @@ namespace Comms{
       virtual void nullFields();
       virtual void fieldAccess();
 
+      void setRequestedStream(const std::string & name);
+
       std::string getTags() const;
       std::string getTags(size_t idx) const;
       void setTags(std::string _sid);
       void setTags(std::string _sid, size_t idx);
+    private:
+      Util::FieldAccX requestedStream;
   };
 }// namespace Comms

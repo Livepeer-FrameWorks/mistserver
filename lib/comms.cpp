@@ -230,18 +230,25 @@ namespace Comms{
     Connections::addFields();
     dataAccX.addField("tags", RAX_STRING, 512);
     dataAccX.addField("sessid", RAX_STRING, 80);
+    dataAccX.addField("requestedstream", RAX_STRING, 100);
   }
 
   void Sessions::nullFields(){
     Connections::nullFields();
     setSessId("");
     setTags("");
+    setRequestedStream("");
   }
 
   void Sessions::fieldAccess(){
     Connections::fieldAccess();
     tags = dataAccX.getFieldAccX("tags");
     sessId = dataAccX.getFieldAccX("sessid");
+    requestedStream = dataAccX.getFieldAccX("requestedstream");
+  }
+
+  void Sessions::setRequestedStream(const std::string & name) {
+    requestedStream.set(name, index);
   }
 
   std::string Sessions::getTags() const{return tags.string(index);}
@@ -396,7 +403,7 @@ namespace Comms{
   /// \param reIssue: If True, claim a new entry on this page
   void Connections::reload(const std::string & streamName, const std::string & ip, const std::string & tkn,
                            const std::string & protocol, const std::string & reqUrl, bool _master, bool reIssue,
-                           const std::string & origin, const std::string & referer) {
+                           const std::string & origin, const std::string & referer, const std::string & requestedStream) {
     initialTkn = tkn;
     startFailed = false;
     uint8_t sessMode = sessionViewerMode;
@@ -484,6 +491,7 @@ namespace Comms{
         sessionEnv["SESSION_REQURL"] = reqUrl;
         sessionEnv["SESSION_ORIGIN"] = origin;
         sessionEnv["SESSION_REFERER"] = referer;
+        sessionEnv["SESSION_REQUESTED_STREAM"] = requestedStream;
         int err = fileno(stderr);
         thisPid = Util::Procs::StartPiped(args, 0, 0, &err, Util::environmentWith(sessionEnv));
         if (!thisPid) {
@@ -698,6 +706,58 @@ namespace Comms{
                              bool validToken, const std::string & origin, const std::string & referer) {
     return streamName + "\n" + host + "\n" + token + "\n" + protocol + "\n" + reqUrl + "\n" + sessionId + "\n" +
       (validToken ? "true" : "false") + "\n" + origin + "\n" + referer + "\n";
+  }
+
+  std::string admittedViewerStream(const std::string & streamName, const std::string & ip, const std::string & token,
+                                   const std::string & protocol, const std::string & origin, const std::string & referer) {
+    if (streamName.empty() || token.empty() || ip.size() != 16) { return ""; }
+    sessionConfigCache();
+    // Aggregated accounting cannot prove this individual viewer's admission.
+    if ((sessionViewerMode & 0x0E) != 0x0E) { return ""; }
+    IPC::sharedPage statsPage(COMMS_STATISTICS, 0, false, false);
+    if (!statsPage) { return ""; }
+    Util::RelAccX stats(statsPage.mapped, false);
+    if (!stats.isReady() || stats.isExit() || stats.isReload() || !stats.hasField("sessid") ||
+        !stats.hasField("stream") || !stats.hasField("status") || !stats.hasField("pid") || !stats.hasField("now")) {
+      return "";
+    }
+    Util::FieldAccX ids = stats.getFieldAccX("sessid"), streams = stats.getFieldAccX("stream");
+    Util::FieldAccX states = stats.getFieldAccX("status"), pids = stats.getFieldAccX("pid"), times = stats.getFieldAccX("now");
+    Util::FieldAccX requested;
+    if (stats.hasField("requestedstream")) { requested = stats.getFieldAccX("requestedstream"); }
+    const uint64_t now = Util::bootSecs();
+    const uint64_t count = std::min<uint64_t>(stats.getEndPos(), stats.getRCount());
+    Connections identity;
+    for (uint64_t i = 0; i < count; ++i) {
+      const uint8_t state = states.uint(i);
+      const std::string target = streams.string(i), id = ids.string(i);
+      if (!(state & COMM_STATUS_ACTIVE) || (state & (COMM_STATUS_DISCONNECT | COMM_STATUS_REQDISCONNECT | COMM_STATUS_SESSSTOP)) ||
+          target.empty() || (target != streamName && (!requested || requested.string(i) != streamName))) {
+        continue;
+      }
+      const uint64_t observed = times.uint(i);
+      const uint32_t pid = pids.uint(i);
+      if (!observed || observed > now || now - observed > STATS_DELAY || pid <= 1 || !Util::Procs::isRunning(pid) ||
+          identity.generateSession(target, ip, token, protocol, sessionViewerMode, viewerSessionOrigin(origin, referer)) != id) {
+        continue;
+      }
+      char name[NAME_BUFFER_SIZE];
+      snprintf(name, sizeof(name), SEM_SESSION, id.c_str());
+      IPC::semaphore lock(name, O_RDWR, ACCESSPERMS, 1, true);
+      // MistSession releases this only after USER_NEW has answered. Its live
+      // session survives the gaps between individual HLS HTTP requests.
+      if (!lock || !lock.tryWait()) { continue; }
+      snprintf(name, sizeof(name), COMMS_SESSIONS, id.c_str());
+      IPC::sharedPage sessionPage(name, 0, false, false);
+      bool admitted = false;
+      if (sessionPage) {
+        Util::RelAccX session(sessionPage.mapped, false);
+        admitted = session.isReady() && !session.isExit() && !session.isReload();
+      }
+      lock.post();
+      if (admitted) { return target; }
+    }
+    return "";
   }
 
   std::string Connections::generateSession(const std::string & streamName, const std::string & ip, const std::string & tkn,
