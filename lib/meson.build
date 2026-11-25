@@ -215,6 +215,7 @@ if have_onnx
   libonnx = library(
     'mistonnx',
     'onnx.cpp',
+    'onnx_cache.cpp',
     include_directories: incroot,
     dependencies: [libmist_dep, onnx_libs],
     cpp_args: onnx_defines,

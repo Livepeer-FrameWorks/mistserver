@@ -5,12 +5,40 @@
 #include <cstring>
 #include <fstream>
 #include <iostream>
+#include <map>
 #include <unistd.h>
 
 namespace {
   const OrtApi *realApi;
   unsigned builtinCalls = 0;
+  unsigned sessionCreates = 0;
+  unsigned unboundedProbes = 0;
+  std::map<const OrtSessionOptions *, int> threads;
   bool rejectBuiltin = false;
+  OrtStatus *ORT_API_CALL createSession(const OrtEnv *env, const ORTCHAR_T *path, const OrtSessionOptions *options,
+                                        OrtSession **session) noexcept {
+    ++sessionCreates;
+    if (!threads.count(options) || threads.at(options) < 1) { ++unboundedProbes; }
+    return realApi->CreateSession(env, path, options, session);
+  }
+  OrtStatus *ORT_API_CALL createOptions(OrtSessionOptions **options) noexcept {
+    OrtStatus *status = realApi->CreateSessionOptions(options);
+    if (!status) { threads[*options] = 0; }
+    return status;
+  }
+  OrtStatus *ORT_API_CALL cloneOptions(const OrtSessionOptions *source, OrtSessionOptions **options) noexcept {
+    OrtStatus *status = realApi->CloneSessionOptions(source, options);
+    if (!status) { threads[*options] = threads[source]; }
+    return status;
+  }
+  OrtStatus *ORT_API_CALL setThreads(OrtSessionOptions *options, int count) noexcept {
+    threads[options] = count;
+    return realApi->SetIntraOpNumThreads(options, count);
+  }
+  void ORT_API_CALL releaseOptions(OrtSessionOptions *options) noexcept {
+    threads.erase(options);
+    realApi->ReleaseSessionOptions(options);
+  }
   OrtStatus *ORT_API_CALL appendBuiltin(OrtSessionOptions *, const char *name, const char *const *keys,
                                         const char *const *values, size_t count) noexcept {
     ++builtinCalls;
@@ -23,6 +51,11 @@ namespace {
     realApi = OrtGetApiBase()->GetApi(version);
     static OrtApi table = *realApi;
     table.SessionOptionsAppendExecutionProvider = appendBuiltin;
+    table.CreateSession = createSession;
+    table.CreateSessionOptions = createOptions;
+    table.CloneSessionOptions = cloneOptions;
+    table.SetIntraOpNumThreads = setThreads;
+    table.ReleaseSessionOptions = releaseOptions;
     return &table;
   }
   const OrtApiBase *testOrtGetApiBase() {
@@ -51,13 +84,52 @@ int main() {
   file.write(reinterpret_cast<const char *>(model), sizeof(model));
   file.close();
   int failures = 0;
+  {
+    sessionCreates = 0;
+    ONNX::SessionRunner runner;
+    runner.setFedShape([](size_t, const std::vector<int64_t> &) { return std::vector<int64_t>{1}; });
+    std::string err;
+    if (!runner.load(path, 1, "cpu", err) || sessionCreates != 1) {
+      std::cerr << "FAIL: CPU vision load must create one session, got " << sessionCreates << ": " << err << '\n';
+      ++failures;
+    }
+  }
   for (const std::string & requested : {std::string("openvino"), std::string("")}) {
     builtinCalls = 0;
+    sessionCreates = 0;
     ONNX::SessionRunner runner;
+    runner.setFedShape([](size_t, const std::vector<int64_t> &) { return std::vector<int64_t>{1}; });
     std::string err;
     if (!runner.load(path, 1, requested, err) || builtinCalls != 1 || runner.activeEP() != "OpenVINO") {
       std::cerr << "FAIL: plugin absent must try compiled-in OpenVINO once: " << err << '\n';
       ++failures;
+    }
+    if (sessionCreates != 1) {
+      std::cerr << "FAIL: OpenVINO must reuse prior input metadata, got " << sessionCreates << " session creates\n";
+      ++failures;
+    }
+  }
+  {
+    unsigned char changed[sizeof(model)];
+    memcpy(changed, model, sizeof(model));
+    for (size_t i = 0; i + 3 < sizeof(changed); ++i) {
+      if (changed[i] == 10 && changed[i + 1] == 2 && changed[i + 2] == 8 && changed[i + 3] == 1) { changed[i + 3] = 2; }
+    }
+    std::ofstream replacement(path, std::ios::binary | std::ios::trunc);
+    replacement.write(reinterpret_cast<const char *>(changed), sizeof(changed));
+    replacement.close();
+    for (unsigned attempt = 0; attempt < 2; ++attempt) {
+      sessionCreates = 0;
+      ONNX::SessionRunner runner;
+      runner.setFedShape([](size_t, const std::vector<int64_t> &) { return std::vector<int64_t>{2}; });
+      std::string err;
+      const unsigned expectedCreates = attempt ? 1 : 2;
+      if (!runner.load(path, 1, "openvino", err) || sessionCreates != expectedCreates || runner.inputs().size() != 1 ||
+          runner.inputs()[0].shape != std::vector<int64_t>{2}) {
+        std::cerr << "FAIL: changed model metadata must refresh once, then be reused; attempt=" << attempt
+                  << " creates=" << sessionCreates << " error=" << err << '\n';
+        ++failures;
+      }
     }
   }
   rejectBuiltin = true;
@@ -72,5 +144,9 @@ int main() {
   }
   unlink(path.c_str());
   rmdir(dir);
+  if (unboundedProbes) {
+    std::cerr << "FAIL: metadata probes must set a bounded thread count, got " << unboundedProbes << " unbounded sessions\n";
+    ++failures;
+  }
   return failures ? 1 : 0;
 }

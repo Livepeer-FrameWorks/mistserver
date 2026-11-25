@@ -149,13 +149,13 @@ int main() {
     CHECK(pins.unpinned.empty());
   }
 
-  // A session loaded with fed shapes reports the pinned static input shape.
+  // CPU sessions retain symbolic inputs even when the adapter declares fed shapes.
   {
     ONNX::SessionRunner runner;
     runner.setFedShape(fedVision);
     std::string err;
     CHECK(runner.load(vision, 1, "cpu", err));
-    CHECK(runner.inputs().size() == 1 && runner.inputs()[0].shape == nchw(32, 48));
+    CHECK(runner.inputs().size() == 1 && runner.inputs()[0].shape == std::vector<int64_t>({-1, 3, -1, -1}));
   }
   {
     ONNX::SessionRunner runner;
@@ -164,11 +164,11 @@ int main() {
     CHECK(runner.inputs().size() == 1 && runner.inputs()[0].shape == std::vector<int64_t>({-1, 3, -1, -1}));
   }
 
-  // The vision adapter pins batch 1 and its configured input size before session creation.
+  // The CPU vision adapter keeps symbolic model inputs and its configured feed size.
   {
     PinProbeModel model(vision, 64);
     CHECK(model.initialize(1));
-    CHECK(model.sessionInputs().size() == 1 && model.sessionInputs()[0].shape == nchw(64, 64));
+    CHECK(model.sessionInputs().size() == 1 && model.sessionInputs()[0].shape == std::vector<int64_t>({-1, 3, -1, -1}));
     CHECK(model.getInputHeight() == 64 && model.getInputWidth() == 64);
   }
 
@@ -211,7 +211,7 @@ int main() {
   CHECK(Util::isDirectory(dir + "/models/nested/openvino-cache"));
   CHECK(ONNX::ORTHelpers::openVINOCacheDir(why) == cache);
 
-  // Session creation on the cache is exclusive across processes, with a bounded wait.
+  // The directory-lock primitive is exclusive across processes, with a bounded wait.
   {
     int ready[2];
     CHECK(pipe(ready) == 0);

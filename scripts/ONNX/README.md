@@ -365,14 +365,22 @@ asserts that host NPU nodes are visible inside the test container. Absent option
 directories do not prevent GPU-only or CPU-only hosts from running the image.
 
 OpenVINO keeps compiled models in `openvino-cache/` inside the model directory (see
-[Where models are stored](#where-models-are-stored)), so a model is compiled for a device once per host (NPU:
-about 1 s, then about 80 ms). Session creation takes an exclusive lock on that directory, since
-OpenVINO itself does not guard a blob that several processes write at once. When the directory
-cannot be created or written, or the lock is not free within two minutes, the session compiles
-without the cache.
+[Where models are stored](#where-models-are-stored)). Each model, file revision, device/software
+identity and session configuration has its own entry. Only a cache miss waits for that entry's
+compile lock (up to two minutes); warm sessions do not wait for another model's compiler.
+Every session uses a private copy because OpenVINO can rewrite a mapped blob in place.
+Successful compilations publish a snapshot; failed partial compilations are discarded.
+The published cache evicts least recently used entries above 64 entries or 512 MiB and removes
+superseded model revisions. Private copies live until their sessions close and do not count
+toward this persistent-cache budget. Unavailable cache storage falls back to uncached compilation.
 
-The `onnxruntime` lock row records the upstream release and the source commit Microsoft built
-the nuget.org packages from; nothing is built from it.
+Dimension overrides apply only to OpenVINO. A bounded 64-model metadata cache reuses declared
+input shapes and invalidates them when the model file changes; other execution providers retain
+their declared dynamic dimensions. An uncached OpenVINO metadata probe uses one CPU thread.
+
+The `onnxruntime` lock row records the upstream release and source revision. Packaged targets
+use the locked NuGet libraries; unsupported package targets and custom CUDA architectures use
+the source build path.
 
 Every profile links ONNX Runtime and OpenCV as shared libraries. Native packages ship them in
 their `lib/` directory with an executable-relative rpath (`$ORIGIN/../lib` on Linux,

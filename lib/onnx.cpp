@@ -1,8 +1,10 @@
 #include "onnx.h"
 
+#include "auth.h"
 #include "config.h"
 #include "defines.h"
 #include "imagenet_classes.h"
+#include "onnx_cache.h"
 #include "onnxruntime_c_api.h"
 #include "procs.h"
 #include "stream.h"
@@ -191,6 +193,57 @@ namespace ONNX {
 
   // ---- ORTHelpers implementations (C API helpers) ----
   namespace ORTHelpers {
+    static std::string modelIdentity(const std::string & path, std::string *name = nullptr) {
+      char *resolved = realpath(path.c_str(), nullptr);
+      if (!resolved) { return ""; }
+      std::string canonical(resolved);
+      free(resolved);
+      if (name) { *name = canonical; }
+      struct stat info;
+      if (stat(canonical.c_str(), &info)) { return ""; }
+#ifdef __APPLE__
+      const struct timespec modified = info.st_mtimespec;
+      const struct timespec changed = info.st_ctimespec;
+#else
+      const struct timespec modified = info.st_mtim;
+      const struct timespec changed = info.st_ctim;
+#endif
+      std::string identity = canonical + ":" + std::to_string(info.st_dev) + ":" + std::to_string(info.st_ino) + ":" +
+        std::to_string(info.st_size) + ":" + std::to_string(modified.tv_sec) + ":" + std::to_string(modified.tv_nsec) +
+        ":" + std::to_string(changed.tv_sec) + ":" + std::to_string(changed.tv_nsec);
+      return Secure::sha256(identity);
+    }
+
+    struct CachedInputs {
+        std::vector<DeclaredInput> inputs;
+        uint64_t used;
+    };
+    static std::mutex inputMetadataMutex;
+    static std::map<std::string, CachedInputs> inputMetadata;
+    static uint64_t inputMetadataSequence = 0;
+
+    static bool cachedInputs(const std::string & identity, std::vector<DeclaredInput> & inputs) {
+      if (identity.empty()) { return false; }
+      std::lock_guard<std::mutex> guard(inputMetadataMutex);
+      auto found = inputMetadata.find(identity);
+      if (found == inputMetadata.end()) { return false; }
+      found->second.used = ++inputMetadataSequence;
+      inputs = found->second.inputs;
+      return true;
+    }
+
+    static void rememberInputs(const std::string & path, const std::string & identity, const std::vector<DeclaredInput> & inputs) {
+      // Never publish metadata from a model replaced while its session was being read.
+      if (identity.empty() || identity != modelIdentity(path)) { return; }
+      std::lock_guard<std::mutex> guard(inputMetadataMutex);
+      if (!inputMetadata.count(identity) && inputMetadata.size() >= 64) {
+        auto oldest = std::min_element(inputMetadata.begin(), inputMetadata.end(),
+                                       [](const auto & a, const auto & b) { return a.second.used < b.second.used; });
+        inputMetadata.erase(oldest);
+      }
+      inputMetadata[identity] = CachedInputs{inputs, ++inputMetadataSequence};
+    }
+
     const OrtApi *api() {
       static const OrtApi *s_api = OrtGetApiBase()->GetApi(ORT_API_VERSION);
       return s_api;
@@ -209,6 +262,8 @@ namespace ONNX {
 
     bool probeInputs(const std::string & modelPath, std::vector<DeclaredInput> & inputs) {
       inputs.clear();
+      const std::string identity = modelIdentity(modelPath);
+      if (cachedInputs(identity, inputs)) { return true; }
       auto good = [](OrtStatus *status) {
         if (!status) { return true; }
         api()->ReleaseStatus(status);
@@ -217,8 +272,8 @@ namespace ONNX {
       OrtEnv *env = sharedEnv();
       OrtSessionOptions *opts = nullptr;
       OrtSession *session = nullptr;
-      bool ok = env && good(api()->CreateSessionOptions(&opts)) &&
-        good(api()->SetSessionGraphOptimizationLevel(opts, ORT_DISABLE_ALL)) &&
+      bool ok = env && good(api()->CreateSessionOptions(&opts)) && good(api()->SetIntraOpNumThreads(opts, 1)) &&
+        good(api()->SetInterOpNumThreads(opts, 1)) && good(api()->SetSessionGraphOptimizationLevel(opts, ORT_DISABLE_ALL)) &&
         good(api()->CreateSession(env, modelPath.c_str(), opts, &session));
       size_t count = 0;
       if (ok) { ok = good(api()->SessionGetInputCount(session, &count)); }
@@ -252,6 +307,7 @@ namespace ONNX {
       }
       if (session) { api()->ReleaseSession(session); }
       if (opts) { api()->ReleaseSessionOptions(opts); }
+      if (ok) { rememberInputs(modelPath, identity, inputs); }
       return ok;
     }
 
@@ -3094,6 +3150,7 @@ namespace ONNX {
     for (auto *s : inputNameStrings_) { if (s && allocator_) allocator_->Free(allocator_, s); }
     for (auto *s : outputNameStrings_) { if (s && allocator_) allocator_->Free(allocator_, s); }
     if (session_) api->ReleaseSession(session_);
+    openVINOCache_.reset();
     if (opts_) api->ReleaseSessionOptions(opts_);
     if (memInfo_) api->ReleaseMemoryInfo(memInfo_);
     // env_ is the shared process-global env (ORTHelpers::sharedEnv); intentionally NOT
@@ -3103,6 +3160,8 @@ namespace ONNX {
   bool SessionRunner::load(const std::string &modelPath, int numThreads,
                            const std::string &requestedEP, std::string &err, bool lowLatency) {
     const OrtApi *api = ORTHelpers::api();
+    std::string modelName;
+    const std::string modelIdentity = ORTHelpers::modelIdentity(modelPath, &modelName);
 #ifdef MIST_ONNX_PROFILE
     const std::string buildProfile = MIST_ONNX_PROFILE;
 #else
@@ -3140,8 +3199,8 @@ namespace ONNX {
     if (OrtStatus *st = api->AddSessionConfigEntry(opts_, "session.intra_op.allow_spinning", lowLatency ? "1" : "0")) { api->ReleaseStatus(st); }
     if (OrtStatus *st = api->AddSessionConfigEntry(opts_, "session.inter_op.allow_spinning", "0")) { api->ReleaseStatus(st); }
 
-    // The declared inputs are read at most once per load, by a throwaway unoptimised CPU
-    // session: for pinning the fed shapes, and for the OpenVINO NPU static-shape check.
+    // Reuse declared inputs from prior CPU inspection; an uncached model needs one
+    // unoptimised CPU probe before OpenVINO pinning and its NPU static-shape check.
     std::vector<ORTHelpers::DeclaredInput> declared;
     ORTHelpers::InputPins pins;
     int declaredState = 0; // 0 = not read, 1 = read, -1 = unreadable
@@ -3152,7 +3211,8 @@ namespace ONNX {
       }
       return declaredState > 0;
     };
-    if (fedShape_) {
+    auto pinOpenVINOInputs = [&]() {
+      if (!fedShape_) { return; }
       if (!readDeclared()) {
         WARN_MSG("Could not read the declared inputs of %s; its input shapes stay as declared", modelPath.c_str());
       } else {
@@ -3173,11 +3233,7 @@ namespace ONNX {
           INFO_MSG("Input dim of %s stays dynamic: %s", modelPath.c_str(), why.c_str());
         }
       }
-    }
-
-    // Held by an OpenVINO session that uses the compiled-model cache until CreateSession
-    // returns; see the cache setup in tryRegisterOpenVINO.
-    int cacheLock = -1;
+    };
 
     // Register execution providers.
     // CUDA/TensorRT require the V2 opaque-options API; other EPs use the generic API.
@@ -3330,43 +3386,58 @@ namespace ONNX {
           MEDIUM_MSG("OpenVINO EP found no supported device on this host");
           return false;
         }
-        // Compiled-model cache shared by every Mist process on the host (NPU compile ~1 s
-        // -> ~80 ms on reload). OpenVINO writes a blob in place with no cross-process lock,
-        // and a process truncating a blob another one has mapped crashes the reader, so
-        // session creation holds an exclusive lock on the cache: a blob is then only ever
-        // written as a new file. Startup fallback stays off so AUTO compiles (and writes)
-        // the chosen device inside CreateSession instead of in the background after it.
-        // A process stuck compiling must not hold the others back: past two minutes this
-        // session compiles without the cache instead.
+        // OpenVINO may rewrite a cache hit in place, so every session maps only its
+        // private working copy; published blobs are copied before CreateSession.
         std::string cacheWhy;
         std::string cacheDir = ORTHelpers::openVINOCacheDir(cacheWhy);
-        if (!cacheDir.empty()) { cacheLock = ORTHelpers::lockOpenVINOCache(cacheDir, 120000, cacheWhy); }
-        if (cacheLock >= 0) {
-          const char *epName = api->EpDevice_EpName(chosen[0]);
-          std::vector<std::string> ovDevices;
-          ovDevices.reserve(chosen.size());
-          for (const OrtEpDevice *device : chosen) { ovDevices.push_back(ovDevice(device)); }
-          std::string loadConfig;
-          std::string key = ORTHelpers::openVINOLoadConfig(epName ? epName : "", ovDevices, cacheDir, loadConfig);
-          if (OrtStatus *st = api->AddSessionConfigEntry(opts_, key.c_str(), loadConfig.c_str())) {
-            const char *msg = api->GetErrorMessage(st);
-            cacheWhy = std::string("setting ") + key + " failed: " + (msg ? msg : "(unknown)");
-            api->ReleaseStatus(st);
-            close(cacheLock);
-            cacheLock = -1;
+        const char *epName = api->EpDevice_EpName(chosen[0]);
+        JSON::Value recipe;
+        recipe["factory"] = epName ? epName : "";
+        recipe["runtime"] = OrtGetApiBase()->GetVersionString();
+        recipe["threads"] = numThreads;
+        recipe["low_latency"] = lowLatency;
+        std::vector<std::string> ovDevices;
+        ovDevices.reserve(chosen.size());
+        for (const OrtEpDevice *device : chosen) {
+          ovDevices.push_back(ovDevice(device));
+          const char *const *keys = nullptr, *const *values = nullptr;
+          size_t count = 0;
+          api->GetKeyValuePairs(api->EpDevice_EpMetadata(device), &keys, &values, &count);
+          JSON::Value metadata;
+          // Device telemetry changes between sessions without changing compiled code.
+          // Retain identity and software versions, including driver/plugin versions.
+          for (size_t i = 0; i < count; ++i) {
+            std::string key = keys[i];
+            std::transform(key.begin(), key.end(), key.begin(), [](unsigned char c) { return std::toupper(c); });
+            if (key == "OV_DEVICE" || key == "OV_META_DEVICE" || key == "FULL_DEVICE_NAME" ||
+                key == "DEVICE_ARCHITECTURE" || key == "DEVICE_ID" || key == "DEVICE_LUID" || key == "PCI_INFO" ||
+                key.find("UUID") != std::string::npos || key.find("VERSION") != std::string::npos) {
+              metadata[keys[i]] = values[i];
+            }
           }
+          recipe["devices"].append(metadata);
         }
-        if (cacheLock < 0) { WARN_MSG("OpenVINO runs without its compiled-model cache: %s", cacheWhy.c_str()); }
+        for (const auto & pin : pins.overrides) { recipe["pins"][pin.first] = pin.second; }
+        if (!cacheDir.empty()) {
+          openVINOCache_ = ORTHelpers::OpenVINOCache::prepare(cacheDir, modelName, modelIdentity, recipe.toString(), cacheWhy);
+        }
+        std::string loadConfig;
+        const std::string key = ORTHelpers::openVINOLoadConfig(epName ? epName : "", ovDevices,
+                                                               openVINOCache_ ? openVINOCache_->directory() : "", loadConfig);
+        if (OrtStatus *st = api->AddSessionConfigEntry(opts_, key.c_str(), loadConfig.c_str())) {
+          const char *msg = api->GetErrorMessage(st);
+          cacheWhy = std::string("setting ") + key + " failed: " + (msg ? msg : "(unknown)");
+          api->ReleaseStatus(st);
+          openVINOCache_.reset();
+        }
+        if (!openVINOCache_) { WARN_MSG("OpenVINO runs without its compiled-model cache: %s", cacheWhy.c_str()); }
         OrtStatus *st =
           api->SessionOptionsAppendExecutionProvider_V2(opts_, env_, chosen.data(), chosen.size(), nullptr, nullptr, 0);
         if (st) {
           const char *msg = api->GetErrorMessage(st);
           MEDIUM_MSG("OpenVINO EP registration failed: %s", msg ? msg : "(unknown)");
           api->ReleaseStatus(st);
-          if (cacheLock >= 0) {
-            close(cacheLock);
-            cacheLock = -1;
-          }
+          openVINOCache_.reset();
           return false;
         }
         activeEP_ = "OpenVINO";
@@ -3375,12 +3446,29 @@ namespace ONNX {
       };
 
       auto tryRegisterOpenVINO = [&]() -> bool {
-        if (tryRegisterOpenVINOPlugin()) { return true; }
+        OrtSessionOptions *unPinned = nullptr;
+        if (fedShape_) {
+          if (OrtStatus *status = api->CloneSessionOptions(opts_, &unPinned)) {
+            api->ReleaseStatus(status);
+            WARN_MSG("Could not preserve unpinned session options before OpenVINO registration");
+            return false;
+          }
+          pinOpenVINOInputs();
+        }
         // Distro and source-built runtimes can compile the EP into ONNX Runtime instead
         // of shipping Intel's separate plugin. AUTO also retains their CPU device path.
         const char *keys[] = {"device_type"};
         const char *values[] = {"AUTO"};
-        return tryRegisterGenericEP("OpenVINO", keys, values, 1);
+        const bool registered = tryRegisterOpenVINOPlugin() || tryRegisterGenericEP("OpenVINO", keys, values, 1);
+        if (unPinned) {
+          if (registered) {
+            api->ReleaseSessionOptions(unPinned);
+          } else {
+            api->ReleaseSessionOptions(opts_);
+            opts_ = unPinned;
+          }
+        }
+        return registered;
       };
 
       if (!epExplicit) {
@@ -3425,7 +3513,9 @@ namespace ONNX {
 
     // Create session
     OrtStatus *createStatus = api->CreateSession(env_, modelPath.c_str(), opts_, &session_);
-    if (cacheLock >= 0) { close(cacheLock); }
+    if (openVINOCache_) {
+      openVINOCache_->complete(!createStatus && modelIdentity == ORTHelpers::modelIdentity(modelPath));
+    }
     if (createStatus) {
       err = "Failed to create ONNX session for model " + modelPath + ": " + api->GetErrorMessage(createStatus);
       api->ReleaseStatus(createStatus);
@@ -3442,6 +3532,8 @@ namespace ONNX {
       err = "SessionGetInputCount failed";
       return false;
     }
+    std::vector<ORTHelpers::DeclaredInput> loadedInputs;
+    bool metadataComplete = true;
     for (size_t i = 0; i < inCount; ++i) {
       char *name = nullptr;
       if (!ORTHelpers::checkStatus(api->SessionGetInputName(session_, i, allocator_, &name), "SessionGetInputName")) {
@@ -3453,17 +3545,36 @@ namespace ONNX {
 
       TensorSpec spec;
       spec.name = name;
+      ORTHelpers::DeclaredInput input;
+      input.name = name;
       OrtTypeInfo *ti = nullptr;
       if (ORTHelpers::checkStatus(api->SessionGetInputTypeInfo(session_, i, &ti), "SessionGetInputTypeInfo")) {
         const OrtTensorTypeAndShapeInfo *ttsi = nullptr;
         if (ORTHelpers::checkStatus(api->CastTypeInfoToTensorInfo(ti, &ttsi), "CastTypeInfoToTensorInfo") && ttsi) {
           spec.shape = ORTHelpers::getTensorShape(ttsi);
           (void)api->GetTensorElementType(ttsi, &spec.dtype);
+          input.shape = spec.shape;
+          std::vector<const char *> params(spec.shape.size(), nullptr);
+          if (!params.empty()) {
+            if (OrtStatus *status = api->GetSymbolicDimensions(ttsi, params.data(), params.size())) {
+              api->ReleaseStatus(status);
+              metadataComplete = false;
+            } else {
+              for (const char *param : params) { input.dimNames.push_back(param ? param : ""); }
+            }
+          }
+          input.dimNames.resize(spec.shape.size());
+        } else {
+          metadataComplete = false;
         }
         if (ti) api->ReleaseTypeInfo(ti);
+      } else {
+        metadataComplete = false;
       }
       inputSpecs_.push_back(spec);
+      loadedInputs.push_back(input);
     }
+    if (metadataComplete && activeEP_ == "CPU") { ORTHelpers::rememberInputs(modelPath, modelIdentity, loadedInputs); }
 
     // Enumerate output ports.
     size_t outCount = 0;

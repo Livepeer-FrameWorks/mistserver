@@ -23,6 +23,7 @@ namespace ONNX {
 
   // Minimal helpers for the C API to ease migration
   namespace ORTHelpers {
+    class OpenVINOCache;
     // Accessor for the Ort API table (cached per-process)
     const OrtApi *api();
 
@@ -45,8 +46,8 @@ namespace ONNX {
         std::vector<std::string> dimNames;
     };
 
-    // Loads the model's graph on the CPU provider, without optimisation, only to read its
-    // declared inputs. False when the model is unreadable.
+    // Reuses declared-input metadata from prior CPU inspection of the same model file
+    // version. An uncached model needs one unoptimised, single-threaded CPU probe.
     bool probeInputs(const std::string & modelPath, std::vector<DeclaredInput> & inputs);
 
     // The shape a caller always feeds to input `index` of a model whose declared shape is
@@ -166,9 +167,9 @@ namespace ONNX {
       bool load(const std::string &modelPath, int numThreads,
                 const std::string &requestedEP, std::string &err, bool lowLatency = false);
 
-      // Declares, before load(), the shapes the caller always feeds. load() then pins the
-      // matching symbolic input dims so the session's inputs are static, which also keeps
-      // the OpenVINO NPU (static shapes only) in the device set. Unset = no pinning.
+      // Declares the shapes the caller always feeds. Only OpenVINO sessions pin matching
+      // symbolic dimensions, keeping static-shape NPU compilation available; other EPs
+      // retain their declared inputs. Unset = no pinning.
       void setFedShape(const ORTHelpers::FedShape & fed) { fedShape_ = fed; }
 
       bool loaded() const { return session_ != nullptr; }
@@ -244,6 +245,7 @@ namespace ONNX {
       std::vector<TensorSpec> outputSpecs_;
       std::string activeEP_ = "CPU";
       ORTHelpers::FedShape fedShape_;
+      std::unique_ptr<ORTHelpers::OpenVINOCache> openVINOCache_;
 
       // Output->input state loops for stateful streaming models (see bindStateLoop)
       struct StateLoop {
