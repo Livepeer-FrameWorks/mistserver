@@ -6151,20 +6151,13 @@ namespace ONNX {
 
     // State transition matrix (constant velocity model)
     // x' = x + vx*dt, y' = y + vy*dt, w' = w, h' = h, vx' = vx, vy' = vy
-    detection.kalmanFilter->transitionMatrix = (cv::Mat_<float>(6, 6) << 1, 0, 0, 0, 1, 0, // x = x + vx*dt (dt=1 for simplicity)
-                                                0, 1, 0, 0, 0, 1, // y = y + vy*dt
-                                                0, 0, 1, 0, 0, 0, // w = w (constant)
-                                                0, 0, 0, 1, 0, 0, // h = h (constant)
-                                                0, 0, 0, 0, 1, 0, // vx = vx (constant velocity)
-                                                0, 0, 0, 0, 0, 1 // vy = vy (constant velocity)
-    );
+    detection.kalmanFilter->transitionMatrix = cv::Mat::eye(6, 6, CV_32F);
+    detection.kalmanFilter->transitionMatrix.at<float>(0, 4) = 1;
+    detection.kalmanFilter->transitionMatrix.at<float>(1, 5) = 1;
 
     // Measurement matrix (we observe x, y, w, h)
-    detection.kalmanFilter->measurementMatrix = (cv::Mat_<float>(4, 6) << 1, 0, 0, 0, 0, 0, // observe x
-                                                 0, 1, 0, 0, 0, 0, // observe y
-                                                 0, 0, 1, 0, 0, 0, // observe w
-                                                 0, 0, 0, 1, 0, 0 // observe h
-    );
+    detection.kalmanFilter->measurementMatrix = cv::Mat::zeros(4, 6, CV_32F);
+    for (int state = 0; state < 4; ++state) { detection.kalmanFilter->measurementMatrix.at<float>(state, state) = 1; }
 
     // Process noise covariance (how much we trust the model) - more conservative
     cv::setIdentity(detection.kalmanFilter->processNoiseCov, cv::Scalar::all(kalmanProcessNoise_));
@@ -6211,7 +6204,11 @@ namespace ONNX {
     cv::Mat prediction = track.kalmanFilter->predict();
 
     // Create measurement vector [x, y, w, h]
-    cv::Mat measurementVec = (cv::Mat_<float>(4, 1) << measurement.x, measurement.y, measurement.w, measurement.h);
+    cv::Mat measurementVec(4, 1, CV_32F);
+    measurementVec.at<float>(0) = measurement.x;
+    measurementVec.at<float>(1) = measurement.y;
+    measurementVec.at<float>(2) = measurement.w;
+    measurementVec.at<float>(3) = measurement.h;
 
     // Correct step
     cv::Mat corrected = track.kalmanFilter->correct(measurementVec);

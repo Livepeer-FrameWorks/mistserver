@@ -1171,6 +1171,10 @@ amftest = executable('amftest', 'amf.cpp', header_tgts, dependencies: libmist_de
 test('AMF parser', amftest, suite: 'AMF parser', protocol:'tap')
 
 if have_onnx
+  onnxtrackertest = executable('onnxtrackertest', 'onnx_tracker.cpp', header_tgts,
+                              dependencies: [libmist_dep, onnx_dep, onnx_libs],
+                              override_options: onnx_cpp_std)
+  test('ONNX Kalman tracking initializes and updates portable matrices', onnxtrackertest, suite: 'ONNX')
   test('OpenVINO hardware runners expose present GPU and NPU device nodes', find_program('python3'),
        args: [meson.project_source_root() / 'test/onnx_device_mounts.py'], suite: 'ONNX')
   test('Native ONNX bundles declare profile driver dependencies', find_program('python3'),
