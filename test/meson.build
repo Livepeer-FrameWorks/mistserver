@@ -1171,6 +1171,8 @@ amftest = executable('amftest', 'amf.cpp', header_tgts, dependencies: libmist_de
 test('AMF parser', amftest, suite: 'AMF parser', protocol:'tap')
 
 if have_onnx
+  test('Source ONNX builds retain accelerator targets and custom CUDA architectures', find_program('python3'),
+       args: [meson.project_source_root() / 'test/onnx_source_build.py'], suite: 'ONNX')
   test('Verified model-pack manifest', find_program('sh'),
        args: [meson.project_source_root() / 'test/onnx_model_manifest.sh',
               meson.project_source_root() / 'scripts/ONNX/models.manifest.tsv',

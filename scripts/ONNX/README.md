@@ -297,6 +297,14 @@ layout the build and the CI checks expect: headers in `include/onnxruntime`, the
 its SONAME/install name plus the linker name in `lib/`, `lib/pkgconfig/libonnxruntime.pc`, and
 `share/licenses/onnxruntime/{LICENSE,ThirdPartyNotices.txt}`.
 
+Use `--runtime-distribution source` (the default) to build the same locked runtime revision
+with a local accelerator SDK. Source builds retain CUDA/TensorRT on Linux aarch64,
+OpenVINO on aarch64, CoreML on Darwin x86_64, and custom CUDA SM targets. Set `CUDA_HOME`,
+`CUDNN_HOME` and `ONNX_CUDA_ARCHITECTURES` for CUDA/TensorRT, plus `TENSORRT_HOME` for TensorRT;
+set `OpenVINO_DIR` for OpenVINO. `--nvcc-threads` controls per-compilation NVCC parallelism.
+The prefix remains shared and carries the same loader isolation as packaged runtimes.
+Source OpenVINO uses the compiled-in EP; packaged OpenVINO uses Intel's separate plugin.
+
 | Distribution | Package | Native directory |
 |---|---|---|
 | `onnxruntime-linux-x64` | `Microsoft.ML.OnnxRuntime` (nuget.org) | `runtimes/linux-x64/native` |
