@@ -77,16 +77,20 @@ namespace {
   }
   void ORT_API_CALL deviceMetadata(const OrtKeyValuePairs *, const char *const **keys, const char *const **values,
                                    size_t *count) noexcept {
-    static const char *names[] = {"ov_device", "version", "FULL_DEVICE_NAME", "MEMORY_STATISTICS"};
-    static const char *data[] = {"CPU", nullptr, "cache-fixture", nullptr};
+    // MEMORY_STATISTICS is telemetry and DEVICE_LUID is a per-process handle (the Linux GPU
+    // plugin reports a new one in every process); neither may change the cache key.
+    static const char *names[] = {"ov_device", "version", "FULL_DEVICE_NAME", "MEMORY_STATISTICS", "DEVICE_LUID"};
+    static const char *data[] = {"CPU", nullptr, "cache-fixture", nullptr, nullptr};
     static unsigned queries = 0;
-    static std::string usage;
+    static std::string usage, luid;
     usage = std::to_string(++queries);
+    luid = "40" + std::to_string(queries) + "c83906560000";
     data[1] = deviceVersion.c_str();
     data[3] = usage.c_str();
+    data[4] = luid.c_str();
     *keys = names;
     *values = data;
-    *count = 4;
+    *count = 5;
   }
   OrtStatus *ORT_API_CALL appendPlugin(OrtSessionOptions *, OrtEnv *, const OrtEpDevice *const *, size_t,
                                        const char *const *, const char *const *, size_t) noexcept {

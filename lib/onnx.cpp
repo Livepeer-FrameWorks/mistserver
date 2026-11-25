@@ -3406,11 +3406,13 @@ namespace ONNX {
           JSON::Value metadata;
           // Device telemetry changes between sessions without changing compiled code.
           // Retain identity and software versions, including driver/plugin versions.
+          // DEVICE_LUID is left out: the Linux GPU plugin reports a new one in every
+          // process, and DEVICE_UUID already identifies the device.
           for (size_t i = 0; i < count; ++i) {
             std::string key = keys[i];
             std::transform(key.begin(), key.end(), key.begin(), [](unsigned char c) { return std::toupper(c); });
             if (key == "OV_DEVICE" || key == "OV_META_DEVICE" || key == "FULL_DEVICE_NAME" ||
-                key == "DEVICE_ARCHITECTURE" || key == "DEVICE_ID" || key == "DEVICE_LUID" || key == "PCI_INFO" ||
+                key == "DEVICE_ARCHITECTURE" || key == "DEVICE_ID" || key == "PCI_INFO" ||
                 key.find("UUID") != std::string::npos || key.find("VERSION") != std::string::npos) {
               metadata[keys[i]] = values[i];
             }
