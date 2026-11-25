@@ -376,7 +376,7 @@ jobs:
             build-essential git python3 python3-pip ninja-build pkg-config nasm yasm cmake \
             libmbedtls-dev libcjson-dev zlib1g-dev liblzma-dev libxml2-dev libmp3lame-dev \
             libopus-dev libvpx-dev libx265-dev libnuma-dev libaom-dev \
-            libjpeg-dev libpng-dev ffmpeg patchelf lld ccache clang llvm \
+            libjpeg-dev libpng-dev ffmpeg patchelf jq unzip curl lld ccache clang llvm \
             libffmpeg-nvenc-dev libva-dev libdrm-dev
           if [ "$(dpkg --print-architecture)" = amd64 ]; then sudo apt-get install -y libvpl-dev; fi
           python3 -m pip install --break-system-packages 'meson>=1.6.0' 'cmake>=3.28'
@@ -657,7 +657,7 @@ jobs:
             build-essential git python3 python3-pip ninja-build pkg-config nasm yasm cmake \
             libmbedtls-dev libcjson-dev zlib1g-dev liblzma-dev libxml2-dev libmp3lame-dev \
             libopus-dev libvpx-dev libx265-dev libnuma-dev libaom-dev \
-            libjpeg-dev libpng-dev ffmpeg patchelf lld ccache clang llvm \
+            libjpeg-dev libpng-dev ffmpeg patchelf jq unzip curl lld ccache clang llvm \
             libffmpeg-nvenc-dev libva-dev libdrm-dev
           if [ "$(dpkg --print-architecture)" = amd64 ]; then sudo apt-get install -y libvpl-dev; fi
           python3 -m pip install --break-system-packages 'meson>=1.6.0' 'cmake>=3.28'

@@ -3,6 +3,7 @@
 import json
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import tempfile
 import unittest
@@ -35,6 +36,17 @@ elif name == 'c++':
  output.write_text('#!/bin/sh\nprintf "%s\\n" CPUExecutionProvider CoreMLExecutionProvider CUDAExecutionProvider TensorrtExecutionProvider OpenVINOExecutionProvider\n')
  output.chmod(0o755)
 '''
+# Host tools build_dependencies.sh checks for and runs for real; the build tools are faked.
+REQUIRED_TOOLS = ('bash', 'awk', 'curl', 'unzip')
+
+
+def setUpModule():
+  missing = [tool for tool in REQUIRED_TOOLS if not shutil.which(tool)]
+  if not shutil.which('sha256sum') and not shutil.which('shasum'):
+    missing.append('sha256sum')
+  if missing:
+    raise AssertionError('missing tool ' + ', '.join(missing) +
+                         ': install it in every environment that runs the ONNX test suite')
 
 
 class SourceBuildTest(unittest.TestCase):

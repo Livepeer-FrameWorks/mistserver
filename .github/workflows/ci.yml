@@ -25,7 +25,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y \
-            build-essential git ca-certificates curl python3-pip ninja-build pkg-config cmake
+            build-essential git ca-certificates curl unzip patchelf python3-pip ninja-build pkg-config cmake
           python3 -m pip install --break-system-packages 'cmake>=3.28'
 
       - name: Build or restore locked ONNX dependency cache
@@ -74,7 +74,11 @@ jobs:
             libsrt-openssl-dev \
             libjpeg-dev \
             libpng-dev \
-            zlib1g-dev
+            zlib1g-dev \
+            jq \
+            unzip \
+            patchelf \
+            xz-utils
           python3 -m pip install --break-system-packages 'meson>=1.6.0'
 
       - name: Build pinned WHIP publisher
@@ -178,7 +182,11 @@ jobs:
             libsrt-openssl-dev \
             libjpeg-dev \
             libpng-dev \
-            zlib1g-dev
+            zlib1g-dev \
+            jq \
+            unzip \
+            patchelf \
+            xz-utils
           python3 -m pip install --break-system-packages 'meson>=1.6.0'
 
       - name: Build pinned WHIP publisher

@@ -4,6 +4,7 @@ import io
 import json
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import tarfile
 import tempfile
@@ -32,6 +33,15 @@ elif a[0] == 'run':
    t.addfile(entry, io.BytesIO(data))
  else: print('libc.so.6 => /lib/libc.so.6 (0x1)')
 '''
+# Host tools the packaging and audit scripts run for real; docker, ldd and dpkg-query are faked.
+REQUIRED_TOOLS = ('bash', 'jq', 'tar', 'sha256sum')
+
+
+def setUpModule():
+  missing = [tool for tool in REQUIRED_TOOLS if not shutil.which(tool)]
+  if missing:
+    raise AssertionError('missing tool ' + ', '.join(missing) +
+                         ': install it in every environment that runs the ONNX test suite')
 
 
 class NativeBundleTest(unittest.TestCase):

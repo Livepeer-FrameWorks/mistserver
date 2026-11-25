@@ -85,7 +85,10 @@ jobs:
             librist-dev \
             libjpeg-dev \
             libpng-dev \
-            zlib1g-dev
+            zlib1g-dev \
+            curl \
+            unzip \
+            patchelf
           python3 -m pip install --break-system-packages 'meson>=1.6.0'
 
       - name: Restore ONNX dependencies for ONNX lint targets
