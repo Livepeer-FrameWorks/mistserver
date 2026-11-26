@@ -1213,13 +1213,37 @@ namespace Mist{
     return ret;
   }
 
-  /// Where a recording that has not written its header yet starts a track it seeks to pos: a video
-  /// track at its keyframe at or before pos, so one whose keyframes are not aligned with the track
-  /// pos came from (a transcoded rendition next to its source) starts with a keyframe instead of
-  /// mid-GOP. Any other track, and every track of a recording past its header, starts at pos.
+  /// Limits playback or a recording to [start, stop). A requested start snaps to a video keyframe's
+  /// decode time and presents by that keyframe's composition offset later; every other track then
+  /// covers the same presentation interval, ending at its own limited end.
+  void Output::applyRangeLimiter(uint64_t start, uint64_t stop, bool requestedStart) {
+    meta.applyLimiter(start, stop);
+    const size_t mainTrack = getMainSelectedTrack();
+    if (!requestedStart || mainTrack == INVALID_TRACK_ID || M.getType(mainTrack) != "video") { return; }
+    DTSC::Keys keys(M.getKeys(mainTrack, false));
+    const uint32_t key = M.getKeyNumForTime(mainTrack, start);
+    const int64_t offset = key == INVALID_KEY_NUM ? 0 : DTSC::Parts(M.parts(mainTrack)).getOffset(keys.getFirstPart(key));
+    for (const auto & track : userSelect) {
+      if (M.getType(track.first) != "video") { meta.setLimiterShift(track.first, offset > 0 ? uint64_t(offset) : 0); }
+    }
+  }
+
+  /// How far the latest-ending selected track's range runs past the limiter's stop.
+  uint64_t Output::rangeShift() const {
+    uint64_t shift = 0;
+    for (const auto & track : userSelect) { shift = std::max(shift, M.getLimiterShift(track.first)); }
+    return shift;
+  }
+
+  /// Where a seek to pos starts a track. A non-video track of a range starts where the range's
+  /// keyframe presents (see applyRangeLimiter). A recording that has not written its header yet
+  /// starts a video track at its keyframe at or before pos, so one whose keyframes are not aligned
+  /// with the track pos came from (a transcoded rendition next to its source) starts with a
+  /// keyframe instead of mid-GOP. Any other track starts at pos.
   uint64_t Output::recordingTrackStart(size_t tid, uint64_t pos) {
-    if (!isRecordingToFile || sentHeader || !M.trackLoaded(tid)) { return pos; }
-    if (M.getType(tid) != "video") { return pos + meta.getLimiterShift(tid); }
+    if (!M.trackLoaded(tid)) { return pos; }
+    if (M.getType(tid) != "video") { return pos + M.getLimiterShift(tid); }
+    if (!isRecordingToFile || sentHeader) { return pos; }
     const uint32_t keyNum = M.getKeyNumForTime(tid, pos);
     if (keyNum == INVALID_KEY_NUM) { return pos; }
     const uint64_t keyTime = DTSC::Keys(M.getKeys(tid)).getTime(keyNum);
@@ -1595,21 +1619,8 @@ namespace Mist{
           // Lastms is the main track's last timestamp, not the source's exclusive end.
           uint64_t stopPos = 0xFFFFFFFFFFFFFFFFull;
           if (targetParams.count("recstop")){stopPos = atoll(targetParams["recstop"].c_str());}
-          const bool limited = !M.getLive() || stopPos <= M.getLastms(mainTrack);
-          if (limited) { meta.applyLimiter(seekPos, stopPos); }
-          // A requested start snaps to a video keyframe's decode time, and its presentation follows
-          // by the keyframe's composition offset. Other tracks cover the same presentation interval;
-          // each track ends at its own limited end, the recording at the last of them.
-          if (limited && targetParams.count("recstart") && M.getType(mainTrack) == "video") {
-            DTSC::Keys keys(M.getKeys(mainTrack, false));
-            const uint32_t key = M.getKeyNumForTime(mainTrack, seekPos);
-            const int64_t offset =
-              key == INVALID_KEY_NUM ? 0 : DTSC::Parts(M.parts(mainTrack)).getOffset(keys.getFirstPart(key));
-            for (const auto & track : userSelect) {
-              if (M.getType(track.first) != "video") {
-                meta.setLimiterShift(track.first, offset > 0 ? uint64_t(offset) : 0);
-              }
-            }
+          if (!M.getLive() || stopPos <= M.getLastms(mainTrack)) {
+            applyRangeLimiter(seekPos, stopPos, targetParams.count("recstart"));
           }
         }
       }
@@ -1727,17 +1738,15 @@ namespace Mist{
         if (mainTrack != INVALID_TRACK_ID){
           const uint64_t stopPos = atoll(targetParams["stop"].c_str());
           if (!M.getLive() || stopPos <= M.getLastms(mainTrack)){
-            meta.applyLimiter(seekPos, stopPos);
+            applyRangeLimiter(seekPos, stopPos, targetParams.count("start"));
           }else{
             // End point past end of track? Don't limit the end point.
-            meta.applyLimiter(seekPos, 0xFFFFFFFFFFFFFFFFull);
+            applyRangeLimiter(seekPos, 0xFFFFFFFFFFFFFFFFull, targetParams.count("start"));
           }
         }
       } else {
         // No stop point, only apply limiter if a start point is set, and never limit the end point.
-        if (targetParams.count("start")){
-          meta.applyLimiter(seekPos, 0xFFFFFFFFFFFFFFFFull);
-        }
+        if (targetParams.count("start")) { applyRangeLimiter(seekPos, 0xFFFFFFFFFFFFFFFFull, true); }
       }
     }
     if (dryRun){return;}
@@ -1900,16 +1909,12 @@ namespace Mist{
     }
     if (selectedTrackReplaced) { return true; }
     // If we're recording to file and reached the target position, stop
-    uint64_t recordingShift = 0;
-    for (const auto & track : userSelect) {
-      recordingShift = std::max(recordingShift, meta.getLimiterShift(track.first));
-    }
-    if (isRecordingToFile && targetParams.count("recstop") && atoll(targetParams["recstop"].c_str()) + recordingShift <= thisTime) {
+    if (isRecordingToFile && targetParams.count("recstop") && atoll(targetParams["recstop"].c_str()) + rangeShift() <= thisTime) {
       INFO_MSG("End of planned recording reached");
       return true;
     }
     // Regardless of playback method, if we've reached the wanted stop point, stop
-    if (targetParams.count("stop") && atoll(targetParams["stop"].c_str()) <= thisTime){
+    if (targetParams.count("stop") && atoll(targetParams["stop"].c_str()) + rangeShift() <= thisTime) {
       INFO_MSG("End of planned playback reached");
       return true;
     }
@@ -2906,9 +2911,9 @@ namespace Mist{
       // data stops short of that position: no more data in range can arrive.
       uint64_t readStopMs = 0;
       if (targetParams.count("stop")) {
-        readStopMs = atoll(targetParams["stop"].c_str());
+        readStopMs = atoll(targetParams["stop"].c_str()) + M.getLimiterShift(nxt.tid);
       } else if (isRecordingToFile && targetParams.count("recstop")) {
-        readStopMs = atoll(targetParams["recstop"].c_str()) + meta.getLimiterShift(nxt.tid);
+        readStopMs = atoll(targetParams["recstop"].c_str()) + M.getLimiterShift(nxt.tid);
       }
       const bool boundedTrackExhausted =
         boundedReadTrackExhausted(readStopMs, M.getLive(), M.isClaimed(nxt.tid),

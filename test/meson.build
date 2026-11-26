@@ -1633,6 +1633,11 @@ if ffmpeg_program.found() and ffprobe_program.found()
   test('Nonzero-origin Matroska MP4 recordings preserve A/V alignment', find_program('python3'),
        args: [files('ebml_bframe_timeline_integration.py'), meson.project_build_root(), ffmpeg_program, ffprobe_program],
        env: {'MIST_TIMELINE_ORIGIN': '1'}, depends: media_test_deps, suite: 'Processing', timeout: 100, is_parallel: false)
+  foreach target : ['mp4', 'ts']
+    test('Ranged ' + target + ' playback starts audio with the keyframe presentation', find_program('python3'),
+         args: [files('ranged_playback_interval_integration.py'), meson.project_build_root(), ffmpeg_program, ffprobe_program, target],
+         depends: media_test_deps + [exec_tgts['MistOutHTTPTS']], suite: 'Processing', timeout: 100, is_parallel: false)
+  endforeach
   foreach codec : ['h264', 'hevc']
     test('Open-GOP ' + codec + ' MP4 clips start video at the keyframe in step with audio', find_program('python3'),
          args: [files('open_gop_mp4_edit_integration.py'), meson.project_build_root(), ffmpeg_program, ffprobe_program, codec],
