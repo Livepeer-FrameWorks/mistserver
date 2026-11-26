@@ -1682,6 +1682,8 @@ endif
 procspipecloexectest = executable('procspipecloexectest', 'procs_pipe_cloexec_unit.cpp', header_tgts, dependencies: libmist_dep)
 test('Processor pipes do not survive unrelated child execs', procspipecloexectest, suite: 'Util')
 test('Processor pipes preserve child stdin when parent stdin is closed', procspipecloexectest, args: ['closed-stdin'], suite: 'Util', timeout: 15)
+procssocketlisttest = executable('procssocketlisttest', 'procs_socket_list_unit.cpp', header_tgts, dependencies: libmist_dep)
+test('Spawned children close listed sockets without losing their pipes', procssocketlisttest, suite: 'Util', timeout: 15)
 test('Process pipe probe retries interrupted reads', procspipeinheritance, args: ['interrupt-read'], suite: 'Util', timeout: 15)
 
 # Supplemental contract tests cover wire headers and decoder layout transitions.

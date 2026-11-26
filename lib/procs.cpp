@@ -476,23 +476,6 @@ pid_t Util::Procs::StartPiped(const char *const *argv, int *fdIn, int *fdOut, in
   posix_spawn_file_actions_init(&childFdActions);
   std::deque<int> fd_unused;
 
-  {
-    std::lock_guard<std::mutex> guard(plistMutex);
-    std::deque<int> toErase;
-    for (const auto & it : Util::Procs::socketList) {
-      if (fcntl(it, F_GETFD) != -1 || errno != EBADF) {
-        toErase.push_back(it);
-        continue;
-      }
-      errno = posix_spawn_file_actions_addclose(&childFdActions, it);
-#if defined(_WIN32) || defined(CYGWIN)
-      fcntl(it, F_SETFD, FD_CLOEXEC);
-#endif
-      if (errno) { INFO_MSG("errno closing socket %d: %s", it, strerror(errno)); }
-    }
-    for (const auto & it : toErase) { Util::Procs::socketList.erase(it); }
-  }
-
   auto fdNotUnder3 = [&fd_unused](int & fd) {
     while (fd < 3) {
       fd_unused.push_back(fd);
@@ -542,6 +525,37 @@ pid_t Util::Procs::StartPiped(const char *const *argv, int *fdIn, int *fdOut, in
   while (fd_unused.size()) {
     close(fd_unused.back());
     fd_unused.pop_back();
+  }
+
+  {
+    // The child closes every listed socket that is still open. A listed socket that was closed
+    // elsewhere may have lent its number to one of this child's pipes, which must stay open.
+    std::set<int> pipes;
+    if (fdIn && *fdIn == -1) { pipes.insert({pipein[0], pipein[1]}); }
+    if (fdOut && *fdOut == -1) { pipes.insert({pipeout[0], pipeout[1]}); }
+    if (fdErr && *fdErr == -1) { pipes.insert({pipeerr[0], pipeerr[1]}); }
+    // Descriptors the caller hands to the child as its stdio stay open until they are dup'ed.
+    std::set<int> handed;
+    for (const int *fd : {fdIn, fdOut, fdErr}) {
+      if (fd && *fd >= 0) { handed.insert(*fd); }
+    }
+    std::lock_guard<std::mutex> guard(plistMutex);
+    for (auto it = Util::Procs::socketList.begin(); it != Util::Procs::socketList.end();) {
+      if (pipes.count(*it) || (fcntl(*it, F_GETFD) == -1 && errno == EBADF)) {
+        it = Util::Procs::socketList.erase(it);
+        continue;
+      }
+      if (handed.count(*it)) {
+        ++it;
+        continue;
+      }
+      const int error = posix_spawn_file_actions_addclose(&childFdActions, *it);
+#if defined(_WIN32) || defined(CYGWIN)
+      fcntl(*it, F_SETFD, FD_CLOEXEC);
+#endif
+      if (error) { INFO_MSG("errno closing socket %d: %s", *it, strerror(error)); }
+      ++it;
+    }
   }
 
   std::set<int> fd_close;
