@@ -515,7 +515,12 @@ def session_tag_history(f):
     reader.wait(timeout=15)
     reused=subprocess.Popen([f.ffmpeg,'-v','error','-i',viewer_url,'-t','30','-f','null','-'],env=f.tool_env,stdout=f.log,stderr=subprocess.STDOUT)
     f.children.append(reused)
-    row=until(viewer,15,'reused native viewer never registered')
+    # The completed lifetime stays in the census for five seconds with its own tags. Its queued tags apply in the same
+    # step that clears the old ones, so a row carrying them is the reused lifetime.
+    def reused_viewer():
+        current=viewer()
+        return current if current and 'fresh-lifetime' in (current.get('tags') or []) else None
+    row=until(reused_viewer,15,'reused native viewer never registered with its queued classification')
     assert row['sessid']==sid,('fixture did not reuse its session identity',sid,row)
     assert 'fwproc' not in (row.get('tags') or []),('reused session inherited completed lifetime tags',row)
     assert 'fresh-lifetime' in (row.get('tags') or []),('reused session lost its newly queued classification',row)
