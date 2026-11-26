@@ -166,7 +166,7 @@ done
 mkfifo "$work/input.fifo"
 stamp <"$work/input.fifo" >"$work/input.log" &
 stamp_pid=$!
-TMP="$ipc_root" MIST_CONTROL=1 "$bin/MistInEBML" -r -s "$stream" "$source_mkv" >"$work/input.fifo" 2>&1 &
+TMP="$ipc_root" MIST_CONTROL=1 "$bin/MistInEBML" -g 4 -r -s "$stream" "$source_mkv" >"$work/input.fifo" 2>&1 &
 input_pid=$!
 attempt=0
 until grep -q 'MistInBuffer.*Input started' "$work/input.log" 2>/dev/null; do
@@ -219,7 +219,7 @@ else
   target="$recording"
 fi
 (
-  TMP="$ipc_root" MIST_CONTROL=1 "$bin/MistOutEBML" -s "$stream" "$target?duration=$recording_seconds" 2>&1
+  TMP="$ipc_root" MIST_CONTROL=1 "$bin/MistOutEBML" -g 4 -s "$stream" "$target?duration=$recording_seconds" 2>&1
   echo "recorder exited with status $?"
 ) | stamp >"$work/output.log" &
 recorder_pid=$!

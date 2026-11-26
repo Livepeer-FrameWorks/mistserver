@@ -134,7 +134,7 @@ fi
 mkfifo "$work/input.fifo"
 stamp <"$work/input.fifo" >"$work/input.log" &
 stamp_pid=$!
-TMP="$ipc_root" MIST_CONTROL=1 "$input_ebml" -r -s "$stream" "$source_mkv" >"$work/input.fifo" 2>&1 &
+TMP="$ipc_root" MIST_CONTROL=1 "$input_ebml" -g 4 -r -s "$stream" "$source_mkv" >"$work/input.fifo" 2>&1 &
 input_pid=$!
 
 started=0
@@ -157,7 +157,7 @@ fi
 
 recording="$work/recording.mkv"
 (
-  TMP="$ipc_root" MIST_CONTROL=1 "$output_ebml" -s "$stream" "$recording?duration=8" 2>&1
+  TMP="$ipc_root" MIST_CONTROL=1 "$output_ebml" -g 4 -s "$stream" "$recording?duration=8" 2>&1
   echo "recorder exited with status $?"
 ) | stamp >"$work/output.log"
 if ! grep -q 'recorder exited with status 0' "$work/output.log"; then
