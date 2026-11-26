@@ -56,6 +56,14 @@ cleanup() {
     TMP="$ipc_root" MIST_CONTROL=1 "$util_nuke" "$stream" >/dev/null 2>&1 || true
     kill -INT "$controller_pid" >/dev/null 2>&1 || true
     wait "$controller_pid" >/dev/null 2>&1 || true
+    # The live input and its mkv-exec publisher outlive the controller while they shut down; they are this
+    # test's processes, so wait for them (an instrumented build can take seconds) instead of leaving them
+    # to the process audit.
+    tries=0
+    while { pgrep -f "MistInEBML.*$stream" || pgrep -f "ffmpeg .*$source_mkv"; } >/dev/null 2>&1 && [ "$tries" -lt 200 ]; do
+      tries=$((tries + 1))
+      sleep 0.1
+    done
   fi
   rm -rf -- "$work"
   exit "$status"
