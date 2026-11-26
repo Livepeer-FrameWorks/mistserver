@@ -62,22 +62,18 @@ namespace Mist{
       }
   };
 
-  /// The earliest presentation time of a progressive track, where its edit list starts it on
-  /// the movie timeline. Fragmented and live output place tracks by their first decode time.
+  /// Where a progressive track's edit list starts it on the movie timeline: the presentation of its
+  /// first sample, a video track's keyframe. Leading pictures of an open GOP present earlier but
+  /// reference the previous GOP, so the edit list skips them. Fragmented and live output place
+  /// tracks by their first decode time.
   static uint64_t presentationStart(const DTSC::Meta & M, size_t track, bool fragmented) {
     const uint64_t first = M.getFirstms(track);
     if (fragmented || M.getLive()) { return first; }
     DTSC::Keys keys = M.getKeys(track);
-    const size_t count = std::min<size_t>(keys.getTotalPartCount(), 64);
-    if (!count) { return first; }
-    const DTSC::Parts parts(M.parts(track));
-    const size_t begin = keys.getFirstPart(keys.getFirstValid());
-    int64_t decode = int64_t(first), earliest = INT64_MAX;
-    for (size_t part = begin; part < begin + count; ++part) {
-      earliest = std::min(earliest, decode + parts.getOffset(part));
-      decode += int64_t(parts.getDuration(part));
-    }
-    return earliest > 0 ? uint64_t(earliest) : 0;
+    if (!keys.getTotalPartCount()) { return first; }
+    const int64_t offset = DTSC::Parts(M.parts(track)).getOffset(keys.getFirstPart(keys.getFirstValid()));
+    // The edit list's media start is this sample's positive composition offset, or its decode time.
+    return first + uint64_t(std::max<int64_t>(offset, 0));
   }
 
   bool OutMP4::trackReadyForOutput(size_t track) const {
