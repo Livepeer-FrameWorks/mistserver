@@ -387,8 +387,9 @@ namespace Mist {
             ERROR_MSG("Could not create MJPEG pixel converter");
             break;
           }
-          const uint8_t *source[1] = {rgb.data()};
-          int sourceStride[1] = {(int)(width * 3)};
+          // sws_scale reads all four plane slots; packed RGB uses only the first.
+          const uint8_t *source[4] = {rgb.data(), nullptr, nullptr, nullptr};
+          int sourceStride[4] = {(int)(width * 3), 0, 0, 0};
           if (sws_scale(converter, source, sourceStride, 0, height, frame->data, frame->linesize) <= 0) {
             ERROR_MSG("Could not convert MJPEG frame pixels");
             break;
