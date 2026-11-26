@@ -12,6 +12,9 @@ prefix=${2:-$stage/opt/mist-onnx}
 
 set_rpath() {
   local file=$1 rpath=$2
+  # NSS verifies these providers against their adjacent .chk files before loading.
+  # They inherit the executable's DT_RPATH and must remain byte-for-byte intact.
+  case "${file##*/}" in libsoftokn3.so|libfreeblpriv3.so|libfreebl3.so) return ;; esac
   # Native bundles also contain scripts, metadata, and platform-independent files.
   if [ "$(LC_ALL=C head -c 4 "$file")" != "$(printf '\177ELF')" ]; then return; fi
   command -v patchelf >/dev/null || { echo 'patchelf is required for native ELF bundles' >&2; exit 1; }

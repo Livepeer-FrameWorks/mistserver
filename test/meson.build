@@ -894,6 +894,12 @@ socketsendlimittest = executable('socketsendlimittest', 'socket_send_limit_unit.
 test('Socket bounded writes preserve skipped prefixes and partial sends', socketsendlimittest, suite: 'Sockets')
 
 if usessl
+  nativecryptoprobe = executable('nativecryptoprobe', 'native_crypto_probe.cpp', header_tgts,
+                                 dependencies: libmist_dep, install: true,
+                                 install_dir: get_option('libdir') / 'mistserver')
+  test('Native WebRTC runtime authenticates SRTP and SRTCP', nativecryptoprobe,
+       suite: ['WebRTC', 'Packaging'])
+
   tlssetuptest = executable('tlssetuptest', 'tls_setup_unit.cpp', header_tgts,
                             dependencies: libmist_dep)
   test('TLS key logging follows the active setup context', tlssetuptest, suite: 'Sockets')

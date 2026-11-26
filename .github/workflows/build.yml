@@ -502,8 +502,7 @@ jobs:
             patchelf --force-rpath --set-rpath '$ORIGIN/../lib:$ORIGIN/../lib/x86_64-linux-gnu' "$bin"
           done
           scripts/collect-native-libraries.sh /tmp/mistserver-install
-          find /tmp/mistserver-install/lib -type f -name '*.so*' -exec \
-            patchelf --force-rpath --set-rpath '$ORIGIN:$ORIGIN/..' {} \;
+          scripts/ONNX/isolate_native_libraries.sh /tmp/mistserver-install
           capability=$(/tmp/mistserver-install/bin/MistProcONNX -j 2>/dev/null || true)
           printf '%s' "$capability" | grep -F "This binary packages the 'cpu' profile"
 
@@ -568,11 +567,17 @@ jobs:
             done
             for object in /opt/mist/bin/Mist* /opt/mist/lib/*.so* /opt/mist/lib/*/*.so*; do
               [ -f "$object" ] || continue
+              # NSS verifies these immutable providers; test their inherited loader
+              # context through the executable crypto probe below.
+              case "${object##*/}" in libsoftokn3.so|libfreeblpriv3.so|libfreebl3.so) continue ;; esac
               if LD_LIBRARY_PATH=/tmp/decoy-libs ldd "$object" 2>/dev/null | grep -F "=> /tmp/decoy-libs/"; then
                 echo "$(basename "$object") loads a library from LD_LIBRARY_PATH instead of the package" >&2
                 failed=1
               fi
             done
+            crypto_probe=$(find /opt/mist/lib -type f -name nativecryptoprobe -print -quit)
+            [ -n "$crypto_probe" ] || { echo "native crypto probe is missing" >&2; exit 1; }
+            LD_LIBRARY_PATH=/tmp/decoy-libs "$crypto_probe"
             exit $failed
           '
 
@@ -783,8 +788,7 @@ jobs:
             patchelf --force-rpath --set-rpath '$ORIGIN/../lib:$ORIGIN/../lib/aarch64-linux-gnu' "$bin"
           done
           scripts/collect-native-libraries.sh /tmp/mistserver-install
-          find /tmp/mistserver-install/lib -type f -name '*.so*' -exec \
-            patchelf --force-rpath --set-rpath '$ORIGIN:$ORIGIN/..' {} \;
+          scripts/ONNX/isolate_native_libraries.sh /tmp/mistserver-install
           capability=$(/tmp/mistserver-install/bin/MistProcONNX -j 2>/dev/null || true)
           printf '%s' "$capability" | grep -F "This binary packages the 'cpu' profile"
 
@@ -849,11 +853,17 @@ jobs:
             done
             for object in /opt/mist/bin/Mist* /opt/mist/lib/*.so* /opt/mist/lib/*/*.so*; do
               [ -f "$object" ] || continue
+              # NSS verifies these immutable providers; test their inherited loader
+              # context through the executable crypto probe below.
+              case "${object##*/}" in libsoftokn3.so|libfreeblpriv3.so|libfreebl3.so) continue ;; esac
               if LD_LIBRARY_PATH=/tmp/decoy-libs ldd "$object" 2>/dev/null | grep -F "=> /tmp/decoy-libs/"; then
                 echo "$(basename "$object") loads a library from LD_LIBRARY_PATH instead of the package" >&2
                 failed=1
               fi
             done
+            crypto_probe=$(find /opt/mist/lib -type f -name nativecryptoprobe -print -quit)
+            [ -n "$crypto_probe" ] || { echo "native crypto probe is missing" >&2; exit 1; }
+            LD_LIBRARY_PATH=/tmp/decoy-libs "$crypto_probe"
             exit $failed
           '
 
