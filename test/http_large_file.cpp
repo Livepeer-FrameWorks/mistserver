@@ -198,7 +198,7 @@ namespace {
 
 int main() {
   signal(SIGPIPE, SIG_IGN);
-  std::vector<size_t> lengths = {0, 1, 2147483647ULL, 2147483648ULL, 2907084768ULL, 3419079637ULL};
+  std::vector<size_t> lengths = {0, 1, 2147483647ULL, 2147483648ULL, 2907084768ULL, 3068515312ULL, 3419079637ULL};
   if (sizeof(size_t) > 4) {
     lengths.push_back(4294967296ULL);
     lengths.push_back(9000000000ULL);

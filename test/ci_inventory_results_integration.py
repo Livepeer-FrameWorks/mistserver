@@ -28,8 +28,40 @@ for name in ('Controller capacity lifecycle whep',
 whip = 'WHIP offers get an answer or a logged refusal, and a passive offerer can publish'
 if not any(row['name'] == whip for row in rows):
     rows.append({'name': whip, 'cmd': [str(Path(__file__).with_name('webrtc_whip_setup_integration.sh'))]})
-inventory = json.dumps(rows)
+orientation = 'H264 display orientation rotates processing and thumbnails'
+if not any(row['name'] == orientation for row in rows):
+    rows.append({'name': orientation, 'cmd': [str(Path(__file__).with_name('process_av_rotation_integration.py'))]})
+# AV unit targets are absent from a non-AV build; model their identities for
+# the full-profile results fixture without requiring their compiled binaries.
+for name in (
+    'AAC channel layouts survive Opus processing at full duration',
+    'AAC mono stays mono through Opus processing',
+    'AV codec mapping and surround channel layouts',
+    'AV rotation scales display geometry and rotates planar and packed formats',
+    'Actual ProcAV resampler keeps changing EAC3 block sizes current before EOF',
+    'Admitted 4K software encode retains threads lookahead and mbtree',
+    'All eight orientations produce upright ladder and thumbnail pixels',
+    'Audio resampler detects rate and equal-count speaker layout changes',
+    'CPU 4K downscale retains fine detail above 40 dB',
+    'CUDA downloads preserve the actual software pixel format',
+    'Default Matroska output does not select subtitles',
+    'Late subtitles survive an AV ladder and thumbnail processing',
+    'Live zerolatency ignores admitted VOD lookahead',
+    'MP4 tx3g cue text and timing survive Matroska recording',
+    'Matroska recordings retain subtitle cues while WebM excludes them',
+    'Sparse subtitles declare recording headers before a three minute first cue',
+    'Stored Matroska subtitles serve complete WebVTT over HTTP',
+    'Upload containers preserve video codecs, surround audio and subtitle durations',
+):
+    if not any(row['name'] == name for row in rows):
+        rows.append({'name': name})
 root = Path(__file__).resolve().parents[1]
+# This results fixture models a complete media profile even when the current
+# build registers its AV-gated cases through the non-AV skip driver.
+rows.append({'name': 'Fixture full-profile media script coverage',
+             'cmd': [str(path) for path in sorted((root / 'test').iterdir())
+                     if path.suffix in ('.py', '.sh')]})
+inventory = json.dumps(rows)
 with tempfile.TemporaryDirectory(prefix='mist-inventory-results-') as directory:
     fixture = Path(directory)
     (fixture / 'meson-logs').mkdir()
