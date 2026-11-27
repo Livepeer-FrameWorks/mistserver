@@ -75,7 +75,7 @@ namespace Mist{
       thisError = msg;
       return;
     }
-    if (responded){
+    if (!requestAwaitsResponse()) {
       HTTPOutput::onFail(msg, critical);
       return;
     }

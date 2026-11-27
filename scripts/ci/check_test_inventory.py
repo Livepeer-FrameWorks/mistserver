@@ -79,6 +79,7 @@ required.update({
     'CUDA downloads preserve the actual software pixel format',
     'AV rotation scales display geometry and rotates planar and packed formats',
     'EAC-3 access units aggregate dependent substream channels',
+    'Ending an idle HLS session closes the connection without an unrequested response',
 })
 if sys.platform.startswith('linux'):
     required.add('Detached Mist children fail the process audit')

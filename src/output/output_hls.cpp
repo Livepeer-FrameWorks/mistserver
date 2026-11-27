@@ -578,6 +578,12 @@ namespace Mist{
   void OutHLS::sendTS(const char *tsData, size_t len){H.Chunkify(tsData, len, myConn);}
 
   void OutHLS::onFail(const std::string &msg, bool critical){
+    // reqUrl still names the last request after it was answered; without a request in flight the
+    // connection only closes.
+    if (!requestAwaitsResponse()) {
+      Output::onFail(msg, critical);
+      return;
+    }
     // Trigger refusals use an HTTP status instead of an error playlist: a
     // handler outage remains retryable while an authoritative denial stays final.
     if (HTTP::URL(reqUrl).getExt().substr(0, 3) != "m3u" || !strncmp(Util::mRExitReason, ER_TRIGGER, 7)) {

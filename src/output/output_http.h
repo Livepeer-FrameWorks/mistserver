@@ -55,6 +55,8 @@ namespace Mist{
 
       Util::ResizeablePointer bodyData;
       bool responded;
+      uint64_t requestDataUp; ///< Bytes sent on the connection when the current request arrived
+      bool requestAwaitsResponse();
       HTTP::Parser H;
       HTTP::Websocket *webSock;
       uint32_t idleInterval; ///< Interval for the onIdle handler in milliseconds

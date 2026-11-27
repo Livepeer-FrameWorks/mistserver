@@ -36,6 +36,9 @@ namespace Mist{
     idleInterval = 0;
     idleLast = 0;
     lastHTTPRequest = Util::bootSecs();
+    // No request has arrived yet, so there is nothing to answer.
+    responded = true;
+    requestDataUp = 0;
     if (config->getString("ip").size()){
       myConn.setHost(config->getString("ip"));
     }
@@ -95,8 +98,15 @@ namespace Mist{
     cfg->addBasicConnectorOptions(capa);
   }
 
+  /// True while the current request has had no answer: no handler marked it responded and no byte
+  /// was sent since it arrived. A failure outside that window must not write a response, because a
+  /// keep-alive client (or a pooling proxy) would read it as the answer to its next request.
+  bool HTTPOutput::requestAwaitsResponse() {
+    return !webSock && !isRecording() && !responded && myConn.dataUp() == requestDataUp;
+  }
+
   void HTTPOutput::onFail(const std::string &msg, bool critical){
-    if (!webSock && !isRecording() && !responded){
+    if (requestAwaitsResponse()) {
       H.Clean(); // make sure no parts of old requests are left in any buffers
       H.SetHeader("Server", APPIDENT);
       H.setCORSHeaders();
@@ -342,6 +352,8 @@ namespace Mist{
         if (!H.Read(myConn, cb)) { break; }
       }
       lastHTTPRequest = Util::bootSecs();
+      responded = false;
+      requestDataUp = myConn.dataUp();
 
       //First, figure out which handler we need to use
       std::string handler = getHandler();
@@ -519,7 +531,6 @@ namespace Mist{
         H.Clean();
         return;
       }
-      responded = false;
       bool wasHeaderOnly = H.headerOnly;
       preHTTP();
 

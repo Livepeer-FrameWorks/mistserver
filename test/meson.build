@@ -1799,6 +1799,9 @@ if ffmpeg_program.found()
        args: [files('hls_cold_replica_integration.py'), meson.project_build_root(), ffmpeg_program],
        depends: media_test_deps + [exec_tgts['MistOutHLS'], exec_tgts['MistInDTSC'], exec_tgts['MistOutDTSC']],
        suite: 'Processing', timeout: 120, is_parallel: false)
+  test('Ending an idle HLS session closes the connection without an unrequested response', find_program('python3'),
+       args: [files('hls_idle_session_end_integration.py'), meson.project_build_root(), ffmpeg_program],
+       depends: media_test_deps + [exec_tgts['MistOutHLS']], suite: 'HTTP', timeout: 120, is_parallel: false)
 endif
 
 if get_option('WITH_AV') and ffmpeg_program.found() and ffprobe_program.found()
