@@ -104,6 +104,7 @@ required.update({
     'Process pipe probe retries interrupted reads',
 })
 required.update(['Reordered EBML frames retain PTS with monotonic nonnegative DTS', 'Audio resampler detects rate and equal-count speaker layout changes', 'EAC-3 decoder configurations retain all dependent substreams', 'Non-muxed CMAF EAC-3 waits for a complete decoder configuration', 'Live republish startup polls count missing logs numerically'])
+required.add('DTSC key lookup past a live track end resolves to the newest key')
 missing = sorted(required - names)
 assert not missing, 'required regression tests are absent: ' + ', '.join(missing)
 output = build / 'meson-logs' / 'ingest-capacity-test-inventory.json'

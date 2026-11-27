@@ -1688,12 +1688,32 @@ namespace Mist{
             while (Util::getMS() - lastUpdated < 5000 && startRec > streamAvail && keepGoing()){
               Util::sleep(500);
               thisBootMs = Util::bootMS();
+              meta.reloadReplacedPagesIfNeeded();
               if (M.getNowms(mainTrack) > streamAvail){
                 HIGH_MSG("Waiting for stream to reach playback starting point (%" PRIu64 " -> %" PRIu64 "). Time left: " PRETTY_PRINT_MSTIME, startRec, streamAvail, PRETTY_ARG_MSTIME(startRec - streamAvail));
                 stats();
                 streamAvail = M.getNowms(mainTrack);
                 lastUpdated = Util::getMS();
               }
+            }
+            // The source stopped advancing short of the requested start, as a DVR that publishes
+            // long segments does between them. Serve its newest media instead: the latest keyframe
+            // from which the requested duration is available, or the newest keyframe without one.
+            if (startRec > (int64_t)M.getNowms(mainTrack)) {
+              const uint64_t lastMs = M.getLastms(mainTrack);
+              uint64_t latest = lastMs;
+              if (targetParams.count("duration")) {
+                const uint64_t durationMs = atoll(targetParams["duration"].c_str()) * 1000;
+                latest = lastMs > durationMs ? lastMs - durationMs : 0;
+              }
+              if (M.getType(mainTrack) == "video") {
+                latest = M.getTimeForKeyIndex(mainTrack, M.getKeyIndexForTime(mainTrack, latest));
+              }
+              WARN_MSG("Playback begin at %" PRId64 " ms is past the available media (up to %" PRIu64
+                       " ms), starting at %" PRIu64 " ms instead",
+                       startRec, lastMs, latest);
+              startRec = latest;
+              targetParams["start"] = JSON::Value(startRec).asString();
             }
           }
           if (startRec < 0 || startRec < startTime()){
@@ -2425,6 +2445,7 @@ namespace Mist{
             targetParams.erase("nxt-split");
             // Incapable of restarts or this is the final stop? Just stop.
             if (!inlineRestartCapable() || reachedPlannedStop()){
+              parseData = false;
               if (!onFinish()){
                 if (selectedTrackReplaced) {
                   INFO_MSG("Shutting down because a selected track was replaced");
@@ -2436,6 +2457,8 @@ namespace Mist{
                 reachedEnd = true;
                 break;
               }
+              // Intercepted, e.g. an HTTP reply that ended at its range and awaits the next request.
+              continue;
             }
 
             // Otherwise, do an inline restart (e.g. new segment)

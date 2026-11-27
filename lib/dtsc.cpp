@@ -4753,7 +4753,10 @@ namespace DTSC{
     return getKeys(idx).getTime(keyIdx);
   }
 
-  /// Returns indice of the key containing timestamp, or last key if nowhere.
+  /// Returns indice of the key containing timestamp, or the last valid key if timestamp lies past
+  /// the track's end. A live track's newest key only lasts up to its newest part, so any time from
+  /// the live edge on resolves to that key. Returns the end position only for a track without
+  /// valid keys.
   uint32_t Meta::getKeyIndexForTime(uint32_t idx, uint64_t timestamp) const{
     DTSC::Keys keys(getKeys(idx));
     uint32_t firstKey = keys.getFirstValid();
@@ -4763,7 +4766,7 @@ namespace DTSC{
       uint64_t t = keys.getTime(i);
       if (t == timestamp || t + keys.getDuration(i) > timestamp) { return i; }
     }
-    return endKey;
+    return endKey > firstKey ? endKey - 1 : endKey;
   }
 
   /// Returns the tiestamp for the given fragment index in the given track index.
@@ -4784,13 +4787,9 @@ namespace DTSC{
     uint32_t keyIdx = getKeyIndexForTime(idx, timestamp);
     DTSC::Keys Keys(getKeys(idx));
     DTSC::Parts Parts(parts(idx));
-    if (keyIdx >= Keys.getEndValid()) {
-      if (Keys.getFirstValid() >= Keys.getEndValid()) { return Parts.getEndValid(); }
-      // The final part's inferred duration may extend beyond the stored duration of the final
-      // key. In that interval getKeyIndexForTime() returns endValid, so walk the final valid key
-      // to resolve the remaining part boundaries.
-      keyIdx = Keys.getEndValid() - 1;
-    }
+    if (keyIdx >= Keys.getEndValid()) { return Parts.getEndValid(); }
+    // Past the final key's stored duration (which the final part's inferred duration may exceed),
+    // keyIdx is the final valid key, whose parts resolve the remaining boundaries.
     uint64_t currentTime = Keys.getTime(keyIdx);
     res = Keys.getFirstPart(keyIdx);
     size_t endPart = Parts.getEndValid();

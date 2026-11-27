@@ -1189,6 +1189,8 @@ test('Processing graph candidates are sized once instead of growing on every che
 
 dtsc_part_time_test = executable('dtsc_part_time_test', 'dtsc_part_time_unit.cpp', header_tgts, dependencies: libmist_dep)
 test('DTSC part time skips deleted keys', dtsc_part_time_test)
+dtsc_key_index_test = executable('dtsc_key_index_test', 'dtsc_key_index_unit.cpp', header_tgts, dependencies: libmist_dep)
+test('DTSC key lookup past a live track end resolves to the newest key', dtsc_key_index_test, suite: 'DTSC')
 
 http_response_test = executable('http_response_test', 'http_response.cpp', header_tgts, dependencies: libmist_dep)
 test('HTTP response persistence and framing', http_response_test, suite: 'HTTP parser')
@@ -1668,6 +1670,12 @@ if ffmpeg_program.found() and ffprobe_program.found()
     test('Ranged ' + target + ' playback starts audio with the keyframe presentation', find_program('python3'),
          args: [files('ranged_playback_interval_integration.py'), meson.project_build_root(), ffmpeg_program, ffprobe_program, target],
          depends: media_test_deps + [exec_tgts['MistOutHTTPTS']], suite: 'Processing', timeout: 100, is_parallel: false)
+  endforeach
+  foreach mode : ['hls', 'dtsc', 'live']
+    test('A ranged MP4 of a live ' + mode + ' DVR ends promptly after its duration', find_program('python3'),
+         args: [files('dvr_ranged_mp4_integration.py'), meson.project_build_root(), ffmpeg_program, ffprobe_program, mode],
+         depends: media_test_deps + [exec_tgts['MistInHLS'], exec_tgts['MistInDTSC'], exec_tgts['MistOutDTSC']],
+         suite: 'Processing', timeout: 120, is_parallel: false)
   endforeach
   foreach codec : ['h264', 'hevc']
     test('Open-GOP ' + codec + ' MP4 clips start video at the keyframe in step with audio', find_program('python3'),
