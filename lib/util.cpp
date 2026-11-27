@@ -914,19 +914,27 @@ namespace Util{
 
   FieldAccX::FieldAccX(RelAccX *_src, RelAccXFieldData _field) : src(_src), field(_field){}
 
-  uint64_t FieldAccX::uint(size_t recordNo) const{return src->getInt(field, recordNo);}
+  // A shared page keeps the layout of the build that created it: a rolling controller restart
+  // leaves pages made by the previous release in place. An accessor for a field that page lacks
+  // reads as empty and ignores writes, so newer processes keep working on the older layout.
+  uint64_t FieldAccX::uint(size_t recordNo) const {
+    return src ? src->getInt(field, recordNo) : 0;
+  }
 
   std::string FieldAccX::string(size_t recordNo) const{
-    return std::string(src->getPointer(field, recordNo));
+    return src ? std::string(src->getPointer(field, recordNo)) : std::string();
   }
 
   const char * FieldAccX::ptr(size_t recordNo) const{
-    return src->getPointer(field, recordNo);
+    return src ? src->getPointer(field, recordNo) : "";
   }
 
-  void FieldAccX::set(uint64_t val, size_t recordNo){src->setInt(field, val, recordNo);}
+  void FieldAccX::set(uint64_t val, size_t recordNo) {
+    if (src) { src->setInt(field, val, recordNo); }
+  }
 
   void FieldAccX::set(const std::string &val, size_t recordNo){
+    if (!src) { return; }
     char *place = src->getPointer(field, recordNo);
     memcpy(place, val.data(), std::min((size_t)field.size, val.size()));
     if ((field.type & 0xF0) == RAX_STRING){

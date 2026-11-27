@@ -118,6 +118,9 @@ test('Embedded frame storage fills and wraps safely', embeddedframetest, suite: 
 dtscunixzerotest = executable('dtscunixzerotest', 'dtsc_unixzero_unit.cpp', header_tgts, dependencies: libmist_dep)
 test('DTSC preserves the authoritative Unix clock for live DVR', dtscunixzerotest, suite: 'DTSC')
 
+commsrollinglayouttest = executable('commsrollinglayouttest', 'comms_rolling_layout_unit.cpp', header_tgts, dependencies: libmist_dep)
+test('Sessions register on the statistics page a previous release created', commsrollinglayouttest, suite: 'Comms', is_parallel: false)
+
 dtscresumetest = executable('dtscresumetest', 'dtsc_resume_unit.cpp', header_tgts, dependencies: libmist_dep)
 dtscbitratetest = executable('dtscbitratetest', 'dtsc_bitrate_unit.cpp', header_tgts, dependencies: libmist_dep)
 test('Tracks report a bitrate before their first fragment closes', dtscbitratetest, suite: 'DTSC')
