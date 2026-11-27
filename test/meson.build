@@ -120,6 +120,24 @@ test('DTSC preserves the authoritative Unix clock for live DVR', dtscunixzerotes
 
 commsrollinglayouttest = executable('commsrollinglayouttest', 'comms_rolling_layout_unit.cpp', header_tgts, dependencies: libmist_dep)
 test('Sessions register on the statistics page a previous release created', commsrollinglayouttest, suite: 'Comms', is_parallel: false)
+commsstatssegmentstest = executable('commsstatssegmentstest', 'comms_stats_segments_unit.cpp', header_tgts,
+                                    dependencies: libmist_dep)
+test('A controller start publishes a full-layout statistics segment beside the legacy page', commsstatssegmentstest,
+     args: ['legacy-start'], suite: 'Comms', is_parallel: false)
+test('Drained retiring statistics segments close and are unlinked after the grace period', commsstatssegmentstest,
+     args: ['retire'], suite: 'Comms', is_parallel: false)
+test('A rolling restart finds every statistics segment through the index', commsstatssegmentstest,
+     args: ['restart'], suite: 'Comms', is_parallel: false)
+test('Sessions use the legacy statistics page until an index exists', commsstatssegmentstest,
+     args: ['no-index'], suite: 'Comms', is_parallel: false)
+test('A closed statistics segment sends sessions to the current one', commsstatssegmentstest,
+     args: ['closed'], suite: 'Comms', is_parallel: false)
+test('The statistics index rejects invalid entries and torn reads', commsstatssegmentstest,
+     args: ['index'], suite: 'Comms', is_parallel: false)
+controllerstatepagetest = executable('controllerstatepagetest', 'controller_state_page_unit.cpp', header_tgts,
+                                     dependencies: libmist_dep)
+test('Controller state pages with another layout are recreated', controllerstatepagetest, suite: 'Comms',
+     is_parallel: false)
 
 dtscresumetest = executable('dtscresumetest', 'dtsc_resume_unit.cpp', header_tgts, dependencies: libmist_dep)
 dtscbitratetest = executable('dtscbitratetest', 'dtsc_bitrate_unit.cpp', header_tgts, dependencies: libmist_dep)
@@ -791,6 +809,10 @@ test('Replaced connectors wait for the previous listener to release its port', c
   test('The controller angel runs one controller under any name', controllerangeltest,
        args: [exec_tgts.get('MistController')],
        suite: 'Controller', timeout: 60, is_parallel: false)
+  controllerstatssegmentstest = find_program('controller_stats_segments_integration.sh')
+  test('A controller beside a previous release\'s pages keeps its sessions and its own layout',
+       controllerstatssegmentstest, args: [exec_tgts.get('MistController'), commsstatssegmentstest],
+       suite: 'Controller', timeout: 90, is_parallel: false)
 
 bufferholdtest = executable('bufferholdtest', 'buffer_hold_unit.cpp', header_tgts, dependencies: libmist_dep)
 test('Processing recorders pin the buffer and pace the feed', bufferholdtest, suite: 'Processing')

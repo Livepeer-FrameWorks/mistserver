@@ -118,7 +118,8 @@ struct streamTotals{
   std::set<std::string> tags;
 };
 
-Comms::Sessions statComm;
+// Every statistics segment the controller reads: the current one, then the retiring ones.
+Comms::StatisticsSegments statSegments;
 bool statCommActive = false;
 // Global server wide statistics
 static uint64_t servUpBytes = 0;
@@ -216,13 +217,18 @@ void Controller::sessions_invalidate(const std::string &streamname){
     return;
   }
   unsigned int sessCount = 0;
-  // Find all matching streams in statComm
-  for (size_t i = 0; i < statComm.recordCount(); i++){
-    if (statComm.getStatus(i) == COMM_STATUS_INVALID || (statComm.getStatus(i) & COMM_STATUS_DISCONNECT)){continue;}
-    if (statComm.getStream(i) == streamname){
-      sessCount++;
-      // Re-trigger USER_NEW trigger for this session
-      kill(statComm.getPid(i), SIGUSR1);
+  // The stats loop drops retired segments while holding this lock.
+  std::lock_guard<std::recursive_mutex> guard(statsMutex);
+  // Find all matching streams in every statistics segment
+  for (size_t s = 0; s < statSegments.size(); ++s) {
+    Comms::Sessions & statComm = statSegments[s];
+    for (size_t i = 0; i < statComm.recordCount(); i++) {
+      if (statComm.getStatus(i) == COMM_STATUS_INVALID || (statComm.getStatus(i) & COMM_STATUS_DISCONNECT)) { continue; }
+      if (statComm.getStream(i) == streamname) {
+        sessCount++;
+        // Re-trigger USER_NEW trigger for this session
+        kill(statComm.getPid(i), SIGUSR1);
+      }
     }
   }
   INFO_MSG("Invalidated %u session(s) for stream %s", sessCount, streamname.c_str());
@@ -258,15 +264,19 @@ void Controller::sessId_invalidate(const std::string & sessId) {
     FAIL_MSG("In controller shutdown procedure - cannot invalidate sessions.");
     return;
   }
-  // Find a matching stream in statComm with a matching sessID and kill it
-  for (size_t i = 0; i < statComm.recordCount(); i++) {
-    if (statComm.getStatus(i) == COMM_STATUS_INVALID || (statComm.getStatus(i) & COMM_STATUS_DISCONNECT)) { continue; }
-    if (statComm.getSessId(i) == sessId) {
-      uint32_t pid = statComm.getPid(i);
-      if (pid > 1) {
-        // Re-trigger USER_NEW trigger for this session
-        kill(pid, SIGUSR1);
-        INFO_MSG("Invalidating PID %" PRIu32, pid);
+  std::lock_guard<std::recursive_mutex> guard(statsMutex);
+  // Find a matching stream in every statistics segment with a matching sessID and invalidate it
+  for (size_t s = 0; s < statSegments.size(); ++s) {
+    Comms::Sessions & statComm = statSegments[s];
+    for (size_t i = 0; i < statComm.recordCount(); i++) {
+      if (statComm.getStatus(i) == COMM_STATUS_INVALID || (statComm.getStatus(i) & COMM_STATUS_DISCONNECT)) { continue; }
+      if (statComm.getSessId(i) == sessId) {
+        uint32_t pid = statComm.getPid(i);
+        if (pid > 1) {
+          // Re-trigger USER_NEW trigger for this session
+          kill(pid, SIGUSR1);
+          INFO_MSG("Invalidating PID %" PRIu32, pid);
+        }
       }
     }
   }
@@ -415,16 +425,19 @@ void Controller::sessions_shutdown(const std::string &streamname, const std::str
   }
   unsigned int sessCount = 0;
   std::lock_guard<std::recursive_mutex> guard(statsMutex);
-  // Find all matching streams in statComm and get their sessId
-  for (size_t i = 0; i < statComm.recordCount(); i++){
-    if (statComm.getStatus(i) == COMM_STATUS_INVALID || (statComm.getStatus(i) & COMM_STATUS_DISCONNECT)){continue;}
-    if ((!streamname.size() || statComm.getStream(i) == streamname) &&
-      (!protocol.size() || statComm.hasConnector(i, protocol))){
-      uint32_t pid = statComm.getPid(i);
-      sessCount++;
-      if (pid > 1){
-        Util::Procs::Stop(pid);
-        INFO_MSG("Killing PID %" PRIu32, pid);
+  // Find all matching streams in every statistics segment and stop their session processes
+  for (size_t s = 0; s < statSegments.size(); ++s) {
+    Comms::Sessions & statComm = statSegments[s];
+    for (size_t i = 0; i < statComm.recordCount(); i++) {
+      if (statComm.getStatus(i) == COMM_STATUS_INVALID || (statComm.getStatus(i) & COMM_STATUS_DISCONNECT)) { continue; }
+      if ((!streamname.size() || statComm.getStream(i) == streamname) &&
+          (!protocol.size() || statComm.hasConnector(i, protocol))) {
+        uint32_t pid = statComm.getPid(i);
+        sessCount++;
+        if (pid > 1) {
+          Util::Procs::Stop(pid);
+          INFO_MSG("Killing PID %" PRIu32, pid);
+        }
       }
     }
   }
@@ -436,7 +449,7 @@ static bool shiftWrites = true;
 static bool firstRun = true;
 
 void Controller::initStats() {
-  statComm.reload(true);
+  statSegments.start();
   statCommActive = true;
   shiftWrites = true;
   firstRun = true;
@@ -445,13 +458,11 @@ void Controller::initStats() {
 void Controller::deinitStats() {
   statCommActive = false;
   if (Util::Config::is_restarting) {
-    statComm.setMaster(false);
+    statSegments.stop(true, false);
   } else {
     sem_unlink(SEM_STATISTICS);
-    if (Controller::killOnExit) {
-      WARN_MSG("Killing all connected clients to force full shutdown");
-      statComm.finishAll();
-    }
+    if (Controller::killOnExit) { WARN_MSG("Killing all connected clients to force full shutdown"); }
+    statSegments.stop(false, Controller::killOnExit);
   }
 }
 
@@ -464,7 +475,11 @@ size_t Controller::runStats() {
     std::lock_guard<std::recursive_mutex> guard2(statsMutex);
     // parse current users
     statLeadIn();
-    COMM_LOOP(statComm, statOnActive(id), statOnDisconnect(id));
+    for (size_t s = 0; s < statSegments.size(); ++s) {
+      Comms::Sessions & segment = statSegments[s];
+      COMM_LOOP(segment, statOnActive(segment, id), statOnDisconnect(segment, id));
+    }
+    statSegments.retire(Util::bootMS());
     statLeadOut();
 
     if (firstRun) {
@@ -704,15 +719,19 @@ std::set<std::string> Controller::getActiveStreams(const std::string &prefix){
 /// Kills all connection of a given session
 /// Assumes the session cache will be updated separately - may not work correctly if this is forgotten!
 void Controller::killConnections(std::string sessId){
-  if (statCommActive){
-    // Find a matching stream in statComm with a matching sessID and kill it
-    for (size_t i = 0; i < statComm.recordCount(); i++){
-      if (statComm.getStatus(i) == COMM_STATUS_INVALID || (statComm.getStatus(i) & COMM_STATUS_DISCONNECT)){continue;}
-      if (statComm.getSessId(i) == sessId){
-        uint32_t pid = statComm.getPid(i);
-        if (pid > 1){
-          Util::Procs::Stop(pid);
-          INFO_MSG("Killing PID %" PRIu32, pid);
+  if (statCommActive) {
+    std::lock_guard<std::recursive_mutex> guard(statsMutex);
+    // Find a matching stream in every statistics segment with a matching sessID and kill it
+    for (size_t s = 0; s < statSegments.size(); ++s) {
+      Comms::Sessions & statComm = statSegments[s];
+      for (size_t i = 0; i < statComm.recordCount(); i++) {
+        if (statComm.getStatus(i) == COMM_STATUS_INVALID || (statComm.getStatus(i) & COMM_STATUS_DISCONNECT)) { continue; }
+        if (statComm.getSessId(i) == sessId) {
+          uint32_t pid = statComm.getPid(i);
+          if (pid > 1) {
+            Util::Procs::Stop(pid);
+            INFO_MSG("Killing PID %" PRIu32, pid);
+          }
         }
       }
     }
@@ -1137,7 +1156,7 @@ void Controller::statLeadIn(){
   statDropoff = Util::bootSecs() - 3;
 }
 
-void Controller::statOnActive(size_t id){
+void Controller::statOnActive(Comms::Sessions & statComm, size_t id) {
   if (statComm.getNow(id) >= statDropoff){
     const std::string sessId = statComm.getSessId(id);
     statSession & session = sessions[sessId];
@@ -1156,7 +1175,7 @@ void Controller::statOnActive(size_t id){
   }
 }
 
-void Controller::statOnDisconnect(size_t id){
+void Controller::statOnDisconnect(Comms::Sessions & statComm, size_t id) {
   // Check to see if cleanup is required (when a Session binary fails)
   const std::string thisSessionId = statComm.getSessId(id);
   sessions[thisSessionId].finish();
@@ -1169,7 +1188,7 @@ void Controller::statOnDisconnect(size_t id){
   if (!sessionLock.tryWaitOneSecond()){
     // Session likely crashed during boot. Remove the session lock which was created on bootup of the session
     sessionLock.unlink();
-  }else if (!statComm.sessIdExists(thisSessionId)){
+  } else if (!statSegments.sessIdExists(thisSessionId)) {
     // There is no running process managing this session, so check if the data page still exists
     IPC::sharedPage dataPage;
     char userPageName[NAME_BUFFER_SIZE];
@@ -1895,21 +1914,26 @@ void Controller::handlePrometheus(HTTP::Parser &H, Socket::Connection &conn, int
   uint32_t totInputs = 0;
   uint32_t totOutputs = 0;
   uint32_t totUnspecified = 0;
-  for (uint64_t idx = 0; idx < statComm.recordCount(); idx++){
-    if (statComm.getStatus(idx) == COMM_STATUS_INVALID || statComm.getStatus(idx) & COMM_STATUS_DISCONNECT){continue;}
-    const std::string thisSessId = statComm.getSessId(idx);
-    // Count active viewers, inputs, outputs and protocols
-    if (thisSessId[0] == 'I'){
-      totInputs++;
-    }else if (thisSessId[0] == 'U'){
-      totUnspecified++;
-    }else if (thisSessId[0] == 'O'){
-      totOutputs++;
-    }else{
-      totViewers++;
-      outputs[statComm.getConnector(idx)]++;
+  std::unique_lock<std::recursive_mutex> segmentsGuard(statsMutex);
+  for (size_t s = 0; s < statSegments.size(); ++s) {
+    Comms::Sessions & statComm = statSegments[s];
+    for (uint64_t idx = 0; idx < statComm.recordCount(); idx++) {
+      if (statComm.getStatus(idx) == COMM_STATUS_INVALID || statComm.getStatus(idx) & COMM_STATUS_DISCONNECT) { continue; }
+      const std::string thisSessId = statComm.getSessId(idx);
+      // Count active viewers, inputs, outputs and protocols
+      if (thisSessId[0] == 'I') {
+        totInputs++;
+      } else if (thisSessId[0] == 'U') {
+        totUnspecified++;
+      } else if (thisSessId[0] == 'O') {
+        totOutputs++;
+      } else {
+        totViewers++;
+        outputs[statComm.getConnector(idx)]++;
+      }
     }
   }
+  segmentsGuard.unlock();
 
   // Collect core server stats
   uint64_t bw_up_total = 0, bw_down_total = 0;

@@ -217,7 +217,7 @@ int main(int argc, char **argv) {
     viewer.setNow(Util::bootSecs());
     Comms::Sessions statistics;
     statistics.reload(true);
-    IPC::sharedPage statsPage(COMMS_STATISTICS, 0, false, false);
+    IPC::sharedPage statsPage(statistics.pageName(), 0, false, false);
     Util::RelAccX stats(statsPage.mapped, false);
     if (!stats.hasField("requestedstream")) { stats.addField("requestedstream", RAX_STRING, 100); }
     Comms::Sessions sessionProcess;

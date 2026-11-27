@@ -219,8 +219,12 @@ static inline void prime_stackframe() {}
 #define TRACK_PAGE_OFFSET 100
 #define TRACK_PAGE_RECORDSIZE 36
 
+// The page every release before the statistics index used; segments are named COMMS_STATISTICS ".<n>".
 #define COMMS_STATISTICS "/MstStat"
 #define COMMS_STATISTICS_INITSIZE 16 * 1024 * 1024
+// Lists the statistics segments; its format is documented at Comms::StatsIndex.
+#define SHM_STATS_INDEX "/MstStatIdx"
+#define SHM_STATS_INDEX_SIZE 4096
 
 #define COMMS_USERS "/MstUser%s" //%s stream name
 #define COMMS_USERS_INITSIZE 512 * 1024

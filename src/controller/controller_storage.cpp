@@ -6,6 +6,7 @@
 #include "controller_streams.h"
 
 #include <mist/auth.h>
+#include <mist/comms.h>
 #include <mist/defines.h>
 #include <mist/downloader.h>
 #include <mist/encode.h>
@@ -262,50 +263,35 @@ namespace Controller{
     return File.good();
   }
 
+  // A rolling restart leaves these pages in place; Comms::openStatePage reuses one only when its
+  // layout is this build's.
+  static const std::vector<Comms::StateField> accessLogFields = {
+    {"time", RAX_64UINT, 0},        {"session", RAX_32STRING, 0}, {"stream", RAX_128STRING, 0},
+    {"connector", RAX_32STRING, 0}, {"host", RAX_64STRING, 0},    {"duration", RAX_32UINT, 0},
+    {"up", RAX_64UINT, 0},          {"down", RAX_64UINT, 0},      {"tags", RAX_256STRING, 0}};
+  static const std::vector<Comms::StateField> streamFields = {
+    {"stream", RAX_128STRING, 0}, {"status", RAX_UINT, 1},        {"viewers", RAX_64UINT, 0}, {"inputs", RAX_64UINT, 0},
+    {"outputs", RAX_64UINT, 0},   {"unspecified", RAX_64UINT, 0}, {"tags", RAX_512STRING, 0}};
+  static const std::vector<Comms::StateField> logFields = {
+    {"time", RAX_64UINT, 0}, {"kind", RAX_32STRING, 0}, {"msg", RAX_512STRING, 0}, {"strm", RAX_128STRING, 0},
+    {"pid", RAX_64UINT, 0},  {"exe", RAX_32STRING, 0},  {"line", RAX_64STRING, 0}};
+
   void initStorage() {
-    shmAccs = new IPC::sharedPage(SHM_STATE_ACCS, 1024 * 1024, false, false); // max 1M of accesslogs cached
-    if (!shmAccs || !shmAccs->mapped){
-      if (shmAccs){delete shmAccs;}
-      shmAccs = new IPC::sharedPage(SHM_STATE_ACCS, 1024 * 1024, true); // max 1M of accesslogs cached
-    }
-    if (!shmAccs->mapped){
+    // max 1M of accesslogs cached
+    shmAccs = new IPC::sharedPage();
+    rlxAccs = new Util::RelAccX();
+    if (!Comms::openStatePage(*shmAccs, *rlxAccs, SHM_STATE_ACCS, 1024 * 1024, 1024 * 1024, accessLogFields)) {
       FAIL_MSG("Could not open memory page for access logs buffer");
       return;
     }
-    rlxAccs = new Util::RelAccX(shmAccs->mapped, false);
-    if (!rlxAccs->isReady()){
-      rlxAccs->addField("time", RAX_64UINT);
-      rlxAccs->addField("session", RAX_32STRING);
-      rlxAccs->addField("stream", RAX_128STRING);
-      rlxAccs->addField("connector", RAX_32STRING);
-      rlxAccs->addField("host", RAX_64STRING);
-      rlxAccs->addField("duration", RAX_32UINT);
-      rlxAccs->addField("up", RAX_64UINT);
-      rlxAccs->addField("down", RAX_64UINT);
-      rlxAccs->addField("tags", RAX_256STRING);
-      rlxAccs->setReady();
-    }
     maxAccsRecs = (1024 * 1024 - rlxAccs->getOffset()) / rlxAccs->getRSize();
 
-    shmStrm = new IPC::sharedPage(SHM_STATE_STREAMS, 5*1024 * 1024, false, false); // max 5M of stream data
-    if (!shmStrm || !shmStrm->mapped){
-      if (shmStrm){delete shmStrm;}
-      shmStrm = new IPC::sharedPage(SHM_STATE_STREAMS, 5*1024 * 1024, true); // max 5M of stream data
-    }
-    if (!shmStrm->mapped){
+    // max 5M of stream data
+    shmStrm = new IPC::sharedPage();
+    rlxStrm = new Util::RelAccX();
+    if (!Comms::openStatePage(*shmStrm, *rlxStrm, SHM_STATE_STREAMS, 5 * 1024 * 1024, 1024 * 1024, streamFields)) {
       FAIL_MSG("Could not open memory page for stream data");
       return;
-    }
-    rlxStrm = new Util::RelAccX(shmStrm->mapped, false);
-    if (!rlxStrm->isReady()){
-      rlxStrm->addField("stream", RAX_128STRING);
-      rlxStrm->addField("status", RAX_UINT, 1);
-      rlxStrm->addField("viewers", RAX_64UINT);
-      rlxStrm->addField("inputs", RAX_64UINT);
-      rlxStrm->addField("outputs", RAX_64UINT);
-      rlxStrm->addField("unspecified", RAX_64UINT);
-      rlxStrm->addField("tags", RAX_512STRING);
-      rlxStrm->setReady();
     }
     rlxStrm->setRCount((1024 * 1024 - rlxStrm->getOffset()) / rlxStrm->getRSize());
   }
@@ -362,13 +348,10 @@ namespace Controller{
     {
       const size_t logSize = 1024 * 1024;
       std::lock_guard<std::mutex> guard(logMutex);
-      shmLogs = new IPC::sharedPage(SHM_STATE_LOGS, logSize, false, false);
-      if (!shmLogs || !shmLogs->mapped) {
-        if (shmLogs) { delete shmLogs; }
-        shmLogs = new IPC::sharedPage(SHM_STATE_LOGS, logSize, true);
-      }
-      if (shmLogs->mapped) {
-        rlxLogs = new Util::RelAccX(shmLogs->mapped, false);
+      shmLogs = new IPC::sharedPage();
+      rlxLogs = new Util::RelAccX();
+      if (Comms::openStatePage(*shmLogs, *rlxLogs, SHM_STATE_LOGS, logSize, logSize, logFields)) {
+        logsParsed = logCounter = rlxLogs->getEndPos();
       } else {
         FAIL_MSG("Could not open memory page for logs buffer; falling back to local memory");
         logMemory = malloc(logSize);
@@ -376,18 +359,9 @@ namespace Controller{
           FAIL_MSG("Failed to allocate local log memory as well; aborting logging!");
           return;
         }
-        rlxLogs = new Util::RelAccX((char *)logMemory, false);
-      }
-      if (rlxLogs->isReady()) {
-        logsParsed = logCounter = rlxLogs->getEndPos();
-      } else {
-        rlxLogs->addField("time", RAX_64UINT);
-        rlxLogs->addField("kind", RAX_32STRING);
-        rlxLogs->addField("msg", RAX_512STRING);
-        rlxLogs->addField("strm", RAX_128STRING);
-        rlxLogs->addField("pid", RAX_64UINT);
-        rlxLogs->addField("exe", RAX_32STRING);
-        rlxLogs->addField("line", RAX_64STRING);
+        memset(logMemory, 0, logSize);
+        *rlxLogs = Util::RelAccX((char *)logMemory, false);
+        for (const Comms::StateField & f : logFields) { rlxLogs->addField(f.name, f.type, f.size); }
         rlxLogs->setReady();
       }
       logFTime = rlxLogs->getFieldData("time");

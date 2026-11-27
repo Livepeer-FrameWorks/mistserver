@@ -2,6 +2,11 @@
 #include "shared_memory.h"
 #include "util.h"
 
+#include <deque>
+#include <map>
+#include <memory>
+#include <vector>
+
 // needed for COMM_LOOP to work
 #include "procs.h" // IWYU pragma: keep
 
@@ -60,12 +65,82 @@ namespace Comms{
   /// unless the process is stopping.
   const uint64_t SESSION_SEMAPHORE_WAIT_MS = 45000;
 
+  /// Returns a 64-bit hash of the field table (names, types and sizes, in order) of the RelAccX
+  /// structure at `page`, or 0 when `len` bytes cannot hold a valid field table.
+  uint64_t layoutFingerprint(const char *page, size_t len);
+
+  /// The statistics index (SHM_STATS_INDEX) lists the statistics segments. A segment is a
+  /// Sessions page whose layout never changes after it is ready, so a build with another layout
+  /// creates a new segment instead of changing a live one. Every release reads this format, so it
+  /// never changes:
+  ///   offset  0  uint32  magic, STATS_INDEX_MAGIC
+  ///   offset  4  uint32  format version, STATS_INDEX_VERSION
+  ///   offset  8  uint64  generation: odd while a writer changes the index, even otherwise
+  ///   offset 16  uint32  entry count
+  ///   offset 20  uint32  entry size in bytes, at least STATS_INDEX_ENTRY_SIZE
+  ///   offset 24  40 bytes reserved, zero
+  ///   offset 64  entry count entries of entry size bytes each:
+  ///     +0   char[64] segment page name, NUL-terminated, starting with COMMS_STATISTICS
+  ///     +64  uint32   state: STATS_SEGMENT_CURRENT or STATS_SEGMENT_RETIRING
+  ///     +68  uint32   reserved, zero
+  ///     +72  uint64   layout fingerprint of the segment (layoutFingerprint)
+  /// Integers are in host byte order. Writers hold SEM_STATISTICS and raise the generation by one
+  /// before and by one after changing anything. Readers copy the index between two reads of the
+  /// generation and retry until both reads are equal and even. Readers ignore entry bytes beyond
+  /// the fields above and skip entries they cannot validate.
+  const uint32_t STATS_INDEX_MAGIC = 0x5849534D;
+  const uint32_t STATS_INDEX_VERSION = 1;
+  const size_t STATS_INDEX_HEADER_SIZE = 64;
+  const size_t STATS_INDEX_ENTRY_SIZE = 80;
+  const size_t STATS_INDEX_NAME_SIZE = 64;
+  const uint32_t STATS_SEGMENT_CURRENT = 1;
+  const uint32_t STATS_SEGMENT_RETIRING = 2;
+
+  struct StatsSegment {
+      std::string name;
+      uint32_t state = 0;
+      uint64_t fingerprint = 0;
+  };
+
+  struct StatsIndex {
+      uint64_t generation = 0;
+      std::vector<StatsSegment> segments;
+      /// The first current segment, or null.
+      const StatsSegment *current() const;
+  };
+
+  /// Copies a consistent snapshot of the index at `page` into `out`. Returns false when the page
+  /// holds no valid index or stays mid-write for all `attempts` tries.
+  bool readStatsIndex(const char *page, size_t len, StatsIndex & out, size_t attempts = 400);
+  /// Reads the index page SHM_STATS_INDEX; false when it does not exist or is invalid.
+  bool readStatsIndex(StatsIndex & out);
+  /// Replaces the entries of the index at `page`. The caller holds SEM_STATISTICS. Returns false,
+  /// leaving the index unchanged, when an entry is invalid or the entries do not fit.
+  bool writeStatsIndex(char *page, size_t len, const std::vector<StatsSegment> & segments);
+  /// Whether `name` may name a statistics segment.
+  bool validStatsSegmentName(const std::string & name);
+
+  /// A field of a controller state page.
+  struct StateField {
+      const char *name;
+      uint8_t type;
+      uint32_t size;
+  };
+
+  /// Maps the state page `name` with the layout `fields` into `page` and `rax`, creating it when
+  /// absent. A ready page whose field table equals that layout is reused as is. Any other page is
+  /// flagged for reload and unlinked, and its newest records that fit `capacityBytes` are copied
+  /// into a new page for every field both layouts share. Closing `page` never unlinks it. Returns
+  /// false when no page could be mapped.
+  bool openStatePage(IPC::sharedPage & page, Util::RelAccX & rax, const std::string & name, size_t size,
+                     size_t capacityBytes, const std::vector<StateField> & fields);
+
   class Comms{
   public:
     Comms();
     virtual ~Comms();
     operator bool() const;
-    void reload(const std::string & prefix, size_t baseSize, bool _master = false, bool reIssue = false);
+    void reload(const std::string & prefix, size_t baseSize, bool _master = false, bool reIssue = false, bool waitForPage = true);
     virtual void addFields();
     virtual void nullFields();
     virtual void fieldAccess();
@@ -237,7 +312,20 @@ namespace Comms{
   class Sessions : public Connections{
     public:
       Sessions();
+      ~Sessions();
+      /// As a client, registers on the current statistics segment the index names, or on the legacy
+      /// page COMMS_STATISTICS when there is no index. As master, attaches the current segment when
+      /// its layout is this build's, and otherwise creates a segment with this build's layout,
+      /// publishes it as current and lists the previous current segment and the legacy page as
+      /// retiring.
       void reload(bool _master = false, bool reIssue = false);
+      /// Attaches the existing segment `name` as master without creating it.
+      bool attachSegment(const std::string & name);
+      /// Unlinks this master's segment and closes it, leaving the statistics semaphore in place.
+      void dropSegment();
+      /// The layout fingerprint of this build's statistics records.
+      static uint64_t buildFingerprint();
+      std::string getRequestedStream(size_t idx) const;
       std::string getSessId() const;
       std::string getSessId(size_t idx) const;
       void setSessId(std::string _sid);
@@ -255,5 +343,33 @@ namespace Comms{
       void setTags(std::string _sid, size_t idx);
     private:
       Util::FieldAccX requestedStream;
+  };
+
+  /// The controller's statistics segments: the current one first, then every retiring one.
+  class StatisticsSegments {
+    public:
+      StatisticsSegments();
+      ~StatisticsSegments();
+      /// Attaches or creates the current segment, then attaches every retiring segment the index
+      /// lists. Retiring segments that no longer exist leave the index.
+      void start();
+      /// On a rolling restart keeps every segment and the index for the next controller. Otherwise
+      /// unlinks the index, optionally stops all registered clients, and leaves the segments to be
+      /// unlinked when they close.
+      void stop(bool restarting, bool killClients);
+      size_t size() const { return segments.size(); }
+      Sessions & operator[](size_t i) { return *segments[i]; }
+      /// Closes registration on a retiring segment once it has no live records, and unlinks it
+      /// `graceMs` later.
+      void retire(uint64_t nowMs);
+      /// Whether any segment has a live record for this session id.
+      bool sessIdExists(const std::string & sessId);
+      uint64_t graceMs = 60000;
+
+    private:
+      void unlist(const std::string & name);
+      std::deque<std::unique_ptr<Sessions>> segments;
+      std::map<std::string, uint64_t> closedAt;
+      IPC::semaphore sem;
   };
 }// namespace Comms

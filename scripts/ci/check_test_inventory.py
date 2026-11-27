@@ -88,6 +88,15 @@ if sys.platform.startswith('linux'):
     required.add('A session that boots across a second boundary stays up')
     required.add('WHIP offers get an answer or a logged refusal, and a passive offerer can publish')
 required.update({
+    'Sessions register on the statistics page a previous release created',
+    'A controller start publishes a full-layout statistics segment beside the legacy page',
+    'Drained retiring statistics segments close and are unlinked after the grace period',
+    'A rolling restart finds every statistics segment through the index',
+    'Sessions use the legacy statistics page until an index exists',
+    'A closed statistics segment sends sessions to the current one',
+    'The statistics index rejects invalid entries and torn reads',
+    'Controller state pages with another layout are recreated',
+    "A controller beside a previous release's pages keeps its sessions and its own layout",
     'Process pipes do not leak into unrelated executables',
     'Processor pipes do not survive unrelated child execs',
     'Processor pipes preserve child stdin when parent stdin is closed',

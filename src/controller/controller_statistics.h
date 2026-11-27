@@ -110,8 +110,8 @@ namespace Controller{
   extern std::map<std::string, triggerLog> triggerStats;
 
   void statLeadIn();
-  void statOnActive(size_t id);
-  void statOnDisconnect(size_t id);
+  void statOnActive(Comms::Sessions & segment, size_t id);
+  void statOnDisconnect(Comms::Sessions & segment, size_t id);
   void statLeadOut();
 
   std::set<std::string> getActiveStreams(const std::string &prefix = "");
