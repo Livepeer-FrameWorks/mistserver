@@ -87,6 +87,7 @@ if sys.platform.startswith('linux'):
     required.add('Process audit bounds children that ignore stop signals')
     required.add('WebRTC signal handler owns the post-dup2 listener descriptor')
     required.add('A session that boots across a second boundary stays up')
+    required.add('A session waiting for a registration lock left taken stops on SIGTERM')
     required.add('WHIP offers get an answer or a logged refusal, and a passive offerer can publish')
 required.update({
     'Sessions register on the statistics page a previous release created',

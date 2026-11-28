@@ -224,6 +224,10 @@ if host_machine.system() == 'linux'
   test('A session that boots across a second boundary stays up', sessionsecondboundarytest,
        args: [exec_tgts.get('MistController'), exec_tgts.get('MistSession'), clockstep_preload],
        suite: 'Controller', timeout: 30, is_parallel: false)
+  sessionstoplocktest = find_program('session_stop_registration_lock_integration.sh')
+  test('A session waiting for a registration lock left taken stops on SIGTERM', sessionstoplocktest,
+       args: [exec_tgts.get('MistSession'), commsstatssegmentstest],
+       suite: 'Comms', timeout: 30, is_parallel: false)
 endif
 
 ffmpeg_program = find_program('ffmpeg', required: false)

@@ -44,6 +44,34 @@ namespace Comms{
     }
   }
 
+  namespace {
+    /// Holds a comm page's registration lock. A holder that died with the lock taken never
+    /// releases it, so the wait ends once this process is told to stop, which a blocking wait
+    /// would ignore, or once the page closes registration. An unopened lock is not waited for.
+    class RegistrationLock {
+      public:
+        RegistrationLock(IPC::semaphore & lock, const Util::RelAccX & page) : sem(lock), held(false), stop(false) {
+          if (!sem) { return; }
+          while (!(held = sem.tryWait(100))) {
+            stop = Util::Config::stopRequested();
+            if (stop || page.isExit()) { return; }
+          }
+        }
+        ~RegistrationLock() {
+          if (held) { sem.post(); }
+        }
+        /// Whether the wait ended without the lock, because of a stop or closed registration.
+        bool gaveUp() const { return sem && !held; }
+        /// Whether the wait ended without the lock because this process is stopping.
+        bool stopped() const { return stop; }
+
+      private:
+        IPC::semaphore & sem;
+        bool held;
+        bool stop;
+    };
+  } // namespace
+
   Comms::Comms(){
     index = INVALID_RECORD_INDEX;
     currentSize = 0;
@@ -84,7 +112,9 @@ namespace Comms{
   }
 
   void Comms::setRecordCount(size_t idx, size_t prevCount){
-    IPC::semGuard G(&sem);
+    RegistrationLock lock(sem, dataAccX);
+    // Without the lock the record count stays as it is; a later pass shrinks it.
+    if (lock.gaveUp()) { return; }
     if (dataAccX.getEndPos() <= prevCount) { dataAccX.setEndPos(idx); }
   }
 
@@ -177,10 +207,16 @@ namespace Comms{
       size_t reqCount = dataAccX.getRCount();
       for (index = 0; index < reqCount; ++index){
         if (getStatus() == COMM_STATUS_INVALID){
-          IPC::semGuard G(&sem);
+          RegistrationLock G(sem, dataAccX);
+          if (G.stopped()) {
+            INFO_MSG("Not registering on %s: this process is stopping", prefix.c_str());
+            index = INVALID_RECORD_INDEX;
+            dataPage.close();
+            return;
+          }
           // The input can close registration after the page was mapped.
           // Its idle decision and this claim share this semaphore.
-          if (dataAccX.isExit()) {
+          if (G.gaveUp() || dataAccX.isExit()) {
             closedRegistration = true;
             index = INVALID_RECORD_INDEX;
             dataPage.close();
@@ -480,7 +516,7 @@ namespace Comms{
           dataPage.close();
         }
         Comms::reload(current->name, COMMS_STATISTICS_INITSIZE, false, reIssue, false);
-        if (*this) { return; }
+        if (*this || Util::Config::stopRequested()) { return; }
       }
       // Without an index the running controller predates it and reads only the legacy page, which
       // it may still be creating.

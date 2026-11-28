@@ -254,6 +254,11 @@ int main(int argc, char **argv){
   // Claim a spot in shared memory for this session on the global statistics page
   sessions.reload();
   if (!sessions){
+    if (Util::Config::stopRequested()) {
+      INFO_MSG("Session '%s' stopped before it registered", thisSessionId.c_str());
+      sessionLock.post();
+      return 0;
+    }
     FAIL_MSG("Unable to register entry for session '%s' on the stats page", thisSessionId.c_str());
     sessionLock.post();
     return 1;

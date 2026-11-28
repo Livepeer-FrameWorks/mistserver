@@ -569,6 +569,34 @@ namespace {
     return failures ? 1 : 0;
   }
 
+  /// Leaves a current statistics segment whose registration lock a session that died while
+  /// registering still holds, as a process killed or crashed inside its claim leaves it.
+  int wedgeRegistration() {
+    cleanup();
+    Comms::StatisticsSegments segs;
+    segs.start();
+    pid_t holder = fork();
+    if (!holder) {
+      IPC::semaphore lock(SEM_STATISTICS, O_CREAT | O_RDWR, ACCESSPERMS, 1);
+      lock.wait();
+      _exit(0);
+    }
+    waitpid(holder, 0, 0);
+    IPC::semaphore lock(SEM_STATISTICS, O_RDWR, ACCESSPERMS, 1);
+    check(lock && !lock.tryWait(), "the registration lock stays taken after its holder died");
+    // Keeps the segment and the index in place for the session under test.
+    segs.stop(true, false);
+    return failures ? 1 : 0;
+  }
+
+  void cleanSession(const std::string & sessId) {
+    char name[NAME_BUFFER_SIZE];
+    snprintf(name, NAME_BUFFER_SIZE, SEM_SESSION, sessId.c_str());
+    sem_unlink(name);
+    snprintf(name, NAME_BUFFER_SIZE, COMMS_SESSIONS, sessId.c_str());
+    unlinkPage(name);
+  }
+
   int checkShutdown(const std::string & current) {
     check(!pageExists(SHM_STATS_INDEX), "a full controller shutdown unlinks the statistics index");
     check(!pageExists(current), "a full controller shutdown unlinks the current segment");
@@ -583,6 +611,12 @@ int main(int argc, char **argv) {
     unlinkPage(SHM_STATE_STREAMS);
     return 0;
   }
+  if (mode == "clean-session" && argc > 2) {
+    cleanSession(argv[2]);
+    cleanup();
+    return 0;
+  }
+  if (mode == "wedge-registration") { return wedgeRegistration(); }
   if (mode == "seed-previous-release") { return seedPreviousRelease(); }
   if (mode == "hold" && argc > 3) { return holdSession(argv[2], argv[3]); }
   if (mode == "check-started") { return checkStarted(); }
