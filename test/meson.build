@@ -1682,6 +1682,12 @@ if ffmpeg_program.found() and ffprobe_program.found()
          depends: media_test_deps + [exec_tgts['MistInHLS'], exec_tgts['MistInDTSC'], exec_tgts['MistOutDTSC']],
          suite: 'Processing', timeout: 120, is_parallel: false)
   endforeach
+  foreach trigger : ['ping', 'keyframe']
+    test('A DTSC pull reset after a ' + trigger + ' it answers ends without replaying it', find_program('python3'),
+         args: [files('dtsc_pull_reset_integration.py'), meson.project_build_root(), ffmpeg_program, trigger],
+         depends: media_test_deps + [exec_tgts['MistInDTSC'], exec_tgts['MistOutDTSC']],
+         suite: 'DTSC', timeout: 90, is_parallel: false)
+  endforeach
   foreach codec : ['h264', 'hevc']
     test('Open-GOP ' + codec + ' MP4 clips start video at the keyframe in step with audio', find_program('python3'),
          args: [files('open_gop_mp4_edit_integration.py'), meson.project_build_root(), ffmpeg_program, ffprobe_program, codec],

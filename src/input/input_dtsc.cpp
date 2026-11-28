@@ -305,6 +305,7 @@ namespace Mist{
 
   void InputDTSC::getNextFromStream(size_t idx, bool returnAfterMetaReceived) {
     bool clearMeta = returnAfterMetaReceived;
+    bool gotMedia = false;
     while (config->is_active && srcConn) {
       thisPacket.reInit(srcConn);
 
@@ -407,11 +408,18 @@ namespace Mist{
         }
 
         // If we're not trying to get metadata, break. Otherwise keep going to try and get metadata.
-        if (!returnAfterMetaReceived) { break; }
+        if (!returnAfterMetaReceived) {
+          gotMedia = true;
+          break;
+        }
       }
 
       WARN_MSG("Unhandled DTSC packet type encountered, ignoring...");
     }
+    // A reply written to the source (a pong, a key duration check) closes a reset connection after
+    // its message was read, ending this loop with that message still held: return no packet, so
+    // the caller ends the stream instead of buffering the message again for every call.
+    if (!gotMedia) { thisPacket.null(); }
     if (clearMeta) { meta.clear(); }
   }
 
