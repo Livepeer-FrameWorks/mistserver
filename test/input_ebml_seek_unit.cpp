@@ -45,15 +45,17 @@ namespace {
         meta.setID(track, 1);
         meta.setType(track, "video");
         meta.setCodec(track, "H264");
-        meta.update(current ? 1000 : 80, legacyVersion < 5 && !current ? -40 : 0, track, 5, 0, true, 40);
-        meta.inputLocalVars["version"] = current ? 8 : legacyVersion;
-        if (current) { meta.inputLocalVars["decode_lead"] = 40u; }
-        if (current || legacyVersion >= 5) {
+        // Version 8 has the current layout; only how its lead was derived changed.
+        const bool layout = current || legacyVersion >= 8;
+        meta.update(layout ? 1000 : 80, legacyVersion < 5 && !current ? -40 : 0, track, 5, 0, true, 40);
+        meta.inputLocalVars["version"] = current ? 9 : legacyVersion;
+        if (layout) { meta.inputLocalVars["decode_lead"] = 40u; }
+        if (layout || legacyVersion >= 5) {
           JSON::Value & clock = meta.inputLocalVars["decode_clocks"]["1"];
-          clock["depth"] = current ? 3 : 16;
-          clock["delay"] = current ? 120 : 533;
-          clock["origin"] = current ? 1000 : 80;
-          if (current) {
+          clock["depth"] = layout ? 3 : 16;
+          clock["delay"] = layout ? 120 : 533;
+          clock["origin"] = layout ? 1000 : 80;
+          if (layout) {
             clock["steps"]["1000"] = 80u;
             clock["steps"]["2000"] = 120u;
           }
@@ -62,7 +64,7 @@ namespace {
         const std::string header = std::string(path) + ".dtsh";
         M.toFile(header);
         DTSC::Meta cached("", header);
-        if (cached.inputLocalVars["version"].asInt() != (current ? 8 : legacyVersion) || cached.getValidTracks().empty()) {
+        if (cached.inputLocalVars["version"].asInt() != (current ? 9 : legacyVersion) || cached.getValidTracks().empty()) {
           fprintf(stderr, "FAIL: legacy clock fixture did not create a valid DTSH file\n");
           ++failures;
         }
@@ -170,6 +172,12 @@ int main(int argc, char **argv) {
     config.is_active = true;
     InputEBMLSeekProbe input(&config);
     check(!input.acceptsLegacyClockHeader(false, 7), "cached indexes without a shared timeline lead must be rebuilt");
+  }
+  {
+    Util::Config config("ebml-clock-cache-inferred-depth-probe");
+    config.is_active = true;
+    InputEBMLSeekProbe input(&config);
+    check(!input.acceptsLegacyClockHeader(false, 8), "cached indexes whose lead came from an inferred H264 reorder depth must be rebuilt");
   }
   if (argc > 1) { fileCase(argv[1]); }
   if (failures) { return 1; }

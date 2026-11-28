@@ -239,7 +239,7 @@ namespace Mist{
 
   bool InputEBML::readExistingHeader(){
     if (!Input::readExistingHeader()) { return false; }
-    if (!M.inputLocalVars.isMember("version") || M.inputLocalVars["version"].asInt() < 8) {
+    if (!M.inputLocalVars.isMember("version") || M.inputLocalVars["version"].asInt() < 9) {
       INFO_MSG("Header needs update, regenerating");
       return false;
     }
@@ -332,7 +332,7 @@ namespace Mist{
     for (const auto & delay : parser.codecDelays) {
       meta.inputLocalVars["codec_delays"][std::to_string(delay.first)] = delay.second;
     }
-    meta.inputLocalVars["version"] = 8;
+    meta.inputLocalVars["version"] = 9;
     if (wholeFile) { meta.inputLocalVars["complete"] = 1; }
     return true;
   }

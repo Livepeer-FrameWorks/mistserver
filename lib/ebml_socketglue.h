@@ -79,6 +79,10 @@ namespace EBML{
       packetData pkts[PKT_COUNT]; /// Buffer for packet data
       uint64_t times[PKT_COUNT]; /// Sorted timestamps of buffered packets
       size_t maxDelay{0}; /// Maximum amount of bframes we expect
+      /// maxDelay is the worst case the codec allows, not a depth the stream declared. It then
+      /// only sizes the startup window; the startup lag follows the reordering seen in it.
+      bool inferredDelay{false};
+      size_t seenDelay{0}; /// Deepest reordering seen before the decode clock started
       uint64_t ctr{0}; /// ingested frame count
       uint64_t rem{0}; /// removed frame count
       uint64_t finished{INVALID_TRACK_ID};

@@ -3,6 +3,7 @@
 #include <mist/mp4_generic.h>
 
 #include <cstdio>
+#include <unistd.h>
 
 static bool checkHEVCOpenGOP(const std::string & init = "") {
   DTSC::Meta meta;
@@ -121,8 +122,95 @@ static bool checkH264DefaultDepth() {
   return true;
 }
 
+// An SPS without a reorder restriction (as some hardware encoders write for B-frame-free
+// renditions) infers the DPB capacity as its depth. A stream that never reorders must keep its
+// own timeline: no shared lead, so a subtitle cue keeps its offset from the first video frame.
+static bool checkUnreorderedInferredDepth() {
+  const char raw[] =
+    "\x67\x64\x00\x28\xac\xd9\x40\x78\x02\x27\xe5\xc0\x44\x00\x00\x03\x00\x04\x00\x00\x03\x00\xf0\x3c\x60\xc6\x58";
+  h264::spsUnit sps(raw, sizeof(raw) - 1);
+  sps.vuiParametersPresentFlag = true;
+  sps.vuiParams.bitstreamRestrictionFlag = false;
+  sps.levelIdc = 30;
+  sps.picWidthInMbsMinus1 = 39;
+  sps.picHeightInMapUnitsMinus1 = 22;
+  sps.frameMbsOnlyFlag = true;
+  sps.mbAdaptiveFrameFieldFlag = false;
+  const std::string nal = sps.generate();
+  const std::string annex =
+    std::string("\x00\x00\x00\x01", 4) + nal + std::string("\x00\x00\x00\x01\x68\xeb\xe3\xcb\x22\xc0", 10);
+  const std::string avcc = h264::initFromAnnexB(annex.data(), annex.size());
+  DTSC::Meta meta;
+  meta.reInit("", true);
+  EBML::toDTSC parser;
+  const auto declare = [&](uint64_t number, uint64_t type, const std::string & codec, const std::string & init) {
+    std::string entry;
+    EBML::appendElemUInt(entry, EBML::EID_TRACKNUMBER, number);
+    EBML::appendElemUInt(entry, EBML::EID_TRACKTYPE, type);
+    EBML::appendElemHead(entry, EBML::EID_CODECID, codec.size());
+    entry += codec;
+    if (!init.empty()) {
+      EBML::appendElemHead(entry, EBML::EID_CODECPRIVATE, init.size());
+      entry += init;
+    }
+    std::string track;
+    EBML::appendElemHead(track, EBML::EID_TRACKENTRY, entry.size());
+    track += entry;
+    parser.parseElement(EBML::Element(track.data()), 0, meta);
+  };
+  declare(1, 1, "V_MPEG4/ISO/AVC", avcc);
+  declare(2, 17, "S_TEXT/UTF8", "");
+  const size_t subtitle = meta.trackIDToIndex(2, getpid());
+  std::string scale;
+  EBML::appendElemUInt(scale, EBML::EID_TIMECODESCALE, 1000000);
+  parser.parseElement(EBML::Element(scale.data()), 0, meta);
+  uint64_t cue = 0;
+  size_t frames = 0;
+  bool ok = true;
+  const auto drain = [&]() {
+    DTSC::Packet packet;
+    size_t idx;
+    uint64_t time;
+    while (parser.fillPacket(meta, idx, time, packet)) {
+      if (idx == subtitle) {
+        cue = time;
+        continue;
+      }
+      const uint64_t presentation = 21 + frames * 100;
+      if (time != presentation || packet.getInt("offset")) {
+        fprintf(stderr, "unreordered H264 with an inferred depth moved its timeline: frame=%zu DTS=%llu offset=%lld expected=%llu lead=%llu\n",
+                frames, (unsigned long long)time, (long long)packet.getInt("offset"), (unsigned long long)presentation,
+                (unsigned long long)parser.lead);
+        ok = false;
+      }
+      ++frames;
+    }
+  };
+  for (size_t i = 0; i < 30; ++i) {
+    std::string block;
+    EBML::appendSimpleBlock(block, "frame", 5, 1, 21 + i * 100, i % 10 == 0, 0);
+    parser.parseElement(EBML::Element(block.data()), 0, meta);
+    if (i == 5) {
+      std::string text;
+      EBML::appendSimpleBlock(text, "cue", 3, 2, 521, true, 0);
+      parser.parseElement(EBML::Element(text.data()), 0, meta);
+    }
+    drain();
+  }
+  parser.finish();
+  drain();
+  if (!ok || frames != 30 || cue != 521 || parser.lead) {
+    fprintf(stderr, "unreordered H264 with an inferred depth: frames=%zu cue=%llu (expected 521) lead=%llu\n", frames,
+            (unsigned long long)cue, (unsigned long long)parser.lead);
+    return false;
+  }
+  printf("PASS unreordered H264 with an inferred reorder depth keeps its timeline and subtitle offset\n");
+  return true;
+}
+
 int main() {
   if (!checkH264DefaultDepth()) { return 1; }
+  if (!checkUnreorderedInferredDepth()) { return 1; }
   // VPS/SPS/PPS from a real x265 open-GOP stream (two declared reorder pictures).
   const char init[] = "\x01\x01\x60\x00\x00\x00\x90\x00\x00\x00\x00\x00\x3c\xf0\x00\xfc\xfd\xf8\xf8\x00"
                       "\x00\x0f\x03\x20\x00\x01\x00\x18\x40\x01\x0c\x01\xff\xff\x01\x60\x00\x00\x03\x00"

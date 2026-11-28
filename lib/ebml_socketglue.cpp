@@ -637,7 +637,8 @@ namespace EBML{
   uint64_t trackPredictor::startupLag() const {
     if (ctr == rem) { return 0; }
     const size_t buffered = std::min<uint64_t>(ctr - rem, PKT_COUNT);
-    uint64_t lag = times[std::min<uint64_t>(maxDelay, buffered - 1)] - times[0];
+    const uint64_t depth = inferredDelay ? std::min(maxDelay, seenDelay) : maxDelay;
+    uint64_t lag = times[std::min<uint64_t>(depth, buffered - 1)] - times[0];
     uint64_t latest = pkts[rem % PKT_COUNT].time;
     for (size_t i = 1; i < buffered; ++i) {
       const uint64_t presentation = pkts[(rem + i) % PKT_COUNT].time;
@@ -713,6 +714,7 @@ namespace EBML{
         --i;
         // Keep track of maximum delay
         if (!initialized && buffLen - i + 1 > maxDelay) { maxDelay = buffLen - i + 1; }
+        if (!initialized && buffLen - i + 1 > seenDelay) { seenDelay = buffLen - i + 1; }
       }
     }
   }
@@ -897,19 +899,25 @@ namespace EBML{
     if (isVideo && M.getCodec(idx) == "H264" && !TP.ctr && !TP.initialized) {
       // An initially unreordered GOP does not bound later adaptive B-frames.
       TP.maxDelay = 16;
+      TP.inferredDelay = true;
       MP4::AVCC avcc;
       avcc.setPayload(M.getInit(idx));
       if (avcc.getSPSCount() && avcc.getSPSLen()) {
         const h264::spsUnit sps(avcc.getSPS(), avcc.getSPSLen());
         TP.maxDelay = std::min<uint64_t>(h264ReorderDepth(sps), PKT_COUNT - 1);
+        TP.inferredDelay = !(sps.vuiParametersPresentFlag && sps.vuiParams.bitstreamRestrictionFlag);
       }
     }
     if (isVideo && M.getCodec(idx) == "HEVC" && !TP.ctr && !TP.initialized) {
       // CRA keyframes may precede leading pictures in decode order. Keep the
       // declared reorder window across GOP boundaries instead of draining there.
       TP.maxDelay = 16;
+      TP.inferredDelay = true;
       h265::initData init(M.getInit(idx));
-      if (init.haveRequired()) { TP.maxDelay = std::min<uint64_t>(init.getMeta().maxReorderFrames, PKT_COUNT - 1); }
+      if (init.haveRequired()) {
+        TP.maxDelay = std::min<uint64_t>(init.getMeta().maxReorderFrames, PKT_COUNT - 1);
+        TP.inferredDelay = false;
+      }
     }
     for (uint64_t frameNo = 0; frameNo < B.getFrameCount(); ++frameNo) {
       if (frameNo) {
