@@ -8,7 +8,9 @@ after the requested duration instead of streaming the whole DVR while waiting fo
 
 Modes:
   hls   the DVR stream reads the playlist through MistInHLS.
-  dtsc  a replica pulls that DVR stream over DTSC.
+  dtsc  a replica pulls that DVR stream over DTSC. A second range starts 2 s before the replica's
+        newest media, so the replica holds less than the duration: the reply ends with the media
+        that exists once the stalled source has not advanced for the live wait bound.
   live  a realtime-fed live stream whose range stop lies a few seconds ahead of the live edge, so
         the stop is reached while streaming. The reply must end cleanly and keep the connection
         usable, never switch to a recording's next file.
@@ -115,9 +117,9 @@ def main():
         f.start(streams_override=streams, extra_protocols=protocols)
         f.streams.update(streams)
 
-        def lastms():
+        def lastms(stream=dvr):
             info = f.request({'active_streams': {'longform': True, 'fields': ['status', 'lastms']}})
-            return ((info.get('active_streams') or {}).get(dvr) or {}).get('lastms', 0)
+            return ((info.get('active_streams') or {}).get(stream) or {}).get('lastms', 0)
 
         query = '?startunix=-8&duration=%d' % DURATION
         if mode != 'live':
@@ -158,6 +160,24 @@ def main():
             # The newest media ends at the source end; the range covers its latest DURATION seconds.
             assert total - DURATION - GOP - 0.2 <= start <= total - DURATION, ('ranged MP4 start', mode, start)
         conn.close()
+        if mode == 'dtsc':
+            edge = lastms(target)
+            short_start = edge - 2000
+            short, short_seconds, short_complete = fetch(http.client.HTTPConnection('127.0.0.1', f.http),
+                                                         '/%s.mp4?start=%d&duration=%d' % (target, short_start, DURATION), 30)
+            output.write_bytes(short)
+            short_length = media_duration(ffprobe, f.tool_env, output) if short else 0.0
+            assert short_complete is True and short_seconds < 20, (
+                'ranged MP4 stopping past the replica media did not end promptly', short_complete,
+                '%.1f s' % short_seconds, '%d bytes' % len(short), '%.3f s of media' % short_length)
+            first = frame_hashes(ffmpeg, f.tool_env, output, 1)
+            assert first and first[0] in hashes, 'short range starts on a frame the source does not have'
+            short_first = hashes.index(first[0]) / 10.0
+            assert short_start / 1000.0 - GOP - 0.2 <= short_first <= short_start / 1000.0, ('short range start', short_start, short_first)
+            assert edge / 1000.0 - short_first - 0.3 <= short_length <= DURATION + GOP + 0.1, (
+                'short range does not hold the replica media from its start', edge, short_first, short_length)
+            print('PASS dtsc range past the replica media: %.3f s from source time %.1f s in %.1f s' %
+                  (short_length, short_first, short_seconds), flush=True)
         success = True
         print('PASS %s range: %.3f s of media from source time %.1f s in %.1f s' % (mode, length, start, seconds), flush=True)
         return 0

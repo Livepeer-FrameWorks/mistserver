@@ -48,6 +48,9 @@ namespace Mist{
     uint64_t recordingTrackStart(size_t tid, uint64_t pos);
     void applyRangeLimiter(uint64_t start, uint64_t stop, bool requestedStart);
     uint64_t rangeShift() const;
+    bool rangeSourceStalled();
+    uint64_t rangeNowMs = 0;
+    uint64_t rangeProgressBootMs = 0;
     void seekKeyframesIn(unsigned long long pos, unsigned long long maxDelta);
     void stop();
     uint64_t currentTime();

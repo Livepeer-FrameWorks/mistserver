@@ -52,6 +52,10 @@ namespace Mist{
     if (targetWaitStats && *targetWaitStats) { targetWaitStats->setNow(Util::bootSecs()); }
   }
 
+  /// How long a live source may go without new media before a playback range stops waiting for it:
+  /// a start past the available media is clamped, and a stop past it ends the range.
+  static const uint64_t liveRangeStallMs = 5000;
+
   uint32_t getDTSCLen(char *mapped, uint64_t offset){return Bit::btohl(mapped + offset + 4);}
 
   uint64_t getDTSCTime(char *mapped, uint64_t offset){return Bit::btohll(mapped + offset + 12);}
@@ -1228,6 +1232,22 @@ namespace Mist{
     }
   }
 
+  /// True when a playback range of a live source still waits for media up to its stop, but the
+  /// source has not advanced for liveRangeStallMs: a DVR that publishes long segments, or a
+  /// replica pulling one, has nothing more until its next segment, long after the viewer's reply.
+  bool Output::rangeSourceStalled() {
+    if (isRecording() || !targetParams.count("stop") || !M.getLive()) { return false; }
+    const size_t mainTrack = getMainSelectedTrack();
+    if (mainTrack == INVALID_TRACK_ID) { return false; }
+    const uint64_t nowMs = M.getNowms(mainTrack);
+    if (!rangeProgressBootMs || nowMs != rangeNowMs) {
+      rangeNowMs = nowMs;
+      rangeProgressBootMs = Util::bootMS();
+      return false;
+    }
+    return Util::bootMS() - rangeProgressBootMs >= liveRangeStallMs;
+  }
+
   /// How far the latest-ending selected track's range runs past the limiter's stop.
   uint64_t Output::rangeShift() const {
     uint64_t shift = 0;
@@ -1470,6 +1490,7 @@ namespace Mist{
   void Output::initialSeek(bool dryRun) {
     if (!meta) { return; }
     meta.removeLimiter();
+    rangeProgressBootMs = 0;
     if (isRecordingToFile && M) { recordingSourceWasLive = M.getLive(); }
     uint64_t seekPos = getInitialSeekPosition();
     /*LTS-START*/
@@ -1685,7 +1706,7 @@ namespace Mist{
             int64_t streamAvail = M.getNowms(mainTrack);
             int64_t lastUpdated = Util::getMS();
             INFO_MSG("Waiting for stream to reach playback starting point (%" PRIu64 " -> %" PRIu64 "). Time left: " PRETTY_PRINT_MSTIME, startRec, streamAvail, PRETTY_ARG_MSTIME(startRec - streamAvail));
-            while (Util::getMS() - lastUpdated < 5000 && startRec > streamAvail && keepGoing()){
+            while (Util::getMS() - lastUpdated < liveRangeStallMs && startRec > streamAvail && keepGoing()) {
               Util::sleep(500);
               thisBootMs = Util::bootMS();
               meta.reloadReplacedPagesIfNeeded();
@@ -2407,6 +2428,16 @@ namespace Mist{
             if (timingBootMs > thisBootMs) { timingBootMs = thisBootMs; }
           }
           if (lastReadAttemptWasAtLivePoint) { atLivePoint(); }
+          if (rangeSourceStalled()) {
+            INFO_MSG("Source stopped short of the planned stop, ending playback with the media it has");
+            parseData = false;
+            if (!onFinish()) {
+              Util::logExitReason(ER_CLEAN_INTENDED_STOP, "source stopped short of the planned stopping point");
+              reachedEnd = true;
+              break;
+            }
+            continue;
+          }
         }else{
           // Packet prepared
           // End point reached?
@@ -2429,6 +2460,7 @@ namespace Mist{
             continue;
           }
 
+          rangeProgressBootMs = 0;
           // Store new timestamp
           lastPacketTime = thisTime;
           if (firstPacketTime == 0xFFFFFFFFFFFFFFFFull){
