@@ -545,9 +545,6 @@ namespace Mist{
       HTTPOutput::preHTTP();
       return;
     }
-    // Completion of this request must not accept the same publisher again.
-    if (pushing) { return; }
-
     char *rawStream = getenv("stream_raw");
     if (rawStream) { streamName = rawStream; }
     if (checkStreamKey()) {

@@ -313,6 +313,11 @@ if ffmpeg_program.found() and ffprobe_program.found()
                   exec_tgts.get('MistInBuffer'), exec_tgts.get('MistOutRTMP'),
                   exec_tgts.get('MistSession'), exec_tgts.get('MistUtilNuke'), timeout_program],
            suite: 'Streams', timeout: 90, is_parallel: false)
+      pushrewritetest = find_program('http_push_rewrite_integration.sh')
+      test('A Matroska PUT renamed by PUSH_REWRITE is admitted once and answered 200', pushrewritetest,
+           args: [ffmpeg_program, curl_program, exec_tgts.get('MistController'),
+                  exec_tgts.get('MistOutHTTP'), exec_tgts.get('MistOutEBML'), exec_tgts.get('MistUtilNuke')],
+           suite: 'EBML', timeout: 60, is_parallel: false)
     endif
     if curl_program.found() and exec_tgts.has_key('MistOutWebRTC')
       webrtcwhipsetuptest = find_program('webrtc_whip_setup_integration.sh')

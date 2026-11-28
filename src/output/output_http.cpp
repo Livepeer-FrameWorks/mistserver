@@ -38,6 +38,7 @@ namespace Mist{
     lastHTTPRequest = Util::bootSecs();
     // No request has arrived yet, so there is nothing to answer.
     responded = true;
+    bodyPending = false;
     requestDataUp = 0;
     if (config->getString("ip").size()){
       myConn.setHost(config->getString("ip"));
@@ -315,7 +316,6 @@ namespace Mist{
   }
 
   void HTTPOutput::requestHandler(bool readable){
-    bool isFollowUp = false;
     // Handle onIdle function caller, if needed
     if (idleInterval && (thisBootMs > idleLast + idleInterval)){
       if (wsCmds || wsCmdForce){handleWebsocketIdle();}
@@ -343,7 +343,27 @@ namespace Mist{
     if (readable){myConn.spool();}
     //Attempt to read a HTTP request, regardless of data being available
     auto cb = [&](const char *ptr, size_t len) { dataCallback(ptr, len); };
+    // Returns false when the connection stops taking requests for now.
+    auto answerRequest = [&]() {
+      if (!myConn && responded) { return false; }
+      onHTTP();
+      stats(true);
+      idleLast = Util::bootMS();
+      // Prevent the clean as well as the loop when we're in the middle of handling a request now
+      if (!wantRequest) { return false; }
+      H.Clean();
+      H.headerOnly = true;
+      return true;
+    };
     while (H.Read(myConn, cb)) {
+      // The request preHTTP accepted from its headers alone now has its whole body, possibly many
+      // reads later. It was dispatched and admitted already: dispatching it again would re-run its
+      // push admission, and re-exec this connector when that admission renamed the stream.
+      if (bodyPending) {
+        bodyPending = false;
+        if (!answerRequest()) { return; }
+        continue;
+      }
       if (H.hasHeader("User-Agent")) { UA = H.GetHeader("User-Agent"); }
       // If this is not a PUT or POST, we want the whole request.
       if (H.method != "PUT" && H.method != "POST") {
@@ -400,41 +420,38 @@ namespace Mist{
         }
       }
 
-      if (!isFollowUp) {
+      // The playback policy's allowed origins are checked against these in USER_NEW.
+      viewerOrigin = H.GetHeader("Origin");
+      viewerReferer = H.GetHeader("Referer");
+      tkn.clear();
+      // Read the session token
+      if (Comms::tknMode & 0x01) {
+        // Get session token from the request url
+        if (H.GetVar("tkn") != "") {
+          tkn = H.GetVar("tkn");
+        } else if (H.GetVar("sid") != "") {
+          tkn = H.GetVar("sid");
+        } else if (H.GetVar("sessId") != "") {
+          tkn = H.GetVar("sessId");
+        }
+        if (H.GetVar("jwt").size()) { tkn = H.GetVar("jwt"); }
+      }
+      if ((Comms::tknMode & 0x02) && !tkn.size()) {
+        // Get session token from the request cookie
+        std::map<std::string, std::string> storage;
+        const std::string koekjes = H.GetHeader("Cookie");
+        HTTP::parseVars(koekjes, storage, "; ");
+        if (storage.count("tkn")) { tkn = storage.at("tkn"); }
+        if (storage.count("jwt")) { tkn = storage.at("jwt"); }
+      }
 
-        // The playback policy's allowed origins are checked against these in USER_NEW.
-        viewerOrigin = H.GetHeader("Origin");
-        viewerReferer = H.GetHeader("Referer");
-        tkn.clear();
-        // Read the session token
-        if (Comms::tknMode & 0x01) {
-          // Get session token from the request url
-          if (H.GetVar("tkn") != "") {
-            tkn = H.GetVar("tkn");
-          } else if (H.GetVar("sid") != "") {
-            tkn = H.GetVar("sid");
-          } else if (H.GetVar("sessId") != "") {
-            tkn = H.GetVar("sessId");
-          }
-          if (H.GetVar("jwt").size()) { tkn = H.GetVar("jwt"); }
-        }
-        if ((Comms::tknMode & 0x02) && !tkn.size()) {
-          // Get session token from the request cookie
-          std::map<std::string, std::string> storage;
-          const std::string koekjes = H.GetHeader("Cookie");
-          HTTP::parseVars(koekjes, storage, "; ");
-          if (storage.count("tkn")) { tkn = storage.at("tkn"); }
-          if (storage.count("jwt")) { tkn = storage.at("jwt"); }
-        }
-
-        const std::string bearerToken = H.getBearerToken();
-        if (bearerToken.size()) { tkn = bearerToken; }
-        // Generate a session token if it is being sent as a cookie or url parameter and we couldn't read one
-        if (!tkn.size() && Comms::tknMode > 3) {
-          const std::string newTkn = UA + JSON::Value(getpid()).asString();
-          tkn = JSON::Value(checksum::crc32(0, newTkn.data(), newTkn.size())).asString();
-          MEDIUM_MSG("Generated tkn '%s'", tkn.c_str());
-        }
+      const std::string bearerToken = H.getBearerToken();
+      if (bearerToken.size()) { tkn = bearerToken; }
+      // Generate a session token if it is being sent as a cookie or url parameter and we couldn't read one
+      if (!tkn.size() && Comms::tknMode > 3) {
+        const std::string newTkn = UA + JSON::Value(getpid()).asString();
+        tkn = JSON::Value(checksum::crc32(0, newTkn.data(), newTkn.size())).asString();
+        MEDIUM_MSG("Generated tkn '%s'", tkn.c_str());
       }
 
       //Check if we need to change binary and/or reconnect
@@ -535,20 +552,10 @@ namespace Mist{
       preHTTP();
 
       if (wasHeaderOnly && !H.headerOnly) {
-        isFollowUp = true;
+        bodyPending = true;
         continue;
       }
-      isFollowUp = false;
-
-      if (!myConn && responded) { return; }
-
-      onHTTP();
-      stats(true);
-      idleLast = Util::bootMS();
-      // Prevent the clean as well as the loop when we're in the middle of handling a request now
-      if (!wantRequest){return;}
-      H.Clean();
-      H.headerOnly = true;
+      if (!answerRequest()) { return; }
     }
   }
 

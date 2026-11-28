@@ -55,6 +55,7 @@ namespace Mist{
 
       Util::ResizeablePointer bodyData;
       bool responded;
+      bool bodyPending; ///< The current request was dispatched from its headers and its body is still arriving
       uint64_t requestDataUp; ///< Bytes sent on the connection when the current request arrived
       bool requestAwaitsResponse();
       HTTP::Parser H;
